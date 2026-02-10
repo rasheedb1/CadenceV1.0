@@ -13,7 +13,12 @@ import {
   Leads,
   LinkedInInbox,
   Settings,
+  Templates,
+  Admin,
+  AdminLogs,
+  AdminMetrics,
 } from '@/pages'
+import { LeadStepExecution } from '@/pages/LeadStepExecution'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -37,9 +42,14 @@ function App() {
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/cadences" element={<Cadences />} />
                   <Route path="/cadences/:id" element={<CadenceBuilder />} />
+                  <Route path="/cadences/:cadenceId/step/:stepId" element={<LeadStepExecution />} />
                   <Route path="/leads" element={<Leads />} />
                   <Route path="/inbox" element={<LinkedInInbox />} />
+                  <Route path="/templates" element={<Templates />} />
                   <Route path="/settings" element={<Settings />} />
+                  <Route path="/admin" element={<Admin />} />
+                  <Route path="/admin/logs" element={<AdminLogs />} />
+                  <Route path="/admin/metrics" element={<AdminMetrics />} />
                 </Route>
               </Routes>
               <Toaster position="bottom-right" />

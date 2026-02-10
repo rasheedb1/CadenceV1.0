@@ -2,13 +2,16 @@
 // STEP TYPES
 // =====================================================
 export type StepType =
-  | 'send_email'
   | 'linkedin_message'
-  | 'linkedin_like'
   | 'linkedin_connect'
+  | 'linkedin_like'
   | 'linkedin_comment'
-  | 'whatsapp_message'
-  | 'call_manual'
+  | 'value_email'
+  | 'business_case_email'
+  | 'create_email'
+  | 'whatsapp'
+  | 'cold_call'
+  | 'task'
 
 // =====================================================
 // STATUS TYPES
@@ -81,6 +84,7 @@ export interface Cadence {
   id: string
   owner_id: string
   name: string
+  description?: string | null
   status: CadenceStatus
   created_at: string
   updated_at: string
@@ -157,11 +161,15 @@ export interface Template {
   id: string
   owner_id: string
   name: string
-  step_type: StepType
+  step_type: StepType | 'send_email' | 'whatsapp_message' | 'call_manual'
   subject_template: string | null
   body_template: string
   created_at: string
   updated_at: string
+  // Aliases for backward compatibility
+  type?: StepType | 'send_email' | 'whatsapp_message' | 'call_manual'
+  subject?: string | null
+  body?: string
 }
 
 export interface EmailMessage {
@@ -261,14 +269,17 @@ export interface WeeklyMessageStats {
 // CONFIG OBJECTS
 // =====================================================
 
-export const STEP_TYPE_CONFIG: Record<StepType, { label: string; icon: string; color: string; channel: string }> = {
-  send_email: { label: 'Send Email', icon: 'Mail', color: 'blue', channel: 'email' },
-  linkedin_message: { label: 'LinkedIn Message', icon: 'MessageSquare', color: 'sky', channel: 'linkedin' },
-  linkedin_connect: { label: 'LinkedIn Connect', icon: 'UserPlus', color: 'cyan', channel: 'linkedin' },
-  linkedin_like: { label: 'LinkedIn Like', icon: 'ThumbsUp', color: 'teal', channel: 'linkedin' },
-  linkedin_comment: { label: 'LinkedIn Comment', icon: 'MessageCircle', color: 'emerald', channel: 'linkedin' },
-  whatsapp_message: { label: 'WhatsApp Message', icon: 'Phone', color: 'green', channel: 'whatsapp' },
-  call_manual: { label: 'Manual Call', icon: 'PhoneCall', color: 'orange', channel: 'phone' },
+export const STEP_TYPE_CONFIG: Record<StepType, { label: string; icon: string; color: string; channel: string; hasTextBox: boolean; isManual: boolean }> = {
+  linkedin_message: { label: 'LinkedIn Message', icon: 'MessageSquare', color: 'sky', channel: 'linkedin', hasTextBox: true, isManual: false },
+  linkedin_connect: { label: 'LinkedIn Connect', icon: 'UserPlus', color: 'cyan', channel: 'linkedin', hasTextBox: true, isManual: false },
+  linkedin_like: { label: 'LinkedIn Like', icon: 'ThumbsUp', color: 'teal', channel: 'linkedin', hasTextBox: false, isManual: false },
+  linkedin_comment: { label: 'LinkedIn Comment', icon: 'MessageCircle', color: 'emerald', channel: 'linkedin', hasTextBox: true, isManual: false },
+  value_email: { label: 'Value Email', icon: 'Mail', color: 'blue', channel: 'email', hasTextBox: true, isManual: false },
+  business_case_email: { label: 'Business Case Email', icon: 'Briefcase', color: 'purple', channel: 'email', hasTextBox: true, isManual: false },
+  create_email: { label: 'Create Email', icon: 'PenSquare', color: 'indigo', channel: 'email', hasTextBox: true, isManual: false },
+  whatsapp: { label: 'WhatsApp', icon: 'Phone', color: 'green', channel: 'whatsapp', hasTextBox: false, isManual: true },
+  cold_call: { label: 'Cold Call', icon: 'PhoneCall', color: 'orange', channel: 'phone', hasTextBox: false, isManual: true },
+  task: { label: 'Task', icon: 'ClipboardList', color: 'gray', channel: 'task', hasTextBox: false, isManual: true },
 }
 
 export const CADENCE_LEAD_STATUS_CONFIG: Record<CadenceLeadStatus, { label: string; color: string }> = {

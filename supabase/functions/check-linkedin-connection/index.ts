@@ -90,12 +90,47 @@ serve(async (req: Request) => {
 
     const data: UnipileAccountsResponse = await response.json()
     console.log('Unipile accounts found:', data.items?.length || 0)
+    console.log('User ID we are looking for:', user.id)
+
+    // Log all accounts for debugging
+    if (data.items && data.items.length > 0) {
+      data.items.forEach((account, index) => {
+        console.log(`Account ${index}:`, JSON.stringify({
+          id: account.id,
+          name: account.name,
+          type: account.type,
+          created_at: account.created_at,
+        }))
+      })
+    }
 
     // Find an account that matches our user ID in the name field
     // The name field was set to user.id when creating the hosted auth link
-    const userAccount = data.items?.find(
+    // Try multiple matching strategies
+    let userAccount = data.items?.find(
       (account) => account.name === user.id && account.type === 'LINKEDIN'
     )
+
+    // Fallback: try case-insensitive type matching
+    if (!userAccount) {
+      userAccount = data.items?.find(
+        (account) => account.name === user.id && account.type?.toUpperCase() === 'LINKEDIN'
+      )
+      if (userAccount) {
+        console.log('Found account with case-insensitive type match')
+      }
+    }
+
+    // Fallback: if only one LinkedIn account exists, use it
+    if (!userAccount) {
+      const linkedinAccounts = data.items?.filter(
+        (account) => account.type?.toUpperCase() === 'LINKEDIN'
+      )
+      if (linkedinAccounts?.length === 1) {
+        console.log('Only one LinkedIn account found, using it regardless of name')
+        userAccount = linkedinAccounts[0]
+      }
+    }
 
     if (userAccount) {
       console.log('Found matching Unipile account:', userAccount.id)
@@ -109,42 +144,79 @@ serve(async (req: Request) => {
 
       if (!existingProfile) {
         console.log('Creating profile for user:', user.id)
-        await supabase
+        const { error: profileError } = await supabase
           .from('profiles')
           .insert({ user_id: user.id, full_name: '' })
+        if (profileError) {
+          console.error('Error creating profile:', profileError)
+        }
       }
 
-      // Save to database
-      const { error: insertError } = await supabase
+      // Check if record exists in unipile_accounts (any status)
+      const { data: existingUnipileAccount } = await supabase
         .from('unipile_accounts')
-        .upsert({
-          user_id: user.id,
-          provider: 'LINKEDIN',
-          account_id: userAccount.id,
-          status: 'active',
-          connected_at: userAccount.created_at || new Date().toISOString(),
-        }, {
-          onConflict: 'user_id,provider',
-        })
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('provider', 'LINKEDIN')
+        .single()
 
-      if (insertError) {
-        console.error('Error saving to database:', insertError)
+      let saveError = null
+      const connectedAt = userAccount.created_at || new Date().toISOString()
+
+      if (existingUnipileAccount) {
+        // Update existing record
+        console.log('Updating existing unipile_accounts record:', existingUnipileAccount.id)
+        const { error } = await supabase
+          .from('unipile_accounts')
+          .update({
+            account_id: userAccount.id,
+            status: 'active',
+            connected_at: connectedAt,
+          })
+          .eq('id', existingUnipileAccount.id)
+        saveError = error
       } else {
-        console.log('Saved LinkedIn connection to database')
+        // Insert new record
+        console.log('Inserting new unipile_accounts record')
+        const { error } = await supabase
+          .from('unipile_accounts')
+          .insert({
+            user_id: user.id,
+            provider: 'LINKEDIN',
+            account_id: userAccount.id,
+            status: 'active',
+            connected_at: connectedAt,
+          })
+        saveError = error
+      }
 
-        // Also update profile
-        await supabase
-          .from('profiles')
-          .update({ unipile_account_id: userAccount.id })
-          .eq('user_id', user.id)
+      if (saveError) {
+        console.error('Error saving to unipile_accounts:', saveError)
+        // Return the connection info even if database save fails
+        // The connection exists in Unipile, just not persisted locally
+      } else {
+        console.log('Successfully saved LinkedIn connection to database')
+      }
+
+      // Also update profile with unipile_account_id
+      const { error: profileUpdateError } = await supabase
+        .from('profiles')
+        .update({ unipile_account_id: userAccount.id })
+        .eq('user_id', user.id)
+
+      if (profileUpdateError) {
+        console.error('Error updating profile:', profileUpdateError)
+      } else {
+        console.log('Updated profile with unipile_account_id')
       }
 
       return jsonResponse({
         success: true,
         isConnected: true,
         accountId: userAccount.id,
-        connectedAt: userAccount.created_at,
+        connectedAt: connectedAt,
         source: 'unipile',
+        savedToDb: !saveError,
       })
     }
 

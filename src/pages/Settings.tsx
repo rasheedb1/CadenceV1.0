@@ -453,6 +453,115 @@ export function Settings() {
               </p>
             )}
 
+            {/* Debug button - temporary */}
+            <div className="mt-4 p-4 bg-muted rounded-lg space-y-3">
+              <p className="text-sm font-medium">Debug: Check Unipile & Database</p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    if (!session?.access_token) {
+                      alert('Not logged in')
+                      return
+                    }
+                    try {
+                      const response = await callEdgeFunction<{
+                        success: boolean
+                        currentUserId: string
+                        database: {
+                          unipileAccounts: Array<{ id: string; user_id: string; account_id: string; provider: string; status: string }>
+                          profile: { user_id: string; unipile_account_id: string | null } | null
+                        }
+                        unipile: {
+                          totalAccounts: number
+                          accounts: Array<{
+                            id: string
+                            name: string
+                            type: string
+                            matchesUserId: boolean
+                          }>
+                        }
+                      }>('debug-unipile-accounts', {}, session.access_token)
+                      console.log('Debug response:', response)
+
+                      // Format nicely for display
+                      let message = `=== DEBUG INFO ===\n\n`
+                      message += `Your User ID: ${response.currentUserId}\n\n`
+                      message += `=== DATABASE ===\n`
+                      message += `Unipile Accounts in DB: ${response.database?.unipileAccounts?.length || 0}\n`
+                      if (response.database?.unipileAccounts?.length > 0) {
+                        response.database.unipileAccounts.forEach((acc, i) => {
+                          message += `  ${i + 1}. account_id: ${acc.account_id}, status: ${acc.status}\n`
+                        })
+                      }
+                      message += `Profile unipile_account_id: ${response.database?.profile?.unipile_account_id || 'null'}\n\n`
+                      message += `=== UNIPILE API ===\n`
+                      message += `Total Accounts: ${response.unipile?.totalAccounts || 0}\n`
+                      if (response.unipile?.accounts?.length > 0) {
+                        response.unipile.accounts.forEach((acc, i) => {
+                          message += `  ${i + 1}. id: ${acc.id}\n`
+                          message += `      name: ${acc.name}\n`
+                          message += `      type: ${acc.type}\n`
+                          message += `      matches: ${acc.matchesUserId ? 'YES' : 'NO'}\n`
+                        })
+                      }
+
+                      alert(message)
+                    } catch (error) {
+                      console.error('Debug error:', error)
+                      alert('Error: ' + (error instanceof Error ? error.message : 'Unknown error'))
+                    }
+                  }}
+                >
+                  Show Debug Info
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    if (!session?.access_token) {
+                      alert('Not logged in')
+                      return
+                    }
+                    try {
+                      setLinkedInMessage({ type: 'success', text: 'Checking connection...' })
+                      const response = await callEdgeFunction<{
+                        success: boolean
+                        isConnected: boolean
+                        accountId?: string
+                        savedToDb?: boolean
+                        source?: string
+                      }>('check-linkedin-connection', {}, session.access_token)
+                      console.log('Check connection response:', response)
+
+                      if (response.isConnected) {
+                        setLinkedInStatus({
+                          isConnected: true,
+                          accountId: response.accountId || null,
+                          connectedAt: new Date().toISOString(),
+                        })
+                        setLinkedInMessage({
+                          type: 'success',
+                          text: `Connected! Account: ${response.accountId}, Saved: ${response.savedToDb}, Source: ${response.source}`
+                        })
+                      } else {
+                        setLinkedInMessage({ type: 'error', text: 'No LinkedIn account found in Unipile' })
+                      }
+                    } catch (error) {
+                      console.error('Error:', error)
+                      setLinkedInMessage({ type: 'error', text: (error instanceof Error ? error.message : 'Unknown error') })
+                    }
+                  }}
+                >
+                  Force Check & Save
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Your User ID: {user?.id}
+              </p>
+            </div>
+
             <Separator />
 
             {/* Email Integration - Coming Soon */}

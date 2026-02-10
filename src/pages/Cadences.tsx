@@ -27,18 +27,26 @@ export function Cadences() {
   const navigate = useNavigate()
   const { cadences, isLoading, createCadence, deleteCadence } = useCadence()
   const [newCadenceName, setNewCadenceName] = useState('')
+  const [newCadenceDescription, setNewCadenceDescription] = useState('')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
 
   const handleCreate = async () => {
     if (!newCadenceName.trim()) return
     setCreating(true)
-    const cadence = await createCadence(newCadenceName)
-    setCreating(false)
-    setIsCreateOpen(false)
-    setNewCadenceName('')
-    if (cadence) {
-      navigate(`/cadences/${cadence.id}`)
+    try {
+      const cadence = await createCadence(newCadenceName, newCadenceDescription)
+      setIsCreateOpen(false)
+      setNewCadenceName('')
+      setNewCadenceDescription('')
+      if (cadence) {
+        navigate(`/cadences/${cadence.id}`)
+      }
+    } catch (error) {
+      console.error('Failed to create cadence:', error)
+      alert(error instanceof Error ? error.message : 'Failed to create cadence. Please try again.')
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -77,15 +85,25 @@ export function Cadences() {
                 Give your cadence a name to get started
               </DialogDescription>
             </DialogHeader>
-            <div className="py-4">
-              <Label htmlFor="cadence-name">Cadence Name</Label>
-              <Input
-                id="cadence-name"
-                value={newCadenceName}
-                onChange={(e) => setNewCadenceName(e.target.value)}
-                placeholder="e.g., Enterprise Outreach"
-                className="mt-2"
-              />
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="cadence-name">Cadence Name</Label>
+                <Input
+                  id="cadence-name"
+                  value={newCadenceName}
+                  onChange={(e) => setNewCadenceName(e.target.value)}
+                  placeholder="e.g., Enterprise Outreach"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cadence-description">Description (optional)</Label>
+                <Input
+                  id="cadence-description"
+                  value={newCadenceDescription}
+                  onChange={(e) => setNewCadenceDescription(e.target.value)}
+                  placeholder="e.g., Multi-touch outreach for enterprise accounts"
+                />
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
