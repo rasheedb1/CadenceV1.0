@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useCadence } from '@/contexts/CadenceContext'
 import { useAuth } from '@/contexts/AuthContext'
+import { AIGenerateDialog } from '@/components/AIGenerateDialog'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -128,6 +129,7 @@ export function LeadStepExecution() {
   const [latestPost, setLatestPost] = useState<LinkedInPost | null>(null)
   const [loadingPost, setLoadingPost] = useState(false)
   const messageTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const [showAIDialog, setShowAIDialog] = useState(false)
 
   // Get cadence and step data
   const cadence = cadences.find((c) => c.id === cadenceId)
@@ -783,9 +785,18 @@ export function LeadStepExecution() {
                 <Pause className="mr-2 h-4 w-4" />
                 Pause Lead
               </Button>
-              <Button variant="outline" disabled>
+              <Button
+                variant="outline"
+                onClick={() => setShowAIDialog(true)}
+                disabled={
+                  sending ||
+                  sendingAll ||
+                  !currentLead ||
+                  step?.step_type === 'linkedin_like'
+                }
+              >
                 <Sparkles className="mr-2 h-4 w-4" />
-                Generate
+                Generate with AI
               </Button>
             </div>
             <div className="flex gap-2">
@@ -1167,6 +1178,22 @@ export function LeadStepExecution() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* AI Generate Dialog */}
+      {currentLead && step && step.step_type !== 'linkedin_like' && (
+        <AIGenerateDialog
+          open={showAIDialog}
+          onOpenChange={setShowAIDialog}
+          leadId={currentLead.id}
+          leadName={`${currentLead.first_name} ${currentLead.last_name}`}
+          stepType={step.step_type as 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment'}
+          postContext={latestPost?.text}
+          onUseMessage={(msg) => {
+            setMessage(msg)
+            setShowAIDialog(false)
+          }}
+        />
+      )}
     </div>
   )
 }

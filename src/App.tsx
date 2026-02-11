@@ -19,6 +19,7 @@ import {
   AdminMetrics,
 } from '@/pages'
 import { LeadStepExecution } from '@/pages/LeadStepExecution'
+import { AIPrompts } from '@/pages/AIPrompts'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -46,6 +47,7 @@ function App() {
                   <Route path="/leads" element={<Leads />} />
                   <Route path="/inbox" element={<LinkedInInbox />} />
                   <Route path="/templates" element={<Templates />} />
+                  <Route path="/ai-prompts" element={<AIPrompts />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/admin" element={<Admin />} />
                   <Route path="/admin/logs" element={<AdminLogs />} />

@@ -199,6 +199,11 @@ export interface MessageItem {
     url?: string
     name?: string
   }>
+  // Read receipt info
+  is_read?: boolean
+  read_at?: string | null
+  seen_by?: string[]
+  status?: string
 }
 
 export interface GetMessagesResponse {
@@ -233,4 +238,100 @@ export interface ConnectLinkedInResponse {
 export interface DisconnectLinkedInResponse {
   success: boolean
   message: string
+}
+
+// AI Research + Generate Types
+export interface AIGenerateRequest {
+  leadId: string
+  stepType: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment'
+  messageTemplate?: string
+  researchPrompt?: string
+  tone?: 'professional' | 'casual' | 'friendly'
+  language?: string
+  additionalUrls?: string[]
+  postContext?: string
+  exampleMessages?: string[]
+}
+
+export interface AIProfileSummary {
+  name: string
+  headline: string
+  company: string
+  location?: string
+  summary?: string
+  recentPosts: Array<{ text: string; date?: string }>
+}
+
+export interface AIResearchInsight {
+  title: string
+  snippet: string
+  url: string
+}
+
+export interface AIGenerateResponse {
+  success: boolean
+  generatedMessage: string
+  research: {
+    profileSummary: AIProfileSummary
+    webInsights: AIResearchInsight[]
+    researchFailed: boolean
+    researchSummary: string | null
+  }
+  metadata: {
+    researchTimeMs: number
+    generationTimeMs: number
+    totalTimeMs: number
+    totalInsights: number
+    sourcesUsed: string[]
+  }
+}
+
+// AI Polish Prompt Types
+export interface AIPolishPromptRequest {
+  description: string
+  promptType?: 'message' | 'research'
+  stepType?: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment'
+  tone?: 'professional' | 'casual' | 'friendly'
+  language?: string
+}
+
+export interface AIPolishPromptResponse {
+  success: boolean
+  polishedPrompt: string
+}
+
+// Example Sections & Messages
+export interface ExampleSection {
+  id: string
+  owner_id: string
+  name: string
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ExampleMessage {
+  id: string
+  section_id: string
+  owner_id: string
+  body: string
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+// AI Prompt (stored in DB)
+export interface AIPrompt {
+  id: string
+  owner_id: string
+  name: string
+  prompt_type: 'message' | 'research'
+  step_type: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | null
+  description: string | null
+  prompt_body: string
+  tone: 'professional' | 'casual' | 'friendly'
+  language: string
+  is_default: boolean
+  created_at: string
+  updated_at: string
 }

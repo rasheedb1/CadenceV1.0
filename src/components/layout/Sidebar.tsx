@@ -9,6 +9,7 @@ import {
   LogOut,
   FileText,
   Shield,
+  Brain,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -19,6 +20,7 @@ const navigation = [
   { name: 'Cadences', href: '/cadences', icon: Workflow },
   { name: 'Leads', href: '/leads', icon: Users },
   { name: 'Templates', href: '/templates', icon: FileText },
+  { name: 'AI Prompts', href: '/ai-prompts', icon: Brain },
   { name: 'LinkedIn Inbox', href: '/inbox', icon: MessageSquare },
   { name: 'Settings', href: '/settings', icon: Settings },
   { name: 'Admin', href: '/admin', icon: Shield },

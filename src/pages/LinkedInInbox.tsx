@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
-import { Send, MessageSquare, RefreshCw, Loader2, Settings, ChevronUp as ChevronDown } from 'lucide-react'
+import { Send, MessageSquare, RefreshCw, Loader2, Settings, ChevronUp as ChevronDown, Check, CheckCheck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import type {
   GetChatsResponse,
@@ -466,15 +466,27 @@ export function LinkedInInbox() {
                           }`}
                         >
                           <p className="text-sm whitespace-pre-wrap break-words">{message.text}</p>
-                          <p
-                            className={`mt-1 text-xs ${
+                          <div
+                            className={`mt-1 flex items-center justify-end gap-1 text-xs ${
                               message.is_from_self
                                 ? 'text-primary-foreground/70'
                                 : 'text-muted-foreground'
                             }`}
                           >
-                            {formatTimestamp(message.timestamp)}
-                          </p>
+                            <span>{formatTimestamp(message.timestamp)}</span>
+                            {/* Read receipt indicator for sent messages */}
+                            {message.is_from_self && (
+                              message.is_read ? (
+                                <span title="Visto">
+                                  <CheckCheck className="h-3.5 w-3.5 text-blue-400" />
+                                </span>
+                              ) : (
+                                <span title="Enviado">
+                                  <Check className="h-3.5 w-3.5" />
+                                </span>
+                              )
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))

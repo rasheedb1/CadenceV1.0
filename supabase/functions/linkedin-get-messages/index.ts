@@ -12,6 +12,16 @@ interface UnipileMessage {
   text?: string
   timestamp?: string
   is_sender?: boolean
+  // Read receipt fields - Unipile may use different field names
+  read_at?: string
+  seen_at?: string
+  is_read?: boolean
+  seen?: boolean
+  delivered_at?: string
+  status?: string
+  // Recipient read status
+  recipients_read_at?: Record<string, string>
+  seen_by?: string[]
   attachments?: Array<{
     type: string
     url?: string
@@ -79,16 +89,39 @@ serve(async (req: Request) => {
 
     const messagesData = result.data as UnipileMessagesResponse
 
-    // Transform messages
-    const messages = (messagesData?.items || []).map((msg: UnipileMessage) => ({
-      id: msg.id,
-      chat_id: msg.chat_id,
-      text: msg.text || '',
-      timestamp: msg.timestamp,
-      is_from_self: msg.is_sender ?? false,
-      sender_id: msg.sender_id,
-      attachments: msg.attachments || [],
-    }))
+    // Log first message to see all available fields from Unipile
+    if (messagesData?.items?.length > 0) {
+      console.log('Sample message from Unipile (all fields):', JSON.stringify(messagesData.items[0], null, 2))
+    }
+
+    // Transform messages - include read status fields
+    const messages = (messagesData?.items || []).map((msg: UnipileMessage) => {
+      // Determine read status from various possible fields
+      const isRead = msg.is_read ??
+                     msg.seen ??
+                     !!msg.read_at ??
+                     !!msg.seen_at ??
+                     (msg.status === 'read' || msg.status === 'seen') ??
+                     false
+
+      // Get read timestamp from various possible fields
+      const readAt = msg.read_at || msg.seen_at || null
+
+      return {
+        id: msg.id,
+        chat_id: msg.chat_id,
+        text: msg.text || '',
+        timestamp: msg.timestamp,
+        is_from_self: msg.is_sender ?? false,
+        sender_id: msg.sender_id,
+        attachments: msg.attachments || [],
+        // Read receipt info
+        is_read: isRead,
+        read_at: readAt,
+        seen_by: msg.seen_by || [],
+        status: msg.status,
+      }
+    })
 
     return jsonResponse({
       success: true,

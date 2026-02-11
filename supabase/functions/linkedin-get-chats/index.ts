@@ -410,6 +410,57 @@ serve(async (req: Request) => {
       }
     }
 
+    // Fourth pass: fetch last message for chats that don't have message preview
+    const chatsNeedingLastMessage = initialChats.filter(c => !c.last_message?.text)
+    console.log(`Total chats needing last message: ${chatsNeedingLastMessage.length}`)
+
+    if (chatsNeedingLastMessage.length > 0) {
+      console.log(`Fetching last messages for ${chatsNeedingLastMessage.length} chats`)
+
+      // Process in batches of 10 to avoid overwhelming the API
+      const messageBatchSize = 10
+      for (let i = 0; i < chatsNeedingLastMessage.length; i += messageBatchSize) {
+        const batch = chatsNeedingLastMessage.slice(i, i + messageBatchSize)
+
+        await Promise.all(
+          batch.map(async (chat) => {
+            try {
+              // Fetch just 1 message to get the latest
+              const messagesResult = await unipile.getMessages(chat.id, 1)
+
+              if (messagesResult.success && messagesResult.data) {
+                const messagesData = messagesResult.data as {
+                  items?: Array<{
+                    id?: string
+                    text?: string
+                    timestamp?: string
+                    sender_id?: string
+                    is_sender?: boolean
+                    sender?: { id?: string }
+                  }>
+                }
+                const messages = messagesData.items || []
+
+                if (messages.length > 0) {
+                  const lastMsg = messages[0]
+                  const selfAttendee = initialChats.find(c => c.id === chat.id)
+
+                  chat.last_message = {
+                    text: lastMsg.text || '',
+                    timestamp: lastMsg.timestamp,
+                    is_from_self: lastMsg.is_sender || false,
+                  }
+                  console.log(`Got last message for chat ${chat.id}: "${(lastMsg.text || '').substring(0, 30)}..."`)
+                }
+              }
+            } catch (e) {
+              console.error(`Error fetching last message for chat ${chat.id}:`, e)
+            }
+          })
+        )
+      }
+    }
+
     // Remove the internal tracking fields before returning
     const chats = initialChats.map(({ needsLookup, needsPicture, ...chat }) => chat)
 
