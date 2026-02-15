@@ -2,7 +2,7 @@
 // GET /functions/v1/linkedin-get-user-posts?leadId=xxx
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
-import { createSupabaseClient, getAuthUser, getUnipileAccountId } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthUserOrOwner, getUnipileAccountId } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface LinkedInPost {
@@ -46,14 +46,14 @@ serve(async (req: Request) => {
       return errorResponse('Missing authorization header', 401)
     }
 
-    const user = await getAuthUser(authHeader)
+    // Get leadId and optional ownerId from body
+    const body = await req.json().catch(() => ({}))
+    const { leadId, ownerId } = body
+
+    const user = await getAuthUserOrOwner(authHeader, ownerId)
     if (!user) {
       return errorResponse('Unauthorized', 401)
     }
-
-    // Get leadId from body
-    const body = await req.json().catch(() => ({}))
-    const leadId = body.leadId
 
     if (!leadId) {
       return errorResponse('leadId is required')

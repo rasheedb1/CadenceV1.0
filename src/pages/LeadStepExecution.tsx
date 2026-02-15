@@ -1,11 +1,15 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useCadence } from '@/contexts/CadenceContext'
 import { useAuth } from '@/contexts/AuthContext'
+import { supabase } from '@/integrations/supabase/client'
 import { AIGenerateDialog } from '@/components/AIGenerateDialog'
+import { BulkAIGenerateDialog } from '@/components/BulkAIGenerateDialog'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
@@ -20,7 +24,6 @@ import {
   ChevronRight,
   Send,
   SkipForward,
-  Pause,
   Sparkles,
   Calendar,
   Mail,
@@ -48,6 +51,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 // Type for tracking individual lead results
@@ -57,7 +70,7 @@ interface LeadResult {
   status: 'sent' | 'alreadyConnected' | 'failed' | 'noPost'
   error?: string
 }
-import { STEP_TYPE_CONFIG } from '@/types'
+import { STEP_TYPE_CONFIG, type Lead } from '@/types'
 import { callEdgeFunction } from '@/lib/edge-functions'
 
 // Type for LinkedIn post
@@ -100,7 +113,7 @@ const VARIABLES = [
 export function LeadStepExecution() {
   const { cadenceId, stepId } = useParams<{ cadenceId: string; stepId: string }>()
   const navigate = useNavigate()
-  const { session } = useAuth()
+  const { user, session } = useAuth()
   const {
     cadences,
     leads,
@@ -130,18 +143,45 @@ export function LeadStepExecution() {
   const [loadingPost, setLoadingPost] = useState(false)
   const messageTextareaRef = useRef<HTMLTextAreaElement>(null)
   const [showAIDialog, setShowAIDialog] = useState(false)
+  const [showBulkAIDialog, setShowBulkAIDialog] = useState(false)
+  const [showRemoveDialog, setShowRemoveDialog] = useState(false)
+  const [emailSubject, setEmailSubject] = useState('')
 
   // Get cadence and step data
   const cadence = cadences.find((c) => c.id === cadenceId)
   const step = cadence?.steps?.find((s) => s.id === stepId)
   const stepConfig = step?.config_json as Record<string, unknown> | undefined
+  const isEmailStep = !!step && step.step_type === 'send_email'
 
-  // Get leads at this step
+  // Direct query for cadence_leads to avoid the multi-cadence flattening bug
+  // (CadenceContext only keeps cadenceLeads[0], so leads in multiple cadences
+  // may show the wrong cadence_id)
+  const { data: cadenceLeadRecords = [] } = useQuery({
+    queryKey: ['cadence-leads-direct', cadenceId, user?.id],
+    queryFn: async () => {
+      if (!cadenceId || !user) return []
+      const { data } = await supabase
+        .from('cadence_leads')
+        .select('lead_id, status, current_step_id')
+        .eq('cadence_id', cadenceId)
+        .eq('owner_id', user.id)
+      return data || []
+    },
+    enabled: !!cadenceId && !!user,
+  })
+
+  // Get leads at this step using direct cadence_leads records
   const leadsAtStep = useMemo(() => {
-    return leads.filter(
-      (lead) => lead.cadence_id === cadenceId && lead.current_step_id === stepId && lead.status === 'active'
-    )
-  }, [leads, cadenceId, stepId])
+    return leads
+      .filter((lead) => {
+        const clRecord = cadenceLeadRecords.find((cl) => cl.lead_id === lead.id)
+        return clRecord && clRecord.current_step_id === stepId && clRecord.status === 'active'
+      })
+      .map((lead) => {
+        const clRecord = cadenceLeadRecords.find((cl) => cl.lead_id === lead.id)!
+        return { ...lead, cadence_id: cadenceId, current_step_id: clRecord.current_step_id, status: clRecord.status } as Lead
+      })
+  }, [leads, cadenceLeadRecords, cadenceId, stepId])
 
   const currentLead = leadsAtStep[currentLeadIndex]
   const totalLeads = leadsAtStep.length
@@ -160,18 +200,18 @@ export function LeadStepExecution() {
     const currentStepIndex = sortedSteps.findIndex((s) => s.id === stepId)
     if (currentStepIndex === -1) return null
 
-    // Look for the next step that has active leads
+    // Look for the next step that has active leads (using direct cadence_leads records)
     for (let i = currentStepIndex + 1; i < sortedSteps.length; i++) {
       const nextStep = sortedSteps[i]
-      const leadsAtNextStep = leads.filter(
-        (lead) => lead.cadence_id === cadenceId && lead.current_step_id === nextStep.id && lead.status === 'active'
+      const leadsAtNextStep = cadenceLeadRecords.filter(
+        (cl) => cl.current_step_id === nextStep.id && cl.status === 'active'
       )
       if (leadsAtNextStep.length > 0) {
         return { step: nextStep, leadCount: leadsAtNextStep.length }
       }
     }
     return null
-  }, [cadence, stepId, sortedSteps, leads, cadenceId])
+  }, [cadence, stepId, sortedSteps, cadenceLeadRecords])
 
   // Initialize message from step config or template
   useEffect(() => {
@@ -284,6 +324,7 @@ export function LeadStepExecution() {
           stepId: step.id,
           cadenceId: cadence.id,
           message: renderedMessage,
+          subject: isEmailStep ? emailSubject : undefined,
           postUrl: latestPost?.url,
         })
       }
@@ -402,6 +443,7 @@ export function LeadStepExecution() {
             stepId: step.id,
             cadenceId: cadence.id,
             message: renderedMessage,
+            subject: isEmailStep ? emailSubject : undefined,
             postUrl: leadPostUrl || latestPost?.url,
           })
 
@@ -493,7 +535,7 @@ export function LeadStepExecution() {
     if (cadence && step && totalLeads === 0 && nextStepWithLeads && cadenceId) {
       // Small delay to allow state to settle
       const timer = setTimeout(() => {
-        navigate(`/cadences/${cadenceId}/steps/${nextStepWithLeads.step.id}/execute`, { replace: true })
+        navigate(`/cadences/${cadenceId}/step/${nextStepWithLeads.step.id}`, { replace: true })
       }, 100)
       return () => clearTimeout(timer)
     }
@@ -742,6 +784,18 @@ export function LeadStepExecution() {
               </div>
             )}
 
+            {/* Subject field for email steps */}
+            {isEmailStep && (
+              <div>
+                <h3 className="mb-2 font-medium">Subject</h3>
+                <Input
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  placeholder="Email subject line..."
+                />
+              </div>
+            )}
+
             {/* Hide message editor for linkedin_like - it doesn't need a message */}
             {step.step_type !== 'linkedin_like' && (
               <div>
@@ -750,6 +804,8 @@ export function LeadStepExecution() {
                     ? 'Connection Note (optional)'
                     : step.step_type === 'linkedin_comment'
                     ? 'Your Comment'
+                    : isEmailStep
+                    ? 'Email Body'
                     : 'Message'}
                 </h3>
                 <Textarea
@@ -776,17 +832,18 @@ export function LeadStepExecution() {
 
           {/* Bottom Actions */}
           <div className="mt-6 flex items-center justify-between border-t pt-4">
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={handleSkipStep} disabled={sending || sendingAll}>
-                <SkipForward className="mr-2 h-4 w-4" />
-                Skip Step
+            <div className="flex gap-1.5 flex-wrap">
+              <Button variant="outline" size="sm" onClick={handleSkipStep} disabled={sending || sendingAll}>
+                <SkipForward className="mr-1 h-3.5 w-3.5" />
+                Skip
               </Button>
-              <Button variant="outline" onClick={handlePauseLead} disabled={sending || sendingAll}>
-                <Pause className="mr-2 h-4 w-4" />
-                Pause Lead
+              <Button variant="outline" size="sm" onClick={() => setShowRemoveDialog(true)} disabled={sending || sendingAll}>
+                <XCircle className="mr-1 h-3.5 w-3.5" />
+                Eliminar
               </Button>
               <Button
                 variant="outline"
+                size="sm"
                 onClick={() => setShowAIDialog(true)}
                 disabled={
                   sending ||
@@ -795,46 +852,69 @@ export function LeadStepExecution() {
                   step?.step_type === 'linkedin_like'
                 }
               >
-                <Sparkles className="mr-2 h-4 w-4" />
-                Generate with AI
+                <Sparkles className="mr-1 h-3.5 w-3.5" />
+                AI Generate
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowBulkAIDialog(true)}
+                disabled={
+                  sending ||
+                  sendingAll ||
+                  totalLeads === 0 ||
+                  step?.step_type === 'linkedin_like'
+                }
+              >
+                <Sparkles className="mr-1 h-3.5 w-3.5" />
+                AI All ({totalLeads})
               </Button>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" disabled>
-                <Calendar className="mr-2 h-4 w-4" />
+            <div className="flex gap-1.5">
+              <Button variant="outline" size="sm" disabled>
+                <Calendar className="mr-1 h-3.5 w-3.5" />
                 Schedule
               </Button>
               <Button
+                size="sm"
                 onClick={handleSend}
                 disabled={
                   sending ||
                   sendingAll ||
                   (step.step_type !== 'linkedin_connect' && step.step_type !== 'linkedin_like' && !message.trim()) ||
-                  (step.step_type === 'linkedin_like' && !latestPost?.url)
+                  (step.step_type === 'linkedin_like' && !latestPost?.url) ||
+                  (isEmailStep && !emailSubject.trim())
                 }
               >
                 {sending ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
                     {step.step_type === 'linkedin_connect'
                       ? 'Connecting...'
                       : step.step_type === 'linkedin_like'
                       ? 'Liking...'
+                      : isEmailStep
+                      ? 'Sending...'
                       : 'Sending...'}
                   </>
                 ) : step.step_type === 'linkedin_connect' ? (
                   <>
-                    <UserPlus className="mr-2 h-4 w-4" />
+                    <UserPlus className="mr-1 h-3.5 w-3.5" />
                     Connect
                   </>
                 ) : step.step_type === 'linkedin_like' ? (
                   <>
-                    <ThumbsUp className="mr-2 h-4 w-4" />
+                    <ThumbsUp className="mr-1 h-3.5 w-3.5" />
                     Like
+                  </>
+                ) : isEmailStep ? (
+                  <>
+                    <Mail className="mr-1 h-3.5 w-3.5" />
+                    Send Email
                   </>
                 ) : (
                   <>
-                    <Send className="mr-2 h-4 w-4" />
+                    <Send className="mr-1 h-3.5 w-3.5" />
                     Send
                   </>
                 )}
@@ -1032,6 +1112,7 @@ export function LeadStepExecution() {
               sending ||
               sendingAll ||
               (step.step_type !== 'linkedin_connect' && step.step_type !== 'linkedin_like' && !message.trim()) ||
+              (isEmailStep && !emailSubject.trim()) ||
               totalLeads === 0
             }
           >
@@ -1044,6 +1125,8 @@ export function LeadStepExecution() {
                   ? 'Commenting on all...'
                   : step.step_type === 'linkedin_like'
                   ? 'Liking all posts...'
+                  : isEmailStep
+                  ? 'Sending emails...'
                   : 'Sending to all...'}
               </>
             ) : step.step_type === 'linkedin_connect' ? (
@@ -1060,6 +1143,11 @@ export function LeadStepExecution() {
               <>
                 <ThumbsUp className="mr-2 h-4 w-4" />
                 Like All ({totalLeads})
+              </>
+            ) : isEmailStep ? (
+              <>
+                <Mail className="mr-2 h-4 w-4" />
+                Email All ({totalLeads})
               </>
             ) : (
               <>
@@ -1186,11 +1274,49 @@ export function LeadStepExecution() {
           onOpenChange={setShowAIDialog}
           leadId={currentLead.id}
           leadName={`${currentLead.first_name} ${currentLead.last_name}`}
-          stepType={step.step_type as 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment'}
+          stepType={step.step_type as 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email'}
           postContext={latestPost?.text}
           onUseMessage={(msg) => {
             setMessage(msg)
             setShowAIDialog(false)
+          }}
+          onUseSubject={(subj) => setEmailSubject(subj)}
+        />
+      )}
+
+      {/* Remove from Cadence Confirmation Dialog */}
+      <AlertDialog open={showRemoveDialog} onOpenChange={setShowRemoveDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminar Lead de la Cadencia</AlertDialogTitle>
+            <AlertDialogDescription>
+              {currentLead
+                ? `¿Estás seguro de que deseas eliminar a ${currentLead.first_name} ${currentLead.last_name} de esta cadencia? Esta acción no se puede deshacer.`
+                : '¿Estás seguro de que deseas eliminar este lead de la cadencia?'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handlePauseLead}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk AI Generate Dialog */}
+      {step && step.step_type !== 'linkedin_like' && cadence && (
+        <BulkAIGenerateDialog
+          open={showBulkAIDialog}
+          onOpenChange={setShowBulkAIDialog}
+          leads={leadsAtStep}
+          step={step}
+          cadence={cadence}
+          onComplete={() => {
+            if (cadenceId) navigate(`/cadences/${cadenceId}`)
           }}
         />
       )}

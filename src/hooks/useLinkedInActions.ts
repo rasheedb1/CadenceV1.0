@@ -241,16 +241,6 @@ export function useTestStep() {
             session.access_token
           )
 
-        case 'value_email':
-        case 'business_case_email':
-        case 'create_email':
-          if (!message) throw new EdgeFunctionError('Message is required for email')
-          return callEdgeFunction<{ success: boolean }>(
-            'send-email',
-            { leadId, body: message },
-            session.access_token
-          )
-
         case 'whatsapp':
           // WhatsApp is a manual step - just log the activity
           return callEdgeFunction<{ success: boolean }>(

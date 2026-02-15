@@ -74,10 +74,80 @@ serve(async (req: Request) => {
     const result = await unipile.listChats(unipileAccountId, limit, cursor)
 
     if (!result.success) {
+      console.error('listChats failed:', result.error)
+      // Check if this is an account-related error (expired/disconnected)
+      const errorLower = (result.error || '').toLowerCase()
+      if (
+        errorLower.includes('account') ||
+        errorLower.includes('unauthorized') ||
+        errorLower.includes('401') ||
+        errorLower.includes('403') ||
+        errorLower.includes('not found') ||
+        errorLower.includes('404') ||
+        errorLower.includes('expired') ||
+        errorLower.includes('disconnected') ||
+        errorLower.includes('reconnect')
+      ) {
+        // Mark the account as disconnected in the DB
+        const supabase = createSupabaseClient()
+        await supabase
+          .from('unipile_accounts')
+          .update({ status: 'disconnected' })
+          .eq('account_id', unipileAccountId)
+        console.log('Marked Unipile account as disconnected due to API error')
+        return jsonResponse({
+          success: false,
+          notConnected: true,
+          error: 'LinkedIn session expired. Please reconnect your account in Settings.',
+          chats: [],
+        })
+      }
       return errorResponse(result.error || 'Failed to fetch chats')
     }
 
     const chatsData = result.data as UnipileChatsResponse
+
+    // If no chats returned and no cursor (first page), verify the account is still valid
+    if ((!chatsData?.items || chatsData.items.length === 0) && !cursor) {
+      console.log('No chats returned, verifying Unipile account status...')
+      const accountCheck = await unipile.getAccounts()
+      if (accountCheck.success && accountCheck.data) {
+        const accounts = (accountCheck.data as { items?: Array<{ id: string; type: string; status?: string }> }).items || []
+        const linkedinAccount = accounts.find(a => a.id === unipileAccountId)
+        console.log('Account check result:', JSON.stringify(linkedinAccount))
+        if (!linkedinAccount) {
+          console.log('Unipile account not found - marking as disconnected')
+          const supabase = createSupabaseClient()
+          await supabase
+            .from('unipile_accounts')
+            .update({ status: 'disconnected' })
+            .eq('account_id', unipileAccountId)
+          return jsonResponse({
+            success: false,
+            notConnected: true,
+            error: 'LinkedIn account no longer connected. Please reconnect in Settings.',
+            chats: [],
+          })
+        }
+        // Check if account status indicates it's disconnected
+        const accountStatus = (linkedinAccount as { status?: string }).status
+        if (accountStatus && accountStatus !== 'OK' && accountStatus !== 'CONNECTED' && accountStatus !== 'ok' && accountStatus !== 'connected') {
+          console.log(`Unipile account status is "${accountStatus}" - marking as disconnected`)
+          const supabase = createSupabaseClient()
+          await supabase
+            .from('unipile_accounts')
+            .update({ status: 'disconnected' })
+            .eq('account_id', unipileAccountId)
+          return jsonResponse({
+            success: false,
+            notConnected: true,
+            error: `LinkedIn connection status: ${accountStatus}. Please reconnect in Settings.`,
+            chats: [],
+          })
+        }
+        console.log('Unipile account exists and appears valid, but no chats found')
+      }
+    }
 
     // Helper function to determine display name from chat data
     const getDisplayName = (chat: UnipileChat, attendee?: ChatAttendee): string => {

@@ -104,32 +104,51 @@ serve(async (req: Request) => {
       })
     }
 
-    // Find an account that matches our user ID in the name field
-    // The name field was set to user.id when creating the hosted auth link
-    // Try multiple matching strategies
-    let userAccount = data.items?.find(
-      (account) => account.name === user.id && account.type === 'LINKEDIN'
+    // Get all LinkedIn accounts from Unipile
+    const linkedinAccounts = data.items?.filter(
+      (account) => account.type?.toUpperCase() === 'LINKEDIN'
+    ) || []
+
+    console.log('LinkedIn accounts in Unipile:', linkedinAccounts.length)
+
+    // Strategy 1: Match by name field (user.id was set when creating auth link)
+    let userAccount = linkedinAccounts.find(
+      (account) => account.name === user.id
     )
 
-    // Fallback: try case-insensitive type matching
-    if (!userAccount) {
-      userAccount = data.items?.find(
-        (account) => account.name === user.id && account.type?.toUpperCase() === 'LINKEDIN'
-      )
-      if (userAccount) {
-        console.log('Found account with case-insensitive type match')
+    if (userAccount) {
+      console.log('Matched by name field')
+    }
+
+    // Strategy 2: Find unclaimed accounts (not yet saved in our DB for any user)
+    if (!userAccount && linkedinAccounts.length > 0) {
+      const { data: claimedAccounts } = await supabase
+        .from('unipile_accounts')
+        .select('account_id')
+        .eq('provider', 'LINKEDIN')
+
+      const claimedIds = new Set((claimedAccounts || []).map(a => a.account_id))
+      const unclaimedAccounts = linkedinAccounts.filter(a => !claimedIds.has(a.id))
+
+      console.log('Claimed account IDs:', Array.from(claimedIds))
+      console.log('Unclaimed LinkedIn accounts:', unclaimedAccounts.length)
+
+      if (unclaimedAccounts.length === 1) {
+        userAccount = unclaimedAccounts[0]
+        console.log('Matched single unclaimed LinkedIn account:', userAccount.id)
+      } else if (unclaimedAccounts.length > 1) {
+        // Pick the most recently created unclaimed account
+        userAccount = unclaimedAccounts.sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )[0]
+        console.log('Matched most recent unclaimed LinkedIn account:', userAccount.id)
       }
     }
 
-    // Fallback: if only one LinkedIn account exists, use it
-    if (!userAccount) {
-      const linkedinAccounts = data.items?.filter(
-        (account) => account.type?.toUpperCase() === 'LINKEDIN'
-      )
-      if (linkedinAccounts?.length === 1) {
-        console.log('Only one LinkedIn account found, using it regardless of name')
-        userAccount = linkedinAccounts[0]
-      }
+    // Strategy 3: If only one LinkedIn account exists total, use it
+    if (!userAccount && linkedinAccounts.length === 1) {
+      userAccount = linkedinAccounts[0]
+      console.log('Only one LinkedIn account found, using it')
     }
 
     if (userAccount) {

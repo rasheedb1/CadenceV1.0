@@ -9,7 +9,7 @@ import { createAnthropicClient } from '../_shared/anthropic.ts'
 
 interface AIGenerateRequest {
   leadId: string
-  stepType: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment'
+  stepType: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email'
   messageTemplate?: string
   researchPrompt?: string
   tone?: 'professional' | 'casual' | 'friendly'
@@ -17,6 +17,7 @@ interface AIGenerateRequest {
   additionalUrls?: string[]
   postContext?: string
   exampleMessages?: string[]
+  ownerId?: string // For service-role calls from process-queue
 }
 
 interface ProfileSummary {
@@ -67,9 +68,11 @@ function buildSystemPrompt(stepType: string, tone: string, language: string, cus
 
   const toneDesc = toneDescriptions[tone] || toneDescriptions.professional
 
+  const isEmail = stepType === 'send_email'
+
   // If a custom prompt (from AI Prompts page) is provided, use it as the main instructions
   if (customPrompt) {
-    return `Eres un experto en ventas B2B y copywriting de outreach para LinkedIn.
+    return `Eres un experto en ventas B2B y copywriting de outreach${isEmail ? ' por email' : ' para LinkedIn'}.
 Tu tono debe ser: ${toneDesc}.
 Idioma de respuesta: ${language}.
 
@@ -81,7 +84,8 @@ ${buildExamplesBlock(exampleMessages)}
 - Si no hay suficiente información para personalizar, genera un mensaje basado en el rol y empresa.
 - Responde SOLO con el texto del mensaje, sin explicaciones ni alternativas.
 - No uses comillas alrededor del mensaje.
-${stepType === 'linkedin_connect' ? '- MÁXIMO 300 caracteres (límite estricto de LinkedIn para notas de conexión).' : ''}`
+${stepType === 'linkedin_connect' ? '- MÁXIMO 300 caracteres (límite estricto de LinkedIn para notas de conexión).' : ''}
+${isEmail ? '- FORMATO OBLIGATORIO: La primera línea DEBE ser "SUBJECT: [línea de asunto]" seguida de una línea vacía y luego el cuerpo del email.' : ''}`
   }
 
   // Default step-type rules when no custom prompt
@@ -106,13 +110,24 @@ ${stepType === 'linkedin_connect' ? '- MÁXIMO 300 caracteres (límite estricto 
 - Agrega valor con una perspectiva o dato complementario
 - NO seas genérico (nada de "Great post!" o "Totalmente de acuerdo")
 - Suena como alguien que realmente leyó y pensó sobre el post`,
+
+    send_email: `Genera un email de ventas personalizado.
+- FORMATO OBLIGATORIO: La primera línea DEBE ser "SUBJECT: [línea de asunto]" seguida de una línea vacía y luego el cuerpo
+- La línea de asunto debe ser corta (max 60 caracteres), atractiva y personalizada
+- El cuerpo del email debe tener máximo 300 palabras
+- Usa párrafos cortos separados por líneas vacías para buena legibilidad
+- Abre con una referencia específica al prospecto o su empresa
+- Incluye un CTA claro (llamada, demo, reunión)
+- Cierra con una firma profesional simple (nombre, cargo)
+- NO uses líneas de asunto genéricas como "Propuesta" o "Oportunidad"
+- NO incluyas placeholders como [Tu nombre] o [Empresa] — deja la firma con datos reales o genéricos`,
   }
 
-  return `Eres un experto en ventas B2B y copywriting de outreach para LinkedIn.
+  return `Eres un experto en ventas B2B y copywriting de outreach${isEmail ? ' por email' : ' para LinkedIn'}.
 Tu tono debe ser: ${toneDesc}.
 Idioma de respuesta: ${language}.
 
-${stepRules[stepType] || stepRules.linkedin_message}
+${stepRules[stepType] || (isEmail ? stepRules.send_email : stepRules.linkedin_message)}
 ${buildExamplesBlock(exampleMessages)}
 REGLAS GENERALES:
 - NUNCA inventes datos. Solo usa la información proporcionada en el perfil e insights.
@@ -125,7 +140,6 @@ function buildUserPrompt(
   profile: ProfileSummary,
   insights: WebInsight[],
   stepType: string,
-  messageTemplate?: string,
   postContext?: string
 ): string {
   let prompt = `## Perfil del prospecto:
@@ -153,11 +167,10 @@ ${profile.summary ? `- About: ${truncate(profile.summary, 500)}` : ''}`
     prompt += `\n\n## Post al que debes comentar:\n${truncate(postContext, 1000)}`
   }
 
-  if (messageTemplate) {
-    prompt += `\n\n## Instrucciones adicionales del usuario:\n${messageTemplate}`
-  }
-
-  prompt += `\n\nGenera el mensaje personalizado.`
+  const isEmail = stepType === 'send_email'
+  prompt += isEmail
+    ? `\n\nGenera el email personalizado. Recuerda: la primera línea debe ser "SUBJECT: [asunto]".`
+    : `\n\nGenera el mensaje personalizado.`
 
   return prompt
 }
@@ -179,9 +192,6 @@ serve(async (req: Request) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return errorResponse('Missing authorization header', 401)
 
-    const user = await getAuthUser(authHeader)
-    if (!user) return errorResponse('Unauthorized', 401)
-
     // ── Parse & validate request ──
     const body: AIGenerateRequest = await req.json()
     const {
@@ -194,13 +204,31 @@ serve(async (req: Request) => {
       additionalUrls,
       postContext,
       exampleMessages,
+      ownerId,
     } = body
+
+    // Support service-role calls (from process-queue) via ownerId param
+    let userId: string
+    if (ownerId) {
+      const serviceKey = Deno.env.get('SERVICE_ROLE_KEY_FULL') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+      const token = authHeader.replace('Bearer ', '')
+      if (token !== serviceKey) {
+        return errorResponse('Unauthorized: ownerId requires service role', 403)
+      }
+      userId = ownerId
+    } else {
+      const user = await getAuthUser(authHeader)
+      if (!user) return errorResponse('Unauthorized', 401)
+      userId = user.id
+    }
 
     if (!leadId) return errorResponse('leadId is required')
     if (!stepType) return errorResponse('stepType is required')
-    if (!['linkedin_message', 'linkedin_connect', 'linkedin_comment'].includes(stepType)) {
-      return errorResponse('stepType must be linkedin_message, linkedin_connect, or linkedin_comment')
+    const validStepTypes = ['linkedin_message', 'linkedin_connect', 'linkedin_comment', 'send_email']
+    if (!validStepTypes.includes(stepType)) {
+      return errorResponse(`stepType must be one of: ${validStepTypes.join(', ')}`)
     }
+    const isEmailStep = stepType === 'send_email'
 
     // ── Fetch lead from DB ──
     const supabase = createSupabaseClient()
@@ -208,16 +236,16 @@ serve(async (req: Request) => {
       .from('leads')
       .select('*')
       .eq('id', leadId)
-      .eq('owner_id', user.id)
+      .eq('owner_id', userId)
       .single()
 
     if (leadError || !lead) {
       return errorResponse('Lead not found', 404)
     }
 
-    // ── Get Unipile account ──
-    const unipileAccountId = await getUnipileAccountId(user.id)
-    if (!unipileAccountId) {
+    // ── Get Unipile account (optional for email steps — only needed for LinkedIn profile/posts) ──
+    const unipileAccountId = await getUnipileAccountId(userId)
+    if (!unipileAccountId && !isEmailStep) {
       return errorResponse('No LinkedIn account connected. Please connect your LinkedIn in Settings.', 400)
     }
 
@@ -240,13 +268,13 @@ serve(async (req: Request) => {
     // Build all promises
     const promises: Record<string, Promise<unknown>> = {}
 
-    // 1. Unipile profile
-    if (username) {
+    // 1. Unipile profile (skip for email steps without LinkedIn account)
+    if (username && unipileAccountId) {
       promises.profile = unipile.getProfile(unipileAccountId, username)
     }
 
     // 2. Unipile posts (need provider_id, but we'll try with username)
-    if (username) {
+    if (username && unipileAccountId) {
       // First get profile to get provider_id, then fetch posts
       promises.posts = (async () => {
         const profileResult = await unipile.getProfile(unipileAccountId, username)
@@ -411,6 +439,11 @@ serve(async (req: Request) => {
       title: lead.title || '',
       email: lead.email || '',
       linkedin_url: linkedinUrl,
+      industry: lead.industry || '',
+      website: lead.website || '',
+      department: lead.department || '',
+      annual_revenue: lead.annual_revenue || '',
+      company_linkedin_url: lead.company_linkedin_url || '',
     }
 
     const resolvedMessageTemplate = messageTemplate
@@ -430,9 +463,9 @@ serve(async (req: Request) => {
     }
 
     const systemPrompt = buildSystemPrompt(stepType, tone, language, resolvedMessageTemplate, exampleMessages)
-    const userPrompt = buildUserPrompt(profileSummary, finalInsights, stepType, resolvedMessageTemplate, postContext)
+    const userPrompt = buildUserPrompt(profileSummary, finalInsights, stepType, postContext)
 
-    const maxTokens = stepType === 'linkedin_connect' ? 200 : stepType === 'linkedin_comment' ? 400 : 600
+    const maxTokens = stepType === 'linkedin_connect' ? 200 : stepType === 'linkedin_comment' ? 400 : isEmailStep ? 800 : 600
 
     // Build research summary prompt
     const summaryParts: string[] = []
@@ -501,7 +534,7 @@ Reglas:
 
       // Log failure
       await logActivity({
-        ownerId: user.id,
+        ownerId: userId,
         leadId,
         action: 'ai_generate_message',
         status: 'failed',
@@ -511,15 +544,29 @@ Reglas:
       return errorResponse(`Message generation failed: ${aiResult.error}`, 500)
     }
 
-    const generatedMessage = anthropic.extractText(aiResult.data)
+    let generatedMessage = anthropic.extractText(aiResult.data)
     const researchSummary = summaryResult.success && summaryResult.data
       ? anthropic.extractText(summaryResult.data)
       : null
     const generationTimeMs = Date.now() - generationStart
 
+    // Extract and strip "SUBJECT: ..." from the first line (for ALL step types)
+    // This prevents subject lines from appearing in message bodies
+    let generatedSubject: string | null = null
+    const subjectMatch = generatedMessage.match(/^SUBJECT:\s*(.+?)(?:\n|$)/i)
+    if (subjectMatch) {
+      generatedSubject = subjectMatch[1].trim()
+      // Use greedy .+ to match the ENTIRE subject line (lazy .+? only matches 1 char)
+      generatedMessage = generatedMessage.replace(/^SUBJECT:\s*.+\n*/i, '').trim()
+    }
+    // Only return subject for email steps
+    if (!isEmailStep) {
+      generatedSubject = null
+    }
+
     // ── Log success ──
     await logActivity({
-      ownerId: user.id,
+      ownerId: userId,
       leadId,
       action: 'ai_generate_message',
       status: 'ok',
@@ -540,6 +587,7 @@ Reglas:
     return jsonResponse({
       success: true,
       generatedMessage,
+      generatedSubject,
       research: {
         profileSummary,
         webInsights: finalInsights,

@@ -14,6 +14,7 @@ interface ExecuteStepParams {
   stepId: string
   cadenceId: string
   message?: string
+  subject?: string
   postUrl?: string
 }
 
@@ -333,6 +334,7 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
 
           // Invalidate queries to refresh data
           queryClient.invalidateQueries({ queryKey: ['leads'] })
+          queryClient.invalidateQueries({ queryKey: ['cadence-leads-direct'] })
         },
         removeLeadFromCadence: async (leadId) => {
           // Update status in cadence_leads table
@@ -344,8 +346,9 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
           if (error) throw error
 
           queryClient.invalidateQueries({ queryKey: ['leads'] })
+          queryClient.invalidateQueries({ queryKey: ['cadence-leads-direct'] })
         },
-        executeStepForLead: async ({ leadId, stepId, cadenceId, message, postUrl }): Promise<ExecuteStepResult> => {
+        executeStepForLead: async ({ leadId, stepId, cadenceId, message, subject, postUrl }): Promise<ExecuteStepResult> => {
           if (!session?.access_token) {
             throw new Error('Not authenticated')
           }
@@ -395,21 +398,26 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
                 session.access_token
               )
               break
-            case 'value_email':
-            case 'business_case_email':
-            case 'create_email':
+            case 'send_email': {
+              // Convert plain text line breaks to HTML for proper email formatting
+              const htmlBody = (message || '')
+                .split('\n\n')
+                .map(paragraph => `<p>${paragraph.replace(/\n/g, '<br>')}</p>`)
+                .join('')
               await callEdgeFunction(
                 'send-email',
-                { leadId, body: message || '', subject: (step.config_json as Record<string, unknown>)?.subject || '' },
+                { leadId, body: htmlBody, subject: subject || (step.config_json as Record<string, unknown>)?.subject || 'No subject' },
                 session.access_token
               )
               break
+            }
             // Manual steps (whatsapp, cold_call, task) just get marked as done
             default:
               break
           }
 
           queryClient.invalidateQueries({ queryKey: ['leads'] })
+          queryClient.invalidateQueries({ queryKey: ['cadence-leads-direct'] })
           queryClient.invalidateQueries({ queryKey: ['activity-log'] })
 
           return result
@@ -446,6 +454,7 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
           }
 
           queryClient.invalidateQueries({ queryKey: ['leads'] })
+          queryClient.invalidateQueries({ queryKey: ['cadence-leads-direct'] })
         },
         moveLeadToNextStep: async (leadId, cadenceId) => {
           const lead = leads.find((l) => l.id === leadId)
@@ -479,6 +488,7 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
           }
 
           queryClient.invalidateQueries({ queryKey: ['leads'] })
+          queryClient.invalidateQueries({ queryKey: ['cadence-leads-direct'] })
         },
         getLeadDayInCadence: (lead) => {
           if (!lead.created_at) return 0

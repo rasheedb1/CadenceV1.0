@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { cn } from '@/lib/utils'
 import { useQuery } from '@tanstack/react-query'
 import { useCadence } from '@/contexts/CadenceContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -32,8 +33,6 @@ import {
   MessageCircle,
   Mail,
   Phone,
-  Briefcase,
-  PenSquare,
   ClipboardList,
   Activity,
 } from 'lucide-react'
@@ -46,9 +45,7 @@ const STEP_ICONS: Record<StepType, React.ComponentType<{ className?: string }>> 
   linkedin_connect: UserPlus,
   linkedin_like: ThumbsUp,
   linkedin_comment: MessageCircle,
-  value_email: Mail,
-  business_case_email: Briefcase,
-  create_email: PenSquare,
+  send_email: Mail,
   whatsapp: Phone,
   cold_call: Phone,
   task: ClipboardList,
@@ -61,9 +58,6 @@ const ACTION_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   linkedin_like: ThumbsUp,
   linkedin_comment: MessageCircle,
   send_email: Mail,
-  value_email: Mail,
-  business_case_email: Briefcase,
-  create_email: PenSquare,
   whatsapp: Phone,
   cold_call: Phone,
   task: ClipboardList,
@@ -119,10 +113,7 @@ export function Dashboard() {
       (log) =>
         log.created_at >= oneWeekAgo &&
         (log.action === 'linkedin_message' ||
-          log.action === 'send_email' ||
-          log.action === 'value_email' ||
-          log.action === 'business_case_email' ||
-          log.action === 'create_email') &&
+          log.action === 'send_email') &&
         log.status === 'ok'
     ).length
   }, [activityLogs, oneWeekAgo])
@@ -132,10 +123,7 @@ export function Dashboard() {
     const messageActions = activityLogs.filter(
       (log) =>
         log.action === 'linkedin_message' ||
-        log.action === 'send_email' ||
-        log.action === 'value_email' ||
-        log.action === 'business_case_email' ||
-        log.action === 'create_email'
+        log.action === 'send_email'
     )
     const successfulMessages = messageActions.filter((log) => log.status === 'ok').length
     const totalMessages = messageActions.length
@@ -153,10 +141,7 @@ export function Dashboard() {
     const messagesSent = cadenceActivities.filter(
       (log) =>
         (log.action === 'linkedin_message' ||
-          log.action === 'send_email' ||
-          log.action === 'value_email' ||
-          log.action === 'business_case_email' ||
-          log.action === 'create_email') &&
+          log.action === 'send_email') &&
         log.status === 'ok'
     ).length
 
@@ -219,9 +204,6 @@ export function Dashboard() {
       linkedin_like: 'LinkedIn Like',
       linkedin_comment: 'LinkedIn Comment',
       send_email: 'Email',
-      value_email: 'Value Email',
-      business_case_email: 'Business Case Email',
-      create_email: 'Custom Email',
       whatsapp: 'WhatsApp',
       cold_call: 'Cold Call',
       task: 'Task',
@@ -299,7 +281,7 @@ export function Dashboard() {
     <div className="p-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
+          <h1 className="text-[28px] font-bold tracking-tight font-heading">Dashboard</h1>
           <p className="text-muted-foreground">Overview of your sales automation</p>
         </div>
 
@@ -317,29 +299,32 @@ export function Dashboard() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        {stats.map((stat) => (
+      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+        {stats.map((stat, index) => (
           <Card
             key={stat.title}
-            className="cursor-pointer transition-shadow hover:shadow-md"
+            className={cn(
+              'cursor-pointer transition-shadow hover:shadow-md',
+              index === 0 && 'featured-card-gradient text-white border-0'
+            )}
             onClick={stat.onClick}
           >
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardTitle className={cn("text-sm font-medium", index === 0 ? "text-white/80" : "text-muted-foreground")}>
                 {stat.title}
               </CardTitle>
-              <stat.icon className="h-4 w-4 text-muted-foreground" />
+              <stat.icon className={cn("h-4 w-4", index === 0 ? "text-white/80" : "text-muted-foreground")} />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
+              <div className={cn("text-2xl font-bold", index === 0 && "text-white")}>
                 {stat.value}
                 {stat.total !== undefined && (
-                  <span className="text-sm font-normal text-muted-foreground">
+                  <span className={cn("text-sm font-normal", index === 0 ? "text-white/70" : "text-muted-foreground")}>
                     /{stat.total}
                   </span>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground">{stat.description}</p>
+              <p className={cn("text-xs", index === 0 ? "text-white/70" : "text-muted-foreground")}>{stat.description}</p>
             </CardContent>
           </Card>
         ))}
@@ -361,7 +346,7 @@ export function Dashboard() {
         </Button>
       </div>
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-2">
+      <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_400px]">
         {/* Recent Cadences */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
@@ -465,8 +450,8 @@ export function Dashboard() {
                         <div
                           className={`flex h-8 w-8 items-center justify-center rounded-full ${
                             activity.status === 'ok'
-                              ? 'bg-green-100 text-green-600'
-                              : 'bg-red-100 text-red-600'
+                              ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
+                              : 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
                           }`}
                         >
                           <ActionIcon className="h-4 w-4" />

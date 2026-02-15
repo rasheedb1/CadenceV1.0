@@ -6,9 +6,7 @@ export type StepType =
   | 'linkedin_connect'
   | 'linkedin_like'
   | 'linkedin_comment'
-  | 'value_email'
-  | 'business_case_email'
-  | 'create_email'
+  | 'send_email'
   | 'whatsapp'
   | 'cold_call'
   | 'task'
@@ -27,17 +25,19 @@ export type CadenceLeadStatus =
   | 'paused'
   | 'scheduled'
   | 'completed'
+  | 'replied'
 
 export type LeadStepInstanceStatus = 'pending' | 'generated' | 'sent' | 'failed' | 'skipped'
 
 export type ScheduleStatus =
   | 'scheduled'
+  | 'processing'
   | 'executed'
   | 'canceled'
   | 'skipped_due_to_state_change'
   | 'failed'
 
-export type EmailStatus = 'queued' | 'sent' | 'failed'
+export type EmailStatus = 'queued' | 'sent' | 'failed' | 'replied'
 
 export type EmailEventType = 'sent' | 'opened' | 'clicked' | 'failed' | 'bounced'
 
@@ -57,6 +57,7 @@ export interface Profile {
   user_id: string
   full_name: string | null
   unipile_account_id: string | null
+  onboarding_completed: boolean
   created_at: string
 }
 
@@ -72,6 +73,17 @@ export interface Lead {
   title: string | null
   phone: string | null
   timezone: string
+  // Extended fields (Apollo CSV enrichment)
+  industry: string | null
+  website: string | null
+  company_linkedin_url: string | null
+  annual_revenue: string | null
+  total_funding: string | null
+  latest_funding: string | null
+  latest_funding_amount: string | null
+  department: string | null
+  corporate_phone: string | null
+  personal_phone: string | null
   // Fields for UI compatibility (stored in cadence_leads in DB)
   cadence_id?: string | null
   current_step_id?: string | null
@@ -86,6 +98,9 @@ export interface Cadence {
   name: string
   description?: string | null
   status: CadenceStatus
+  automation_mode?: 'manual' | 'automated'
+  same_day_delay_hours?: number
+  timezone?: string
   created_at: string
   updated_at: string
   // Relations
@@ -274,9 +289,7 @@ export const STEP_TYPE_CONFIG: Record<StepType, { label: string; icon: string; c
   linkedin_connect: { label: 'LinkedIn Connect', icon: 'UserPlus', color: 'cyan', channel: 'linkedin', hasTextBox: true, isManual: false },
   linkedin_like: { label: 'LinkedIn Like', icon: 'ThumbsUp', color: 'teal', channel: 'linkedin', hasTextBox: false, isManual: false },
   linkedin_comment: { label: 'LinkedIn Comment', icon: 'MessageCircle', color: 'emerald', channel: 'linkedin', hasTextBox: true, isManual: false },
-  value_email: { label: 'Value Email', icon: 'Mail', color: 'blue', channel: 'email', hasTextBox: true, isManual: false },
-  business_case_email: { label: 'Business Case Email', icon: 'Briefcase', color: 'purple', channel: 'email', hasTextBox: true, isManual: false },
-  create_email: { label: 'Create Email', icon: 'PenSquare', color: 'indigo', channel: 'email', hasTextBox: true, isManual: false },
+  send_email: { label: 'Send Email', icon: 'Mail', color: 'violet', channel: 'email', hasTextBox: true, isManual: false },
   whatsapp: { label: 'WhatsApp', icon: 'Phone', color: 'green', channel: 'whatsapp', hasTextBox: false, isManual: true },
   cold_call: { label: 'Cold Call', icon: 'PhoneCall', color: 'orange', channel: 'phone', hasTextBox: false, isManual: true },
   task: { label: 'Task', icon: 'ClipboardList', color: 'gray', channel: 'task', hasTextBox: false, isManual: true },
@@ -291,6 +304,7 @@ export const CADENCE_LEAD_STATUS_CONFIG: Record<CadenceLeadStatus, { label: stri
   paused: { label: 'Paused', color: 'gray' },
   scheduled: { label: 'Scheduled', color: 'orange' },
   completed: { label: 'Completed', color: 'emerald' },
+  replied: { label: 'Replied', color: 'blue' },
 }
 
 export const CONVERSATION_STATUS_CONFIG: Record<ConversationStatus, { label: string; color: string }> = {
@@ -299,6 +313,25 @@ export const CONVERSATION_STATUS_CONFIG: Record<ConversationStatus, { label: str
   awaiting_reply: { label: 'Awaiting Reply', color: 'yellow' },
   replied: { label: 'Replied', color: 'green' },
   failed: { label: 'Failed', color: 'red' },
+}
+
+export type NotificationType = 'reply_detected' | 'cadence_completed' | 'step_failed' | 'automation_started' | 'email_opened' | 'message_read'
+
+export interface AppNotification {
+  id: string
+  owner_id: string
+  cadence_id: string | null
+  lead_id: string | null
+  type: NotificationType
+  title: string
+  body: string | null
+  channel: string | null
+  is_read: boolean
+  metadata: Record<string, unknown>
+  created_at: string
+  // Relations
+  lead?: Lead
+  cadence?: Cadence
 }
 
 // Legacy aliases for backward compatibility

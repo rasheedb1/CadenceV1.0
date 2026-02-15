@@ -272,6 +272,7 @@ export function LinkedInInbox() {
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <p className="text-sm text-muted-foreground">Loading conversations...</p>
+          <p className="text-xs text-muted-foreground">This may take ~15 seconds</p>
         </div>
       </div>
     )
@@ -328,6 +329,24 @@ export function LinkedInInbox() {
             <div className="flex flex-col items-center justify-center p-8 text-center">
               <MessageSquare className="mb-4 h-12 w-12 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">No conversations yet</p>
+              <p className="text-xs text-muted-foreground mt-2">
+                If you expect to see messages, try refreshing or check your LinkedIn connection in{' '}
+                <button
+                  className="text-primary underline hover:no-underline"
+                  onClick={() => navigate('/settings')}
+                >
+                  Settings
+                </button>
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3 gap-2"
+                onClick={() => refetchChats()}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Refresh
+              </Button>
             </div>
           ) : (
             <div className="divide-y">

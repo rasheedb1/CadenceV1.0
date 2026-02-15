@@ -68,7 +68,7 @@ export function Cadences() {
     <div className="p-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Cadences</h1>
+          <h1 className="text-[28px] font-bold tracking-tight font-heading">Cadences</h1>
           <p className="text-muted-foreground">Manage your sales sequences</p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>

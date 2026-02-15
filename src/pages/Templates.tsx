@@ -289,7 +289,7 @@ export function Templates() {
     <div className="p-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Templates</h1>
+          <h1 className="text-[28px] font-bold tracking-tight font-heading">Templates</h1>
           <p className="text-muted-foreground">
             Create reusable message templates with dynamic variables
           </p>

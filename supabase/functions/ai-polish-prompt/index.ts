@@ -6,7 +6,7 @@ import { createAnthropicClient } from '../_shared/anthropic.ts'
 interface PolishPromptRequest {
   description: string
   promptType?: 'message' | 'research'
-  stepType?: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment'
+  stepType?: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email'
   tone?: 'professional' | 'casual' | 'friendly'
   language?: string
 }
@@ -20,6 +20,9 @@ These notes are STRICTLY limited to 300 characters. They must be extremely conci
 
   linkedin_comment: `The prompt will be used to generate comments on LinkedIn posts.
 Comments should be max 150 words, add genuine value to the conversation, reference the post content, and avoid generic phrases like "Great post!".`,
+
+  send_email: `The prompt will be used to generate cold outreach emails.
+Emails can be longer and more structured than LinkedIn messages. They should have a compelling subject line, a clear opening hook, a value proposition tailored to the recipient, and a specific CTA. Keep them concise but informative — around 100-250 words for the body.`,
 }
 
 const TONE_DESCRIPTIONS: Record<string, string> = {
@@ -32,30 +35,34 @@ function buildMessagePolishPrompt(stepType: string, tone: string, language: stri
   const stepContext = STEP_TYPE_CONTEXT[stepType] || STEP_TYPE_CONTEXT.linkedin_message
   const toneDesc = TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.professional
   const langLabel = language === 'es' ? 'Spanish' : language === 'en' ? 'English' : language
+  const isEmail = stepType === 'send_email'
+  const channelLabel = isEmail ? 'email' : 'LinkedIn'
+  const messageLabel = isEmail ? 'emails' : 'LinkedIn messages'
 
-  return `You are an expert prompt engineer specializing in B2B sales outreach for LinkedIn.
+  return `You are an expert prompt engineer specializing in B2B sales outreach${isEmail ? ' via cold email' : ' for LinkedIn'}.
 
-Your job is to take a user's rough description of what they want and transform it into a clear, structured, and highly effective prompt that will be used by another AI to generate personalized LinkedIn messages.
+Your job is to take a user's rough description of what they want and transform it into a clear, structured, and highly effective prompt that will be used by another AI to generate personalized ${messageLabel}.
 
 ## Context about the message type:
 ${stepContext}
 
 ## What the message-generating AI will have access to:
 - The prospect's LinkedIn profile (name, headline, company, location, about section)
+${isEmail ? '- The prospect\'s email address' : ''}
 - The prospect's recent LinkedIn posts (last 5)
 - Web research about the prospect and their company (news, articles, events)
-- Template variables: {{first_name}}, {{last_name}}, {{company}}, {{title}}
+- Template variables: {{first_name}}, {{last_name}}, {{company}}, {{title}}${isEmail ? ', {{email}}' : ''}
 
 ## Rules for the prompt you create:
 1. Be specific about the desired tone: ${toneDesc}
-2. Include clear instructions about WHAT to reference from the research (recent posts, company news, etc.)
-3. Specify the Call-to-Action (CTA) clearly — what should the message ask for?
-4. Define the message structure (opening hook, body, CTA)
-5. Include "DO NOT" rules to avoid common mistakes (generic openings, fake compliments, etc.)
+2. Include clear instructions about WHAT to reference from the research (${isEmail ? 'company news, industry trends, recent announcements' : 'recent posts, company news'}, etc.)
+3. Specify the Call-to-Action (CTA) clearly — what should the ${isEmail ? 'email' : 'message'} ask for?
+4. Define the ${isEmail ? 'email' : 'message'} structure (${isEmail ? 'subject line, opening hook, value proposition, CTA' : 'opening hook, body, CTA'})
+5. Include "DO NOT" rules to avoid common mistakes (${isEmail ? 'spammy subject lines, walls of text, generic openings' : 'generic openings, fake compliments'}, etc.)
 6. Keep it as a set of clear instructions, NOT a template with placeholders
 7. Write the prompt in: ${langLabel}
 8. Make it actionable and unambiguous
-9. CRITICAL — Use template variables where appropriate. These variables will be automatically replaced with real data for each lead:
+${isEmail ? '9. Include instructions for generating a compelling SUBJECT line for the email\n' : ''}${isEmail ? '10' : '9'}. CRITICAL — Use template variables where appropriate. These variables will be automatically replaced with real data for each lead:
    - {{first_name}} — Prospect's first name
    - {{last_name}} — Prospect's last name
    - {{company}} — Prospect's company name
@@ -64,7 +71,7 @@ ${stepContext}
 
 ## Output format:
 Return ONLY the polished prompt text. No explanations, no preamble, no "Here's your prompt:" prefix.
-The output should be ready to use as-is as instructions for the message generator.`
+The output should be ready to use as-is as instructions for the ${isEmail ? 'email' : 'message'} generator.`
 }
 
 function buildResearchPolishPrompt(language: string): string {

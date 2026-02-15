@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -51,9 +52,10 @@ interface AIGenerateDialogProps {
   onOpenChange: (open: boolean) => void
   leadId: string
   leadName: string
-  stepType: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment'
+  stepType: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email'
   postContext?: string
   onUseMessage: (message: string) => void
+  onUseSubject?: (subject: string) => void
 }
 
 type Phase = 'idle' | 'researching' | 'generating' | 'done' | 'error'
@@ -70,6 +72,7 @@ const STEP_TYPE_LABELS: Record<string, string> = {
   linkedin_message: 'Mensaje LinkedIn',
   linkedin_connect: 'Nota de conexion',
   linkedin_comment: 'Comentario',
+  send_email: 'Email',
 }
 
 export function AIGenerateDialog({
@@ -80,6 +83,7 @@ export function AIGenerateDialog({
   stepType,
   postContext,
   onUseMessage,
+  onUseSubject,
 }: AIGenerateDialogProps) {
   const { user, session } = useAuth()
   const [phase, setPhase] = useState<Phase>('idle')
@@ -88,6 +92,7 @@ export function AIGenerateDialog({
   const [selectedResearchPromptId, setSelectedResearchPromptId] = useState<string>('none')
   const [customPrompt, setCustomPrompt] = useState('')
   const [generatedMessage, setGeneratedMessage] = useState('')
+  const [generatedSubject, setGeneratedSubject] = useState('')
   const [profileSummary, setProfileSummary] = useState<AIProfileSummary | null>(null)
   const [webInsights, setWebInsights] = useState<AIResearchInsight[]>([])
   const [researchFailed, setResearchFailed] = useState(false)
@@ -96,6 +101,7 @@ export function AIGenerateDialog({
   const [errorMsg, setErrorMsg] = useState('')
   const [showResearch, setShowResearch] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [copiedResearch, setCopiedResearch] = useState(false)
   const [selectedSectionId, setSelectedSectionId] = useState<string>('none')
 
   // Fetch message prompts for this step type
@@ -193,6 +199,7 @@ export function AIGenerateDialog({
     if (!open) {
       setPhase('idle')
       setGeneratedMessage('')
+      setGeneratedSubject('')
       setProfileSummary(null)
       setWebInsights([])
       setResearchFailed(false)
@@ -201,6 +208,7 @@ export function AIGenerateDialog({
       setErrorMsg('')
       setShowResearch(false)
       setCopied(false)
+      setCopiedResearch(false)
       setSelectedMessagePromptId('none')
       setSelectedResearchPromptId('none')
       setSelectedSectionId('none')
@@ -211,10 +219,6 @@ export function AIGenerateDialog({
   const getActiveMessagePrompt = (): AIPrompt | undefined => {
     if (selectedMessagePromptId && selectedMessagePromptId !== 'none') {
       return messagePrompts.find(p => p.id === selectedMessagePromptId)
-    }
-    // Fallback to default
-    if (selectedMessagePromptId === 'none' && messagePrompts.length > 0) {
-      return messagePrompts.find(p => p.is_default)
     }
     return undefined
   }
@@ -234,11 +238,6 @@ export function AIGenerateDialog({
     if (selectedResearchPromptId && selectedResearchPromptId !== 'none') {
       const prompt = researchPrompts.find(p => p.id === selectedResearchPromptId)
       return prompt?.prompt_body
-    }
-    // Fallback to default
-    if (selectedResearchPromptId === 'none' && researchPrompts.length > 0) {
-      const defaultPrompt = researchPrompts.find(p => p.is_default)
-      return defaultPrompt?.prompt_body
     }
     return undefined
   }
@@ -285,6 +284,7 @@ export function AIGenerateDialog({
 
       if (result.success) {
         setGeneratedMessage(result.generatedMessage)
+        setGeneratedSubject(result.generatedSubject || '')
         setProfileSummary(result.research.profileSummary)
         setWebInsights(result.research.webInsights)
         setResearchFailed(result.research.researchFailed)
@@ -325,9 +325,13 @@ export function AIGenerateDialog({
 
   const handleUseMessage = () => {
     onUseMessage(generatedMessage)
+    if (generatedSubject && onUseSubject) {
+      onUseSubject(generatedSubject)
+    }
     toast.success('Mensaje insertado')
   }
 
+  const isEmailStep = stepType === 'send_email'
   const isLoading = phase === 'researching' || phase === 'generating'
 
   return (
@@ -368,10 +372,10 @@ export function AIGenerateDialog({
               disabled={isLoading}
             >
               <SelectTrigger className="h-9">
-                <SelectValue placeholder="Default (resumen ejecutivo B2B)" />
+                <SelectValue placeholder="No usar ninguno" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Default (resumen ejecutivo B2B)</SelectItem>
+                <SelectItem value="none">No usar ninguno</SelectItem>
                 {researchPrompts.map(p => (
                   <SelectItem key={p.id} value={p.id}>
                     <span className="flex items-center gap-1.5">
@@ -400,10 +404,10 @@ export function AIGenerateDialog({
               disabled={isLoading}
             >
               <SelectTrigger className="h-9">
-                <SelectValue placeholder="Sin prompt (modo libre)" />
+                <SelectValue placeholder="No usar ninguno" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Sin prompt (modo libre)</SelectItem>
+                <SelectItem value="none">No usar ninguno</SelectItem>
                 {messagePrompts.map(p => (
                   <SelectItem key={p.id} value={p.id}>
                     <span className="flex items-center gap-1.5">
@@ -433,10 +437,10 @@ export function AIGenerateDialog({
               disabled={isLoading}
             >
               <SelectTrigger className="h-9">
-                <SelectValue placeholder="Sin ejemplos" />
+                <SelectValue placeholder="No usar ninguno" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Sin ejemplos</SelectItem>
+                <SelectItem value="none">No usar ninguno</SelectItem>
                 {exampleSections.map(s => (
                   <SelectItem key={s.id} value={s.id}>
                     {s.name}
@@ -550,10 +554,25 @@ export function AIGenerateDialog({
           {/* Generated message */}
           {phase === 'done' && (
               <div className="space-y-4">
+                {/* Subject field for email steps */}
+                {isEmailStep && (
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">
+                      Asunto generado
+                    </label>
+                    <Input
+                      value={generatedSubject}
+                      onChange={(e) => setGeneratedSubject(e.target.value)}
+                      placeholder="Asunto del email..."
+                      className="text-sm"
+                    />
+                  </div>
+                )}
+
                 {/* Message textarea */}
                 <div>
                   <label className="text-sm font-medium mb-1 block">
-                    Mensaje generado
+                    {isEmailStep ? 'Cuerpo del email' : 'Mensaje generado'}
                   </label>
                   <Textarea
                     value={generatedMessage}
@@ -600,9 +619,33 @@ export function AIGenerateDialog({
                       {/* AI Research Summary */}
                       {researchSummary && (
                         <div className="rounded-lg border bg-muted/40 p-3">
-                          <div className="flex items-center gap-1.5 mb-2">
-                            <Brain className="h-3.5 w-3.5 text-purple-500" />
-                            <span className="text-xs font-semibold text-purple-600 dark:text-purple-400">Resumen de Investigacion</span>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-1.5">
+                              <Brain className="h-3.5 w-3.5 text-purple-500" />
+                              <span className="text-xs font-semibold text-purple-600 dark:text-purple-400">Resumen de Investigacion</span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(researchSummary)
+                                  setCopiedResearch(true)
+                                  toast.success('Research copiado')
+                                  setTimeout(() => setCopiedResearch(false), 2000)
+                                } catch {
+                                  toast.error('No se pudo copiar')
+                                }
+                              }}
+                            >
+                              {copiedResearch ? (
+                                <Check className="mr-1 h-3 w-3 text-green-500" />
+                              ) : (
+                                <Copy className="mr-1 h-3 w-3" />
+                              )}
+                              {copiedResearch ? 'Copiado' : 'Copiar'}
+                            </Button>
                           </div>
                           <div className="text-sm leading-relaxed prose prose-sm prose-neutral dark:prose-invert max-w-none prose-headings:text-sm prose-headings:font-semibold prose-headings:mt-3 prose-headings:mb-1 prose-p:my-1 prose-ul:my-1 prose-li:my-0.5">
                             <ReactMarkdown>{researchSummary}</ReactMarkdown>

@@ -17,6 +17,24 @@ export function createSupabaseClient(authHeader?: string) {
   })
 }
 
+// Get user from JWT auth, or from ownerId when called with service role key (for cron/process-queue)
+export async function getAuthUserOrOwner(authHeader: string, ownerId?: string): Promise<{ id: string } | null> {
+  const user = await getAuthUser(authHeader)
+  if (user) return user
+
+  // If user auth failed and ownerId was provided, verify caller is using service role key
+  if (ownerId) {
+    const serviceKey = Deno.env.get('SERVICE_ROLE_KEY_FULL') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    const jwt = authHeader.replace('Bearer ', '')
+    if (jwt === serviceKey) {
+      console.log(`Service role auth with ownerId: ${ownerId}`)
+      return { id: ownerId }
+    }
+  }
+
+  return null
+}
+
 // Get the authenticated user from the request
 export async function getAuthUser(authHeader: string) {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')

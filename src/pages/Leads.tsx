@@ -208,6 +208,16 @@ export function Leads() {
           linkedin_url: data.linkedin_url || null,
           phone: data.phone || null,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          industry: null,
+          website: null,
+          company_linkedin_url: null,
+          annual_revenue: null,
+          total_funding: null,
+          latest_funding: null,
+          latest_funding_amount: null,
+          department: null,
+          corporate_phone: null,
+          personal_phone: null,
         })
 
         // Assign to cadence if selected
@@ -330,7 +340,7 @@ export function Leads() {
     <div className="p-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Leads</h1>
+          <h1 className="text-[28px] font-bold tracking-tight font-heading">Leads</h1>
           <p className="text-muted-foreground">Manage your contacts and prospects</p>
         </div>
         <div className="flex gap-2">

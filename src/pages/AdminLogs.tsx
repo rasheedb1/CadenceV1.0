@@ -175,7 +175,7 @@ export function AdminLogs() {
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Admin
         </Link>
-        <h1 className="text-3xl font-semibold tracking-tight">Activity Logs</h1>
+        <h1 className="text-[28px] font-bold tracking-tight font-heading">Activity Logs</h1>
         <p className="text-muted-foreground">View and filter all system activity</p>
       </div>
 

@@ -48,6 +48,7 @@ import {
   MessageSquare,
   UserPlus,
   MessageCircle,
+  Mail,
   Star,
   Search,
   BookOpen,
@@ -59,6 +60,7 @@ const STEP_TYPES = [
   { value: 'linkedin_message', label: 'LinkedIn Message', icon: MessageSquare, color: 'bg-sky-100 text-sky-700' },
   { value: 'linkedin_connect', label: 'LinkedIn Connect', icon: UserPlus, color: 'bg-cyan-100 text-cyan-700' },
   { value: 'linkedin_comment', label: 'LinkedIn Comment', icon: MessageCircle, color: 'bg-emerald-100 text-emerald-700' },
+  { value: 'send_email', label: 'Send Email', icon: Mail, color: 'bg-violet-100 text-violet-700' },
 ] as const
 
 const TONES = [
@@ -68,7 +70,7 @@ const TONES = [
 ] as const
 
 type PromptType = 'message' | 'research' | 'examples'
-type StepType = 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment'
+type StepType = 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email'
 type Tone = 'professional' | 'casual' | 'friendly'
 
 const TEMPLATE_VARIABLES = [
@@ -78,6 +80,10 @@ const TEMPLATE_VARIABLES = [
   { key: 'title', label: 'Cargo', example: 'VP Engineering' },
   { key: 'email', label: 'Email', example: 'juan@empresa.com' },
   { key: 'linkedin_url', label: 'LinkedIn', example: 'linkedin.com/in/...' },
+  { key: 'industry', label: 'Industria', example: 'e-learning' },
+  { key: 'website', label: 'Sitio Web', example: 'edpuzzle.com' },
+  { key: 'department', label: 'Departamento', example: 'Sales' },
+  { key: 'annual_revenue', label: 'Ingresos Anuales', example: '$10M' },
 ] as const
 
 interface FormData {
@@ -737,11 +743,11 @@ export function AIPrompts() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="p-8 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="text-[28px] font-bold tracking-tight font-heading flex items-center gap-2">
             <Brain className="h-6 w-6 text-purple-500" />
             AI Prompts
           </h1>

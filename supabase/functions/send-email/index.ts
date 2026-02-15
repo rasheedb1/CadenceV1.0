@@ -1,0 +1,272 @@
+// Edge Function: Send Email via Unipile
+// POST /functions/v1/send-email
+// Sends an email through the user's connected Gmail account via Unipile API
+
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createSupabaseClient, getAuthUserOrOwner, logActivity } from '../_shared/supabase.ts'
+import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
+
+interface SendEmailRequest {
+  leadId: string
+  cadenceId?: string
+  cadenceStepId?: string
+  scheduleId?: string
+  instanceId?: string
+  to: string          // email address
+  subject: string
+  body: string        // HTML body
+  bodyType?: 'text/html' | 'text/plain'  // defaults to text/html
+  ownerId?: string // For service-role calls from process-queue
+}
+
+serve(async (req: Request) => {
+  // Handle CORS
+  const corsResponse = handleCors(req)
+  if (corsResponse) return corsResponse
+
+  try {
+    // Authenticate user
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader) {
+      return errorResponse('Missing authorization header', 401)
+    }
+
+    // Parse request body
+    const requestBody: SendEmailRequest = await req.json()
+    const {
+      leadId,
+      cadenceId,
+      cadenceStepId,
+      scheduleId,
+      instanceId,
+      to,
+      subject,
+      body: emailBody,
+      bodyType,
+      ownerId,
+    } = requestBody
+
+    const user = await getAuthUserOrOwner(authHeader, ownerId)
+    if (!user) {
+      return errorResponse('Unauthorized', 401)
+    }
+
+    // Get Unipile credentials
+    const unipileDsn = Deno.env.get('UNIPILE_DSN')
+    const unipileAccessToken = Deno.env.get('UNIPILE_ACCESS_TOKEN')
+
+    if (!unipileDsn || !unipileAccessToken) {
+      console.error('Missing Unipile credentials')
+      return errorResponse('Unipile integration not configured', 500)
+    }
+
+    const baseUrl = `https://${unipileDsn}`
+    const supabase = createSupabaseClient()
+
+    // Get Gmail account ID from unipile_accounts
+    const { data: gmailAccount, error: gmailError } = await supabase
+      .from('unipile_accounts')
+      .select('account_id')
+      .eq('user_id', user.id)
+      .eq('provider', 'EMAIL')
+      .eq('status', 'active')
+      .single()
+
+    if (gmailError || !gmailAccount?.account_id) {
+      console.error('No active Gmail account found for user:', user.id)
+      return errorResponse('No Gmail account found. Please connect your Gmail account in Settings and try again.')
+    }
+
+    const gmailAccountId = gmailAccount.account_id
+    console.log(`Using Gmail Unipile account: ${gmailAccountId}`)
+
+    // Get lead info if leadId provided — also resolve email address
+    let recipientEmail = to
+    let leadName: string | null = null
+    if (leadId) {
+      const { data: lead } = await supabase
+        .from('leads')
+        .select('first_name, last_name, email')
+        .eq('id', leadId)
+        .eq('owner_id', user.id)
+        .single()
+
+      if (lead) {
+        leadName = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || null
+        // Use lead's email if 'to' was not provided
+        if (!recipientEmail && lead.email) {
+          recipientEmail = lead.email
+        }
+        console.log(`Sending email to lead: ${leadName} <${recipientEmail}>`)
+      }
+    }
+
+    // Validate required fields
+    if (!recipientEmail) {
+      return errorResponse('No email address found. Either provide "to" or ensure the lead has an email.')
+    }
+    if (!subject) {
+      return errorResponse('subject is required')
+    }
+    if (!emailBody) {
+      return errorResponse('body is required')
+    }
+
+    // ── Email open tracking: inject pixel + create email_messages record ──
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const eventId = crypto.randomUUID()
+    let trackedBody = emailBody
+
+    // Only inject tracking pixel for HTML emails
+    if (bodyType !== 'text/plain') {
+      const pixelUrl = `${supabaseUrl}/functions/v1/track-email-open?eid=${eventId}`
+      const pixelTag = `<img src="${pixelUrl}" width="1" height="1" style="display:none" alt="" />`
+
+      if (trackedBody.includes('</body>')) {
+        trackedBody = trackedBody.replace('</body>', `${pixelTag}</body>`)
+      } else {
+        trackedBody = trackedBody + pixelTag
+      }
+    }
+
+    // Create email_messages record for tracking
+    await supabase.from('email_messages').insert({
+      id: crypto.randomUUID(),
+      event_id: eventId,
+      owner_user_id: user.id,
+      lead_id: leadId || null,
+      cadence_id: cadenceId || null,
+      cadence_step_id: cadenceStepId || null,
+      to_email: recipientEmail,
+      subject,
+      html_body_original: emailBody,
+      html_body_tracked: bodyType !== 'text/plain' ? trackedBody : null,
+      status: 'queued',
+    })
+
+    // Send email via Unipile API
+    console.log(`Sending email to: ${recipientEmail}, subject: ${subject}, event_id: ${eventId}`)
+
+    const emailPayload = {
+      account_id: gmailAccountId,
+      to: [{ display_name: leadName || recipientEmail, identifier: recipientEmail }],
+      subject: subject,
+      body: trackedBody,
+    }
+
+    // Add body_type if explicitly set to text/plain (default is text/html)
+    if (bodyType === 'text/plain') {
+      (emailPayload as Record<string, unknown>).body_type = 'text/plain'
+    }
+
+    const response = await fetch(`${baseUrl}/api/v1/emails`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-KEY': unipileAccessToken,
+      },
+      body: JSON.stringify(emailPayload),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Unipile email API error:', response.status, errorText)
+
+      // Update email_messages status to failed
+      await supabase
+        .from('email_messages')
+        .update({ status: 'failed', last_error: errorText })
+        .eq('event_id', eventId)
+
+      // Log failure
+      await logActivity({
+        ownerId: user.id,
+        cadenceId,
+        cadenceStepId,
+        leadId,
+        action: 'email',
+        status: 'failed',
+        details: { error: errorText, to: recipientEmail, subject },
+      })
+
+      // Update schedule status if provided
+      if (scheduleId) {
+        await supabase
+          .from('schedules')
+          .update({
+            status: 'failed',
+            last_error: errorText,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', scheduleId)
+      }
+
+      // Update instance status if provided
+      if (instanceId) {
+        await supabase
+          .from('lead_step_instances')
+          .update({
+            status: 'failed',
+            last_error: errorText,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', instanceId)
+      }
+
+      return errorResponse(`Failed to send email: ${response.statusText}`, response.status)
+    }
+
+    const result = await response.json()
+    const emailId = result?.id || result?.message_id || null
+
+    console.log('Email sent successfully:', JSON.stringify(result))
+
+    // Update email_messages status to sent
+    await supabase
+      .from('email_messages')
+      .update({ status: 'sent', gmail_message_id: emailId, sent_at: new Date().toISOString() })
+      .eq('event_id', eventId)
+
+    // Log success
+    await logActivity({
+      ownerId: user.id,
+      cadenceId,
+      cadenceStepId,
+      leadId,
+      action: 'email',
+      status: 'ok',
+      details: { emailId, to: recipientEmail, subject },
+    })
+
+    // Update schedule status if provided
+    if (scheduleId) {
+      await supabase
+        .from('schedules')
+        .update({ status: 'executed', updated_at: new Date().toISOString() })
+        .eq('id', scheduleId)
+    }
+
+    // Update instance status if provided
+    if (instanceId) {
+      await supabase
+        .from('lead_step_instances')
+        .update({
+          status: 'sent',
+          result_snapshot: result,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', instanceId)
+    }
+
+    return jsonResponse({
+      success: true,
+      emailId,
+    })
+  } catch (error) {
+    console.error('Error sending email:', error)
+    return errorResponse(
+      error instanceof Error ? error.message : 'Internal error',
+      500
+    )
+  }
+})

@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useCadence } from '@/contexts/CadenceContext'
+import { useAuth } from '@/contexts/AuthContext'
 import { useTestStep } from '@/hooks/useLinkedInActions'
+import { supabase } from '@/integrations/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -55,15 +58,19 @@ import {
   Users,
   CheckCircle,
   XCircle,
-  Briefcase,
-  PenSquare,
   ClipboardList,
   AlertTriangle,
   Upload,
+  Zap,
+  Brain,
+  Clock,
+  RefreshCw,
 } from 'lucide-react'
 import { STEP_TYPE_CONFIG, type StepType, type CadenceStep, type Lead } from '@/types'
+import type { AIPrompt } from '@/lib/edge-functions'
 import { CreateLeadDialog } from '@/components/CreateLeadDialog'
 import { ImportLeadsDialog } from '@/components/ImportLeadsDialog'
+import { StartAutomationDialog } from '@/components/StartAutomationDialog'
 
 // Variable buttons for message templates
 const VARIABLES = [
@@ -72,6 +79,11 @@ const VARIABLES = [
   { name: '{{company}}', label: 'Company' },
   { name: '{{title}}', label: 'Title' },
   { name: '{{email}}', label: 'Email' },
+  { name: '{{linkedin_url}}', label: 'LinkedIn URL' },
+  { name: '{{industry}}', label: 'Industry' },
+  { name: '{{website}}', label: 'Website' },
+  { name: '{{department}}', label: 'Department' },
+  { name: '{{annual_revenue}}', label: 'Annual Revenue' },
 ]
 
 // Step icons mapping
@@ -80,9 +92,7 @@ const STEP_ICONS: Record<StepType, React.ComponentType<{ className?: string }>> 
   linkedin_connect: UserPlus,
   linkedin_like: ThumbsUp,
   linkedin_comment: MessageCircle,
-  value_email: Mail,
-  business_case_email: Briefcase,
-  create_email: PenSquare,
+  send_email: Mail,
   whatsapp: Phone,
   cold_call: PhoneCall,
   task: ClipboardList,
@@ -91,6 +101,7 @@ const STEP_ICONS: Record<StepType, React.ComponentType<{ className?: string }>> 
 export function CadenceBuilder() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const {
     cadences,
     leads,
@@ -108,7 +119,120 @@ export function CadenceBuilder() {
 
   const cadence = cadences.find((c) => c.id === id)
   const steps = cadence?.steps || []
-  const cadenceLeads = leads.filter((l) => l.cadence_id === id && l.status === 'active')
+
+  // Query cadence_leads directly to avoid the CadenceContext flattening bug
+  // (CadenceContext only keeps the first cadence_leads entry per lead,
+  //  so leads in multiple cadences are invisible in all but the first)
+  const { data: cadenceLeadRecords = [] } = useQuery({
+    queryKey: ['cadence-leads-direct', id, user?.id],
+    queryFn: async () => {
+      if (!id || !user) return []
+      const { data } = await supabase
+        .from('cadence_leads')
+        .select('lead_id, status, current_step_id')
+        .eq('cadence_id', id)
+        .eq('owner_id', user.id)
+      return data || []
+    },
+    enabled: !!id && !!user,
+  })
+
+  const cadenceLeads = leads
+    .filter((l) => {
+      const clRecord = cadenceLeadRecords.find((cl) => cl.lead_id === l.id)
+      return clRecord && ['active', 'scheduled', 'paused', 'generated', 'sent'].includes(clRecord.status)
+    })
+    .map((l) => {
+      const clRecord = cadenceLeadRecords.find((cl) => cl.lead_id === l.id)!
+      return { ...l, cadence_id: id, status: clRecord.status, current_step_id: clRecord.current_step_id } as Lead
+    })
+
+  // Query AI prompts for automation config
+  const { data: aiPrompts = [] } = useQuery({
+    queryKey: ['ai-prompts', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return []
+      const { data, error } = await supabase
+        .from('ai_prompts')
+        .select('*')
+        .eq('owner_id', user.id)
+        .order('name', { ascending: true })
+      if (error) throw error
+      return (data || []) as AIPrompt[]
+    },
+    enabled: !!user?.id,
+  })
+
+  // Query example sections for automation config
+  const { data: exampleSections = [] } = useQuery({
+    queryKey: ['example-sections-cadence', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return []
+      const { data, error } = await supabase
+        .from('example_sections')
+        .select('*')
+        .eq('owner_id', user.id)
+        .order('name', { ascending: true })
+      if (error) throw error
+      return data || []
+    },
+    enabled: !!user?.id,
+  })
+
+  // Query schedules (queue) for this cadence
+  const { data: schedules = [], refetch: refetchSchedules } = useQuery({
+    queryKey: ['cadence-schedules', id],
+    queryFn: async () => {
+      if (!id) return []
+      const { data, error } = await supabase
+        .from('schedules')
+        .select(`
+          id, cadence_id, cadence_step_id, lead_id, owner_id,
+          scheduled_at, timezone, status, message_template_text,
+          message_rendered_text, last_error, created_at, updated_at
+        `)
+        .eq('cadence_id', id)
+        .order('scheduled_at', { ascending: true })
+      if (error) throw error
+      return data || []
+    },
+    enabled: !!id,
+    refetchInterval: 30000, // Auto-refresh every 30s
+  })
+
+  // Cancel a single schedule
+  const cancelSchedule = async (scheduleId: string) => {
+    const { error } = await supabase
+      .from('schedules')
+      .update({ status: 'canceled', updated_at: new Date().toISOString() })
+      .eq('id', scheduleId)
+      .eq('status', 'scheduled')
+    if (!error) {
+      toast.success('Envio cancelado')
+      refetchSchedules()
+    } else {
+      toast.error('Error al cancelar')
+    }
+  }
+
+  // Cancel all scheduled items for this cadence
+  const cancelAllScheduled = async () => {
+    if (!id) return
+    const { error } = await supabase
+      .from('schedules')
+      .update({ status: 'canceled', updated_at: new Date().toISOString() })
+      .eq('cadence_id', id)
+      .eq('status', 'scheduled')
+    if (!error) {
+      toast.success('Todos los envios programados fueron cancelados')
+      refetchSchedules()
+    } else {
+      toast.error('Error al cancelar')
+    }
+  }
+
+  // State for Start Automation dialog
+  const [isAutomationOpen, setIsAutomationOpen] = useState(false)
 
   // State for add step dialog
   const [isAddStepOpen, setIsAddStepOpen] = useState(false)
@@ -118,12 +242,18 @@ export function CadenceBuilder() {
     day_offset: number
     message_template: string
     template_id: string
+    ai_prompt_id: string
+    ai_research_prompt_id: string
+    ai_example_section_id: string
   }>({
     step_type: 'linkedin_message',
     step_label: '',
     day_offset: 0,
     message_template: '',
     template_id: '',
+    ai_prompt_id: '',
+    ai_research_prompt_id: '',
+    ai_example_section_id: '',
   })
   const [saving, setSaving] = useState(false)
   const messageTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -155,6 +285,9 @@ export function CadenceBuilder() {
   // State for take out confirmation
   const [takeOutConfirmLead, setTakeOutConfirmLead] = useState<Lead | null>(null)
 
+  // State for assigning unassigned leads
+  const [assigningLeadId, setAssigningLeadId] = useState<string | null>(null)
+
   // State for lead dialogs
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false)
   const [isImportLeadsOpen, setIsImportLeadsOpen] = useState(false)
@@ -166,6 +299,9 @@ export function CadenceBuilder() {
       step_label: STEP_TYPE_CONFIG[prev.step_type].label,
       message_template: '',
       template_id: '',
+      ai_prompt_id: '',
+      ai_research_prompt_id: '',
+      ai_example_section_id: '',
     }))
   }, [newStep.step_type])
 
@@ -247,6 +383,11 @@ export function CadenceBuilder() {
       .replace(/\{\{company\}\}/g, lead.company || '')
       .replace(/\{\{title\}\}/g, lead.title || '')
       .replace(/\{\{email\}\}/g, lead.email || '')
+      .replace(/\{\{linkedin_url\}\}/g, lead.linkedin_url || '')
+      .replace(/\{\{industry\}\}/g, lead.industry || '')
+      .replace(/\{\{website\}\}/g, lead.website || '')
+      .replace(/\{\{department\}\}/g, lead.department || '')
+      .replace(/\{\{annual_revenue\}\}/g, lead.annual_revenue || '')
   }
 
   const handleAddStep = async () => {
@@ -267,6 +408,9 @@ export function CadenceBuilder() {
         config_json: {
           message_template: newStep.message_template,
           template_id: newStep.template_id && newStep.template_id !== 'none' ? newStep.template_id : null,
+          ai_prompt_id: newStep.ai_prompt_id && newStep.ai_prompt_id !== 'none' ? newStep.ai_prompt_id : null,
+          ai_research_prompt_id: newStep.ai_research_prompt_id && newStep.ai_research_prompt_id !== 'none' ? newStep.ai_research_prompt_id : null,
+          ai_example_section_id: newStep.ai_example_section_id && newStep.ai_example_section_id !== 'none' ? newStep.ai_example_section_id : null,
         },
       })
 
@@ -277,6 +421,9 @@ export function CadenceBuilder() {
         day_offset: 0,
         message_template: '',
         template_id: '',
+        ai_prompt_id: '',
+        ai_research_prompt_id: '',
+        ai_example_section_id: '',
       })
       toast.success('Step added successfully')
     } catch (error) {
@@ -452,6 +599,38 @@ export function CadenceBuilder() {
     }
   }
 
+  // Assign an unassigned lead to a step
+  const handleAssignLeadToStep = async (lead: Lead, stepId: string) => {
+    setAssigningLeadId(lead.id)
+    try {
+      // Update cadence_leads to set current_step_id
+      const { error } = await supabase
+        .from('cadence_leads')
+        .update({ current_step_id: stepId, status: 'active', updated_at: new Date().toISOString() })
+        .eq('lead_id', lead.id)
+        .eq('cadence_id', id)
+      if (error) throw error
+
+      // Create lead_step_instance for tracking (upsert to avoid duplicate key)
+      await supabase.from('lead_step_instances').upsert({
+        cadence_id: id,
+        cadence_step_id: stepId,
+        lead_id: lead.id,
+        owner_id: user?.id,
+        status: 'pending',
+      }, { onConflict: 'cadence_step_id,lead_id' })
+
+      toast.success(`${lead.first_name} asignado al step`)
+      // Refresh data
+      window.location.reload()
+    } catch (error) {
+      console.error('Error assigning lead:', error)
+      toast.error('Error al asignar lead')
+    } finally {
+      setAssigningLeadId(null)
+    }
+  }
+
   // Check if lead can execute step based on day
   const canExecuteStep = (lead: Lead, step: CadenceStep) => {
     if (isEditMode) return true // Edit mode bypasses day restrictions
@@ -462,9 +641,6 @@ export function CadenceBuilder() {
   const getRequiredFieldsForStepType = (stepType: StepType): string[] => {
     switch (stepType) {
       case 'linkedin_message':
-      case 'value_email':
-      case 'business_case_email':
-      case 'create_email':
         return ['message']
       case 'linkedin_like':
         return ['postUrl']
@@ -489,7 +665,7 @@ export function CadenceBuilder() {
         </Button>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">{cadence.name}</h1>
+            <h1 className="text-[28px] font-bold tracking-tight font-heading">{cadence.name}</h1>
             {cadence.description && (
               <p className="mt-1 text-muted-foreground">{cadence.description}</p>
             )}
@@ -519,6 +695,14 @@ export function CadenceBuilder() {
               <Settings className="mr-2 h-4 w-4" />
               {isEditMode ? 'Exit Edit Mode' : 'Edit Cadence'}
             </Button>
+            <Button
+              onClick={() => setIsAutomationOpen(true)}
+              disabled={steps.length === 0}
+              className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white"
+            >
+              <Zap className="mr-2 h-4 w-4" />
+              Start Automation
+            </Button>
             {cadence.status === 'draft' ? (
               <Button onClick={handleActivate} disabled={steps.length === 0}>
                 Activate Cadence
@@ -537,6 +721,10 @@ export function CadenceBuilder() {
           <TabsTrigger value="steps">Steps</TabsTrigger>
           <TabsTrigger value="leads">
             Leads ({cadenceLeads.length})
+          </TabsTrigger>
+          <TabsTrigger value="queue">
+            <Clock className="h-4 w-4 mr-1" />
+            Queue ({schedules.length})
           </TabsTrigger>
         </TabsList>
 
@@ -600,6 +788,12 @@ export function CadenceBuilder() {
                                           {config.isManual && (
                                             <Badge variant="secondary" className="text-xs">
                                               Manual
+                                            </Badge>
+                                          )}
+                                          {!!(stepConfig as Record<string, unknown>)?.ai_prompt_id && (
+                                            <Badge variant="outline" className="text-xs border-violet-300 text-violet-600">
+                                              <Brain className="mr-1 h-3 w-3" />
+                                              AI
                                             </Badge>
                                           )}
                                           <Badge
@@ -768,14 +962,35 @@ export function CadenceBuilder() {
                                 {lead.company} {lead.title && `- ${lead.title}`}
                               </p>
                             </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setTakeOutConfirmLead(lead)}
-                            >
-                              <XCircle className="mr-2 h-4 w-4" />
-                              Remove
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <Select
+                                onValueChange={(stepId) => handleAssignLeadToStep(lead, stepId)}
+                                disabled={assigningLeadId === lead.id}
+                              >
+                                <SelectTrigger className="w-44 h-8 text-xs">
+                                  <SelectValue placeholder="Asignar a step..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {sortedDays.flatMap((day) =>
+                                    stepsByDay[day]
+                                      .sort((a, b) => a.order_in_day - b.order_in_day)
+                                      .map((step) => (
+                                        <SelectItem key={step.id} value={step.id}>
+                                          Day {step.day_offset}: {step.step_label}
+                                        </SelectItem>
+                                      ))
+                                  )}
+                                </SelectContent>
+                              </Select>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setTakeOutConfirmLead(lead)}
+                              >
+                                <XCircle className="mr-2 h-4 w-4" />
+                                Remove
+                              </Button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -960,16 +1175,216 @@ export function CadenceBuilder() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Queue / Execution Status tab */}
+        <TabsContent value="queue">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Cola de Ejecucion</CardTitle>
+                <CardDescription>Estado de envio de cada mensaje programado</CardDescription>
+              </div>
+              <div className="flex gap-2">
+                {schedules.some((s) => s.status === 'scheduled') && (
+                  <Button variant="destructive" size="sm" onClick={cancelAllScheduled}>
+                    <XCircle className="h-4 w-4 mr-1" />
+                    Cancelar todos
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={() => refetchSchedules()}>
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                  Refresh
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {schedules.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">
+                  No hay envios programados. Inicia una automatizacion para ver la cola de ejecucion.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {/* Summary stats */}
+                  <div className="flex gap-3 mb-4 flex-wrap">
+                    {(() => {
+                      const counts = schedules.reduce((acc, s) => {
+                        acc[s.status] = (acc[s.status] || 0) + 1
+                        return acc
+                      }, {} as Record<string, number>)
+                      return (
+                        <>
+                          {counts.scheduled && (
+                            <Badge variant="outline" className="bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200">
+                              <Clock className="h-3 w-3 mr-1" /> Programados: {counts.scheduled}
+                            </Badge>
+                          )}
+                          {counts.executed && (
+                            <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-green-200">
+                              <CheckCircle className="h-3 w-3 mr-1" /> Enviados: {counts.executed}
+                            </Badge>
+                          )}
+                          {counts.failed && (
+                            <Badge variant="outline" className="bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-red-200">
+                              <XCircle className="h-3 w-3 mr-1" /> Fallidos: {counts.failed}
+                            </Badge>
+                          )}
+                          {counts.canceled && (
+                            <Badge variant="outline" className="bg-gray-50 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300 border-gray-200">
+                              Cancelados: {counts.canceled}
+                            </Badge>
+                          )}
+                        </>
+                      )
+                    })()}
+                  </div>
+
+                  {/* Schedule items */}
+                  <div className="border rounded-md overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-muted/50 border-b">
+                          <th className="text-left px-3 py-2 font-medium">Lead</th>
+                          <th className="text-left px-3 py-2 font-medium">Step</th>
+                          <th className="text-left px-3 py-2 font-medium">Programado</th>
+                          <th className="text-left px-3 py-2 font-medium">Estado</th>
+                          <th className="text-left px-3 py-2 font-medium">Detalle</th>
+                          <th className="text-left px-3 py-2 font-medium w-20"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {schedules.map((schedule) => {
+                          const lead = leads.find((l) => l.id === schedule.lead_id)
+                          const step = steps.find((s) => s.id === schedule.cadence_step_id)
+                          const StepIcon = step ? STEP_ICONS[step.step_type] : Clock
+
+                          const statusConfig: Record<string, { label: string; className: string }> = {
+                            scheduled: { label: 'Programado', className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' },
+                            executed: { label: 'Enviado', className: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' },
+                            failed: { label: 'Fallido', className: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300' },
+                            canceled: { label: 'Cancelado', className: 'bg-gray-100 text-gray-800 dark:bg-gray-900/40 dark:text-gray-300' },
+                            skipped_due_to_state_change: { label: 'Omitido', className: 'bg-gray-100 text-gray-600 dark:bg-gray-900/40 dark:text-gray-400' },
+                          }
+                          const sc = statusConfig[schedule.status] || { label: schedule.status, className: 'bg-gray-100 text-gray-800' }
+
+                          // Format scheduled_at in cadence timezone or local
+                          const scheduledDate = new Date(schedule.scheduled_at)
+                          const tz = cadence?.timezone || 'America/Mexico_City'
+                          let formattedTime = ''
+                          try {
+                            formattedTime = scheduledDate.toLocaleString('es-MX', {
+                              timeZone: tz,
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              hour12: true,
+                            })
+                          } catch {
+                            formattedTime = scheduledDate.toLocaleString()
+                          }
+
+                          // Time until scheduled
+                          const now = new Date()
+                          const diffMs = scheduledDate.getTime() - now.getTime()
+                          const isInFuture = diffMs > 0
+                          const diffMin = Math.abs(Math.round(diffMs / 60000))
+                          let timeLabel = ''
+                          if (schedule.status === 'scheduled') {
+                            if (isInFuture) {
+                              if (diffMin < 60) timeLabel = `en ${diffMin}m`
+                              else if (diffMin < 1440) timeLabel = `en ${Math.round(diffMin / 60)}h`
+                              else timeLabel = `en ${Math.round(diffMin / 1440)}d`
+                            } else {
+                              timeLabel = 'pendiente de procesamiento'
+                            }
+                          }
+
+                          return (
+                            <tr key={schedule.id} className="border-b last:border-b-0 hover:bg-muted/30">
+                              <td className="px-3 py-2">
+                                <div>
+                                  <span className="font-medium">
+                                    {lead ? `${lead.first_name} ${lead.last_name}` : schedule.lead_id.slice(0, 8)}
+                                  </span>
+                                  {lead?.company && (
+                                    <span className="text-muted-foreground ml-1 text-xs">({lead.company})</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center gap-1">
+                                  <StepIcon className="h-4 w-4 text-muted-foreground" />
+                                  <span>{step ? `Day ${step.day_offset}: ${step.step_label}` : 'Unknown'}</span>
+                                </div>
+                              </td>
+                              <td className="px-3 py-2">
+                                <div>
+                                  <span>{formattedTime}</span>
+                                  {timeLabel && (
+                                    <span className="text-muted-foreground text-xs ml-1">({timeLabel})</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2">
+                                <Badge className={`${sc.className} text-xs`}>{sc.label}</Badge>
+                              </td>
+                              <td className="px-3 py-2 max-w-[200px]">
+                                {schedule.last_error && (
+                                  <span className="text-xs text-red-600 dark:text-red-400 truncate block" title={schedule.last_error}>
+                                    {schedule.last_error.length > 60 ? schedule.last_error.slice(0, 60) + '...' : schedule.last_error}
+                                  </span>
+                                )}
+                                {schedule.status === 'executed' && schedule.updated_at && (
+                                  <span className="text-xs text-green-600 dark:text-green-400">
+                                    Enviado {new Date(schedule.updated_at).toLocaleString('es-MX', {
+                                      timeZone: tz,
+                                      month: 'short',
+                                      day: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      hour12: true,
+                                    })}
+                                  </span>
+                                )}
+                                {schedule.message_rendered_text && (
+                                  <span className="text-xs text-muted-foreground truncate block mt-0.5" title={schedule.message_rendered_text}>
+                                    {schedule.message_rendered_text.slice(0, 50)}...
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2">
+                                {schedule.status === 'scheduled' && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                                    onClick={() => cancelSchedule(schedule.id)}
+                                  >
+                                    Cancelar
+                                  </Button>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Add Step Dialog */}
       <Dialog open={isAddStepOpen} onOpenChange={setIsAddStepOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Add Step</DialogTitle>
             <DialogDescription>Configure a new step for your cadence</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4 overflow-y-auto flex-1">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Step Type</Label>
@@ -1085,6 +1500,86 @@ export function CadenceBuilder() {
                 </div>
               </>
             )}
+
+            {/* AI Prompt configuration for automation */}
+            <div className="space-y-3 rounded-lg border border-dashed border-violet-300 bg-violet-50/50 dark:bg-violet-950/20 dark:border-violet-800 p-4">
+              <div className="flex items-center gap-2">
+                <Brain className="h-4 w-4 text-violet-600" />
+                <Label className="text-sm font-medium">AI Prompt (para automatizacion)</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Selecciona un AI prompt para generar mensajes automaticamente cuando se ejecute este step en modo automatizado.
+              </p>
+              <div className="space-y-2">
+                <Label className="text-xs">Message Prompt</Label>
+                <Select
+                  value={newStep.ai_prompt_id || 'none'}
+                  onValueChange={(value) =>
+                    setNewStep((prev) => ({ ...prev, ai_prompt_id: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar prompt..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin AI prompt</SelectItem>
+                    {aiPrompts
+                      .filter((p) => p.prompt_type === 'message' && (p.step_type === newStep.step_type || p.step_type === null))
+                      .map((prompt) => (
+                        <SelectItem key={prompt.id} value={prompt.id}>
+                          {prompt.name}
+                          {prompt.is_default && ' (default)'}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">Research Prompt (opcional)</Label>
+                <Select
+                  value={newStep.ai_research_prompt_id || 'none'}
+                  onValueChange={(value) =>
+                    setNewStep((prev) => ({ ...prev, ai_research_prompt_id: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar research prompt..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin research prompt</SelectItem>
+                    {aiPrompts
+                      .filter((p) => p.prompt_type === 'research')
+                      .map((prompt) => (
+                        <SelectItem key={prompt.id} value={prompt.id}>
+                          {prompt.name}
+                          {prompt.is_default && ' (default)'}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">Example Section (opcional)</Label>
+                <Select
+                  value={newStep.ai_example_section_id || 'none'}
+                  onValueChange={(value) =>
+                    setNewStep((prev) => ({ ...prev, ai_example_section_id: value }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar ejemplos..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin ejemplos</SelectItem>
+                    {exampleSections.map((section: { id: string; name: string }) => (
+                      <SelectItem key={section.id} value={section.id}>
+                        {section.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddStepOpen(false)}>
@@ -1247,6 +1742,17 @@ export function CadenceBuilder() {
         onOpenChange={setIsImportLeadsOpen}
         preSelectedCadenceId={id}
       />
+
+      {/* Start Automation Dialog */}
+      {cadence && (
+        <StartAutomationDialog
+          open={isAutomationOpen}
+          onOpenChange={setIsAutomationOpen}
+          cadence={cadence}
+          steps={steps}
+          aiPrompts={aiPrompts}
+        />
+      )}
     </div>
   )
 }

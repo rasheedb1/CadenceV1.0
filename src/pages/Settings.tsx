@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/integrations/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -7,265 +7,17 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, CheckCircle2, XCircle, ExternalLink } from 'lucide-react'
-import { callEdgeFunction } from '@/lib/edge-functions'
-
-interface LinkedInConnectionStatus {
-  isConnected: boolean
-  accountId: string | null
-  connectedAt: string | null
-}
-
-interface ConnectLinkedInResponse {
-  success: boolean
-  authUrl: string
-  expiresOn: string
-}
-
-interface DisconnectLinkedInResponse {
-  success: boolean
-  message: string
-}
+import { Loader2, CheckCircle2, XCircle, ExternalLink, Mail } from 'lucide-react'
+import { useLinkedInConnection } from '@/hooks/useLinkedInConnection'
+import { useGmailConnection } from '@/hooks/useGmailConnection'
 
 export function Settings() {
-  const { user, session } = useAuth()
+  const { user } = useAuth()
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  // LinkedIn connection state
-  const [linkedInStatus, setLinkedInStatus] = useState<LinkedInConnectionStatus>({
-    isConnected: false,
-    accountId: null,
-    connectedAt: null,
-  })
-  const [linkedInLoading, setLinkedInLoading] = useState(true)
-  const [linkedInActionLoading, setLinkedInActionLoading] = useState(false)
-  const [linkedInMessage, setLinkedInMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
-  // Fetch LinkedIn connection status
-  const fetchLinkedInStatus = useCallback(async () => {
-    if (!user) return
-
-    setLinkedInLoading(true)
-    try {
-      // Query the unipile_accounts table for LinkedIn connection
-      const { data, error } = await supabase
-        .from('unipile_accounts')
-        .select('account_id, connected_at, status')
-        .eq('user_id', user.id)
-        .eq('provider', 'LINKEDIN')
-        .eq('status', 'active')
-        .single()
-
-      if (error && error.code !== 'PGRST116') {
-        // PGRST116 is "no rows returned" which is expected if not connected
-        console.error('Error fetching LinkedIn status:', error)
-      }
-
-      setLinkedInStatus({
-        isConnected: !!data,
-        accountId: data?.account_id || null,
-        connectedAt: data?.connected_at || null,
-      })
-    } catch (error) {
-      console.error('Error fetching LinkedIn status:', error)
-    } finally {
-      setLinkedInLoading(false)
-    }
-  }, [user])
-
-  // Fetch LinkedIn connection status on mount
-  useEffect(() => {
-    fetchLinkedInStatus()
-  }, [fetchLinkedInStatus])
-
-  // Check URL for connection callback status
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search)
-    const linkedinStatusParam = urlParams.get('linkedin_status')
-
-    if (linkedinStatusParam === 'success') {
-      setLinkedInMessage({ type: 'success', text: 'Verifying LinkedIn connection...' })
-      // Clean up URL immediately
-      window.history.replaceState({}, '', window.location.pathname)
-
-      // Call the check-linkedin-connection endpoint which polls Unipile directly
-      // This is a fallback since the webhook may not fire reliably
-      const checkConnection = async () => {
-        if (!session?.access_token) {
-          setLinkedInLoading(false)
-          setLinkedInMessage({ type: 'error', text: 'Session expired. Please log in again.' })
-          return
-        }
-
-        try {
-          console.log('Calling check-linkedin-connection to verify OAuth result...')
-          const response = await callEdgeFunction<{
-            success: boolean
-            isConnected: boolean
-            accountId?: string
-            connectedAt?: string
-            source?: string
-            error?: string
-          }>('check-linkedin-connection', {}, session.access_token)
-
-          console.log('Check connection response:', response)
-
-          if (response.success && response.isConnected) {
-            setLinkedInStatus({
-              isConnected: true,
-              accountId: response.accountId || null,
-              connectedAt: response.connectedAt || null,
-            })
-            setLinkedInMessage({
-              type: 'success',
-              text: `LinkedIn account connected successfully! (via ${response.source || 'direct check'})`
-            })
-          } else {
-            // Connection not found - maybe Unipile takes time
-            console.log('Connection not found on first check, retrying...')
-            // Retry a few times with delays
-            let attempts = 0
-            const maxAttempts = 3
-
-            const retryCheck = async () => {
-              await new Promise(resolve => setTimeout(resolve, 2000)) // Wait 2 seconds
-              attempts++
-
-              const retryResponse = await callEdgeFunction<{
-                success: boolean
-                isConnected: boolean
-                accountId?: string
-                connectedAt?: string
-                source?: string
-              }>('check-linkedin-connection', {}, session.access_token)
-
-              console.log(`Retry ${attempts} response:`, retryResponse)
-
-              if (retryResponse.success && retryResponse.isConnected) {
-                setLinkedInStatus({
-                  isConnected: true,
-                  accountId: retryResponse.accountId || null,
-                  connectedAt: retryResponse.connectedAt || null,
-                })
-                setLinkedInMessage({ type: 'success', text: 'LinkedIn account connected successfully!' })
-                setLinkedInLoading(false)
-              } else if (attempts < maxAttempts) {
-                retryCheck()
-              } else {
-                setLinkedInLoading(false)
-                setLinkedInMessage({
-                  type: 'error',
-                  text: 'LinkedIn connection could not be verified. Please try again or contact support.'
-                })
-              }
-            }
-
-            retryCheck()
-            return // Don't set loading false yet, retrying
-          }
-        } catch (error) {
-          console.error('Error checking LinkedIn connection:', error)
-          setLinkedInMessage({
-            type: 'error',
-            text: 'Error verifying connection. Please refresh the page.'
-          })
-        }
-
-        setLinkedInLoading(false)
-      }
-
-      setLinkedInLoading(true)
-      checkConnection()
-    } else if (linkedinStatusParam === 'failed') {
-      setLinkedInMessage({ type: 'error', text: 'Failed to connect LinkedIn account. Please try again.' })
-      window.history.replaceState({}, '', window.location.pathname)
-    } else if (linkedinStatusParam === 'cancelled') {
-      setLinkedInMessage({ type: 'error', text: 'LinkedIn connection was cancelled.' })
-      window.history.replaceState({}, '', window.location.pathname)
-    }
-  }, [user?.id, session?.access_token])
-
-  const handleConnectLinkedIn = async () => {
-    if (!session?.access_token) {
-      setLinkedInMessage({ type: 'error', text: 'You must be logged in to connect LinkedIn.' })
-      return
-    }
-
-    setLinkedInActionLoading(true)
-    setLinkedInMessage(null)
-
-    try {
-      // Get the current page URL for redirect after auth
-      const currentUrl = window.location.origin + window.location.pathname
-
-      const response = await callEdgeFunction<ConnectLinkedInResponse>(
-        'connect-linkedin',
-        {
-          successRedirectUrl: `${currentUrl}?linkedin_status=success`,
-          failureRedirectUrl: `${currentUrl}?linkedin_status=failed`,
-        },
-        session.access_token
-      )
-
-      if (response.success && response.authUrl) {
-        // Redirect to Unipile hosted auth page
-        window.location.href = response.authUrl
-      } else {
-        setLinkedInMessage({ type: 'error', text: 'Failed to create auth link. Please try again.' })
-      }
-    } catch (error) {
-      console.error('Error connecting LinkedIn:', error)
-      setLinkedInMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to connect LinkedIn. Please try again.',
-      })
-    } finally {
-      setLinkedInActionLoading(false)
-    }
-  }
-
-  const handleDisconnectLinkedIn = async () => {
-    if (!session?.access_token) {
-      setLinkedInMessage({ type: 'error', text: 'You must be logged in to disconnect LinkedIn.' })
-      return
-    }
-
-    // Confirm with user
-    if (!window.confirm('Are you sure you want to disconnect your LinkedIn account? This will stop all LinkedIn automation.')) {
-      return
-    }
-
-    setLinkedInActionLoading(true)
-    setLinkedInMessage(null)
-
-    try {
-      const response = await callEdgeFunction<DisconnectLinkedInResponse>(
-        'disconnect-linkedin',
-        {},
-        session.access_token
-      )
-
-      if (response.success) {
-        setLinkedInStatus({
-          isConnected: false,
-          accountId: null,
-          connectedAt: null,
-        })
-        setLinkedInMessage({ type: 'success', text: 'LinkedIn account disconnected successfully.' })
-      } else {
-        setLinkedInMessage({ type: 'error', text: 'Failed to disconnect LinkedIn. Please try again.' })
-      }
-    } catch (error) {
-      console.error('Error disconnecting LinkedIn:', error)
-      setLinkedInMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to disconnect LinkedIn. Please try again.',
-      })
-    } finally {
-      setLinkedInActionLoading(false)
-    }
-  }
+  const linkedin = useLinkedInConnection()
+  const gmail = useGmailConnection()
 
   const handleUpdatePassword = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -307,7 +59,7 @@ export function Settings() {
   return (
     <div className="p-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
+        <h1 className="text-[28px] font-bold tracking-tight font-heading">Settings</h1>
         <p className="text-muted-foreground">Manage your account settings</p>
       </div>
 
@@ -383,9 +135,9 @@ export function Settings() {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <p className="font-medium">LinkedIn</p>
-                  {linkedInLoading ? (
+                  {linkedin.isLoading ? (
                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  ) : linkedInStatus.isConnected ? (
+                  ) : linkedin.status.isConnected ? (
                     <Badge variant="default" className="bg-green-600 hover:bg-green-700">
                       <CheckCircle2 className="h-3 w-3 mr-1" />
                       Connected
@@ -400,20 +152,20 @@ export function Settings() {
                 <p className="text-sm text-muted-foreground">
                   Connect your LinkedIn account for automation
                 </p>
-                {linkedInStatus.isConnected && linkedInStatus.connectedAt && (
+                {linkedin.status.isConnected && linkedin.status.connectedAt && (
                   <p className="text-xs text-muted-foreground">
-                    Connected on {formatDate(linkedInStatus.connectedAt)}
+                    Connected on {formatDate(linkedin.status.connectedAt)}
                   </p>
                 )}
               </div>
               <div className="flex gap-2">
-                {linkedInStatus.isConnected ? (
+                {linkedin.status.isConnected ? (
                   <Button
                     variant="outline"
-                    onClick={handleDisconnectLinkedIn}
-                    disabled={linkedInActionLoading}
+                    onClick={linkedin.disconnect}
+                    disabled={linkedin.actionLoading}
                   >
-                    {linkedInActionLoading ? (
+                    {linkedin.actionLoading ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                         Disconnecting...
@@ -425,10 +177,10 @@ export function Settings() {
                 ) : (
                   <Button
                     variant="default"
-                    onClick={handleConnectLinkedIn}
-                    disabled={linkedInActionLoading || linkedInLoading}
+                    onClick={linkedin.connect}
+                    disabled={linkedin.actionLoading || linkedin.isLoading}
                   >
-                    {linkedInActionLoading ? (
+                    {linkedin.actionLoading ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                         Connecting...
@@ -443,137 +195,92 @@ export function Settings() {
                 )}
               </div>
             </div>
-            {linkedInMessage && (
+            {linkedin.message && (
               <p
                 className={`text-sm ${
-                  linkedInMessage.type === 'success' ? 'text-green-600' : 'text-destructive'
+                  linkedin.message.type === 'success' ? 'text-green-600' : 'text-destructive'
                 }`}
               >
-                {linkedInMessage.text}
+                {linkedin.message.text}
               </p>
             )}
 
-            {/* Debug button - temporary */}
-            <div className="mt-4 p-4 bg-muted rounded-lg space-y-3">
-              <p className="text-sm font-medium">Debug: Check Unipile & Database</p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    if (!session?.access_token) {
-                      alert('Not logged in')
-                      return
-                    }
-                    try {
-                      const response = await callEdgeFunction<{
-                        success: boolean
-                        currentUserId: string
-                        database: {
-                          unipileAccounts: Array<{ id: string; user_id: string; account_id: string; provider: string; status: string }>
-                          profile: { user_id: string; unipile_account_id: string | null } | null
-                        }
-                        unipile: {
-                          totalAccounts: number
-                          accounts: Array<{
-                            id: string
-                            name: string
-                            type: string
-                            matchesUserId: boolean
-                          }>
-                        }
-                      }>('debug-unipile-accounts', {}, session.access_token)
-                      console.log('Debug response:', response)
-
-                      // Format nicely for display
-                      let message = `=== DEBUG INFO ===\n\n`
-                      message += `Your User ID: ${response.currentUserId}\n\n`
-                      message += `=== DATABASE ===\n`
-                      message += `Unipile Accounts in DB: ${response.database?.unipileAccounts?.length || 0}\n`
-                      if (response.database?.unipileAccounts?.length > 0) {
-                        response.database.unipileAccounts.forEach((acc, i) => {
-                          message += `  ${i + 1}. account_id: ${acc.account_id}, status: ${acc.status}\n`
-                        })
-                      }
-                      message += `Profile unipile_account_id: ${response.database?.profile?.unipile_account_id || 'null'}\n\n`
-                      message += `=== UNIPILE API ===\n`
-                      message += `Total Accounts: ${response.unipile?.totalAccounts || 0}\n`
-                      if (response.unipile?.accounts?.length > 0) {
-                        response.unipile.accounts.forEach((acc, i) => {
-                          message += `  ${i + 1}. id: ${acc.id}\n`
-                          message += `      name: ${acc.name}\n`
-                          message += `      type: ${acc.type}\n`
-                          message += `      matches: ${acc.matchesUserId ? 'YES' : 'NO'}\n`
-                        })
-                      }
-
-                      alert(message)
-                    } catch (error) {
-                      console.error('Debug error:', error)
-                      alert('Error: ' + (error instanceof Error ? error.message : 'Unknown error'))
-                    }
-                  }}
-                >
-                  Show Debug Info
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    if (!session?.access_token) {
-                      alert('Not logged in')
-                      return
-                    }
-                    try {
-                      setLinkedInMessage({ type: 'success', text: 'Checking connection...' })
-                      const response = await callEdgeFunction<{
-                        success: boolean
-                        isConnected: boolean
-                        accountId?: string
-                        savedToDb?: boolean
-                        source?: string
-                      }>('check-linkedin-connection', {}, session.access_token)
-                      console.log('Check connection response:', response)
-
-                      if (response.isConnected) {
-                        setLinkedInStatus({
-                          isConnected: true,
-                          accountId: response.accountId || null,
-                          connectedAt: new Date().toISOString(),
-                        })
-                        setLinkedInMessage({
-                          type: 'success',
-                          text: `Connected! Account: ${response.accountId}, Saved: ${response.savedToDb}, Source: ${response.source}`
-                        })
-                      } else {
-                        setLinkedInMessage({ type: 'error', text: 'No LinkedIn account found in Unipile' })
-                      }
-                    } catch (error) {
-                      console.error('Error:', error)
-                      setLinkedInMessage({ type: 'error', text: (error instanceof Error ? error.message : 'Unknown error') })
-                    }
-                  }}
-                >
-                  Force Check & Save
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Your User ID: {user?.id}
-              </p>
-            </div>
-
             <Separator />
 
-            {/* Email Integration - Coming Soon */}
+            {/* Gmail Integration */}
             <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Email (SMTP)</p>
-                <p className="text-sm text-muted-foreground">Configure email sending</p>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <p className="font-medium">Gmail</p>
+                  {gmail.isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  ) : gmail.status.isConnected ? (
+                    <Badge variant="default" className="bg-green-600 hover:bg-green-700">
+                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                      Connected
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary">
+                      <XCircle className="h-3 w-3 mr-1" />
+                      Not Connected
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Connect your Gmail account for email automation
+                </p>
+                {gmail.status.isConnected && gmail.status.connectedAt && (
+                  <p className="text-xs text-muted-foreground">
+                    Connected on {formatDate(gmail.status.connectedAt)}
+                  </p>
+                )}
               </div>
-              <Button variant="outline" disabled>
-                Coming Soon
-              </Button>
+              <div className="flex gap-2">
+                {gmail.status.isConnected ? (
+                  <Button
+                    variant="outline"
+                    onClick={gmail.disconnect}
+                    disabled={gmail.actionLoading}
+                  >
+                    {gmail.actionLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Disconnecting...
+                      </>
+                    ) : (
+                      'Disconnect'
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="default"
+                    onClick={gmail.connect}
+                    disabled={gmail.actionLoading || gmail.isLoading}
+                  >
+                    {gmail.actionLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="h-4 w-4 mr-2" />
+                        Connect Gmail
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
             </div>
+            {gmail.message && (
+              <p
+                className={`text-sm ${
+                  gmail.message.type === 'success' ? 'text-green-600' : 'text-destructive'
+                }`}
+              >
+                {gmail.message.text}
+              </p>
+            )}
 
             <Separator />
 

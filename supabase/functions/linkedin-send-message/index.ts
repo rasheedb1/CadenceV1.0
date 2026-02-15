@@ -2,7 +2,7 @@
 // POST /functions/v1/linkedin-send-message
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
-import { createSupabaseClient, getAuthUser, logActivity, getUnipileAccountId } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthUserOrOwner, logActivity, getUnipileAccountId } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface SendMessageRequest {
@@ -16,6 +16,7 @@ interface SendMessageRequest {
   instanceId?: string
   // Force a specific channel (optional)
   channel?: 'linkedin' | 'sales_navigator'
+  ownerId?: string // For service-role calls from process-queue
 }
 
 interface UnipileAccount {
@@ -146,14 +147,14 @@ serve(async (req: Request) => {
       return errorResponse('Missing authorization header', 401)
     }
 
-    const user = await getAuthUser(authHeader)
+    // Parse request body
+    const body: SendMessageRequest = await req.json()
+    const { leadId, chatId, message, cadenceId, cadenceStepId, scheduleId, instanceId, channel, ownerId } = body
+
+    const user = await getAuthUserOrOwner(authHeader, ownerId)
     if (!user) {
       return errorResponse('Unauthorized', 401)
     }
-
-    // Parse request body
-    const body: SendMessageRequest = await req.json()
-    const { leadId, chatId, message, cadenceId, cadenceStepId, scheduleId, instanceId, channel } = body
 
     if (!message) {
       return errorResponse('message is required')

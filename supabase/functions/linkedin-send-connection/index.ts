@@ -2,7 +2,7 @@
 // POST /functions/v1/linkedin-send-connection
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
-import { createSupabaseClient, getAuthUser, logActivity, getUnipileAccountId } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthUserOrOwner, logActivity, getUnipileAccountId } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface SendConnectionRequest {
@@ -12,6 +12,7 @@ interface SendConnectionRequest {
   cadenceStepId?: string
   scheduleId?: string
   instanceId?: string
+  ownerId?: string // For service-role calls from process-queue
 }
 
 serve(async (req: Request) => {
@@ -26,14 +27,14 @@ serve(async (req: Request) => {
       return errorResponse('Missing authorization header', 401)
     }
 
-    const user = await getAuthUser(authHeader)
+    // Parse request body
+    const body: SendConnectionRequest = await req.json()
+    const { leadId, message, cadenceId, cadenceStepId, scheduleId, instanceId, ownerId } = body
+
+    const user = await getAuthUserOrOwner(authHeader, ownerId)
     if (!user) {
       return errorResponse('Unauthorized', 401)
     }
-
-    // Parse request body
-    const body: SendConnectionRequest = await req.json()
-    const { leadId, message, cadenceId, cadenceStepId, scheduleId, instanceId } = body
 
     if (!leadId) {
       return errorResponse('leadId is required')

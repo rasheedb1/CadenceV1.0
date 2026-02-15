@@ -8,11 +8,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export function Auth() {
-  const { user, signIn, signUp } = useAuth()
+  const { user, profile, signIn, signUp } = useAuth()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   if (user) {
+    if (profile && !profile.onboarding_completed) {
+      return <Navigate to="/onboarding" replace />
+    }
     return <Navigate to="/" replace />
   }
 
@@ -55,7 +58,12 @@ export function Auth() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Laiky Cadence</CardTitle>
+          <div className="flex justify-center mb-2">
+            <div className="flex h-12 w-12 items-center justify-center rounded-[10px] logo-gradient text-white text-lg font-bold">
+              L
+            </div>
+          </div>
+          <CardTitle className="text-2xl font-heading">Laiky Cadence</CardTitle>
           <CardDescription>Sales automation platform</CardDescription>
         </CardHeader>
         <CardContent>

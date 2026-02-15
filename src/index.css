@@ -1,28 +1,41 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --color-background: #ffffff;
-  --color-foreground: #0a0a0a;
-  --color-card: #ffffff;
-  --color-card-foreground: #0a0a0a;
-  --color-popover: #ffffff;
-  --color-popover-foreground: #0a0a0a;
-  --color-primary: #171717;
-  --color-primary-foreground: #fafafa;
-  --color-secondary: #f5f5f5;
-  --color-secondary-foreground: #171717;
-  --color-muted: #f5f5f5;
-  --color-muted-foreground: #737373;
-  --color-accent: #f5f5f5;
-  --color-accent-foreground: #171717;
-  --color-destructive: #ef4444;
-  --color-destructive-foreground: #fafafa;
-  --color-border: #e5e5e5;
-  --color-input: #e5e5e5;
-  --color-ring: #0a0a0a;
+  /* Light mode defaults — all shadcn utilities (bg-primary, text-muted-foreground, etc.) resolve from these */
+  --color-background: #FAFBFC;
+  --color-foreground: #1E293B;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #1E293B;
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #1E293B;
+  --color-primary: #6366F1;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #F1F5F9;
+  --color-secondary-foreground: #1E293B;
+  --color-muted: #F8F9FE;
+  --color-muted-foreground: #64748B;
+  --color-accent: #EEF2FF;
+  --color-accent-foreground: #1E293B;
+  --color-destructive: #EF4444;
+  --color-destructive-foreground: #FFFFFF;
+  --color-border: #E2E8F0;
+  --color-input: #E2E8F0;
+  --color-ring: #6366F1;
+  --color-sidebar: #F8F9FE;
+  --color-sidebar-foreground: #1E293B;
+  --color-sidebar-accent: #6366F1;
+  --color-sidebar-gradient-from: #F8F9FE;
+  --color-sidebar-gradient-to: #EEF2FF;
+  --color-nav-active-from: rgba(99,102,241,0.19);
+  --color-nav-active-to: rgba(99,102,241,0.12);
+  --color-nav-active-border: rgba(99,102,241,0.13);
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
   --radius: 0.5rem;
-  --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Geist", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-heading: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 @layer base {
@@ -44,10 +57,68 @@
     margin: 0;
     min-height: 100vh;
   }
+
+  /* Dark theme overrides */
+  [data-theme="dark"] {
+    --color-background: #0A0B14;
+    --color-foreground: #F1F5F9;
+    --color-card: #1A1B28;
+    --color-card-foreground: #F1F5F9;
+    --color-popover: #1A1B28;
+    --color-popover-foreground: #F1F5F9;
+    --color-primary: #8B5CF6;
+    --color-primary-foreground: #FFFFFF;
+    --color-secondary: #1E1F2E;
+    --color-secondary-foreground: #E5E7EB;
+    --color-muted: #13141F;
+    --color-muted-foreground: #9CA3AF;
+    --color-accent: #1E1F2E;
+    --color-accent-foreground: #E5E7EB;
+    --color-destructive: #EF4444;
+    --color-destructive-foreground: #FFFFFF;
+    --color-border: #2D2E3F;
+    --color-input: #2D2E3F;
+    --color-ring: #8B5CF6;
+    --color-sidebar: #0F1019;
+    --color-sidebar-foreground: #E5E7EB;
+    --color-sidebar-accent: #8B5CF6;
+    --color-sidebar-gradient-from: #0F1019;
+    --color-sidebar-gradient-to: #1A1B28;
+    --color-nav-active-from: rgba(139,92,246,0.25);
+    --color-nav-active-to: rgba(99,102,241,0.19);
+    --color-nav-active-border: rgba(139,92,246,0.13);
+    --color-success: #10B981;
+    --color-warning: #F59E0B;
+  }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
+
+  .font-heading {
+    font-family: var(--font-heading);
+  }
+
+  .sidebar-gradient {
+    background: linear-gradient(to bottom, var(--color-sidebar-gradient-from), var(--color-sidebar-gradient-to));
+  }
+
+  .nav-active-gradient {
+    background: linear-gradient(135deg, var(--color-nav-active-from), var(--color-nav-active-to));
+    border: 1px solid var(--color-nav-active-border);
+  }
+
+  .logo-gradient {
+    background: linear-gradient(135deg, #8B5CF6, #6366F1);
+  }
+
+  .featured-card-gradient {
+    background: linear-gradient(135deg, #6366F1, #818CF8);
+  }
+}
+
+[data-theme="dark"] .featured-card-gradient {
+  background: linear-gradient(135deg, #8B5CF6, #6366F1);
 }

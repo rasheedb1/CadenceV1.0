@@ -36,6 +36,15 @@ export interface CommentParams {
   text: string
 }
 
+export interface SendEmailParams {
+  accountId: string
+  to: Array<{ display_name?: string; identifier: string }>
+  subject: string
+  body: string
+  cc?: Array<{ display_name?: string; identifier: string }>
+  bcc?: Array<{ display_name?: string; identifier: string }>
+}
+
 export interface UnipileResponse<T = unknown> {
   success: boolean
   data?: T
@@ -161,6 +170,20 @@ export class UnipileClient {
       return result
     }
     return { success: false, error: 'Either chatId or attendeeId is required' }
+  }
+
+  // Send an email
+  async sendEmail(params: SendEmailParams): Promise<UnipileResponse> {
+    console.log(`Sending email via account ${params.accountId} to ${params.to.map(t => t.identifier).join(', ')}`)
+    const body: Record<string, unknown> = {
+      account_id: params.accountId,
+      to: params.to,
+      subject: params.subject,
+      body: params.body,
+    }
+    if (params.cc && params.cc.length > 0) body.cc = params.cc
+    if (params.bcc && params.bcc.length > 0) body.bcc = params.bcc
+    return this.request('POST', '/api/v1/emails', body)
   }
 
   // Check if an error indicates the recipient is not connected

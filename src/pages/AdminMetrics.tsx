@@ -196,7 +196,7 @@ export function AdminMetrics() {
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Admin
           </Link>
-          <h1 className="text-3xl font-semibold tracking-tight">Analytics</h1>
+          <h1 className="text-[28px] font-bold tracking-tight font-heading">Analytics</h1>
           <p className="text-muted-foreground">Message statistics and performance metrics</p>
         </div>
         <Select value={timeRange} onValueChange={setTimeRange}>

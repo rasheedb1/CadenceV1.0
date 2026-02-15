@@ -169,7 +169,7 @@ export function Admin() {
   return (
     <div className="p-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-semibold tracking-tight">Admin Dashboard</h1>
+        <h1 className="text-[28px] font-bold tracking-tight font-heading">Admin Dashboard</h1>
         <p className="text-muted-foreground">System overview and administration</p>
       </div>
 

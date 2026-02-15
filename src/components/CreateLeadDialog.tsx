@@ -119,6 +119,16 @@ export function CreateLeadDialog({
         linkedin_url: data.linkedin_url || null,
         phone: data.phone || null,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        industry: null,
+        website: null,
+        company_linkedin_url: null,
+        annual_revenue: null,
+        total_funding: null,
+        latest_funding: null,
+        latest_funding_amount: null,
+        department: null,
+        corporate_phone: null,
+        personal_phone: null,
       })
 
       // Assign to cadence if selected

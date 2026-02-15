@@ -243,7 +243,7 @@ export interface DisconnectLinkedInResponse {
 // AI Research + Generate Types
 export interface AIGenerateRequest {
   leadId: string
-  stepType: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment'
+  stepType: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email'
   messageTemplate?: string
   researchPrompt?: string
   tone?: 'professional' | 'casual' | 'friendly'
@@ -271,6 +271,7 @@ export interface AIResearchInsight {
 export interface AIGenerateResponse {
   success: boolean
   generatedMessage: string
+  generatedSubject?: string
   research: {
     profileSummary: AIProfileSummary
     webInsights: AIResearchInsight[]
@@ -290,7 +291,7 @@ export interface AIGenerateResponse {
 export interface AIPolishPromptRequest {
   description: string
   promptType?: 'message' | 'research'
-  stepType?: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment'
+  stepType?: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email'
   tone?: 'professional' | 'casual' | 'friendly'
   language?: string
 }
@@ -326,7 +327,7 @@ export interface AIPrompt {
   owner_id: string
   name: string
   prompt_type: 'message' | 'research'
-  step_type: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | null
+  step_type: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email' | null
   description: string | null
   prompt_body: string
   tone: 'professional' | 'casual' | 'friendly'
