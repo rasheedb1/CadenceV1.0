@@ -2,8 +2,8 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { createSupabaseClient, getAuthUser, getUnipileAccountId, logActivity } from '../_shared/supabase.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
-import { createExaClient } from '../_shared/exa.ts'
-import { createAnthropicClient } from '../_shared/anthropic.ts'
+import { createFirecrawlClient, type FirecrawlClient } from '../_shared/firecrawl.ts'
+import { createLLMClientForUser } from '../_shared/llm.ts'
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -251,11 +251,11 @@ serve(async (req: Request) => {
 
     // ── Initialize clients ──
     const unipile = createUnipileClient()
-    let exa: ReturnType<typeof createExaClient> | null = null
+    let firecrawl: FirecrawlClient | null = null
     try {
-      exa = createExaClient()
+      firecrawl = createFirecrawlClient()
     } catch {
-      console.log('Exa API key not configured, skipping web research')
+      console.log('Firecrawl API key not configured, skipping web research')
     }
 
     // ── Extract LinkedIn username ──
@@ -289,47 +289,34 @@ serve(async (req: Request) => {
       })()
     }
 
-    // 3. Exa search queries (if client available)
+    // 3. Firecrawl search queries (if client available)
     const firstName = lead.first_name || ''
     const lastName = lead.last_name || ''
     const company = lead.company || ''
 
-    if (exa && (firstName || company)) {
+    if (firecrawl && (firstName || company)) {
       // Query 1: Person-focused search
       if (firstName && lastName) {
-        promises.exaPerson = exa.searchWithContents(
+        promises.firecrawlPerson = firecrawl.search(
           `"${firstName} ${lastName}" ${company} latest news announcements`,
-          {
-            numResults: 5,
-            type: 'auto',
-            startPublishedDate: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-            text: { maxCharacters: 500 },
-            highlights: { numSentences: 2, highlightsPerUrl: 2 },
-          }
+          { limit: 5, tbs: 'qdr:y' }
         )
       }
 
       // Query 2: Company-focused search
       if (company) {
-        promises.exaCompany = exa.searchWithContents(
+        promises.firecrawlCompany = firecrawl.search(
           `"${company}" recent news product launch funding partnership`,
-          {
-            numResults: 5,
-            type: 'auto',
-            startPublishedDate: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-            text: { maxCharacters: 500 },
-            highlights: { numSentences: 2, highlightsPerUrl: 2 },
-          }
+          { limit: 5, tbs: 'qdr:y' }
         )
       }
     }
 
-    // 4. Exa contents for additional URLs
-    if (exa && additionalUrls && additionalUrls.length > 0) {
-      promises.exaUrls = exa.getContents(additionalUrls, {
-        text: { maxCharacters: 1000 },
-        highlights: { numSentences: 3, highlightsPerUrl: 3 },
-      })
+    // 4. Firecrawl scrape for additional URLs
+    if (firecrawl && additionalUrls && additionalUrls.length > 0) {
+      promises.firecrawlUrls = Promise.all(
+        additionalUrls.map(url => firecrawl!.scrape(url, { formats: ['markdown'] }))
+      )
     }
 
     // ── Wait for all results ──
@@ -385,45 +372,62 @@ serve(async (req: Request) => {
       }
     }
 
-    // ── Process Exa results into insights ──
+    // ── Process Firecrawl results into insights ──
     const webInsights: WebInsight[] = []
     let researchFailed = false
     const seenUrls = new Set<string>()
 
-    const processExaResult = (key: string) => {
+    const processFirecrawlSearchResult = (key: string) => {
       if (settled[key]?.status === 'fulfilled') {
-        const exaResult = settled[key].value as { success: boolean; data?: { results?: Array<Record<string, unknown>> } }
-        if (exaResult?.success && exaResult.data?.results) {
-          for (const result of exaResult.data.results) {
-            const url = result.url as string
-            if (seenUrls.has(url)) continue
-            seenUrls.add(url)
+        const searchResult = settled[key].value as { success: boolean; data?: Array<{ url: string; title: string; description: string }> }
+        if (searchResult?.success && searchResult.data) {
+          for (const result of searchResult.data) {
+            if (seenUrls.has(result.url)) continue
+            seenUrls.add(result.url)
 
-            const highlights = result.highlights as string[] | undefined
-            const text = result.text as string | undefined
-            const snippet = highlights?.[0] || truncate(text || '', 200) || ''
-
+            const snippet = truncate(result.description || '', 200)
             if (snippet) {
               webInsights.push({
-                title: (result.title as string) || url,
+                title: result.title || result.url,
                 snippet,
-                url,
+                url: result.url,
               })
             }
           }
         }
       } else if (settled[key]?.status === 'rejected') {
-        console.error(`Exa ${key} failed:`, settled[key].reason)
+        console.error(`Firecrawl ${key} failed:`, settled[key].reason)
         researchFailed = true
       }
     }
 
-    if (promises.exaPerson) processExaResult('exaPerson')
-    if (promises.exaCompany) processExaResult('exaCompany')
-    if (promises.exaUrls) processExaResult('exaUrls')
+    if (promises.firecrawlPerson) processFirecrawlSearchResult('firecrawlPerson')
+    if (promises.firecrawlCompany) processFirecrawlSearchResult('firecrawlCompany')
 
-    // If exa was not available at all, mark as failed but continue
-    if (!exa) researchFailed = true
+    // Process additional URL scrapes
+    if (settled.firecrawlUrls?.status === 'fulfilled') {
+      const scrapeResults = settled.firecrawlUrls.value as Array<{ success: boolean; data?: { markdown?: string; metadata?: Record<string, unknown> } }>
+      for (let i = 0; i < scrapeResults.length; i++) {
+        const result = scrapeResults[i]
+        const url = additionalUrls![i]
+        if (seenUrls.has(url)) continue
+        seenUrls.add(url)
+
+        if (result?.success && result.data?.markdown) {
+          webInsights.push({
+            title: (result.data.metadata?.title as string) || url,
+            snippet: truncate(result.data.markdown, 300),
+            url,
+          })
+        }
+      }
+    } else if (settled.firecrawlUrls?.status === 'rejected') {
+      console.error('Firecrawl URL scrapes failed:', settled.firecrawlUrls.reason)
+      researchFailed = true
+    }
+
+    // If firecrawl was not available at all, mark as failed but continue
+    if (!firecrawl) researchFailed = true
 
     // Limit to 6 insights, sorted by relevance (person first, then company)
     const finalInsights = webInsights.slice(0, 6)
@@ -453,14 +457,16 @@ serve(async (req: Request) => {
       ? substituteTemplateVariables(researchPrompt, templateVars)
       : researchPrompt
 
-    // ── Generate message + research summary with Anthropic (in parallel) ──
+    // ── Generate message + research summary with LLM (in parallel) ──
     const generationStart = Date.now()
-    let anthropic
+    let llm
     try {
-      anthropic = createAnthropicClient()
-    } catch {
-      return errorResponse('Anthropic API key not configured', 500)
+      llm = await createLLMClientForUser(userId)
+    } catch (err) {
+      console.error('Failed to create LLM client:', err)
+      return errorResponse('LLM API not configured', 500)
     }
+    console.log(`Using LLM: ${llm.provider}/${llm.model}`)
 
     const systemPrompt = buildSystemPrompt(stepType, tone, language, resolvedMessageTemplate, exampleMessages)
     const userPrompt = buildUserPrompt(profileSummary, finalInsights, stepType, postContext)
@@ -512,13 +518,13 @@ Reglas:
 
     // Run message generation and research summary in parallel
     const [aiResult, summaryResult] = await Promise.all([
-      anthropic.createMessage({
+      llm.createMessage({
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
         maxTokens,
         temperature: 0.7,
       }),
-      anthropic.createMessage({
+      llm.createMessage({
         system: researchSummarySystemPrompt,
         messages: [{
           role: 'user',
@@ -529,8 +535,8 @@ Reglas:
       }),
     ])
 
-    if (!aiResult.success || !aiResult.data) {
-      console.error('Anthropic generation failed:', aiResult.error)
+    if (!aiResult.success) {
+      console.error('LLM generation failed:', aiResult.error)
 
       // Log failure
       await logActivity({
@@ -544,10 +550,8 @@ Reglas:
       return errorResponse(`Message generation failed: ${aiResult.error}`, 500)
     }
 
-    let generatedMessage = anthropic.extractText(aiResult.data)
-    const researchSummary = summaryResult.success && summaryResult.data
-      ? anthropic.extractText(summaryResult.data)
-      : null
+    let generatedMessage = aiResult.text
+    const researchSummary = summaryResult.success ? summaryResult.text : null
     const generationTimeMs = Date.now() - generationStart
 
     // Extract and strip "SUBJECT: ..." from the first line (for ALL step types)
@@ -602,7 +606,7 @@ Reglas:
         sourcesUsed: [
           ...(settled.profile?.status === 'fulfilled' ? ['unipile_profile'] : []),
           ...(profileSummary.recentPosts.length > 0 ? ['unipile_posts'] : []),
-          ...(finalInsights.length > 0 ? ['exa_search'] : []),
+          ...(finalInsights.length > 0 ? ['firecrawl_search'] : []),
         ],
       },
     })

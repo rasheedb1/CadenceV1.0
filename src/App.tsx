@@ -27,6 +27,10 @@ import { Workflows } from '@/pages/Workflows'
 import { WorkflowBuilder } from '@/pages/WorkflowBuilder'
 import { WorkflowRuns } from '@/pages/WorkflowRuns'
 import { Notifications } from '@/pages/Notifications'
+import { AccountMapping } from '@/pages/AccountMapping'
+import { AccountMapDetail } from '@/pages/AccountMapDetail'
+import { CompanyRegistry } from '@/pages/CompanyRegistry'
+import { AccountMappingProvider } from '@/contexts/AccountMappingContext'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -46,6 +50,7 @@ function App() {
           <AuthProvider>
             <CadenceProvider>
             <WorkflowProvider>
+            <AccountMappingProvider>
               <Routes>
                 <Route path="/auth" element={<Auth />} />
                 <Route path="/onboarding" element={<Onboarding />} />
@@ -57,6 +62,9 @@ function App() {
                   <Route path="/workflows" element={<Workflows />} />
                   <Route path="/workflows/:id" element={<WorkflowBuilder />} />
                   <Route path="/workflows/:id/runs" element={<WorkflowRuns />} />
+                  <Route path="/account-mapping" element={<AccountMapping />} />
+                  <Route path="/account-mapping/:id" element={<AccountMapDetail />} />
+                  <Route path="/company-registry" element={<CompanyRegistry />} />
                   <Route path="/leads" element={<Leads />} />
                   <Route path="/inbox" element={<LinkedInInbox />} />
                   <Route path="/templates" element={<Templates />} />
@@ -69,6 +77,7 @@ function App() {
                 </Route>
               </Routes>
               <Toaster position="bottom-right" />
+            </AccountMappingProvider>
             </WorkflowProvider>
             </CadenceProvider>
           </AuthProvider>

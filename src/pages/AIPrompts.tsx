@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { LLMModelSelector } from '@/components/LLMModelSelector'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
@@ -561,20 +562,22 @@ export function AIPrompts() {
           rows={3}
           className="text-sm"
         />
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-2"
-          onClick={handlePolish}
-          disabled={polishing || !formData.description.trim()}
-        >
-          {polishing ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Sparkles className="mr-2 h-4 w-4 text-purple-500" />
-          )}
-          {polishing ? 'Puliendo...' : 'Polish Prompt con AI'}
-        </Button>
+        <div className="flex items-center gap-2 mt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePolish}
+            disabled={polishing || !formData.description.trim()}
+          >
+            {polishing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="mr-2 h-4 w-4 text-purple-500" />
+            )}
+            {polishing ? 'Puliendo...' : 'Polish Prompt con AI'}
+          </Button>
+          <LLMModelSelector />
+        </div>
       </div>
 
       {/* Prompt body */}

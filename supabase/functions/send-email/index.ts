@@ -3,7 +3,7 @@
 // Sends an email through the user's connected Gmail account via Unipile API
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createSupabaseClient, getAuthUserOrOwner, logActivity } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthUserOrOwner, logActivity, trackProspectedCompany } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface SendEmailRequest {
@@ -83,16 +83,18 @@ serve(async (req: Request) => {
     // Get lead info if leadId provided — also resolve email address
     let recipientEmail = to
     let leadName: string | null = null
+    let leadCompany: string | null = null
     if (leadId) {
       const { data: lead } = await supabase
         .from('leads')
-        .select('first_name, last_name, email')
+        .select('first_name, last_name, email, company')
         .eq('id', leadId)
         .eq('owner_id', user.id)
         .single()
 
       if (lead) {
         leadName = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || null
+        leadCompany = lead.company || null
         // Use lead's email if 'to' was not provided
         if (!recipientEmail && lead.email) {
           recipientEmail = lead.email
@@ -237,6 +239,15 @@ serve(async (req: Request) => {
       status: 'ok',
       details: { emailId, to: recipientEmail, subject },
     })
+
+    // Track company as prospected in registry
+    if (leadCompany) {
+      trackProspectedCompany({
+        ownerId: user.id,
+        companyName: leadCompany,
+        prospectedVia: 'email',
+      })
+    }
 
     // Update schedule status if provided
     if (scheduleId) {

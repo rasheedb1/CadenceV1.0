@@ -11,10 +11,12 @@ import {
   LogOut,
   FileText,
   Shield,
+  ShieldCheck,
   Brain,
   Moon,
   Sun,
   Bell,
+  Target,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -25,6 +27,8 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Cadences', href: '/cadences', icon: Workflow },
   { name: 'Workflows', href: '/workflows', icon: GitBranch },
+  { name: 'Account Mapping', href: '/account-mapping', icon: Target },
+  { name: 'Company Registry', href: '/company-registry', icon: ShieldCheck },
   { name: 'Leads', href: '/leads', icon: Users },
   { name: 'Templates', href: '/templates', icon: FileText },
   { name: 'AI Prompts', href: '/ai-prompts', icon: Brain },

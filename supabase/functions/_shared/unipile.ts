@@ -323,6 +323,36 @@ export class UnipileClient {
   async searchUsers(accountId: string, query: string, limit = 10): Promise<UnipileResponse> {
     return this.request('GET', `/api/v1/users/search?account_id=${accountId}&query=${encodeURIComponent(query)}&limit=${limit}`)
   }
+
+  // Search Sales Navigator for people
+  async searchSalesNavigator(accountId: string, params: {
+    keywords?: string
+    company_names?: string[]
+    title_keywords?: string[]
+    location?: string
+    company_size_min?: string
+    company_size_max?: string
+    seniority?: string[]
+    limit?: number
+    cursor?: string
+  }): Promise<UnipileResponse> {
+    const body: Record<string, unknown> = {
+      api: 'sales_navigator',
+      category: 'people',
+    }
+    if (params.keywords) body.keywords = params.keywords
+    if (params.company_names?.length) body.company_names = params.company_names
+    if (params.title_keywords?.length) body.title = params.title_keywords.join(' OR ')
+    if (params.location) body.location = params.location
+    if (params.seniority?.length) body.seniority = params.seniority
+    if (params.limit) body.limit = params.limit
+    if (params.cursor) body.cursor = params.cursor
+    if (params.company_size_min) body.company_size_min = params.company_size_min
+    if (params.company_size_max) body.company_size_max = params.company_size_max
+
+    // account_id must be a query parameter per Unipile API docs
+    return this.request('POST', `/api/v1/linkedin/search?account_id=${accountId}`, body)
+  }
 }
 
 // Factory function to create client from environment

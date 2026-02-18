@@ -1,11 +1,11 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { getAuthUser } from '../_shared/supabase.ts'
-import { createAnthropicClient } from '../_shared/anthropic.ts'
+import { createLLMClientForUser } from '../_shared/llm.ts'
 
 interface PolishPromptRequest {
   description: string
-  promptType?: 'message' | 'research'
+  promptType?: 'message' | 'research' | 'icp'
   stepType?: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email'
   tone?: 'professional' | 'casual' | 'friendly'
   language?: string
@@ -36,7 +36,6 @@ function buildMessagePolishPrompt(stepType: string, tone: string, language: stri
   const toneDesc = TONE_DESCRIPTIONS[tone] || TONE_DESCRIPTIONS.professional
   const langLabel = language === 'es' ? 'Spanish' : language === 'en' ? 'English' : language
   const isEmail = stepType === 'send_email'
-  const channelLabel = isEmail ? 'email' : 'LinkedIn'
   const messageLabel = isEmail ? 'emails' : 'LinkedIn messages'
 
   return `You are an expert prompt engineer specializing in B2B sales outreach${isEmail ? ' via cold email' : ' for LinkedIn'}.
@@ -72,6 +71,28 @@ ${isEmail ? '9. Include instructions for generating a compelling SUBJECT line fo
 ## Output format:
 Return ONLY the polished prompt text. No explanations, no preamble, no "Here's your prompt:" prefix.
 The output should be ready to use as-is as instructions for the ${isEmail ? 'email' : 'message'} generator.`
+}
+
+function buildICPPolishPrompt(language: string): string {
+  const langLabel = language === 'es' ? 'Spanish' : language === 'en' ? 'English' : language
+
+  return `You are an expert B2B sales strategist and ICP (Ideal Customer Profile) analyst.
+
+Your job is to take a user's rough description of their target company profile and transform it into a clear, structured, and detailed ICP description that can be used to guide prospecting and Sales Navigator searches.
+
+## Rules:
+1. Preserve the user's core intent — don't change WHO they're targeting, just clarify and enrich the description
+2. Add structure: break it into clear sections if useful (industry, size, signals, characteristics)
+3. Be specific: replace vague terms with concrete criteria (e.g., "big companies" → "companies with 500+ employees or $50M+ revenue")
+4. Add useful targeting signals the user might have missed (growth indicators, technology usage, market position, etc.)
+5. Keep it as a natural-language description, NOT a rigid form or JSON
+6. Write in: ${langLabel}
+7. Be concise but comprehensive — aim for 3-8 sentences
+8. Focus on characteristics that would help identify the RIGHT companies to target
+
+## Output format:
+Return ONLY the polished ICP description. No explanations, no preamble, no "Here's your polished description:" prefix.
+The output should be ready to use as-is as a company targeting description.`
 }
 
 function buildResearchPolishPrompt(language: string): string {
@@ -140,23 +161,29 @@ serve(async (req: Request) => {
       return errorResponse('stepType is required for message prompts')
     }
 
-    // Initialize Anthropic
-    let anthropic
+    // Initialize LLM using user's settings
+    let llm
     try {
-      anthropic = createAnthropicClient()
-    } catch {
-      return errorResponse('Anthropic API not configured', 500)
+      llm = await createLLMClientForUser(user.id)
+    } catch (err) {
+      return errorResponse(`LLM not configured: ${err instanceof Error ? err.message : 'Unknown'}`, 500)
     }
 
-    const systemPrompt = promptType === 'research'
-      ? buildResearchPolishPrompt(language)
-      : buildMessagePolishPrompt(stepType || 'linkedin_message', tone, language)
+    let systemPrompt: string
+    let userContent: string
 
-    const userContent = promptType === 'research'
-      ? `Here is the user's rough description of what research/analysis they want:\n\n"${description.trim()}"\n\nTransform this into a polished, structured prompt for the research analyst AI.`
-      : `Here is the user's rough description of what they want:\n\n"${description.trim()}"\n\nTransform this into a polished, structured prompt for the message generator.`
+    if (promptType === 'icp') {
+      systemPrompt = buildICPPolishPrompt(language)
+      userContent = `Here is the user's rough description of their ideal target company:\n\n"${description.trim()}"\n\nTransform this into a polished, detailed ICP description.`
+    } else if (promptType === 'research') {
+      systemPrompt = buildResearchPolishPrompt(language)
+      userContent = `Here is the user's rough description of what research/analysis they want:\n\n"${description.trim()}"\n\nTransform this into a polished, structured prompt for the research analyst AI.`
+    } else {
+      systemPrompt = buildMessagePolishPrompt(stepType || 'linkedin_message', tone, language)
+      userContent = `Here is the user's rough description of what they want:\n\n"${description.trim()}"\n\nTransform this into a polished, structured prompt for the message generator.`
+    }
 
-    const result = await anthropic.createMessage({
+    const result = await llm.createMessage({
       system: systemPrompt,
       messages: [{
         role: 'user',
@@ -166,15 +193,13 @@ serve(async (req: Request) => {
       temperature: 0.5,
     })
 
-    if (!result.success || !result.data) {
+    if (!result.success) {
       return errorResponse(`Failed to polish prompt: ${result.error}`, 500)
     }
 
-    const polishedPrompt = anthropic.extractText(result.data)
-
     return jsonResponse({
       success: true,
-      polishedPrompt,
+      polishedPrompt: result.text,
     })
   } catch (error) {
     console.error('Polish prompt error:', error)

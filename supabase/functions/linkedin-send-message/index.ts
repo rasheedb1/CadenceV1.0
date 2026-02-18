@@ -2,7 +2,7 @@
 // POST /functions/v1/linkedin-send-message
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
-import { createSupabaseClient, getAuthUserOrOwner, logActivity, getUnipileAccountId } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthUserOrOwner, logActivity, getUnipileAccountId, trackProspectedCompany } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface SendMessageRequest {
@@ -395,6 +395,15 @@ serve(async (req: Request) => {
       status: 'ok',
       details: { messageId: result.data?.message_id, channel: usedChannel },
     })
+
+    // Track company as prospected in registry
+    if (lead?.company) {
+      trackProspectedCompany({
+        ownerId: user.id,
+        companyName: lead.company,
+        prospectedVia: 'linkedin_message',
+      })
+    }
 
     // Update schedule and instance if provided
     if (scheduleId) {

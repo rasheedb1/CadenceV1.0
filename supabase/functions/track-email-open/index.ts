@@ -44,11 +44,40 @@ serve(async (req: Request) => {
       return pixelResponse()
     }
 
-    // 2. Record the open event in email_events
+    // 2. Filter out sender's own open (first open within 30s is likely the sender)
     const userAgent = req.headers.get('User-Agent') || null
     const ipAddress = req.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() ||
                       req.headers.get('CF-Connecting-IP') || null
 
+    // Check if this is the very first open AND it happened shortly after sending.
+    // The sender's mail client (e.g. Gmail Sent folder) loads the pixel almost instantly.
+    // We only skip that first rapid open — all subsequent opens are counted normally,
+    // even if they happen within the grace period.
+    const { count: existingOpens } = await supabase
+      .from('email_events')
+      .select('*', { count: 'exact', head: true })
+      .eq('event_id', eventId)
+      .eq('event_type', 'opened')
+
+    if ((existingOpens ?? 0) === 0) {
+      // This is the first open — check if it's too soon after sending (likely the sender)
+      const { data: emailFull } = await supabase
+        .from('email_messages')
+        .select('sent_at')
+        .eq('event_id', eventId)
+        .single()
+
+      if (emailFull?.sent_at) {
+        const secondsSinceSent = (Date.now() - new Date(emailFull.sent_at).getTime()) / 1000
+
+        if (secondsSinceSent < 30) {
+          console.log(`Ignoring sender's first open: event_id=${eventId}, ${secondsSinceSent.toFixed(0)}s after send`)
+          return pixelResponse()
+        }
+      }
+    }
+
+    // 3. Record the open event in email_events
     await supabase.from('email_events').insert({
       id: crypto.randomUUID(),
       event_id: eventId,
@@ -61,7 +90,7 @@ serve(async (req: Request) => {
       ip_address: ipAddress,
     })
 
-    // 3. Count total opens for this event_id
+    // 4. Count total opens for this event_id
     const { count: openCount } = await supabase
       .from('email_events')
       .select('*', { count: 'exact', head: true })
@@ -70,7 +99,7 @@ serve(async (req: Request) => {
 
     const totalOpens = openCount || 1
 
-    // 4. Get lead name for notification
+    // 5. Get lead name for notification
     let leadName = 'Lead desconocido'
     if (emailMsg.lead_id) {
       const { data: lead } = await supabase
@@ -83,7 +112,7 @@ serve(async (req: Request) => {
       }
     }
 
-    // 5. Check if notification already exists for this event_id
+    // 6. Check if notification already exists for this event_id
     const { data: existingNotif } = await supabase
       .from('notifications')
       .select('id, metadata')

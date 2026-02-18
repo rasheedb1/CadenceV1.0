@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { LLMModelSelector } from '@/components/LLMModelSelector'
 import {
   Sparkles,
   Loader2,
@@ -507,10 +508,13 @@ export function AIGenerateDialog({
               <p className="text-sm text-muted-foreground text-center">
                 Selecciona tus prompts y haz click en Generar
               </p>
-              <Button onClick={handleGenerate}>
-                <Sparkles className="mr-2 h-4 w-4" />
-                Generar mensaje
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button onClick={handleGenerate}>
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Generar mensaje
+                </Button>
+                <LLMModelSelector />
+              </div>
             </div>
           )}
 

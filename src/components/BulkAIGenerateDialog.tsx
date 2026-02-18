@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { LLMModelSelector } from '@/components/LLMModelSelector'
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -550,11 +551,12 @@ export function BulkAIGenerateDialog({
               </div>
 
               {/* Generate button */}
-              <div className="flex justify-center pt-4">
+              <div className="flex justify-center items-center gap-2 pt-4">
                 <Button size="lg" onClick={handleGenerateAll}>
                   <Sparkles className="mr-2 h-4 w-4" />
                   Generar para todos ({leads.length})
                 </Button>
+                <LLMModelSelector />
               </div>
             </>
           )}

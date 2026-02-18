@@ -1,5 +1,6 @@
 // Supabase client for Edge Functions
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { normalizeCompanyName } from './company-normalize.ts'
 
 export function createSupabaseClient(authHeader?: string) {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -185,4 +186,55 @@ export async function getUnipileAccountId(userId: string): Promise<string | null
     .single()
 
   return profile?.unipile_account_id || null
+}
+
+// Track a company as prospected in the registry after a successful outreach.
+// Uses ON CONFLICT to upsert: if the company is already customer/competitor/dnc,
+// only updates prospected_at/prospected_via without changing registry_type.
+export async function trackProspectedCompany(params: {
+  ownerId: string
+  companyName: string | null
+  prospectedVia: 'linkedin_message' | 'linkedin_connect' | 'email'
+}) {
+  const { ownerId, companyName, prospectedVia } = params
+  if (!companyName) return
+
+  const normalized = normalizeCompanyName(companyName)
+  if (!normalized) return
+
+  const supabase = createSupabaseClient()
+  const now = new Date().toISOString()
+
+  try {
+    // Use raw SQL via rpc to handle conditional upsert properly
+    // If company already exists as customer/competitor/dnc, only update prospected fields
+    // If it doesn't exist or is 'discovered', set to 'prospected'
+    const { error } = await supabase.rpc('upsert_company_registry_prospected', {
+      p_owner_id: ownerId,
+      p_company_name: normalized,
+      p_company_name_display: companyName.trim(),
+      p_prospected_at: now,
+      p_prospected_via: prospectedVia,
+    })
+
+    if (error) {
+      // Fallback: simple upsert if RPC doesn't exist yet
+      console.warn('RPC upsert_company_registry_prospected not found, using fallback upsert:', error.message)
+      await supabase.from('company_registry').upsert(
+        {
+          owner_id: ownerId,
+          company_name: normalized,
+          company_name_display: companyName.trim(),
+          registry_type: 'prospected',
+          source: 'auto_prospected',
+          prospected_at: now,
+          prospected_via: prospectedVia,
+        },
+        { onConflict: 'owner_id,company_name', ignoreDuplicates: true }
+      )
+    }
+  } catch (err) {
+    // Non-critical — log but don't block the main flow
+    console.error('trackProspectedCompany error:', err)
+  }
 }

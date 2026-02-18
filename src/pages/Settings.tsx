@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/integrations/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -7,9 +7,34 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, CheckCircle2, XCircle, ExternalLink, Mail } from 'lucide-react'
+import { Loader2, CheckCircle2, XCircle, ExternalLink, Mail, Brain } from 'lucide-react'
 import { useLinkedInConnection } from '@/hooks/useLinkedInConnection'
 import { useGmailConnection } from '@/hooks/useGmailConnection'
+
+const LLM_MODELS: Record<string, { label: string; models: { value: string; label: string }[] }> = {
+  openai: {
+    label: 'OpenAI',
+    models: [
+      { value: 'gpt-5.2', label: 'GPT-5.2 Thinking' },
+      { value: 'gpt-5.1', label: 'GPT-5.1' },
+      { value: 'gpt-5', label: 'GPT-5' },
+      { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
+      { value: 'gpt-5-nano', label: 'GPT-5 Nano' },
+      { value: 'gpt-4o', label: 'GPT-4o' },
+      { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+      { value: 'o3-mini', label: 'o3 Mini' },
+    ],
+  },
+  anthropic: {
+    label: 'Anthropic (Claude)',
+    models: [
+      { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+      { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
+      { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+      { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5 (Legacy)' },
+    ],
+  },
+}
 
 export function Settings() {
   const { user } = useAuth()
@@ -18,6 +43,55 @@ export function Settings() {
 
   const linkedin = useLinkedInConnection()
   const gmail = useGmailConnection()
+
+  // LLM settings
+  const [llmProvider, setLlmProvider] = useState('openai')
+  const [llmModel, setLlmModel] = useState('gpt-4o')
+  const [llmLoading, setLlmLoading] = useState(false)
+  const [llmSaved, setLlmSaved] = useState(false)
+  const [llmMessage, setLlmMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Load LLM settings from DB
+  useEffect(() => {
+    if (!user?.id) return
+    supabase
+      .from('profiles')
+      .select('llm_provider, llm_model')
+      .eq('user_id', user.id)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setLlmProvider(data.llm_provider || 'openai')
+          setLlmModel(data.llm_model || 'gpt-4o')
+        }
+      })
+  }, [user?.id])
+
+  const handleSaveLLM = async () => {
+    if (!user?.id) return
+    setLlmLoading(true)
+    setLlmMessage(null)
+    const { error } = await supabase
+      .from('profiles')
+      .update({ llm_provider: llmProvider, llm_model: llmModel })
+      .eq('user_id', user.id)
+
+    if (error) {
+      setLlmMessage({ type: 'error', text: error.message })
+    } else {
+      setLlmSaved(true)
+      setLlmMessage({ type: 'success', text: 'AI provider settings saved' })
+      setTimeout(() => setLlmSaved(false), 2000)
+    }
+    setLlmLoading(false)
+  }
+
+  const handleProviderChange = (provider: string) => {
+    setLlmProvider(provider)
+    // Reset model to provider's first model
+    const firstModel = LLM_MODELS[provider]?.models[0]?.value
+    if (firstModel) setLlmModel(firstModel)
+  }
 
   const handleUpdatePassword = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -121,6 +195,62 @@ export function Settings() {
                 {loading ? 'Updating...' : 'Update Password'}
               </Button>
             </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Brain className="h-5 w-5" />
+              AI Provider
+            </CardTitle>
+            <CardDescription>Choose which AI model powers your message generation and research</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Provider</Label>
+              <select
+                value={llmProvider}
+                onChange={(e) => handleProviderChange(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {Object.entries(LLM_MODELS).map(([key, { label }]) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>Model</Label>
+              <select
+                value={llmModel}
+                onChange={(e) => setLlmModel(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {LLM_MODELS[llmProvider]?.models.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+            {llmMessage && (
+              <p className={`text-sm ${llmMessage.type === 'success' ? 'text-green-600' : 'text-destructive'}`}>
+                {llmMessage.text}
+              </p>
+            )}
+            <Button onClick={handleSaveLLM} disabled={llmLoading}>
+              {llmLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : llmSaved ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Saved
+                </>
+              ) : (
+                'Save AI Settings'
+              )}
+            </Button>
           </CardContent>
         </Card>
 
