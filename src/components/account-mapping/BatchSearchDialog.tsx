@@ -11,13 +11,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Loader2, CheckCircle2, XCircle, Clock, Pause, Play, UserSearch } from 'lucide-react'
+import { Loader2, CheckCircle2, XCircle, Clock, Pause, Play, UserSearch, AlertTriangle } from 'lucide-react'
 import type {
   AccountMapCompany,
   BuyerPersona,
 } from '@/types/account-mapping'
 import { BUYING_ROLE_CONFIG } from '@/types/account-mapping'
-import { getCompanySizeTier, getAdaptiveKeywords, TIER_LABELS } from '@/lib/prospecting/adaptive-keywords'
+import { getCompanySizeTier, TIER_LABELS } from '@/lib/prospecting/adaptive-keywords'
+import { cascadeSearch, SEARCH_LEVEL_LABELS } from '@/lib/prospecting/cascade-search'
+import type { SearchLevel } from '@/lib/prospecting/cascade-search'
 import type { SearchSalesNavigatorParams, SearchSalesNavigatorResponse, SalesNavResult } from '@/contexts/AccountMappingContext'
 
 interface BatchSearchDialogProps {
@@ -44,6 +46,9 @@ interface PersonaStatus {
   status: SearchStatus
   resultsCount: number
   error?: string
+  searchLevel?: SearchLevel
+  searchingLevel?: SearchLevel
+  queryUsed?: string
 }
 
 interface CompanySearchState {
@@ -109,19 +114,22 @@ export function BatchSearchDialog({
     ))
   }, [])
 
-  const updatePersonaStatus = useCallback((companyId: string, personaId: string, status: SearchStatus, resultsCount: number, error?: string) => {
+  const updatePersonaStatus = useCallback((
+    companyId: string,
+    personaId: string,
+    update: Partial<PersonaStatus>
+  ) => {
     setSearchStates(prev => prev.map(s => {
       if (s.companyId !== companyId) return s
-      return {
+      const updated = {
         ...s,
         personaStatuses: s.personaStatuses.map(ps =>
-          ps.personaId === personaId ? { ...ps, status, resultsCount, error } : ps
+          ps.personaId === personaId ? { ...ps, ...update } : ps
         ),
-        totalFound: status === 'done'
-          ? s.personaStatuses.reduce((sum, ps) =>
-              sum + (ps.personaId === personaId ? resultsCount : ps.resultsCount), 0)
-          : s.totalFound,
       }
+      // Recalculate total found
+      updated.totalFound = updated.personaStatuses.reduce((sum, ps) => sum + ps.resultsCount, 0)
+      return updated
     }))
   }, [])
 
@@ -162,7 +170,9 @@ export function BatchSearchDialog({
       if (abortRef.current) break
 
       updateCompanyStatus(company.id, 'searching')
-      const tier = getCompanySizeTier(company)
+
+      // Track found provider IDs per company to avoid duplicates across personas
+      const foundProviderIds = new Set<string>()
 
       for (const persona of sortedPersonas) {
         if (abortRef.current) break
@@ -171,48 +181,65 @@ export function BatchSearchDialog({
         }
         if (abortRef.current) break
 
-        const { titleKeywords, seniority } = getAdaptiveKeywords(persona, company)
-
-        if (titleKeywords.length === 0) {
-          updatePersonaStatus(company.id, persona.id, 'skipped', 0)
+        if (persona.title_keywords.length === 0) {
+          updatePersonaStatus(company.id, persona.id, { status: 'skipped' })
           continue
         }
 
-        updatePersonaStatus(company.id, persona.id, 'searching', 0)
+        updatePersonaStatus(company.id, persona.id, { status: 'searching', searchingLevel: 1 })
 
         try {
-          const response = await onSearch({
+          const cascadeResult = await cascadeSearch({
+            company,
+            persona,
             accountMapId,
-            companyNames: [company.company_name],
-            titleKeywords,
-            seniority: seniority.length > 0 ? seniority : undefined,
-            limit: persona.max_per_company,
+            onSearch,
+            maxResults: persona.max_per_company,
+            excludeProviderIds: foundProviderIds,
+            onLevelStart: (level) => {
+              updatePersonaStatus(company.id, persona.id, { searchingLevel: level })
+            },
+            delayBetweenLevels: 2000,
           })
 
-          const results = response.results || []
+          if (cascadeResult.prospects.length > 0) {
+            // Track found IDs to avoid duplicates for next persona
+            for (const p of cascadeResult.prospects) {
+              if (p.linkedinProviderId) foundProviderIds.add(p.linkedinProviderId)
+            }
 
-          if (results.length > 0) {
-            await onSaveProspects(accountMapId, company.id, results, {
+            await onSaveProspects(accountMapId, company.id, cascadeResult.prospects, {
               personaId: persona.id,
               buyingRole: persona.role_in_buying_committee || undefined,
               searchMetadata: {
-                tier,
-                keywords_used: titleKeywords,
-                seniority_used: seniority,
+                tier: getCompanySizeTier(company),
+                search_level: cascadeResult.level,
+                query_used: cascadeResult.queryUsed,
+                level_details: cascadeResult.levelDetails,
                 persona_name: persona.name,
               },
             })
-            totalFound += results.length
+            totalFound += cascadeResult.prospects.length
             setTotalProspectsFound(totalFound)
           }
 
-          updatePersonaStatus(company.id, persona.id, 'done', results.length)
+          updatePersonaStatus(company.id, persona.id, {
+            status: 'done',
+            resultsCount: cascadeResult.prospects.length,
+            searchLevel: cascadeResult.level,
+            queryUsed: cascadeResult.queryUsed,
+            searchingLevel: undefined,
+          })
 
-          // Rate limit: 3 second delay between API calls
-          await new Promise(r => setTimeout(r, 3000))
+          // Small delay between personas (cascade already has internal delays between levels)
+          await new Promise(r => setTimeout(r, 1000))
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : 'Unknown error'
-          updatePersonaStatus(company.id, persona.id, 'error', 0, errorMsg)
+          updatePersonaStatus(company.id, persona.id, {
+            status: 'error',
+            error: errorMsg,
+            searchingLevel: undefined,
+          })
 
           // On 429 (rate limit), wait longer
           if (errorMsg.includes('429') || errorMsg.includes('rate')) {
@@ -227,7 +254,7 @@ export function BatchSearchDialog({
     }
 
     setPhase('done')
-    onRefresh() // Invalidate React Query to refresh prospect counts
+    onRefresh()
   }
 
   const handlePauseResume = () => {
@@ -346,12 +373,12 @@ export function BatchSearchDialog({
               </div>
             </div>
 
-            {/* Estimated time */}
+            {/* Info about cascade search */}
             {selectedCompanies.length > 0 && personas.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                ~{Math.ceil(selectedCompanies.length * personas.length * 3 / 60)} min estimated
-                ({selectedCompanies.length} companies × {personas.length} personas × 3s delay)
-              </p>
+              <div className="rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3 text-xs text-blue-700 dark:text-blue-300 space-y-1">
+                <p className="font-medium">Smart Cascade Search</p>
+                <p>Each persona is searched in up to 3 levels: exact title match, broadened terms, then broad seniority. Stops at the first level that finds results.</p>
+              </div>
             )}
           </div>
         )}
@@ -447,15 +474,60 @@ function CompanySearchRow({ state }: { state: CompanySearchState }) {
       {expanded && state.personaStatuses.length > 0 && (
         <div className="pl-10 pr-3 pb-2 space-y-1">
           {state.personaStatuses.map(ps => (
-            <div key={ps.personaId} className="flex items-center gap-2 text-xs text-muted-foreground">
-              {statusIcon[ps.status]}
-              <span>{ps.personaName}</span>
-              {ps.status === 'done' && <span className="text-green-600">{ps.resultsCount} found</span>}
-              {ps.status === 'error' && <span className="text-red-500">{ps.error || 'Failed'}</span>}
-              {ps.status === 'skipped' && <span className="text-muted-foreground/50">No keywords</span>}
-            </div>
+            <PersonaStatusRow key={ps.personaId} ps={ps} />
           ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+function PersonaStatusRow({ ps }: { ps: PersonaStatus }) {
+  const statusIcon = {
+    queued: <Clock className="h-3.5 w-3.5 text-muted-foreground" />,
+    searching: <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />,
+    done: ps.resultsCount > 0
+      ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+      : <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />,
+    error: <XCircle className="h-3.5 w-3.5 text-red-500" />,
+    skipped: <Clock className="h-3.5 w-3.5 text-muted-foreground/50" />,
+  }
+
+  return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      {statusIcon[ps.status]}
+      <span className="min-w-0 truncate">{ps.personaName}</span>
+
+      {/* Searching state: show current cascade level */}
+      {ps.status === 'searching' && ps.searchingLevel && (
+        <span className="text-blue-500 shrink-0">Level {ps.searchingLevel}/3</span>
+      )}
+
+      {/* Done with results */}
+      {ps.status === 'done' && ps.resultsCount > 0 && (
+        <>
+          <span className="text-green-600 shrink-0">{ps.resultsCount} found</span>
+          {ps.searchLevel && ps.searchLevel > 1 && (
+            <Badge variant="outline" className={`text-[9px] h-4 shrink-0 ${SEARCH_LEVEL_LABELS[ps.searchLevel].color}`}>
+              {SEARCH_LEVEL_LABELS[ps.searchLevel].label}
+            </Badge>
+          )}
+        </>
+      )}
+
+      {/* Done with 0 results */}
+      {ps.status === 'done' && ps.resultsCount === 0 && (
+        <span className="text-amber-500 shrink-0">0 found (3 levels tried)</span>
+      )}
+
+      {/* Error */}
+      {ps.status === 'error' && (
+        <span className="text-red-500 truncate shrink-0">{ps.error || 'Failed'}</span>
+      )}
+
+      {/* Skipped */}
+      {ps.status === 'skipped' && (
+        <span className="text-muted-foreground/50 shrink-0">No keywords</span>
       )}
     </div>
   )

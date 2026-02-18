@@ -324,7 +324,19 @@ export class UnipileClient {
     return this.request('GET', `/api/v1/users/search?account_id=${accountId}&query=${encodeURIComponent(query)}&limit=${limit}`)
   }
 
+  // Look up search parameter IDs (company, location, industry, etc.)
+  // Used to convert human-readable names to numeric IDs required by Sales Navigator filters
+  async lookupSearchParameters(accountId: string, type: string, keywords: string, limit = 5): Promise<UnipileResponse> {
+    return this.request('GET', `/api/v1/linkedin/search/parameters?account_id=${accountId}&type=${encodeURIComponent(type)}&keywords=${encodeURIComponent(keywords)}&limit=${limit}`)
+  }
+
   // Search Sales Navigator for people
+  // API schema reference (Sales Navigator - People):
+  //   company:   { include: string[] }         — numeric IDs or plain text company names
+  //   role:      { include: string[] }         — numeric IDs or plain text job titles
+  //   seniority: { include: SeniorityEnum[] }  — enum values (see SENIORITY_MAP below)
+  //   company_headcount: [{ min, max }]        — specific enum values for min/max
+  //   keywords:  string                        — free text search
   async searchSalesNavigator(accountId: string, params: {
     keywords?: string
     company_names?: string[]
@@ -340,18 +352,86 @@ export class UnipileClient {
       api: 'sales_navigator',
       category: 'people',
     }
-    if (params.keywords) body.keywords = params.keywords
-    if (params.company_names?.length) body.company_names = params.company_names
-    if (params.title_keywords?.length) body.title = params.title_keywords.join(' OR ')
-    if (params.location) body.location = params.location
-    if (params.seniority?.length) body.seniority = params.seniority
-    if (params.limit) body.limit = params.limit
-    if (params.cursor) body.cursor = params.cursor
-    if (params.company_size_min) body.company_size_min = params.company_size_min
-    if (params.company_size_max) body.company_size_max = params.company_size_max
 
-    // account_id must be a query parameter per Unipile API docs
-    return this.request('POST', `/api/v1/linkedin/search?account_id=${accountId}`, body)
+    // General keywords
+    if (params.keywords) body.keywords = params.keywords
+
+    // Company filtering: look up company IDs, fall back to plain text company names
+    // Schema: company.include accepts strings (numeric IDs or plain text names)
+    if (params.company_names?.length) {
+      const companyValues: string[] = []
+      for (const name of params.company_names) {
+        try {
+          const lookup = await this.lookupSearchParameters(accountId, 'COMPANY', name, 3)
+          if (lookup.success && lookup.data) {
+            const data = lookup.data as Record<string, unknown>
+            const items = (data?.items || []) as Array<Record<string, unknown>>
+            if (items.length > 0 && items[0].id != null) {
+              companyValues.push(String(items[0].id))
+              console.log(`Resolved company "${name}" → ID ${items[0].id}`)
+            } else {
+              // No lookup result — use plain text name (schema allows pattern ".+")
+              companyValues.push(name)
+              console.log(`No ID found for "${name}", using plain text`)
+            }
+          } else {
+            companyValues.push(name)
+          }
+        } catch (e) {
+          console.warn(`Failed to lookup company ID for "${name}", using plain text:`, e)
+          companyValues.push(name)
+        }
+      }
+      if (companyValues.length > 0) {
+        body.company = { include: companyValues }
+      }
+    }
+
+    // Title keywords → role.include (SN uses "role", NOT "title")
+    // Schema: role.include accepts plain text job titles or numeric IDs
+    if (params.title_keywords?.length) {
+      body.role = { include: params.title_keywords }
+    }
+
+    // Seniority → seniority.include with proper enum mapping
+    // Schema enum: owner/partner, cxo, vice_president, director, experienced_manager,
+    //              entry_level_manager, strategic, senior, entry_level, in_training
+    if (params.seniority?.length) {
+      const seniorityMap: Record<string, string> = {
+        'owner': 'owner/partner',
+        'partner': 'owner/partner',
+        'cxo': 'cxo',
+        'vp': 'vice_president',
+        'director': 'director',
+        'manager': 'experienced_manager',
+        'senior': 'senior',
+        'entry': 'entry_level',
+        'training': 'in_training',
+      }
+      const mapped = params.seniority
+        .map(s => seniorityMap[s.toLowerCase()] || s.toLowerCase())
+        .filter((v, i, a) => a.indexOf(v) === i) // dedupe
+      if (mapped.length > 0) {
+        body.seniority = { include: mapped }
+      }
+    }
+
+    // Company headcount — enum values: min [1,11,51,201,501,1001,5001,10001], max [1,10,50,200,500,1000,5000,10000]
+    if (params.company_size_min || params.company_size_max) {
+      const range: Record<string, number> = {}
+      if (params.company_size_min) range.min = parseInt(params.company_size_min, 10)
+      if (params.company_size_max) range.max = parseInt(params.company_size_max, 10)
+      if (!isNaN(range.min) || !isNaN(range.max)) {
+        body.company_headcount = [range]
+      }
+    }
+
+    // Pagination — limit as query param since it's not in the SN People body schema
+    let url = `/api/v1/linkedin/search?account_id=${accountId}`
+    if (params.limit) url += `&limit=${params.limit}`
+    if (params.cursor) body.cursor = params.cursor
+
+    return this.request('POST', url, body)
   }
 }
 

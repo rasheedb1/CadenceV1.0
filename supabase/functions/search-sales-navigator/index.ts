@@ -74,18 +74,23 @@ serve(async (req: Request) => {
     const cursor = (rawData?.cursor || rawData?.next_cursor || null) as string | null
     const hasMore = !!cursor
 
-    const prospects = items.map((item: Record<string, unknown>) => ({
-      firstName: item.first_name || item.firstName || '',
-      lastName: item.last_name || item.lastName || '',
-      title: item.title || item.headline || '',
-      company: item.company || item.company_name || '',
-      linkedinUrl: item.linkedin_url || item.public_identifier
-        ? `https://www.linkedin.com/in/${item.public_identifier}`
-        : '',
-      linkedinProviderId: item.provider_id || item.id || '',
-      headline: item.headline || item.title || '',
-      location: item.location || '',
-    }))
+    const prospects = items.map((item: Record<string, unknown>) => {
+      // Sales Navigator returns current company info in current_positions array
+      const positions = (item.current_positions || []) as Array<Record<string, unknown>>
+      const currentPosition = positions[0] || {}
+
+      return {
+        firstName: item.first_name || item.firstName || '',
+        lastName: item.last_name || item.lastName || '',
+        title: (currentPosition.role as string) || item.title || item.headline || '',
+        company: (currentPosition.company as string) || item.company || item.company_name || '',
+        linkedinUrl: item.public_profile_url || item.profile_url ||
+          (item.public_identifier ? `https://www.linkedin.com/in/${item.public_identifier}` : '') || '',
+        linkedinProviderId: item.provider_id || item.id || '',
+        headline: item.headline || item.title || '',
+        location: item.location || '',
+      }
+    })
 
     console.log(`Found ${prospects.length} prospects, hasMore=${hasMore}`)
 
