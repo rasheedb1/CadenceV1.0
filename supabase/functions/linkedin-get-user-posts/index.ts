@@ -2,7 +2,7 @@
 // GET /functions/v1/linkedin-get-user-posts?leadId=xxx
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
-import { createSupabaseClient, getAuthUserOrOwner, getUnipileAccountId } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthContext, getUnipileAccountId } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface LinkedInPost {
@@ -46,12 +46,12 @@ serve(async (req: Request) => {
       return errorResponse('Missing authorization header', 401)
     }
 
-    // Get leadId and optional ownerId from body
+    // Get leadId and optional ownerId/orgId from body
     const body = await req.json().catch(() => ({}))
-    const { leadId, ownerId } = body
+    const { leadId, ownerId, orgId } = body
 
-    const user = await getAuthUserOrOwner(authHeader, ownerId)
-    if (!user) {
+    const ctx = await getAuthContext(authHeader, { ownerId, orgId })
+    if (!ctx) {
       return errorResponse('Unauthorized', 401)
     }
 
@@ -60,7 +60,7 @@ serve(async (req: Request) => {
     }
 
     // Get Unipile account ID for this user
-    const unipileAccountId = await getUnipileAccountId(user.id)
+    const unipileAccountId = await getUnipileAccountId(ctx.userId)
     if (!unipileAccountId) {
       return errorResponse('No Unipile account connected. Please connect your LinkedIn account in Settings.')
     }
@@ -71,7 +71,7 @@ serve(async (req: Request) => {
       .from('leads')
       .select('*')
       .eq('id', leadId)
-      .eq('owner_id', user.id)
+      .eq('org_id', ctx.orgId)
       .single()
 
     if (leadError || !lead) {

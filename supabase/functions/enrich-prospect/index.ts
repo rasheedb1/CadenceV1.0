@@ -3,7 +3,7 @@
 // Uses Firecrawl to scrape a company website for contact details (emails, phones).
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createSupabaseClient, getAuthUser } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthContext } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface EnrichRequest {
@@ -122,8 +122,8 @@ serve(async (req: Request) => {
       return errorResponse('Missing authorization header', 401)
     }
 
-    const user = await getAuthUser(authHeader)
-    if (!user) {
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) {
       return errorResponse('Unauthorized', 401)
     }
 
@@ -148,7 +148,7 @@ serve(async (req: Request) => {
       .from('prospects')
       .select('*')
       .eq('id', body.prospectId)
-      .eq('owner_id', user.id)
+      .eq('org_id', ctx.orgId)
       .single()
 
     if (prospectError || !prospect) {

@@ -29,12 +29,14 @@ export interface LLMClient {
 export const LLM_MODELS: Record<LLMProvider, string[]> = {
   anthropic: [
     'claude-opus-4-6',
+    'claude-sonnet-4-6',
     'claude-sonnet-4-5-20250929',
     'claude-haiku-4-5-20251001',
     'claude-opus-4-5-20251101',
   ],
   openai: [
     'gpt-5.2',
+    'gpt-5.2-codex',
     'gpt-5.1',
     'gpt-5',
     'gpt-5-mini',

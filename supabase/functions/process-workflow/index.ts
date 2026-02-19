@@ -14,6 +14,7 @@ interface WorkflowRun {
   workflow_id: string
   lead_id: string
   owner_id: string
+  org_id: string
   current_node_id: string | null
   status: string
   waiting_until: string | null
@@ -80,6 +81,7 @@ async function executeAction(
   nodeData: Record<string, unknown>,
   leadId: string,
   ownerId: string,
+  orgId: string,
   authToken: string
 ): Promise<{ success: boolean; error?: string }> {
   const endpoint = ACTION_TO_ENDPOINT[nodeType]
@@ -96,7 +98,7 @@ async function executeAction(
   const url = `${supabaseUrl}${endpoint}`
 
   // Build body based on action type
-  const body: Record<string, unknown> = { leadId }
+  const body: Record<string, unknown> = { leadId, ownerId, orgId }
 
   switch (nodeType) {
     case 'action_linkedin_message':
@@ -276,7 +278,7 @@ async function processRun(
 
   } else if (nodeType.startsWith('action_')) {
     // Execute the LinkedIn action
-    const result = await executeAction(nodeType, nodeData, run.lead_id, run.owner_id, authToken)
+    const result = await executeAction(nodeType, nodeData, run.lead_id, run.owner_id, run.org_id, authToken)
 
     // Log the event
     await supabase.from('workflow_event_log').insert({
@@ -284,6 +286,7 @@ async function processRun(
       workflow_id: run.workflow_id,
       lead_id: run.lead_id,
       owner_id: run.owner_id,
+      org_id: run.org_id,
       node_id: currentNode.id,
       node_type: nodeType,
       action: 'execute',
@@ -326,6 +329,7 @@ async function processRun(
       workflow_id: run.workflow_id,
       lead_id: run.lead_id,
       owner_id: run.owner_id,
+      org_id: run.org_id,
       node_id: currentNode.id,
       node_type: nodeType,
       action: `condition_${result}`,
@@ -351,6 +355,7 @@ async function processRun(
       workflow_id: run.workflow_id,
       lead_id: run.lead_id,
       owner_id: run.owner_id,
+      org_id: run.org_id,
       node_id: currentNode.id,
       node_type: nodeType,
       action: 'delay_start',
@@ -383,6 +388,7 @@ async function processRun(
       workflow_id: run.workflow_id,
       lead_id: run.lead_id,
       owner_id: run.owner_id,
+      org_id: run.org_id,
       node_id: currentNode.id,
       node_type: nodeType,
       action: 'workflow_completed',

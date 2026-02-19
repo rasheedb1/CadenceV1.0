@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Plus, Target, MoreVertical, Pencil, Trash2, Building2, Users, UserSearch } from 'lucide-react'
+import { PermissionGate } from '@/components/PermissionGate'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -71,12 +72,14 @@ export function AccountMapping() {
           <p className="text-muted-foreground">Define your ICP, find prospects, and build target lists</p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              New Account Map
-            </Button>
-          </DialogTrigger>
+          <PermissionGate permission="account_mapping_create">
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                New Account Map
+              </Button>
+            </DialogTrigger>
+          </PermissionGate>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create Account Map</DialogTitle>
@@ -124,10 +127,12 @@ export function AccountMapping() {
             <p className="mb-4 text-sm text-muted-foreground">
               Create your first account map to define your ICP and find prospects
             </p>
-            <Button onClick={() => setIsCreateOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Account Map
-            </Button>
+            <PermissionGate permission="account_mapping_create">
+              <Button onClick={() => setIsCreateOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Account Map
+              </Button>
+            </PermissionGate>
           </CardContent>
         </Card>
       ) : (

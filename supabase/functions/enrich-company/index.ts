@@ -1,6 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
-import { getAuthUser } from '../_shared/supabase.ts'
+import { getAuthContext } from '../_shared/supabase.ts'
 import { createFirecrawlClient } from '../_shared/firecrawl.ts'
 
 interface EnrichRequest {
@@ -43,8 +43,8 @@ serve(async (req: Request) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return errorResponse('Missing authorization header', 401)
 
-    const user = await getAuthUser(authHeader)
-    if (!user) return errorResponse('Unauthorized', 401)
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) return errorResponse('Unauthorized', 401)
 
     const body: EnrichRequest = await req.json()
     const { companyName, website } = body

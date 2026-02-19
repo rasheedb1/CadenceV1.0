@@ -5,7 +5,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
-import { getAuthUser } from '../_shared/supabase.ts'
+import { getAuthContext } from '../_shared/supabase.ts'
 import { createLLMClientForUser } from '../_shared/llm.ts'
 
 interface SuggestRequest {
@@ -35,8 +35,8 @@ serve(async (req: Request) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return errorResponse('Missing authorization header', 401)
 
-    const user = await getAuthUser(authHeader)
-    if (!user) return errorResponse('Unauthorized', 401)
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) return errorResponse('Unauthorized', 401)
 
     const body: SuggestRequest = await req.json()
     const { productCategory, companyDescription, buyingRole, personaDescription } = body
@@ -45,31 +45,38 @@ serve(async (req: Request) => {
 
     let llm
     try {
-      llm = await createLLMClientForUser(user.id)
+      llm = await createLLMClientForUser(ctx.userId)
     } catch (err) {
       return errorResponse(`LLM not configured: ${err instanceof Error ? err.message : 'Unknown'}`, 500)
     }
 
-    const systemPrompt = `You are a B2B sales expert specializing in identifying the right contacts at companies of different sizes.
+    const systemPrompt = `You are a B2B sales expert who finds real decision-makers on LinkedIn Sales Navigator.
 
-Given a product description and a buyer persona role, generate LinkedIn Sales Navigator title keywords for 3 company size tiers. The titles should reflect how the SAME buying role exists at different organizational scales:
+Given a product and a buyer persona role, generate SHORT search keywords for LinkedIn's "Role" filter across 3 company size tiers. These keywords are combined with a SEPARATE seniority filter, so do NOT include seniority in the keywords.
 
-1. ENTERPRISE (1000+ employees): Specialized, dedicated roles. Titles are specific and often include the function name (e.g., "VP of Revenue Operations", "Head of Payment Infrastructure").
-2. MID-MARKET (51-1000 employees): Broader roles. The person handling this function often has a wider scope (e.g., "VP Finance" covers payments too, "Director of Engineering" covers payment infra).
-3. STARTUP/SMB (1-50 employees): Generalist leaders. C-level or founders often make these decisions directly (e.g., "CEO", "CTO", "Co-Founder").
+CRITICAL RULES:
+- Use SHORT keywords (1-2 words) that appear as substrings in real LinkedIn titles
+- Focus on FUNCTIONAL AREA terms, not full job titles
+- The seniority filter (VP, Director, CXO, etc.) is applied SEPARATELY — never put "VP of...", "Head of...", "Director of..." in keywords
+- Only include C-level abbreviations (CFO, CTO, CEO, COO, CRO) as standalone keywords when relevant
+- Keywords must work across different industries
 
-Rules:
-- For each tier, provide 5-8 title keywords (most common/likely first)
-- Title keywords should be practical LinkedIn search terms that match real job titles
-- Also recommend 2-4 seniority levels per tier from: Entry, Senior, Manager, Director, VP, CXO, Owner, Partner
-- Think about who ACTUALLY makes the decision about the described product at each company size
+GOOD: ["Finance", "Treasury", "Payments", "Accounting", "CFO"]
+GOOD: ["Engineering", "Platform", "Software", "Architecture", "CTO"]
+BAD: ["VP of Revenue Operations", "Head of Payment Infrastructure"]
+BAD: ["Director of Engineering", "SVP Technology"]
+
+Tiers:
+1. ENTERPRISE (1000+): Specific functional areas + specialized terms (e.g., "Payments", "Treasury", "Revenue Operations", "Platform Engineering")
+2. MID-MARKET (51-1000): Broader functional areas (e.g., "Finance", "Engineering", "Product", "Operations")
+3. STARTUP/SMB (1-50): C-level titles + broad areas (e.g., "CEO", "CTO", "CFO", "Founder", "Finance", "Technology")
 
 Respond with ONLY valid JSON:
 {
   "tiers": {
-    "enterprise": ["VP Payments", "Head of Payments", ...],
-    "mid_market": ["VP Finance", "VP Engineering", ...],
-    "startup_smb": ["CEO", "CTO", "Co-Founder", ...]
+    "enterprise": ["Payments", "Treasury", "Revenue Operations", "Billing", "Financial Services", "CFO"],
+    "mid_market": ["Finance", "Payments", "Accounting", "Treasury", "CFO"],
+    "startup_smb": ["CEO", "CFO", "Founder", "Finance", "Co-Founder"]
   },
   "seniority": {
     "enterprise": ["VP", "Director", "CXO"],

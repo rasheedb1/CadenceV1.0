@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
 import { useCadence } from '@/contexts/CadenceContext'
 import {
   callEdgeFunction,
@@ -90,6 +91,7 @@ export function BulkAIGenerateDialog({
   onComplete,
 }: BulkAIGenerateDialogProps) {
   const { user, session } = useAuth()
+  const { orgId } = useOrg()
   const { executeStepForLead, markStepDoneForLead } = useCadence()
 
   const [phase, setPhase] = useState<Phase>('config')
@@ -113,13 +115,13 @@ export function BulkAIGenerateDialog({
 
   // Fetch message prompts
   const { data: messagePrompts = [] } = useQuery({
-    queryKey: ['ai-prompts-message', user?.id, stepType],
+    queryKey: ['ai-prompts-message', orgId, stepType],
     queryFn: async () => {
       if (!user) return []
       const { data, error } = await supabase
         .from('ai_prompts')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .eq('prompt_type', 'message')
         .eq('step_type', stepType)
         .order('is_default', { ascending: false })
@@ -127,41 +129,41 @@ export function BulkAIGenerateDialog({
       if (error) throw error
       return (data || []) as AIPrompt[]
     },
-    enabled: !!user && open,
+    enabled: !!user && !!orgId && open,
   })
 
   // Fetch research prompts
   const { data: researchPrompts = [] } = useQuery({
-    queryKey: ['ai-prompts-research', user?.id],
+    queryKey: ['ai-prompts-research', orgId],
     queryFn: async () => {
       if (!user) return []
       const { data, error } = await supabase
         .from('ai_prompts')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .eq('prompt_type', 'research')
         .order('is_default', { ascending: false })
         .order('name', { ascending: true })
       if (error) throw error
       return (data || []) as AIPrompt[]
     },
-    enabled: !!user && open,
+    enabled: !!user && !!orgId && open,
   })
 
   // Fetch example sections
   const { data: exampleSections = [] } = useQuery({
-    queryKey: ['example-sections', user?.id],
+    queryKey: ['example-sections', orgId],
     queryFn: async () => {
       if (!user) return []
       const { data, error } = await supabase
         .from('example_sections')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('name', { ascending: true })
       if (error) throw error
       return (data || []) as ExampleSection[]
     },
-    enabled: !!user && open,
+    enabled: !!user && !!orgId && open,
   })
 
   // Fetch example messages for selected section

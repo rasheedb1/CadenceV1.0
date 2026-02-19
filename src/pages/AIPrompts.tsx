@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
 import {
   callEdgeFunction,
   type AIPolishPromptResponse,
@@ -55,6 +56,7 @@ import {
   BookOpen,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { PermissionGate } from '@/components/PermissionGate'
 import { ExampleSectionsTab } from '@/components/ExampleSectionsTab'
 
 const STEP_TYPES = [
@@ -111,6 +113,7 @@ const makeEmptyForm = (promptType: PromptType): FormData => ({
 
 export function AIPrompts() {
   const { user, session } = useAuth()
+  const { orgId } = useOrg()
   const queryClient = useQueryClient()
 
   const [activeTab, setActiveTab] = useState<PromptType>('message')
@@ -129,18 +132,18 @@ export function AIPrompts() {
 
   // Fetch all prompts
   const { data: prompts = [], isLoading } = useQuery({
-    queryKey: ['ai-prompts', user?.id],
+    queryKey: ['ai-prompts', orgId],
     queryFn: async () => {
-      if (!user) return []
+      if (!user || !orgId) return []
       const { data, error } = await supabase
         .from('ai_prompts')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []) as AIPrompt[]
     },
-    enabled: !!user,
+    enabled: !!user && !!orgId,
   })
 
   const messagePrompts = prompts.filter(p => p.prompt_type === 'message')
@@ -157,13 +160,13 @@ export function AIPrompts() {
           await supabase
             .from('ai_prompts')
             .update({ is_default: false })
-            .eq('owner_id', user.id)
+            .eq('org_id', orgId!)
             .eq('prompt_type', 'research')
         } else {
           await supabase
             .from('ai_prompts')
             .update({ is_default: false })
-            .eq('owner_id', user.id)
+            .eq('org_id', orgId!)
             .eq('prompt_type', 'message')
             .eq('step_type', form.step_type!)
         }
@@ -173,6 +176,7 @@ export function AIPrompts() {
         .from('ai_prompts')
         .insert({
           owner_id: user.id,
+          org_id: orgId!,
           name: form.name,
           prompt_type: form.prompt_type,
           step_type: form.step_type,
@@ -207,14 +211,14 @@ export function AIPrompts() {
           await supabase
             .from('ai_prompts')
             .update({ is_default: false })
-            .eq('owner_id', user.id)
+            .eq('org_id', orgId!)
             .eq('prompt_type', 'research')
             .neq('id', id)
         } else {
           await supabase
             .from('ai_prompts')
             .update({ is_default: false })
-            .eq('owner_id', user.id)
+            .eq('org_id', orgId!)
             .eq('prompt_type', 'message')
             .eq('step_type', form.step_type!)
             .neq('id', id)
@@ -759,10 +763,12 @@ export function AIPrompts() {
           </p>
         </div>
         {activeTab !== 'examples' && (
-          <Button onClick={openCreate}>
-            <Plus className="mr-2 h-4 w-4" />
-            Crear Prompt
-          </Button>
+          <PermissionGate permission="ai_prompts_create">
+            <Button onClick={openCreate}>
+              <Plus className="mr-2 h-4 w-4" />
+              Crear Prompt
+            </Button>
+          </PermissionGate>
         )}
       </div>
 
@@ -799,10 +805,12 @@ export function AIPrompts() {
                 <p className="text-muted-foreground text-center mb-4 max-w-md">
                   Crea prompts para controlar como el AI genera mensajes, notas de conexion y comentarios.
                 </p>
-                <Button onClick={openCreate}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Crear prompt de mensaje
-                </Button>
+                <PermissionGate permission="ai_prompts_create">
+                  <Button onClick={openCreate}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Crear prompt de mensaje
+                  </Button>
+                </PermissionGate>
               </CardContent>
             </Card>
           )}
@@ -837,10 +845,12 @@ export function AIPrompts() {
                   Crea prompts para controlar como el AI analiza y sintetiza la investigacion sobre tus prospectos.
                   Define que aspectos priorizar: funding, tecnologia, intereses, noticias, etc.
                 </p>
-                <Button onClick={openCreate}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Crear prompt de investigacion
-                </Button>
+                <PermissionGate permission="ai_prompts_create">
+                  <Button onClick={openCreate}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Crear prompt de investigacion
+                  </Button>
+                </PermissionGate>
               </CardContent>
             </Card>
           )}

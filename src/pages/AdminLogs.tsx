@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -59,6 +60,7 @@ interface ActivityLog {
 
 export function AdminLogs() {
   const { user } = useAuth()
+  const { orgId } = useOrg()
   const [page, setPage] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [actionFilter, setActionFilter] = useState('all')
@@ -67,7 +69,7 @@ export function AdminLogs() {
   const [dateTo, setDateTo] = useState('')
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['admin-logs', user?.id, page, searchQuery, actionFilter, statusFilter, dateFrom, dateTo],
+    queryKey: ['admin-logs', orgId, page, searchQuery, actionFilter, statusFilter, dateFrom, dateTo],
     queryFn: async () => {
       if (!user?.id) return { logs: [], total: 0 }
 
@@ -92,7 +94,7 @@ export function AdminLogs() {
         `,
           { count: 'exact' }
         )
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('created_at', { ascending: false })
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
@@ -149,7 +151,7 @@ export function AdminLogs() {
 
       return { logs: filteredLogs, total: count || 0 }
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!orgId,
   })
 
   const totalPages = Math.ceil((data?.total || 0) / PAGE_SIZE)

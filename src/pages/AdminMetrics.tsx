@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
@@ -54,11 +55,12 @@ const COLORS = {
 
 export function AdminMetrics() {
   const { user } = useAuth()
+  const { orgId } = useOrg()
   const [timeRange, setTimeRange] = useState('8')
 
   // Fetch weekly message stats
   const { data: weeklyStats, isLoading: loadingWeekly } = useQuery({
-    queryKey: ['admin-metrics-weekly', user?.id, timeRange],
+    queryKey: ['admin-metrics-weekly', orgId, timeRange],
     queryFn: async () => {
       if (!user?.id) return []
 
@@ -68,7 +70,7 @@ export function AdminMetrics() {
       const { data, error } = await supabase
         .from('weekly_message_stats')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .gte('week_start', startDate)
         .order('week_start', { ascending: true })
 
@@ -79,12 +81,12 @@ export function AdminMetrics() {
 
       return data || []
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!orgId,
   })
 
   // Fetch activity stats by action type
   const { data: activityStats, isLoading: loadingActivity } = useQuery({
-    queryKey: ['admin-metrics-activity', user?.id, timeRange],
+    queryKey: ['admin-metrics-activity', orgId, timeRange],
     queryFn: async () => {
       if (!user?.id) return { byAction: [], byStatus: { success: 0, failed: 0 }, dailyActivity: [] }
 
@@ -94,7 +96,7 @@ export function AdminMetrics() {
       const { data: logs, error } = await supabase
         .from('activity_log')
         .select('action, status, created_at')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .gte('created_at', `${startDate}T00:00:00`)
 
       if (error) {
@@ -154,7 +156,7 @@ export function AdminMetrics() {
         dailyActivity,
       }
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!orgId,
   })
 
   // Prepare weekly chart data

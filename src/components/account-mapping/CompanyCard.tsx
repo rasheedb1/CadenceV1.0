@@ -8,15 +8,18 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { MoreVertical, Search, Trash2, ExternalLink, Users } from 'lucide-react'
 import type { AccountMapCompany } from '@/types/account-mapping'
+import { SalesforceBadge } from '@/components/salesforce/SalesforceBadge'
+import type { SalesforceMatch } from '@/hooks/useSalesforceCheck'
 
 interface CompanyCardProps {
   company: AccountMapCompany
   prospectCount?: number
+  sfMatch?: SalesforceMatch | null
   onSearchProspects: (company: AccountMapCompany) => void
   onDeleteCompany: (id: string) => void
 }
 
-export function CompanyCard({ company, prospectCount = 0, onSearchProspects, onDeleteCompany }: CompanyCardProps) {
+export function CompanyCard({ company, prospectCount = 0, sfMatch, onSearchProspects, onDeleteCompany }: CompanyCardProps) {
   const hasBadges = company.industry || company.company_size || company.location
 
   return (
@@ -25,6 +28,7 @@ export function CompanyCard({ company, prospectCount = 0, onSearchProspects, onD
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-sm font-medium truncate">{company.company_name}</span>
+          <SalesforceBadge match={sfMatch || null} compact />
           {prospectCount > 0 && (
             <Badge variant="secondary" className="text-[10px] shrink-0 gap-1">
               <Users className="h-3 w-3" />

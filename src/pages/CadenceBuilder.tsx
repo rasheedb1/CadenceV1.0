@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useCadence } from '@/contexts/CadenceContext'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
 import { useTestStep } from '@/hooks/useLinkedInActions'
 import { supabase } from '@/integrations/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -65,12 +66,14 @@ import {
   Brain,
   Clock,
   RefreshCw,
+  Lock,
 } from 'lucide-react'
 import { STEP_TYPE_CONFIG, type StepType, type CadenceStep, type Lead } from '@/types'
 import type { AIPrompt } from '@/lib/edge-functions'
 import { CreateLeadDialog } from '@/components/CreateLeadDialog'
 import { ImportLeadsDialog } from '@/components/ImportLeadsDialog'
 import { StartAutomationDialog } from '@/components/StartAutomationDialog'
+import { FeatureGate } from '@/components/FeatureGate'
 
 // Variable buttons for message templates
 const VARIABLES = [
@@ -102,6 +105,7 @@ export function CadenceBuilder() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { orgId } = useOrg()
   const {
     cadences,
     leads,
@@ -113,7 +117,6 @@ export function CadenceBuilder() {
     executeStepForLead,
     markStepDoneForLead,
     removeLeadFromCadence,
-    getLeadDayInCadence,
   } = useCadence()
   const testStepMutation = useTestStep()
 
@@ -123,18 +126,18 @@ export function CadenceBuilder() {
   // Query cadence_leads directly to avoid the CadenceContext flattening bug
   // (CadenceContext only keeps the first cadence_leads entry per lead,
   //  so leads in multiple cadences are invisible in all but the first)
-  const { data: cadenceLeadRecords = [] } = useQuery({
-    queryKey: ['cadence-leads-direct', id, user?.id],
+  const { data: cadenceLeadRecords = [], refetch: refetchCadenceLeads } = useQuery({
+    queryKey: ['cadence-leads-direct', id, orgId],
     queryFn: async () => {
-      if (!id || !user) return []
+      if (!id || !user || !orgId) return []
       const { data } = await supabase
         .from('cadence_leads')
         .select('lead_id, status, current_step_id')
         .eq('cadence_id', id)
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
       return data || []
     },
-    enabled: !!id && !!user,
+    enabled: !!id && !!user && !!orgId,
   })
 
   const cadenceLeads = leads
@@ -149,34 +152,34 @@ export function CadenceBuilder() {
 
   // Query AI prompts for automation config
   const { data: aiPrompts = [] } = useQuery({
-    queryKey: ['ai-prompts', user?.id],
+    queryKey: ['ai-prompts', orgId],
     queryFn: async () => {
-      if (!user?.id) return []
+      if (!user?.id || !orgId) return []
       const { data, error } = await supabase
         .from('ai_prompts')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('name', { ascending: true })
       if (error) throw error
       return (data || []) as AIPrompt[]
     },
-    enabled: !!user?.id,
+    enabled: !!user && !!orgId,
   })
 
   // Query example sections for automation config
   const { data: exampleSections = [] } = useQuery({
-    queryKey: ['example-sections-cadence', user?.id],
+    queryKey: ['example-sections-cadence', orgId],
     queryFn: async () => {
-      if (!user?.id) return []
+      if (!user?.id || !orgId) return []
       const { data, error } = await supabase
         .from('example_sections')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('name', { ascending: true })
       if (error) throw error
       return data || []
     },
-    enabled: !!user?.id,
+    enabled: !!user && !!orgId,
   })
 
   // Query schedules (queue) for this cadence
@@ -617,12 +620,13 @@ export function CadenceBuilder() {
         cadence_step_id: stepId,
         lead_id: lead.id,
         owner_id: user?.id,
+        org_id: orgId!,
         status: 'pending',
       }, { onConflict: 'cadence_step_id,lead_id' })
 
       toast.success(`${lead.first_name} asignado al step`)
-      // Refresh data
-      window.location.reload()
+      // Refresh data without full page reload
+      refetchCadenceLeads()
     } catch (error) {
       console.error('Error assigning lead:', error)
       toast.error('Error al asignar lead')
@@ -631,11 +635,23 @@ export function CadenceBuilder() {
     }
   }
 
+  // Calculate cadence current day based on creation date
+  const cadenceCurrentDay = (() => {
+    if (!cadence?.created_at) return 0
+    const createdAt = new Date(cadence.created_at)
+    const now = new Date()
+    return Math.max(0, Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24)))
+  })()
+
+  // Check if a step's day is available (has arrived)
+  const isDayAvailable = (dayOffset: number) => {
+    return dayOffset <= cadenceCurrentDay
+  }
+
   // Check if lead can execute step based on day
-  const canExecuteStep = (lead: Lead, step: CadenceStep) => {
+  const canExecuteStep = (_lead: Lead, step: CadenceStep) => {
     if (isEditMode) return true // Edit mode bypasses day restrictions
-    const leadDay = getLeadDayInCadence(lead)
-    return leadDay >= step.day_offset
+    return isDayAvailable(step.day_offset)
   }
 
   const getRequiredFieldsForStepType = (stepType: StepType): string[] => {
@@ -679,36 +695,42 @@ export function CadenceBuilder() {
               </span>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setIsImportLeadsOpen(true)}>
-              <Upload className="mr-2 h-4 w-4" />
-              Import Leads
-            </Button>
-            <Button variant="outline" onClick={() => setIsAddLeadOpen(true)}>
-              <Users className="mr-2 h-4 w-4" />
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <FeatureGate flag="cadence_import_leads">
+              <Button variant="outline" size="sm" onClick={() => setIsImportLeadsOpen(true)}>
+                <Upload className="mr-1.5 h-4 w-4" />
+                Import
+              </Button>
+            </FeatureGate>
+            <Button variant="outline" size="sm" onClick={() => setIsAddLeadOpen(true)}>
+              <Users className="mr-1.5 h-4 w-4" />
               Add Lead
             </Button>
             <Button
               variant={isEditMode ? 'default' : 'outline'}
+              size="sm"
               onClick={() => setIsEditMode(!isEditMode)}
             >
-              <Settings className="mr-2 h-4 w-4" />
-              {isEditMode ? 'Exit Edit Mode' : 'Edit Cadence'}
+              <Settings className="mr-1.5 h-4 w-4" />
+              {isEditMode ? 'Exit Edit' : 'Edit'}
             </Button>
-            <Button
-              onClick={() => setIsAutomationOpen(true)}
-              disabled={steps.length === 0}
-              className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white"
-            >
-              <Zap className="mr-2 h-4 w-4" />
-              Start Automation
-            </Button>
+            <FeatureGate flag="cadence_automate">
+              <Button
+                size="sm"
+                onClick={() => setIsAutomationOpen(true)}
+                disabled={steps.length === 0}
+                className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white"
+              >
+                <Zap className="mr-1.5 h-4 w-4" />
+                Automate
+              </Button>
+            </FeatureGate>
             {cadence.status === 'draft' ? (
-              <Button onClick={handleActivate} disabled={steps.length === 0}>
-                Activate Cadence
+              <Button size="sm" onClick={handleActivate} disabled={steps.length === 0}>
+                Activate
               </Button>
             ) : (
-              <Button variant="outline" onClick={handleDeactivate}>
+              <Button variant="outline" size="sm" onClick={handleDeactivate}>
                 Deactivate
               </Button>
             )}
@@ -746,10 +768,21 @@ export function CadenceBuilder() {
                     </div>
                   ) : (
                     <div className="space-y-6">
-                      {sortedDays.map((day) => (
+                      {sortedDays.map((day) => {
+                        const dayAvailable = isDayAvailable(day)
+                        return (
                         <div key={day}>
-                          <h3 className="mb-3 text-sm font-medium text-muted-foreground">
+                          <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
                             Day {day}
+                            {day === cadenceCurrentDay && (
+                              <Badge variant="default" className="text-xs">Today</Badge>
+                            )}
+                            {!dayAvailable && (
+                              <Badge variant="secondary" className="text-xs gap-1">
+                                <Lock className="h-3 w-3" />
+                                Available in {day - cadenceCurrentDay}d
+                              </Badge>
+                            )}
                           </h3>
                           <div className="space-y-2">
                             {stepsByDay[day]
@@ -763,9 +796,11 @@ export function CadenceBuilder() {
                                 return (
                                   <div
                                     key={step.id}
-                                    className={`rounded-lg border p-4 ${leadsAtStep.length > 0 ? 'cursor-pointer hover:border-primary hover:bg-muted/50 transition-colors' : ''}`}
+                                    className={`rounded-lg border p-4 transition-colors ${
+                                      !dayAvailable ? 'opacity-50' : ''
+                                    } ${leadsAtStep.length > 0 && dayAvailable ? 'cursor-pointer hover:border-primary hover:bg-muted/50' : ''}`}
                                     onClick={() => {
-                                      if (leadsAtStep.length > 0) {
+                                      if (leadsAtStep.length > 0 && dayAvailable) {
                                         navigate(`/cadences/${id}/step/${step.id}`)
                                       }
                                     }}
@@ -875,7 +910,8 @@ export function CadenceBuilder() {
                               })}
                           </div>
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </CardContent>
@@ -886,6 +922,9 @@ export function CadenceBuilder() {
               <Card>
                 <CardHeader>
                   <CardTitle>Execution Order</CardTitle>
+                  <CardDescription>
+                    Current day: <strong>Day {cadenceCurrentDay}</strong>
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   {steps.length === 0 ? (
@@ -898,13 +937,17 @@ export function CadenceBuilder() {
                         stepsByDay[day]
                           .sort((a, b) => a.order_in_day - b.order_in_day)
                           .map((step, index) => (
-                            <li key={step.id} className="flex items-center gap-2 text-sm">
-                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-secondary text-xs font-medium">
-                                {sortedDays
-                                  .slice(0, sortedDays.indexOf(day))
-                                  .reduce((acc, d) => acc + stepsByDay[d].length, 0) +
-                                  index +
-                                  1}
+                            <li key={step.id} className={`flex items-center gap-2 text-sm ${!isDayAvailable(day) ? 'opacity-40' : ''}`}>
+                              <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${isDayAvailable(day) ? 'bg-secondary' : 'bg-muted'}`}>
+                                {isDayAvailable(day) ? (
+                                  sortedDays
+                                    .slice(0, sortedDays.indexOf(day))
+                                    .reduce((acc, d) => acc + stepsByDay[d].length, 0) +
+                                    index +
+                                    1
+                                ) : (
+                                  <Lock className="h-3 w-3" />
+                                )}
                               </span>
                               <span>
                                 Day {day}: {step.step_label}
@@ -1010,44 +1053,53 @@ export function CadenceBuilder() {
                         const stepConfig = step.config_json as Record<string, unknown>
                         const isManual = config.isManual
 
+                        const stepDayAvailable = isDayAvailable(step.day_offset)
+
                         return (
-                          <div key={step.id}>
+                          <div key={step.id} className={!stepDayAvailable ? 'opacity-50' : ''}>
                             <div className="mb-4 flex items-center justify-between">
                               <h3 className="flex items-center gap-2 font-medium">
                                 <Icon className="h-4 w-4" />
                                 Day {step.day_offset}: {step.step_label} ({leadsAtStep.length})
-                              </h3>
-                              <Button
-                                size="sm"
-                                onClick={() => handleExecuteAllForStep(step)}
-                                disabled={sendingAll}
-                              >
-                                {sendingAll ? (
-                                  <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Processing...
-                                  </>
-                                ) : isManual ? (
-                                  <>
-                                    <CheckCircle className="mr-2 h-4 w-4" />
-                                    Done All
-                                  </>
-                                ) : step.step_type === 'linkedin_connect' ? (
-                                  <>
-                                    <UserPlus className="mr-2 h-4 w-4" />
-                                    Connect All
-                                  </>
-                                ) : (
-                                  <>
-                                    <Send className="mr-2 h-4 w-4" />
-                                    Send All
-                                  </>
+                                {!stepDayAvailable && (
+                                  <Badge variant="secondary" className="text-xs gap-1">
+                                    <Lock className="h-3 w-3" />
+                                    Available in {step.day_offset - cadenceCurrentDay}d
+                                  </Badge>
                                 )}
-                              </Button>
+                              </h3>
+                              <FeatureGate flag="cadence_manual_execute">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleExecuteAllForStep(step)}
+                                  disabled={sendingAll || !stepDayAvailable}
+                                >
+                                  {sendingAll ? (
+                                    <>
+                                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                      Processing...
+                                    </>
+                                  ) : isManual ? (
+                                    <>
+                                      <CheckCircle className="mr-2 h-4 w-4" />
+                                      Done All
+                                    </>
+                                  ) : step.step_type === 'linkedin_connect' ? (
+                                    <>
+                                      <UserPlus className="mr-2 h-4 w-4" />
+                                      Connect All
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Send className="mr-2 h-4 w-4" />
+                                      Send All
+                                    </>
+                                  )}
+                                </Button>
+                              </FeatureGate>
                             </div>
                             <div className="space-y-3">
                               {leadsAtStep.map((lead) => {
-                                const leadDay = getLeadDayInCadence(lead)
                                 const canExecute = canExecuteStep(lead, step)
                                 const messageTemplate =
                                   leadMessages[lead.id] ||
@@ -1057,9 +1109,7 @@ export function CadenceBuilder() {
                                 return (
                                   <div
                                     key={lead.id}
-                                    className={`rounded-lg border p-4 ${
-                                      !canExecute ? 'opacity-60' : ''
-                                    }`}
+                                    className="rounded-lg border p-4"
                                   >
                                     <div className="flex items-start justify-between">
                                       <div className="flex-1">
@@ -1067,14 +1117,6 @@ export function CadenceBuilder() {
                                           <p className="font-medium">
                                             {lead.first_name} {lead.last_name}
                                           </p>
-                                          <Badge variant="outline" className="text-xs">
-                                            Day {leadDay}
-                                          </Badge>
-                                          {!canExecute && (
-                                            <Badge variant="secondary" className="text-xs">
-                                              Not ready (Day {step.day_offset})
-                                            </Badge>
-                                          )}
                                         </div>
                                         <p className="text-sm text-muted-foreground">
                                           {lead.company} {lead.title && `- ${lead.title}`}
@@ -1086,22 +1128,24 @@ export function CadenceBuilder() {
                                         )}
                                       </div>
                                       <div className="flex gap-2">
-                                        <Button
-                                          size="sm"
-                                          onClick={() => handleExecuteStep(lead, step)}
-                                          disabled={sendingLeadId === lead.id || (!canExecute && !isEditMode)}
-                                        >
-                                          {sendingLeadId === lead.id ? (
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                          ) : isManual ? (
-                                            <CheckCircle className="mr-2 h-4 w-4" />
-                                          ) : step.step_type === 'linkedin_connect' ? (
-                                            <UserPlus className="mr-2 h-4 w-4" />
-                                          ) : (
-                                            <Send className="mr-2 h-4 w-4" />
-                                          )}
-                                          {isManual ? 'Done' : step.step_type === 'linkedin_connect' ? 'Connect' : 'Send'}
-                                        </Button>
+                                        <FeatureGate flag="cadence_manual_execute">
+                                          <Button
+                                            size="sm"
+                                            onClick={() => handleExecuteStep(lead, step)}
+                                            disabled={sendingLeadId === lead.id || (!canExecute && !isEditMode)}
+                                          >
+                                            {sendingLeadId === lead.id ? (
+                                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            ) : isManual ? (
+                                              <CheckCircle className="mr-2 h-4 w-4" />
+                                            ) : step.step_type === 'linkedin_connect' ? (
+                                              <UserPlus className="mr-2 h-4 w-4" />
+                                            ) : (
+                                              <Send className="mr-2 h-4 w-4" />
+                                            )}
+                                            {isManual ? 'Done' : step.step_type === 'linkedin_connect' ? 'Connect' : 'Send'}
+                                          </Button>
+                                        </FeatureGate>
                                         <Button
                                           variant="outline"
                                           size="sm"

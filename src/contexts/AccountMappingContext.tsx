@@ -2,6 +2,7 @@ import { createContext, useContext, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from './AuthContext'
+import { useOrg } from './OrgContext'
 import { callEdgeFunction } from '@/lib/edge-functions'
 import type {
   AccountMap,
@@ -127,11 +128,11 @@ interface AccountMappingContextType {
   polishICPDescription: (description: string) => Promise<string>
   discoverICPCompanies: (icpDescription: string, min: number, max: number) => Promise<DiscoverICPResponse>
   // Companies CRUD
-  addCompany: (company: Omit<AccountMapCompany, 'id' | 'created_at' | 'updated_at'>) => Promise<AccountMapCompany | null>
+  addCompany: (company: Omit<AccountMapCompany, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<AccountMapCompany | null>
   updateCompany: (id: string, data: Partial<AccountMapCompany>) => Promise<void>
   deleteCompany: (id: string) => Promise<void>
   // Buyer Personas CRUD
-  addPersona: (persona: Omit<BuyerPersona, 'id' | 'created_at' | 'updated_at'>) => Promise<BuyerPersona | null>
+  addPersona: (persona: Omit<BuyerPersona, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<BuyerPersona | null>
   updatePersona: (id: string, data: Partial<BuyerPersona>) => Promise<void>
   deletePersona: (id: string) => Promise<void>
   // Prospects
@@ -182,34 +183,36 @@ const AccountMappingContext = createContext<AccountMappingContextType | undefine
 
 export function AccountMappingProvider({ children }: { children: ReactNode }) {
   const { user, session } = useAuth()
+  const { orgId } = useOrg()
   const queryClient = useQueryClient()
 
   // ── Queries ──
 
   const { data: accountMaps = [], isLoading } = useQuery({
-    queryKey: ['account-maps', user?.id],
+    queryKey: ['account-maps', orgId],
     queryFn: async () => {
-      if (!user) return []
+      if (!user || !orgId) return []
       const { data, error } = await supabase
         .from('account_maps')
         .select('*, account_map_companies(*), buyer_personas(*), prospects(*)')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []) as AccountMap[]
     },
-    enabled: !!user,
+    enabled: !!user && !!orgId,
   })
 
   // ── Account Maps CRUD ──
 
   const createAccountMapMutation = useMutation({
     mutationFn: async ({ name, description }: { name: string; description?: string }) => {
-      if (!user) throw new Error('Not authenticated')
+      if (!user || !orgId) throw new Error('Not authenticated')
       const { data, error } = await supabase
         .from('account_maps')
         .insert({
           owner_id: user.id,
+          org_id: orgId,
           name,
           description: description || null,
           filters_json: { industry: [], company_size: [], location: [], seniority: [], keywords: [], title_keywords: [] },
@@ -241,10 +244,11 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
   // ── Companies CRUD ──
 
   const addCompanyMutation = useMutation({
-    mutationFn: async (company: Omit<AccountMapCompany, 'id' | 'created_at' | 'updated_at'>) => {
+    mutationFn: async (company: Omit<AccountMapCompany, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => {
+      if (!orgId) throw new Error('No org selected')
       const { data, error } = await supabase
         .from('account_map_companies')
-        .insert(company)
+        .insert({ ...company, org_id: orgId })
         .select()
         .single()
       if (error) throw error
@@ -272,10 +276,11 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
   // ── Buyer Personas CRUD ──
 
   const addPersonaMutation = useMutation({
-    mutationFn: async (persona: Omit<BuyerPersona, 'id' | 'created_at' | 'updated_at'>) => {
+    mutationFn: async (persona: Omit<BuyerPersona, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => {
+      if (!orgId) throw new Error('No org selected')
       const { data, error } = await supabase
         .from('buyer_personas')
-        .insert(persona)
+        .insert({ ...persona, org_id: orgId })
         .select()
         .single()
       if (error) throw error
@@ -313,46 +318,47 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
   // ── ICP Templates ──
 
   const { data: icpTemplates = [] } = useQuery({
-    queryKey: ['icp-templates', user?.id],
+    queryKey: ['icp-templates', orgId],
     queryFn: async () => {
-      if (!user) return []
+      if (!user || !orgId) return []
       const { data, error } = await supabase
         .from('icp_templates')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []) as ICPTemplate[]
     },
-    enabled: !!user,
+    enabled: !!user && !!orgId,
   })
 
   // ── Company Registry ──
 
   const { data: companyRegistry = [], isLoading: registryLoading } = useQuery({
-    queryKey: ['company-registry', user?.id],
+    queryKey: ['company-registry', orgId],
     queryFn: async () => {
-      if (!user) return []
+      if (!user || !orgId) return []
       const { data, error } = await supabase
         .from('company_registry')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []) as CompanyRegistryEntry[]
     },
-    enabled: !!user,
+    enabled: !!user && !!orgId,
   })
 
   const addRegistryEntryMutation = useMutation({
     mutationFn: async (entry: { company_name_display: string; registry_type: RegistryType; source?: string; website?: string | null; industry?: string | null; company_size?: string | null; location?: string | null; exclusion_reason?: string | null }) => {
-      if (!user) throw new Error('Not authenticated')
+      if (!user || !orgId) throw new Error('Not authenticated')
       const normalized = normalizeCompanyName(entry.company_name_display)
       if (!normalized) throw new Error('Company name is required')
       const { data, error } = await supabase
         .from('company_registry')
         .upsert({
           owner_id: user.id,
+          org_id: orgId,
           company_name: normalized,
           company_name_display: entry.company_name_display.trim(),
           registry_type: entry.registry_type,
@@ -362,7 +368,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
           company_size: entry.company_size || null,
           location: entry.location || null,
           exclusion_reason: entry.exclusion_reason || null,
-        }, { onConflict: 'owner_id,company_name' })
+        }, { onConflict: 'org_id,company_name' })
         .select()
         .single()
       if (error) throw error
@@ -389,10 +395,10 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
 
   const saveTemplateMutation = useMutation({
     mutationFn: async ({ name, description, builderData }: { name: string; description: string | null; builderData: ICPBuilderData }) => {
-      if (!user) throw new Error('Not authenticated')
+      if (!user || !orgId) throw new Error('Not authenticated')
       const { data, error } = await supabase
         .from('icp_templates')
-        .insert({ owner_id: user.id, name, description, builder_data: builderData })
+        .insert({ owner_id: user.id, org_id: orgId, name, description, builder_data: builderData })
         .select()
         .single()
       if (error) throw error
@@ -441,6 +447,23 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
           const excludedCompanyNames = companyRegistry
             .filter(e => (EXCLUSION_TYPES as string[]).includes(e.registry_type))
             .map(e => e.company_name_display)
+
+          // Also exclude companies with active Salesforce opportunities (not lost)
+          if (orgId) {
+            const { data: sfAccounts } = await supabase
+              .from('salesforce_accounts')
+              .select('name')
+              .eq('org_id', orgId)
+              .eq('has_active_opportunities', true)
+            if (sfAccounts) {
+              for (const acc of sfAccounts) {
+                if (!excludedCompanyNames.some(n => n.toLowerCase() === acc.name.toLowerCase())) {
+                  excludedCompanyNames.push(acc.name)
+                }
+              }
+            }
+          }
+
           return callEdgeFunction<DiscoverICPResponse>(
             'discover-icp-companies',
             { icpDescription, minCompanies: min, maxCompanies: max, excludedCompanies: excludedCompanyNames },
@@ -466,11 +489,12 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
 
         // Prospects: bulk save from search results
         saveProspects: async (accountMapId, companyId, prospects, options) => {
-          if (!user) throw new Error('Not authenticated')
+          if (!user || !orgId) throw new Error('Not authenticated')
           const rows = prospects.map((p) => ({
             account_map_id: accountMapId,
             company_id: companyId,
             owner_id: user.id,
+            org_id: orgId,
             first_name: p.firstName,
             last_name: p.lastName,
             title: p.title,
@@ -493,11 +517,12 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
 
         // Batch variant: saves without invalidating React Query (for batch loop performance)
         saveProspectsBatch: async (accountMapId, companyId, prospects, options) => {
-          if (!user) throw new Error('Not authenticated')
+          if (!user || !orgId) throw new Error('Not authenticated')
           const rows = prospects.map((p) => ({
             account_map_id: accountMapId,
             company_id: companyId,
             owner_id: user.id,
+            org_id: orgId,
             first_name: p.firstName,
             last_name: p.lastName,
             title: p.title,
@@ -560,14 +585,14 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
 
         // Promote prospect → lead
         promoteProspectToLead: async (prospectId, cadenceId) => {
-          if (!user) throw new Error('Not authenticated')
+          if (!user || !orgId) throw new Error('Not authenticated')
 
           // Fetch the prospect
           const { data: prospect, error: pErr } = await supabase
             .from('prospects')
             .select('*')
             .eq('id', prospectId)
-            .eq('owner_id', user.id)
+            .eq('org_id', orgId)
             .single()
           if (pErr || !prospect) throw new Error('Prospect not found')
 
@@ -577,7 +602,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
             const { data: existing } = await supabase
               .from('leads')
               .select('id')
-              .eq('owner_id', user.id)
+              .eq('org_id', orgId)
               .eq('linkedin_url', prospect.linkedin_url)
               .limit(1)
             if (existing && existing.length > 0) duplicate = true
@@ -586,7 +611,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
             const { data: existing } = await supabase
               .from('leads')
               .select('id')
-              .eq('owner_id', user.id)
+              .eq('org_id', orgId)
               .eq('email', prospect.email)
               .limit(1)
             if (existing && existing.length > 0) duplicate = true
@@ -597,6 +622,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
             .from('leads')
             .insert({
               owner_id: user.id,
+              org_id: orgId,
               first_name: prospect.first_name,
               last_name: prospect.last_name,
               email: prospect.email,
@@ -635,6 +661,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
                 lead_id: newLead.id,
                 cadence_id: cadenceId,
                 owner_id: user.id,
+                org_id: orgId,
                 current_step_id: firstStepId,
                 status: 'active',
               })
@@ -649,7 +676,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
 
         // Bulk promote
         bulkPromoteProspects: async (prospectIds, cadenceId) => {
-          if (!user) throw new Error('Not authenticated')
+          if (!user || !orgId) throw new Error('Not authenticated')
           let promoted = 0
           let duplicates = 0
 
@@ -661,7 +688,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
                   .from('prospects')
                   .select('*')
                   .eq('id', pid)
-                  .eq('owner_id', user.id)
+                  .eq('org_id', orgId)
                   .single()
                 if (!prospect) return null
 
@@ -673,7 +700,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
                   const { data: existing } = await supabase
                     .from('leads')
                     .select('id')
-                    .eq('owner_id', user.id)
+                    .eq('org_id', orgId)
                     .eq('linkedin_url', prospect.linkedin_url)
                     .limit(1)
                   if (existing && existing.length > 0) isDuplicate = true
@@ -682,7 +709,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
                   const { data: existing } = await supabase
                     .from('leads')
                     .select('id')
-                    .eq('owner_id', user.id)
+                    .eq('org_id', orgId)
                     .eq('email', prospect.email)
                     .limit(1)
                   if (existing && existing.length > 0) isDuplicate = true
@@ -692,6 +719,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
                   .from('leads')
                   .insert({
                     owner_id: user.id,
+                    org_id: orgId,
                     first_name: prospect.first_name,
                     last_name: prospect.last_name,
                     email: prospect.email,
@@ -725,6 +753,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
                       lead_id: newLead.id,
                       cadence_id: cadenceId,
                       owner_id: user.id,
+                      org_id: orgId,
                       current_step_id: sorted[0]?.id || null,
                       status: 'active',
                     })
@@ -758,40 +787,41 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
 
         // ICP Feedback
         submitFeedback: async (accountMapId, companyName, feedback, discoveryData) => {
-          if (!user) throw new Error('Not authenticated')
+          if (!user || !orgId) throw new Error('Not authenticated')
           const { error } = await supabase
             .from('icp_discovery_feedback')
             .upsert(
               {
                 account_map_id: accountMapId,
                 owner_id: user.id,
+                org_id: orgId,
                 company_name: companyName,
                 feedback,
                 discovery_data: discoveryData || null,
               },
-              { onConflict: 'account_map_id,company_name,owner_id' }
+              { onConflict: 'account_map_id,company_name,org_id' }
             )
           if (error) throw error
         },
 
         deleteFeedback: async (accountMapId, companyName) => {
-          if (!user) throw new Error('Not authenticated')
+          if (!user || !orgId) throw new Error('Not authenticated')
           const { error } = await supabase
             .from('icp_discovery_feedback')
             .delete()
             .eq('account_map_id', accountMapId)
             .eq('company_name', companyName)
-            .eq('owner_id', user.id)
+            .eq('org_id', orgId)
           if (error) throw error
         },
 
         getFeedbackForMap: async (accountMapId) => {
-          if (!user) throw new Error('Not authenticated')
+          if (!user || !orgId) throw new Error('Not authenticated')
           const { data, error } = await supabase
             .from('icp_discovery_feedback')
             .select('company_name, feedback')
             .eq('account_map_id', accountMapId)
-            .eq('owner_id', user.id)
+            .eq('org_id', orgId)
           if (error) throw error
           const map: Record<string, FeedbackType> = {}
           for (const row of data || []) {
@@ -861,22 +891,22 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
           return { validated: result.validated, total: result.total }
         },
         skipProspect: async (prospectId, reason) => {
-          if (!user) throw new Error('Not authenticated')
+          if (!user || !orgId) throw new Error('Not authenticated')
           const { error } = await supabase
             .from('prospects')
             .update({ skipped: true, skip_reason: reason || null })
             .eq('id', prospectId)
-            .eq('owner_id', user.id)
+            .eq('org_id', orgId)
           if (error) throw error
           queryClient.invalidateQueries({ queryKey: ['account-maps'] })
         },
         unskipProspect: async (prospectId) => {
-          if (!user) throw new Error('Not authenticated')
+          if (!user || !orgId) throw new Error('Not authenticated')
           const { error } = await supabase
             .from('prospects')
             .update({ skipped: false, skip_reason: null })
             .eq('id', prospectId)
-            .eq('owner_id', user.id)
+            .eq('org_id', orgId)
           if (error) throw error
           queryClient.invalidateQueries({ queryKey: ['account-maps'] })
         },
@@ -897,9 +927,10 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
         addRegistryEntry: async (entry) =>
           addRegistryEntryMutation.mutateAsync(entry),
         addRegistryEntries: async (entries) => {
-          if (!user) throw new Error('Not authenticated')
+          if (!user || !orgId) throw new Error('Not authenticated')
           const rows = entries.map(e => ({
             owner_id: user.id,
+            org_id: orgId,
             company_name: normalizeCompanyName(e.company_name_display),
             company_name_display: e.company_name_display.trim(),
             registry_type: e.registry_type,
@@ -910,7 +941,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
           }))
           const { error } = await supabase
             .from('company_registry')
-            .upsert(rows, { onConflict: 'owner_id,company_name' })
+            .upsert(rows, { onConflict: 'org_id,company_name' })
           if (error) throw error
           queryClient.invalidateQueries({ queryKey: ['company-registry'] })
           return rows.length

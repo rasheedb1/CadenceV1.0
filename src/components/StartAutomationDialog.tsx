@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -54,6 +55,7 @@ export function StartAutomationDialog({
   aiPrompts,
 }: StartAutomationDialogProps) {
   const { user } = useAuth()
+  const { orgId } = useOrg()
   const queryClient = useQueryClient()
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
@@ -86,50 +88,50 @@ export function StartAutomationDialog({
 
   // Fetch example sections
   const { data: exampleSections = [] } = useQuery({
-    queryKey: ['example-sections', user?.id],
+    queryKey: ['example-sections', orgId],
     queryFn: async () => {
       if (!user?.id) return []
       const { data, error } = await supabase
         .from('example_sections')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('name', { ascending: true })
       if (error) throw error
       return (data || []) as ExampleSection[]
     },
-    enabled: !!user?.id && open,
+    enabled: !!user?.id && !!orgId && open,
   })
 
   // Fetch templates
   const { data: templates = [] } = useQuery({
-    queryKey: ['templates-for-automation', user?.id],
+    queryKey: ['templates-for-automation', orgId],
     queryFn: async () => {
       if (!user?.id) return []
       const { data, error } = await supabase
         .from('templates')
         .select('id, name, body_template')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('name', { ascending: true })
       if (error) throw error
       return (data || []) as { id: string; name: string; body_template: string }[]
     },
-    enabled: !!user?.id && open,
+    enabled: !!user?.id && !!orgId && open,
   })
 
   // Fetch all leads
   const { data: allLeads = [] } = useQuery({
-    queryKey: ['leads-for-automation', user?.id],
+    queryKey: ['leads-for-automation', orgId],
     queryFn: async () => {
       if (!user?.id) return []
       const { data, error } = await supabase
         .from('leads')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('first_name', { ascending: true })
       if (error) throw error
       return (data || []) as Lead[]
     },
-    enabled: !!user?.id && open,
+    enabled: !!user?.id && !!orgId && open,
   })
 
   // Fetch leads already in this cadence
@@ -256,6 +258,7 @@ export function StartAutomationDialog({
         cadence_id: cadence.id,
         lead_id: leadId,
         owner_id: user.id,
+        org_id: orgId!,
         current_step_id: firstStep.id,
         status: 'scheduled',
       }))
@@ -272,6 +275,7 @@ export function StartAutomationDialog({
           cadence_step_id: step.id,
           lead_id: leadId,
           owner_id: user.id,
+          org_id: orgId!,
           status: 'pending',
         }))
       )
@@ -325,6 +329,7 @@ export function StartAutomationDialog({
             cadence_step_id: step.id,
             lead_id: leadId,
             owner_id: user.id,
+            org_id: orgId!,
             scheduled_at: scheduleAt.toISOString(),
             timezone: 'UTC',
             status: 'scheduled',
@@ -358,6 +363,7 @@ export function StartAutomationDialog({
       // 5. Create notification
       await supabase.from('notifications').insert({
         owner_id: user.id,
+        org_id: orgId!,
         cadence_id: cadence.id,
         type: 'automation_started',
         title: `Automatizacion iniciada: ${cadence.name}`,
@@ -368,6 +374,7 @@ export function StartAutomationDialog({
       // 6. Log activity
       await supabase.from('activity_log').insert({
         owner_id: user.id,
+        org_id: orgId!,
         cadence_id: cadence.id,
         action: 'automation_started',
         status: 'ok',
@@ -424,22 +431,45 @@ export function StartAutomationDialog({
               <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
               <label className="text-sm flex-1">Zona horaria</label>
               <Select value={timezone} onValueChange={setTimezone}>
-                <SelectTrigger className="w-56 h-8 text-sm">
+                <SelectTrigger className="w-64 h-8 text-sm">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="America/New_York">Eastern (ET)</SelectItem>
-                  <SelectItem value="America/Chicago">Central (CT)</SelectItem>
-                  <SelectItem value="America/Denver">Mountain (MT)</SelectItem>
-                  <SelectItem value="America/Los_Angeles">Pacific (PT)</SelectItem>
-                  <SelectItem value="America/Bogota">Colombia (COT)</SelectItem>
-                  <SelectItem value="America/Lima">Peru (PET)</SelectItem>
-                  <SelectItem value="America/Mexico_City">Mexico (CST)</SelectItem>
-                  <SelectItem value="America/Argentina/Buenos_Aires">Argentina (ART)</SelectItem>
-                  <SelectItem value="America/Santiago">Chile (CLT)</SelectItem>
-                  <SelectItem value="America/Sao_Paulo">Brazil (BRT)</SelectItem>
-                  <SelectItem value="Europe/Madrid">Spain (CET)</SelectItem>
-                  <SelectItem value="UTC">UTC</SelectItem>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="Pacific/Honolulu">Hawaii (HST) GMT-10</SelectItem>
+                  <SelectItem value="America/Anchorage">Alaska (AKST) GMT-9</SelectItem>
+                  <SelectItem value="America/Los_Angeles">Pacific (PST) GMT-8</SelectItem>
+                  <SelectItem value="America/Denver">Mountain (MST) GMT-7</SelectItem>
+                  <SelectItem value="America/Chicago">Central (CST) GMT-6</SelectItem>
+                  <SelectItem value="America/Mexico_City">Mexico (CST) GMT-6</SelectItem>
+                  <SelectItem value="America/New_York">Eastern (EST) GMT-5</SelectItem>
+                  <SelectItem value="America/Bogota">Colombia (COT) GMT-5</SelectItem>
+                  <SelectItem value="America/Lima">Peru (PET) GMT-5</SelectItem>
+                  <SelectItem value="America/Caracas">Venezuela (VET) GMT-4</SelectItem>
+                  <SelectItem value="America/Santiago">Chile (CLT) GMT-4</SelectItem>
+                  <SelectItem value="America/Argentina/Buenos_Aires">Argentina (ART) GMT-3</SelectItem>
+                  <SelectItem value="America/Sao_Paulo">Brazil (BRT) GMT-3</SelectItem>
+                  <SelectItem value="Atlantic/Azores">Azores (AZOT) GMT-1</SelectItem>
+                  <SelectItem value="UTC">UTC GMT+0</SelectItem>
+                  <SelectItem value="Europe/London">London (GMT) GMT+0</SelectItem>
+                  <SelectItem value="Europe/Madrid">Spain (CET) GMT+1</SelectItem>
+                  <SelectItem value="Europe/Paris">France (CET) GMT+1</SelectItem>
+                  <SelectItem value="Europe/Berlin">Germany (CET) GMT+1</SelectItem>
+                  <SelectItem value="Europe/Bucharest">Eastern Europe (EET) GMT+2</SelectItem>
+                  <SelectItem value="Asia/Jerusalem">Israel (IST) GMT+2</SelectItem>
+                  <SelectItem value="Africa/Johannesburg">South Africa (SAST) GMT+2</SelectItem>
+                  <SelectItem value="Europe/Istanbul">Turkey (TRT) GMT+3</SelectItem>
+                  <SelectItem value="Asia/Riyadh">Saudi Arabia (AST) GMT+3</SelectItem>
+                  <SelectItem value="Asia/Dubai">Dubai (GST) GMT+4</SelectItem>
+                  <SelectItem value="Asia/Karachi">Pakistan (PKT) GMT+5</SelectItem>
+                  <SelectItem value="Asia/Kolkata">India (IST) GMT+5:30</SelectItem>
+                  <SelectItem value="Asia/Dhaka">Bangladesh (BST) GMT+6</SelectItem>
+                  <SelectItem value="Asia/Bangkok">Thailand (ICT) GMT+7</SelectItem>
+                  <SelectItem value="Asia/Singapore">Singapore (SGT) GMT+8</SelectItem>
+                  <SelectItem value="Asia/Shanghai">China (CST) GMT+8</SelectItem>
+                  <SelectItem value="Asia/Tokyo">Japan (JST) GMT+9</SelectItem>
+                  <SelectItem value="Asia/Seoul">Korea (KST) GMT+9</SelectItem>
+                  <SelectItem value="Australia/Sydney">Australia (AEST) GMT+10</SelectItem>
+                  <SelectItem value="Pacific/Auckland">New Zealand (NZST) GMT+12</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -461,16 +491,18 @@ export function StartAutomationDialog({
                         Dia {step.day_offset}
                       </Badge>
                       <span className="flex-1 truncate">{step.step_label}</span>
-                      <Input
-                        type="time"
-                        value={stepScheduledTimes[step.id] || '09:00'}
-                        onChange={(e) => setStepScheduledTimes((prev) => ({ ...prev, [step.id]: e.target.value }))}
-                        className="w-24 h-7 text-xs text-center"
-                      />
-                      <Badge variant="secondary" className="text-xs shrink-0">
-                        <CheckCircle className="mr-1 h-3 w-3" />
-                        OK
-                      </Badge>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Input
+                          type="time"
+                          value={stepScheduledTimes[step.id] || '09:00'}
+                          onChange={(e) => setStepScheduledTimes((prev) => ({ ...prev, [step.id]: e.target.value }))}
+                          className="w-28 h-7 text-xs"
+                        />
+                        <Badge variant="secondary" className="text-xs shrink-0">
+                          <CheckCircle className="mr-1 h-3 w-3" />
+                          OK
+                        </Badge>
+                      </div>
                     </div>
                   )
                 }
@@ -496,24 +528,26 @@ export function StartAutomationDialog({
                       <Badge variant="outline" className="text-xs shrink-0">
                         Dia {step.day_offset}
                       </Badge>
-                      <span className="font-medium flex-1">{step.step_label}</span>
-                      <Input
-                        type="time"
-                        value={stepScheduledTimes[step.id] || '09:00'}
-                        onChange={(e) => setStepScheduledTimes((prev) => ({ ...prev, [step.id]: e.target.value }))}
-                        className="w-24 h-7 text-xs text-center"
-                      />
-                      {isConnect && (
-                        <label className="flex items-center gap-2 cursor-pointer text-xs text-muted-foreground">
-                          <Checkbox
-                            checked={sendNote}
-                            onCheckedChange={(checked) =>
-                              setStepSendNote((prev) => ({ ...prev, [step.id]: !!checked }))
-                            }
-                          />
-                          Enviar nota con AI
-                        </label>
-                      )}
+                      <span className="font-medium flex-1 truncate">{step.step_label}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Input
+                          type="time"
+                          value={stepScheduledTimes[step.id] || '09:00'}
+                          onChange={(e) => setStepScheduledTimes((prev) => ({ ...prev, [step.id]: e.target.value }))}
+                          className="w-28 h-7 text-xs"
+                        />
+                        {isConnect && (
+                          <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground whitespace-nowrap">
+                            <Checkbox
+                              checked={sendNote}
+                              onCheckedChange={(checked) =>
+                                setStepSendNote((prev) => ({ ...prev, [step.id]: !!checked }))
+                              }
+                            />
+                            Enviar nota con AI
+                          </label>
+                        )}
+                      </div>
                     </div>
                     {showSelectors && (
                       <div className="grid grid-cols-4 gap-2">

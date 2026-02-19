@@ -130,6 +130,7 @@ export type WorkflowTriggerType = 'manual' | 'new_lead_added'
 export interface Workflow {
   id: string
   owner_id: string
+  org_id: string
   name: string
   description: string | null
   status: WorkflowStatus
@@ -144,6 +145,7 @@ export interface WorkflowRun {
   workflow_id: string
   lead_id: string
   owner_id: string
+  org_id: string
   current_node_id: string | null
   status: WorkflowRunStatus
   waiting_until: string | null
@@ -159,6 +161,7 @@ export interface WorkflowEventLog {
   workflow_id: string
   lead_id: string
   owner_id: string
+  org_id: string
   node_id: string
   node_type: string
   action: string

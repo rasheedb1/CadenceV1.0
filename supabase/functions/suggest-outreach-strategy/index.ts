@@ -1,6 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
-import { getAuthUser, createSupabaseClient } from '../_shared/supabase.ts'
+import { getAuthContext, createSupabaseClient } from '../_shared/supabase.ts'
 import { createLLMClientForUser } from '../_shared/llm.ts'
 
 interface StrategyRequest {
@@ -36,8 +36,8 @@ serve(async (req: Request) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return errorResponse('Missing authorization header', 401)
 
-    const user = await getAuthUser(authHeader)
-    if (!user) return errorResponse('Unauthorized', 401)
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) return errorResponse('Unauthorized', 401)
 
     const body: StrategyRequest = await req.json()
     const { accountMapId, companyId, productDescription, productCategory } = body
@@ -51,7 +51,7 @@ serve(async (req: Request) => {
       .from('account_map_companies')
       .select('*')
       .eq('id', companyId)
-      .eq('owner_id', user.id)
+      .eq('org_id', ctx.orgId)
       .single()
 
     if (cErr || !company) return errorResponse('Company not found', 404)
@@ -62,7 +62,7 @@ serve(async (req: Request) => {
       .select('id, first_name, last_name, title, company, headline, buying_role, relevance_score, role_fit, outreach_angle, ai_validated, skipped')
       .eq('account_map_id', accountMapId)
       .eq('company_id', companyId)
-      .eq('owner_id', user.id)
+      .eq('org_id', ctx.orgId)
       .neq('skipped', true)
       .order('relevance_score', { ascending: false, nullsFirst: false })
 
@@ -76,7 +76,7 @@ serve(async (req: Request) => {
     }
 
     // Initialize LLM
-    const llm = await createLLMClientForUser(user.id)
+    const llm = await createLLMClientForUser(ctx.userId)
 
     const prospectsText = prospects.map(p =>
       `- ${p.first_name} ${p.last_name} (${p.title || 'Unknown title'}) — Role: ${p.buying_role || 'Unknown'}, Relevance: ${p.relevance_score || '?'}/10, Fit: ${p.role_fit || 'unknown'}${p.outreach_angle ? `, Angle: ${p.outreach_angle}` : ''}`
@@ -144,7 +144,8 @@ Respond in JSON:
       .upsert({
         account_map_id: accountMapId,
         company_id: companyId,
-        owner_id: user.id,
+        owner_id: ctx.userId,
+        org_id: ctx.orgId,
         strategy_name: strategy.strategy_name,
         overall_reasoning: strategy.overall_reasoning,
         steps: strategy.steps,

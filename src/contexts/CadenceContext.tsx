@@ -2,6 +2,7 @@ import { createContext, useContext, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from './AuthContext'
+import { useOrg } from './OrgContext'
 import {
   callEdgeFunction,
   type BulkCreateSchedulesRequest,
@@ -31,10 +32,10 @@ interface CadenceContextType {
   createCadence: (name: string, description?: string) => Promise<Cadence | null>
   updateCadence: (id: string, data: Partial<Cadence>) => Promise<void>
   deleteCadence: (id: string) => Promise<void>
-  createStep: (step: Omit<CadenceStep, 'id' | 'created_at' | 'updated_at'>) => Promise<CadenceStep | null>
+  createStep: (step: Omit<CadenceStep, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<CadenceStep | null>
   updateStep: (id: string, data: Partial<CadenceStep>) => Promise<void>
   deleteStep: (id: string) => Promise<void>
-  createLead: (lead: Omit<Lead, 'id' | 'created_at' | 'updated_at'>) => Promise<Lead | null>
+  createLead: (lead: Omit<Lead, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<Lead | null>
   updateLead: (id: string, data: Partial<Lead>) => Promise<void>
   deleteLead: (id: string) => Promise<void>
   assignLeadToCadence: (leadId: string, cadenceId: string, startingStepId?: string) => Promise<void>
@@ -75,16 +76,17 @@ async function ensureProfileExists(userId: string): Promise<void> {
 
 export function CadenceProvider({ children }: { children: ReactNode }) {
   const { user, session } = useAuth()
+  const { orgId } = useOrg()
   const queryClient = useQueryClient()
 
   const { data: cadences = [], isLoading: cadencesLoading } = useQuery({
-    queryKey: ['cadences', user?.id],
+    queryKey: ['cadences', orgId],
     queryFn: async () => {
-      if (!user) return []
+      if (!user || !orgId) return []
       const { data, error } = await supabase
         .from('cadences')
         .select('*, cadence_steps(*)')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []).map((c: Record<string, unknown>) => ({
@@ -92,18 +94,18 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
         steps: c.cadence_steps
       })) as Cadence[]
     },
-    enabled: !!user,
+    enabled: !!user && !!orgId,
   })
 
   const { data: leads = [], isLoading: leadsLoading } = useQuery({
-    queryKey: ['leads', user?.id],
+    queryKey: ['leads', orgId],
     queryFn: async () => {
-      if (!user) return []
+      if (!user || !orgId) return []
       // Fetch leads with their cadence_leads relationship to get cadence info
       const { data, error } = await supabase
         .from('leads')
         .select('*, cadence_leads(cadence_id, current_step_id, status)')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId)
         .order('created_at', { ascending: false })
       if (error) throw error
 
@@ -124,34 +126,34 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
         } as Lead
       })
     },
-    enabled: !!user,
+    enabled: !!user && !!orgId,
   })
 
   const { data: templates = [] } = useQuery({
-    queryKey: ['templates', user?.id],
+    queryKey: ['templates', orgId],
     queryFn: async () => {
-      if (!user) return []
+      if (!user || !orgId) return []
       const { data, error } = await supabase
         .from('templates')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []) as Template[]
     },
-    enabled: !!user,
+    enabled: !!user && !!orgId,
   })
 
   const createCadenceMutation = useMutation({
     mutationFn: async ({ name }: { name: string; description?: string }) => {
-      if (!user) throw new Error('Not authenticated')
+      if (!user || !orgId) throw new Error('Not authenticated')
 
       // Ensure profile exists before creating cadence
       await ensureProfileExists(user.id)
 
       const { data, error } = await supabase
         .from('cadences')
-        .insert({ name, owner_id: user.id, status: 'draft' })
+        .insert({ name, owner_id: user.id, org_id: orgId, status: 'draft' })
         .select()
         .single()
       if (error) throw error
@@ -177,13 +179,14 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
   })
 
   const createStepMutation = useMutation({
-    mutationFn: async (step: Omit<CadenceStep, 'id' | 'created_at' | 'updated_at'>) => {
-      if (!user) throw new Error('Not authenticated')
+    mutationFn: async (step: Omit<CadenceStep, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => {
+      if (!user || !orgId) throw new Error('Not authenticated')
 
-      // Ensure owner_id is set from current user
+      // Ensure owner_id and org_id are set
       const stepData = {
         ...step,
         owner_id: user.id,
+        org_id: orgId,
       }
 
       const { data, error } = await supabase.from('cadence_steps').insert(stepData).select().single()
@@ -210,7 +213,7 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
   })
 
   const createLeadMutation = useMutation({
-    mutationFn: async (lead: Omit<Lead, 'id' | 'created_at' | 'updated_at'>) => {
+    mutationFn: async (lead: Omit<Lead, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => {
       // Ensure profile exists before creating lead
       await ensureProfileExists(lead.owner_id)
 
@@ -218,6 +221,7 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
       // (cadence_id, current_step_id, status are in cadence_leads table, not leads)
       const leadData = {
         owner_id: lead.owner_id,
+        org_id: orgId!,
         first_name: lead.first_name,
         last_name: lead.last_name,
         email: lead.email,
@@ -256,11 +260,12 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
 
   const createTemplateMutation = useMutation({
     mutationFn: async (template: { name: string; step_type: string; subject_template?: string | null; body_template: string }) => {
-      if (!user) throw new Error('Not authenticated')
+      if (!user || !orgId) throw new Error('Not authenticated')
       const { data, error } = await supabase
         .from('templates')
         .insert({
           owner_id: user.id,
+          org_id: orgId,
           name: template.name,
           step_type: template.step_type,
           subject_template: template.subject_template || null,
@@ -307,7 +312,7 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
         updateLead: async (id, data) => updateLeadMutation.mutateAsync({ id, data }),
         deleteLead: async (id) => deleteLeadMutation.mutateAsync(id),
         assignLeadToCadence: async (leadId, cadenceId, startingStepId) => {
-          if (!user) throw new Error('Not authenticated')
+          if (!user || !orgId) throw new Error('Not authenticated')
 
           // Find the first step if no starting step is provided
           const cadence = cadences.find((c) => c.id === cadenceId)
@@ -324,6 +329,7 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
               lead_id: leadId,
               cadence_id: cadenceId,
               owner_id: user.id,
+              org_id: orgId,
               current_step_id: firstStepId,
               status: 'active',
             }, {

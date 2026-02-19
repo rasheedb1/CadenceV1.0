@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -35,6 +36,7 @@ import {
   Linkedin,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { PermissionGate } from '@/components/PermissionGate'
 
 interface Template {
   id: string
@@ -78,6 +80,7 @@ const VARIABLES = [
 
 export function Templates() {
   const { user } = useAuth()
+  const { orgId } = useOrg()
   const queryClient = useQueryClient()
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
@@ -92,14 +95,14 @@ export function Templates() {
   const editBodyTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   const { data: templates, isLoading } = useQuery({
-    queryKey: ['templates', user?.id],
+    queryKey: ['templates', orgId],
     queryFn: async () => {
-      if (!user?.id) return []
+      if (!user?.id || !orgId) return []
 
       const { data, error } = await supabase
         .from('templates')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('created_at', { ascending: false })
 
       if (error) {
@@ -109,7 +112,7 @@ export function Templates() {
 
       return (data || []) as Template[]
     },
-    enabled: !!user?.id,
+    enabled: !!user && !!orgId,
   })
 
   const createMutation = useMutation({
@@ -124,6 +127,7 @@ export function Templates() {
         subject_template: isEmailType ? data.subject : null,
         body_template: data.body,
         owner_id: user.id,
+        org_id: orgId!,
       })
 
       if (error) throw error
@@ -155,7 +159,7 @@ export function Templates() {
           updated_at: new Date().toISOString(),
         })
         .eq('id', id)
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
 
       if (error) throw error
     },
@@ -179,7 +183,7 @@ export function Templates() {
         .from('templates')
         .delete()
         .eq('id', id)
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
 
       if (error) throw error
     },
@@ -295,12 +299,14 @@ export function Templates() {
           </p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={resetForm}>
-              <Plus className="mr-2 h-4 w-4" />
-              New Template
-            </Button>
-          </DialogTrigger>
+          <PermissionGate permission="templates_create">
+            <DialogTrigger asChild>
+              <Button onClick={resetForm}>
+                <Plus className="mr-2 h-4 w-4" />
+                New Template
+              </Button>
+            </DialogTrigger>
+          </PermissionGate>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Create Template</DialogTitle>
@@ -519,10 +525,12 @@ export function Templates() {
             <p className="mb-4 text-sm text-muted-foreground">
               Create your first template to speed up your outreach
             </p>
-            <Button onClick={() => setIsCreateOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Template
-            </Button>
+            <PermissionGate permission="templates_create">
+              <Button onClick={() => setIsCreateOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Template
+              </Button>
+            </PermissionGate>
           </CardContent>
         </Card>
       ) : (

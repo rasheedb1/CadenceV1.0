@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -55,25 +56,26 @@ function timeAgo(dateStr: string): string {
 
 export function Notifications() {
   const { user } = useAuth()
+  const { orgId } = useOrg()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [actionTakenIds, setActionTakenIds] = useState<Set<string>>(new Set())
   const [processingId, setProcessingId] = useState<string | null>(null)
 
   const { data: notifications = [], isLoading } = useQuery({
-    queryKey: ['notifications', user?.id],
+    queryKey: ['notifications', orgId],
     queryFn: async () => {
       if (!user?.id) return []
       const { data, error } = await supabase
         .from('notifications')
         .select('*, lead:leads(first_name, last_name, company), cadence:cadences(name)')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('created_at', { ascending: false })
         .limit(50)
       if (error) throw error
       return (data || []) as AppNotification[]
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!orgId,
     refetchInterval: 30000,
   })
 
@@ -97,7 +99,7 @@ export function Notifications() {
       const { error } = await supabase
         .from('notifications')
         .update({ is_read: true })
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .eq('is_read', false)
       if (error) throw error
     },
@@ -175,6 +177,7 @@ export function Notifications() {
         cadence_step_id: cadenceLead.current_step_id,
         lead_id: notification.lead_id,
         owner_id: user.id,
+        org_id: orgId!,
         scheduled_at: scheduleAt.toISOString(),
         timezone: 'UTC',
         status: 'scheduled',

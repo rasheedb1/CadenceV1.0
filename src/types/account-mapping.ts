@@ -31,6 +31,7 @@ export const EMPTY_FILTERS: AccountMapFilters = {
 export interface AccountMap {
   id: string
   owner_id: string
+  org_id: string
   name: string
   description: string | null
   icp_description: string | null
@@ -49,6 +50,7 @@ export interface AccountMapCompany {
   id: string
   account_map_id: string
   owner_id: string
+  org_id: string
   company_name: string
   industry: string | null
   company_size: string | null
@@ -109,6 +111,7 @@ export interface BuyerPersona {
   id: string
   account_map_id: string
   owner_id: string
+  org_id: string
   name: string
   title_keywords: string[]
   seniority: string | null
@@ -134,6 +137,7 @@ export interface Prospect {
   account_map_id: string
   company_id: string | null
   owner_id: string
+  org_id: string
   first_name: string
   last_name: string
   email: string | null
@@ -179,6 +183,7 @@ export interface OutreachStrategy {
   account_map_id: string
   company_id: string
   owner_id: string
+  org_id: string
   strategy_name: string | null
   overall_reasoning: string | null
   steps: OutreachStep[]
@@ -228,6 +233,7 @@ export const COMPANY_SIZE_OPTIONS = [
 export interface ICPTemplate {
   id: string
   owner_id: string
+  org_id: string
   name: string
   description: string | null
   builder_data: ICPBuilderData
@@ -243,6 +249,7 @@ export interface ICPDiscoveryFeedback {
   id: string
   account_map_id: string
   owner_id: string
+  org_id: string
   company_name: string
   feedback: FeedbackType
   discovery_data: Record<string, unknown> | null

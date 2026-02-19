@@ -1,6 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
-import { getAuthUser, createSupabaseClient } from '../_shared/supabase.ts'
+import { getAuthContext, createSupabaseClient } from '../_shared/supabase.ts'
 import { createLLMClientForUser } from '../_shared/llm.ts'
 
 interface SuggestedPersona {
@@ -44,8 +44,8 @@ serve(async (req: Request) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return errorResponse('Missing authorization header', 401)
 
-    const user = await getAuthUser(authHeader)
-    if (!user) return errorResponse('Unauthorized', 401)
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) return errorResponse('Unauthorized', 401)
 
     const body = await req.json()
     const { accountMapId } = body as { accountMapId: string }
@@ -59,7 +59,7 @@ serve(async (req: Request) => {
       .from('account_maps')
       .select('filters_json, icp_description')
       .eq('id', accountMapId)
-      .eq('owner_id', user.id)
+      .eq('org_id', ctx.orgId)
       .single()
 
     if (amErr) return errorResponse(`Failed to fetch account map: ${amErr.message}`, 500)
@@ -76,43 +76,52 @@ serve(async (req: Request) => {
       .from('buyer_personas')
       .select('name, title_keywords, seniority, department')
       .eq('account_map_id', accountMapId)
-      .eq('owner_id', user.id)
+      .eq('org_id', ctx.orgId)
 
     if (pErr) return errorResponse(`Failed to fetch personas: ${pErr.message}`, 500)
 
     // Initialize LLM
     let llm
     try {
-      llm = await createLLMClientForUser(user.id)
+      llm = await createLLMClientForUser(ctx.userId)
     } catch (err) {
       return errorResponse(`LLM not configured: ${err instanceof Error ? err.message : 'Unknown'}`, 500)
     }
 
-    const systemPrompt = `You are a B2B sales persona strategist. Given an Ideal Customer Profile (ICP), suggest buyer personas - the specific roles within target companies that would be decision makers or influencers for the described product/service.
+    const systemPrompt = `You are a B2B sales expert who finds real decision-makers on LinkedIn Sales Navigator. Given an ICP, suggest buyer personas with PRACTICAL search keywords that actually match real LinkedIn profile titles.
+
+CRITICAL RULES FOR title_keywords:
+- Keywords are used in LinkedIn Sales Navigator's "Role" filter combined with a separate seniority filter
+- Use SHORT keywords (1-2 words) that appear as substrings in real LinkedIn titles
+- DO NOT include seniority in keywords (no "VP of...", "Head of...", "Director of...") — the seniority filter handles this separately
+- Focus on FUNCTIONAL AREA terms: "Finance", "Payments", "Treasury", "Engineering", "Product"
+- Include COMMON EXACT titles only for C-level: "CFO", "CTO", "CEO", "COO", "CRO"
+- Think about what words ACTUALLY appear in LinkedIn titles at the target companies
+- Keywords must work across different industries (a logistics company won't have "Payment Infrastructure" roles)
+
+GOOD keywords: ["Finance", "Treasury", "Payments", "Accounting", "CFO"]
+GOOD keywords: ["Engineering", "Platform", "Infrastructure", "CTO", "Software"]
+BAD keywords: ["VP of Payment Infrastructure", "Head of Financial Operations", "Director of Platform Engineering"]
+BAD keywords: ["Payment & Fintech Decision Maker", "Engineering & Infrastructure Lead"]
+
+Persona fields:
+- name: short role label (e.g., "Finance Leader", "Technical Buyer")
+- description: 1-2 sentences
+- role_in_buying_committee: decision_maker | champion | influencer | technical_evaluator | budget_holder | end_user
+- department: Engineering | Marketing | Finance | Operations | IT | Sales | Product | HR | Legal | Executive
+- departments: array of relevant departments
+- title_keywords: 3-5 SHORT mid-market search terms (functional area words, NOT full titles)
+- seniority: Entry | Senior | Manager | Director | VP | CXO | Owner | Partner
+- title_keywords_by_tier: adaptive keywords by company size:
+  - enterprise (1000+): 6-10 keywords — mix of specific function words + common C-level abbreviations
+  - mid_market (51-1000): 5-8 keywords — broader function words
+  - startup_smb (1-50): 4-6 keywords — C-level titles + broad function words
+- seniority_by_tier: 2-4 seniority levels per tier
+- reasoning: 1 sentence
 
 Rules:
-- Suggest 3-5 personas
-- Each persona needs these fields:
-  - name: descriptive role label (e.g., "Payment Decision Maker")
-  - description: 1-2 sentences describing what this person does and why they matter
-  - role_in_buying_committee: one of: decision_maker, champion, influencer, technical_evaluator, budget_holder, end_user
-  - department: primary department (Engineering, Marketing, Finance, Operations, IT, Sales, Product, HR, Legal, Executive)
-  - departments: array of relevant departments (can be multiple)
-  - title_keywords: 3-5 mid-market default keywords for LinkedIn search
-  - seniority: default seniority (Entry, Senior, Manager, Director, VP, CXO, Owner, Partner)
-  - title_keywords_by_tier: adaptive keywords by company size:
-    - enterprise (1000+): 5-8 specialized titles
-    - mid_market (51-1000): 5-8 broader titles
-    - startup_smb (1-50): 5-8 generalist/C-level titles
-  - seniority_by_tier: seniority levels per tier (2-4 each):
-    - enterprise: e.g., ["VP", "Director", "CXO"]
-    - mid_market: e.g., ["VP", "Director", "CXO"]
-    - startup_smb: e.g., ["CXO", "Owner", "VP"]
-  - reasoning: 1 sentence explaining relevance
-- title_keywords should be practical LinkedIn search terms matching real job titles
-- Consider who would buy, champion, or influence the purchase
-- If existing personas are provided, suggest DIFFERENT complementary personas
-- Order by relevance: most likely buyer first (decision_maker first, then champion, etc.)
+- Suggest 3-5 personas, ordered by relevance (decision_maker first)
+- If existing personas are provided, suggest DIFFERENT complementary ones
 - You MUST respond with a JSON object: {"personas": [...]}`
 
     // Build user prompt from builder data or free-text

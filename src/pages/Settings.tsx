@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/integrations/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -10,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Loader2, CheckCircle2, XCircle, ExternalLink, Mail, Brain } from 'lucide-react'
 import { useLinkedInConnection } from '@/hooks/useLinkedInConnection'
 import { useGmailConnection } from '@/hooks/useGmailConnection'
+import { SalesforceConnection } from '@/components/salesforce/SalesforceConnection'
 
 const LLM_MODELS: Record<string, { label: string; models: { value: string; label: string }[] }> = {
   openai: {
@@ -135,6 +137,17 @@ export function Settings() {
       <div className="mb-8">
         <h1 className="text-[28px] font-bold tracking-tight font-heading">Settings</h1>
         <p className="text-muted-foreground">Manage your account settings</p>
+        <div className="flex gap-2 mt-4">
+          <Link to="/settings" className="px-3 py-1.5 text-sm font-medium rounded-md bg-primary text-primary-foreground">
+            Account
+          </Link>
+          <Link to="/settings/organization" className="px-3 py-1.5 text-sm font-medium rounded-md text-muted-foreground hover:bg-accent">
+            Organization
+          </Link>
+          <Link to="/settings/members" className="px-3 py-1.5 text-sm font-medium rounded-md text-muted-foreground hover:bg-accent">
+            Members
+          </Link>
+        </div>
       </div>
 
       <div className="max-w-2xl space-y-6">
@@ -411,6 +424,9 @@ export function Settings() {
                 {gmail.message.text}
               </p>
             )}
+
+            {/* Salesforce Integration */}
+            <SalesforceConnection />
 
             <Separator />
 

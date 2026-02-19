@@ -2,7 +2,7 @@
 // POST /functions/v1/linkedin-send-message
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
-import { createSupabaseClient, getAuthUserOrOwner, logActivity, getUnipileAccountId, trackProspectedCompany } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthContext, logActivity, getUnipileAccountId, trackProspectedCompany } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface SendMessageRequest {
@@ -17,6 +17,7 @@ interface SendMessageRequest {
   // Force a specific channel (optional)
   channel?: 'linkedin' | 'sales_navigator'
   ownerId?: string // For service-role calls from process-queue
+  orgId?: string   // For service-role calls from process-queue
 }
 
 interface UnipileAccount {
@@ -149,10 +150,10 @@ serve(async (req: Request) => {
 
     // Parse request body
     const body: SendMessageRequest = await req.json()
-    const { leadId, chatId, message, cadenceId, cadenceStepId, scheduleId, instanceId, channel, ownerId } = body
+    const { leadId, chatId, message, cadenceId, cadenceStepId, scheduleId, instanceId, channel, ownerId, orgId } = body
 
-    const user = await getAuthUserOrOwner(authHeader, ownerId)
-    if (!user) {
+    const ctx = await getAuthContext(authHeader, { ownerId, orgId })
+    if (!ctx) {
       return errorResponse('Unauthorized', 401)
     }
 
@@ -169,11 +170,11 @@ serve(async (req: Request) => {
 
     // Get Unipile account ID for this user
     // First try database, then fallback to Unipile API directly
-    let unipileAccountId = await getUnipileAccountId(user.id)
+    let unipileAccountId = await getUnipileAccountId(ctx.userId)
 
     if (!unipileAccountId) {
       console.log('Account not found in database, querying Unipile directly...')
-      unipileAccountId = await findUnipileLinkedInAccount(user.id)
+      unipileAccountId = await findUnipileLinkedInAccount(ctx.userId)
     }
 
     if (!unipileAccountId) {
@@ -213,7 +214,7 @@ serve(async (req: Request) => {
       .from('leads')
       .select('*')
       .eq('id', leadId)
-      .eq('owner_id', user.id)
+      .eq('org_id', ctx.orgId)
       .single()
 
     if (leadError || !lead) {
@@ -225,7 +226,7 @@ serve(async (req: Request) => {
       .from('linkedin_conversations')
       .select('id, linkedin_thread_id')
       .eq('lead_id', leadId)
-      .eq('owner_id', user.id)
+      .eq('org_id', ctx.orgId)
       .single()
 
     // Send message via Unipile
@@ -335,7 +336,8 @@ serve(async (req: Request) => {
     if (!result.success) {
       // Log failure
       await logActivity({
-        ownerId: user.id,
+        ownerId: ctx.userId,
+        orgId: ctx.orgId,
         cadenceId,
         cadenceStepId,
         leadId,
@@ -353,7 +355,8 @@ serve(async (req: Request) => {
       const { data: newConv } = await supabase
         .from('linkedin_conversations')
         .insert({
-          owner_id: user.id,
+          owner_id: ctx.userId,
+          org_id: ctx.orgId,
           lead_id: leadId,
           linkedin_thread_id: threadId,
           status: 'messaged',
@@ -376,7 +379,8 @@ serve(async (req: Request) => {
     // Store the message
     await supabase.from('linkedin_messages').insert({
       conversation_id: conversation?.id,
-      owner_id: user.id,
+      owner_id: ctx.userId,
+      org_id: ctx.orgId,
       body: message,
       direction: 'outbound',
       provider: usedChannel === 'sales_navigator' ? 'unipile_inmail' : 'unipile',
@@ -387,7 +391,8 @@ serve(async (req: Request) => {
 
     // Log success
     await logActivity({
-      ownerId: user.id,
+      ownerId: ctx.userId,
+      orgId: ctx.orgId,
       cadenceId,
       cadenceStepId,
       leadId,
@@ -399,7 +404,8 @@ serve(async (req: Request) => {
     // Track company as prospected in registry
     if (lead?.company) {
       trackProspectedCompany({
-        ownerId: user.id,
+        ownerId: ctx.userId,
+        orgId: ctx.orgId,
         companyName: lead.company,
         prospectedVia: 'linkedin_message',
       })

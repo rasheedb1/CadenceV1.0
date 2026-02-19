@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
 import { useCadence } from '@/contexts/CadenceContext'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -19,18 +20,19 @@ import {
 
 export function Admin() {
   const { user } = useAuth()
+  const { orgId } = useOrg()
   const { cadences } = useCadence()
 
   // Fetch total messages sent from activity_log
   const { data: messageStats, isLoading: loadingMessages } = useQuery({
-    queryKey: ['admin-message-stats', user?.id],
+    queryKey: ['admin-message-stats', orgId],
     queryFn: async () => {
       if (!user?.id) return { total: 0, success: 0, failed: 0 }
 
       const { data: logs, error } = await supabase
         .from('activity_log')
         .select('status, action')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .in('action', ['linkedin_message_sent', 'email_sent', 'linkedin_connect', 'linkedin_like', 'linkedin_comment'])
 
       if (error) {
@@ -44,12 +46,12 @@ export function Admin() {
 
       return { total, success, failed }
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!orgId,
   })
 
   // Fetch recent activity
   const { data: recentActivity, isLoading: loadingActivity } = useQuery({
-    queryKey: ['admin-recent-activity', user?.id],
+    queryKey: ['admin-recent-activity', orgId],
     queryFn: async () => {
       if (!user?.id) return []
 
@@ -67,7 +69,7 @@ export function Admin() {
             last_name
           )
         `)
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('created_at', { ascending: false })
         .limit(5)
 
@@ -78,19 +80,19 @@ export function Admin() {
 
       return data || []
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!orgId,
   })
 
   // Fetch weekly stats summary
   const { data: weeklyStats, isLoading: loadingWeekly } = useQuery({
-    queryKey: ['admin-weekly-stats', user?.id],
+    queryKey: ['admin-weekly-stats', orgId],
     queryFn: async () => {
       if (!user?.id) return null
 
       const { data, error } = await supabase
         .from('weekly_message_stats')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('week_start', { ascending: false })
         .limit(1)
         .single()
@@ -102,7 +104,7 @@ export function Admin() {
 
       return data
     },
-    enabled: !!user?.id,
+    enabled: !!user?.id && !!orgId,
   })
 
   const activeCadences = cadences.filter((c) => c.status === 'active').length

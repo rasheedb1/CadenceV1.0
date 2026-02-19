@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Plus, GitBranch, MoreVertical, Pencil, Trash2, Play, Pause } from 'lucide-react'
+import { PermissionGate } from '@/components/PermissionGate'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,12 +71,14 @@ export function Workflows() {
           <p className="text-muted-foreground">Build conditional LinkedIn automation flows</p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              New Workflow
-            </Button>
-          </DialogTrigger>
+          <PermissionGate permission="workflows_create">
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                New Workflow
+              </Button>
+            </DialogTrigger>
+          </PermissionGate>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create New Workflow</DialogTitle>
@@ -115,10 +118,12 @@ export function Workflows() {
             <p className="mb-4 text-sm text-muted-foreground text-center max-w-md">
               Create your first workflow to build conditional LinkedIn automation flows with branching logic
             </p>
-            <Button onClick={() => setIsCreateOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Workflow
-            </Button>
+            <PermissionGate permission="workflows_create">
+              <Button onClick={() => setIsCreateOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Workflow
+              </Button>
+            </PermissionGate>
           </CardContent>
         </Card>
       ) : (

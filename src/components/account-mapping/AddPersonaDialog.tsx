@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import { LLMModelSelector } from '@/components/LLMModelSelector'
 import {
   Dialog,
   DialogContent,
@@ -38,7 +39,7 @@ interface AddPersonaDialogProps {
   onOpenChange: (open: boolean) => void
   accountMapId: string
   ownerId: string
-  onAdd: (persona: Omit<BuyerPersona, 'id' | 'created_at' | 'updated_at'>) => Promise<BuyerPersona | null>
+  onAdd: (persona: Omit<BuyerPersona, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<BuyerPersona | null>
   onSuggestTitles?: (params: {
     productCategory: string
     companyDescription: string
@@ -324,20 +325,23 @@ export function AddPersonaDialog({
             <div className="flex items-center justify-between">
               <Label>Title Keywords by Company Size</Label>
               {onSuggestTitles && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAutoSuggest}
-                  disabled={suggesting || !role}
-                  className="gap-1"
-                >
-                  {suggesting ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-3.5 w-3.5" />
-                  )}
-                  Auto-suggest with AI
-                </Button>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAutoSuggest}
+                    disabled={suggesting || !role}
+                    className="gap-1"
+                  >
+                    {suggesting ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" />
+                    )}
+                    Auto-suggest with AI
+                  </Button>
+                  <LLMModelSelector />
+                </div>
               )}
             </div>
 

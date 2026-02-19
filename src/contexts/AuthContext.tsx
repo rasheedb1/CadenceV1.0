@@ -4,6 +4,8 @@ import type { User, Session } from '@supabase/supabase-js'
 
 interface ProfileState {
   onboarding_completed: boolean
+  current_org_id: string | null
+  is_super_admin: boolean
 }
 
 interface AuthContextType {
@@ -11,6 +13,7 @@ interface AuthContextType {
   session: Session | null
   profile: ProfileState | null
   loading: boolean
+  isSuperAdmin: boolean
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
   signUp: (email: string, password: string, fullName?: string) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
@@ -24,27 +27,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<ProfileState | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
-  const [profileLoading, setProfileLoading] = useState(false)
 
   // Fetch profile when user changes
   useEffect(() => {
     if (!user) {
       setProfile(null)
-      setProfileLoading(false)
       return
     }
 
-    setProfileLoading(true)
     supabase
       .from('profiles')
-      .select('onboarding_completed')
+      .select('onboarding_completed, current_org_id, is_super_admin')
       .eq('user_id', user.id)
       .single()
       .then(({ data }) => {
         setProfile({
           onboarding_completed: data?.onboarding_completed ?? false,
+          current_org_id: data?.current_org_id ?? null,
+          is_super_admin: data?.is_super_admin ?? false,
         })
-        setProfileLoading(false)
       })
   }, [user?.id])
 
@@ -94,10 +95,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   // Loading = true until auth AND profile are resolved
-  const loading = authLoading || (!!user && profileLoading)
+  // Use !profile (not profileLoading) to prevent race condition where authLoading
+  // becomes false and user is set, but profileLoading hasn't been set to true yet
+  const loading = authLoading || (!!user && !profile)
+  const isSuperAdmin = profile?.is_super_admin ?? false
 
   return (
-    <AuthContext.Provider value={{ user, session, profile, loading, signIn, signUp, signOut, completeOnboarding }}>
+    <AuthContext.Provider value={{ user, session, profile, loading, isSuperAdmin, signIn, signUp, signOut, completeOnboarding }}>
       {children}
     </AuthContext.Provider>
   )

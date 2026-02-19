@@ -1,6 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
-import { getAuthUser, createSupabaseClient } from '../_shared/supabase.ts'
+import { getAuthContext, createSupabaseClient } from '../_shared/supabase.ts'
 import { createLLMClientForUser } from '../_shared/llm.ts'
 
 interface ValidateRequest {
@@ -37,8 +37,8 @@ serve(async (req: Request) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return errorResponse('Missing authorization header', 401)
 
-    const user = await getAuthUser(authHeader)
-    if (!user) return errorResponse('Unauthorized', 401)
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) return errorResponse('Unauthorized', 401)
 
     const body: ValidateRequest = await req.json()
     const { accountMapId, companyId, productDescription, productCategory } = body
@@ -52,7 +52,7 @@ serve(async (req: Request) => {
       .from('account_map_companies')
       .select('*')
       .eq('id', companyId)
-      .eq('owner_id', user.id)
+      .eq('org_id', ctx.orgId)
       .single()
 
     if (cErr || !company) return errorResponse('Company not found', 404)
@@ -63,7 +63,7 @@ serve(async (req: Request) => {
       .select('id, first_name, last_name, title, company, headline, location, buying_role, persona_id')
       .eq('account_map_id', accountMapId)
       .eq('company_id', companyId)
-      .eq('owner_id', user.id)
+      .eq('org_id', ctx.orgId)
       .or('ai_validated.is.null,ai_validated.eq.false')
 
     if (pErr) return errorResponse(`Failed to fetch prospects: ${pErr.message}`, 500)
@@ -76,7 +76,7 @@ serve(async (req: Request) => {
       .from('buyer_personas')
       .select('id, name, description, role_in_buying_committee')
       .eq('account_map_id', accountMapId)
-      .eq('owner_id', user.id)
+      .eq('org_id', ctx.orgId)
 
     const personaMap: Record<string, { name: string; description: string | null; role: string | null }> = {}
     for (const p of personas || []) {
@@ -92,7 +92,7 @@ serve(async (req: Request) => {
     const companyTier = sizeMap[company.company_size || ''] || 'Mid-Market'
 
     // Initialize LLM
-    const llm = await createLLMClientForUser(user.id)
+    const llm = await createLLMClientForUser(ctx.userId)
 
     // Batch validate (up to 20 at a time to avoid token limits)
     const batchSize = 20
@@ -194,7 +194,7 @@ Respond in JSON:
           ai_validated: true,
         })
         .eq('id', v.prospect_id)
-        .eq('owner_id', user.id)
+        .eq('org_id', ctx.orgId)
 
       if (!uErr) updatedCount++
     }

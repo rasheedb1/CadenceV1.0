@@ -25,6 +25,9 @@ import type { RegistryType, CompanyRegistryEntry } from '@/types/registry'
 import { REGISTRY_TYPE_CONFIG } from '@/types/registry'
 import { ImportExclusionDialog } from '@/components/registry/ImportExclusionDialog'
 import { AddExclusionDialog } from '@/components/registry/AddExclusionDialog'
+import { PermissionGate } from '@/components/PermissionGate'
+import { useSalesforceCheck, type SalesforceMatch } from '@/hooks/useSalesforceCheck'
+import { SalesforceBadge } from '@/components/salesforce/SalesforceBadge'
 
 type FilterType = 'all' | RegistryType
 
@@ -37,6 +40,10 @@ export function CompanyRegistry() {
   const [showImport, setShowImport] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+
+  // Salesforce pipeline check
+  const registryCompanyNames = useMemo(() => companyRegistry.map(e => e.company_name_display), [companyRegistry])
+  const { isInPipeline: sfIsInPipeline } = useSalesforceCheck(undefined, registryCompanyNames, companyRegistry.length > 0)
 
   const filtered = useMemo(() => {
     let list = companyRegistry
@@ -149,10 +156,12 @@ export function CompanyRegistry() {
             <Upload className="h-4 w-4 mr-1" />
             Importar CSV
           </Button>
-          <Button size="sm" onClick={() => setShowAdd(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            Agregar
-          </Button>
+          <PermissionGate permission="registry_create">
+            <Button size="sm" onClick={() => setShowAdd(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              Agregar
+            </Button>
+          </PermissionGate>
         </div>
       </div>
 
@@ -252,6 +261,7 @@ export function CompanyRegistry() {
                   })
                 }}
                 formatDate={formatDate}
+                sfMatch={sfIsInPipeline(entry.company_name_display)}
               />
             ))}
           </div>
@@ -271,12 +281,14 @@ function RegistryRow({
   onToggle,
   onDelete,
   formatDate,
+  sfMatch,
 }: {
   entry: CompanyRegistryEntry
   selected: boolean
   onToggle: () => void
   onDelete: () => Promise<void>
   formatDate: (d: string) => string
+  sfMatch?: SalesforceMatch | null
 }) {
   const [deleting, setDeleting] = useState(false)
   const config = REGISTRY_TYPE_CONFIG[entry.registry_type]
@@ -294,7 +306,10 @@ function RegistryRow({
         <Checkbox checked={selected} onCheckedChange={onToggle} />
       </div>
       <div className="min-w-0">
-        <div className="font-medium truncate">{entry.company_name_display}</div>
+        <div className="flex items-center gap-2">
+          <span className="font-medium truncate">{entry.company_name_display}</span>
+          <SalesforceBadge match={sfMatch || null} compact />
+        </div>
         <div className="flex items-center gap-2 mt-0.5">
           {entry.website && (
             <a

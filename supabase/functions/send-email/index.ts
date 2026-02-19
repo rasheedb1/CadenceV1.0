@@ -3,7 +3,7 @@
 // Sends an email through the user's connected Gmail account via Unipile API
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createSupabaseClient, getAuthUserOrOwner, logActivity, trackProspectedCompany } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthContext, logActivity, trackProspectedCompany } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface SendEmailRequest {
@@ -17,6 +17,7 @@ interface SendEmailRequest {
   body: string        // HTML body
   bodyType?: 'text/html' | 'text/plain'  // defaults to text/html
   ownerId?: string // For service-role calls from process-queue
+  orgId?: string   // For service-role calls from process-queue
 }
 
 serve(async (req: Request) => {
@@ -44,10 +45,11 @@ serve(async (req: Request) => {
       body: emailBody,
       bodyType,
       ownerId,
+      orgId,
     } = requestBody
 
-    const user = await getAuthUserOrOwner(authHeader, ownerId)
-    if (!user) {
+    const ctx = await getAuthContext(authHeader, { ownerId, orgId })
+    if (!ctx) {
       return errorResponse('Unauthorized', 401)
     }
 
@@ -67,13 +69,13 @@ serve(async (req: Request) => {
     const { data: gmailAccount, error: gmailError } = await supabase
       .from('unipile_accounts')
       .select('account_id')
-      .eq('user_id', user.id)
+      .eq('user_id', ctx.userId)
       .eq('provider', 'EMAIL')
       .eq('status', 'active')
       .single()
 
     if (gmailError || !gmailAccount?.account_id) {
-      console.error('No active Gmail account found for user:', user.id)
+      console.error('No active Gmail account found for user:', ctx.userId)
       return errorResponse('No Gmail account found. Please connect your Gmail account in Settings and try again.')
     }
 
@@ -89,7 +91,7 @@ serve(async (req: Request) => {
         .from('leads')
         .select('first_name, last_name, email, company')
         .eq('id', leadId)
-        .eq('owner_id', user.id)
+        .eq('org_id', ctx.orgId)
         .single()
 
       if (lead) {
@@ -135,7 +137,8 @@ serve(async (req: Request) => {
     await supabase.from('email_messages').insert({
       id: crypto.randomUUID(),
       event_id: eventId,
-      owner_user_id: user.id,
+      owner_user_id: ctx.userId,
+      org_id: ctx.orgId,
       lead_id: leadId || null,
       cadence_id: cadenceId || null,
       cadence_step_id: cadenceStepId || null,
@@ -182,7 +185,8 @@ serve(async (req: Request) => {
 
       // Log failure
       await logActivity({
-        ownerId: user.id,
+        ownerId: ctx.userId,
+        orgId: ctx.orgId,
         cadenceId,
         cadenceStepId,
         leadId,
@@ -231,7 +235,8 @@ serve(async (req: Request) => {
 
     // Log success
     await logActivity({
-      ownerId: user.id,
+      ownerId: ctx.userId,
+      orgId: ctx.orgId,
       cadenceId,
       cadenceStepId,
       leadId,
@@ -243,7 +248,8 @@ serve(async (req: Request) => {
     // Track company as prospected in registry
     if (leadCompany) {
       trackProspectedCompany({
-        ownerId: user.id,
+        ownerId: ctx.userId,
+        orgId: ctx.orgId,
         companyName: leadCompany,
         prospectedVia: 'email',
       })

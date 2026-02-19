@@ -8,6 +8,7 @@ import { EnrichmentBadge } from '@/components/account-mapping/EnrichmentBadge'
 import { EvidencePanel } from '@/components/account-mapping/EvidencePanel'
 import { AddPersonaDialog } from '@/components/account-mapping/AddPersonaDialog'
 import { BatchSearchDialog } from '@/components/account-mapping/BatchSearchDialog'
+import { CompanyDiscoveryChat } from '@/components/account-mapping/CompanyDiscoveryChat'
 import { useCadence } from '@/contexts/CadenceContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -91,7 +92,10 @@ import { ICPTemplateDialog } from '@/components/icp/ICPTemplateDialog'
 import { SmartICPInsights } from '@/components/icp/SmartICPInsights'
 import { buildICPPrompt, isICPBuilderPopulated } from '@/lib/icp-prompt-builder'
 import { EMPTY_ICP_BUILDER_DATA, type ICPBuilderData } from '@/types/icp-builder'
+import { FeatureGate } from '@/components/FeatureGate'
 import { CompanyCard } from '@/components/account-mapping/CompanyCard'
+import { useSalesforceCheck, type SalesforceMatch } from '@/hooks/useSalesforceCheck'
+import { SalesforceBadge } from '@/components/salesforce/SalesforceBadge'
 import { cn } from '@/lib/utils'
 
 type TabId = 'icp' | 'companies' | 'prospects'
@@ -140,6 +144,7 @@ export function AccountMapDetail() {
   const [showPromote, setShowPromote] = useState(false)
   const [showDiscover, setShowDiscover] = useState(false)
   const [showBatchSearch, setShowBatchSearch] = useState(false)
+  const [showDiscoveryChat, setShowDiscoveryChat] = useState(false)
   const [discoveredCompanies, setDiscoveredCompanies] = useState<DiscoveredCompany[]>([])
   const [discoveredExcluded, setDiscoveredExcluded] = useState<Array<{ company_name: string; reason: string }>>([])
   const [discoveredProspectedNames, setDiscoveredProspectedNames] = useState<Set<string>>(new Set())
@@ -150,6 +155,14 @@ export function AccountMapDetail() {
   const [selectedProspects, setSelectedProspects] = useState<Set<string>>(new Set())
 
   const map = accountMaps.find((m) => m.id === id)
+
+  const companies = map?.account_map_companies || []
+  const personas = map?.buyer_personas || []
+  const prospects = map?.prospects || []
+
+  // Salesforce pipeline check for discovered companies (hooks must be before conditional returns)
+  const companyNames = useMemo(() => companies.map(c => c.company_name), [companies])
+  const { isInPipeline: sfIsInPipeline } = useSalesforceCheck(undefined, companyNames, companies.length > 0)
 
   if (isLoading) {
     return (
@@ -169,10 +182,6 @@ export function AccountMapDetail() {
       </div>
     )
   }
-
-  const companies = map.account_map_companies || []
-  const personas = map.buyer_personas || []
-  const prospects = map.prospects || []
 
   const tabs: { id: TabId; label: string; icon: React.ReactNode; count: number }[] = [
     { id: 'icp', label: 'ICP & Personas', icon: <Users className="h-4 w-4" />, count: personas.length },
@@ -299,12 +308,14 @@ export function AccountMapDetail() {
           companies={companies}
           prospects={prospects}
           personas={personas}
+          sfIsInPipeline={sfIsInPipeline}
           onAddCompany={() => setShowAddCompany(true)}
           onDeleteCompany={deleteCompany}
           onSearchProspects={() => {
             setShowSearch(true)
           }}
           onBatchSearch={() => setShowBatchSearch(true)}
+          onDiscoveryChat={() => setShowDiscoveryChat(true)}
         />
       )}
 
@@ -319,6 +330,7 @@ export function AccountMapDetail() {
             productCategory: map.filters_json?.icp_builder_data?.productCategory || '',
             companyDescription: map.icp_description || map.filters_json?.icp_builder_data?.companyDescription || '',
           }}
+          sfIsInPipeline={sfIsInPipeline}
           selectedProspects={selectedProspects}
           onToggleProspect={toggleProspect}
           onToggleAll={toggleAllProspects}
@@ -417,6 +429,18 @@ export function AccountMapDetail() {
         onEnrichCompany={enrichCompany}
         onReEvaluateCompanies={reEvaluateCompanies}
       />
+
+      {/* Company Discovery Chat */}
+      <CompanyDiscoveryChat
+        open={showDiscoveryChat}
+        onOpenChange={setShowDiscoveryChat}
+        accountMapId={map.id}
+        ownerId={map.owner_id}
+        icpDescription={map.icp_description}
+        icpBuilderData={map.filters_json?.icp_builder_data || null}
+        existingCompanies={companies}
+        onAddCompany={addCompany}
+      />
     </div>
   )
 }
@@ -469,7 +493,7 @@ function ICPTab({
   onAnalyzeInsights: (accountMapId: string) => Promise<import('@/types/account-mapping').ICPInsight[]>
   feedbackCount: number
   onSuggestPersonas: (accountMapId: string) => Promise<SuggestedPersona[]>
-  onAddPersonaFromSuggestion: (persona: Omit<BuyerPersona, 'id' | 'created_at' | 'updated_at'>) => Promise<BuyerPersona | null>
+  onAddPersonaFromSuggestion: (persona: Omit<BuyerPersona, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<BuyerPersona | null>
   accountMapOwnerId: string
 }) {
   const [subTab, setSubTab] = useState<ICPSubTab>('guided')
@@ -686,20 +710,23 @@ function ICPTab({
                 onChange={(e) => { setDescription(e.target.value); setSaved(false) }}
                 placeholder="e.g., Empresas de e-commerce y fintech en Latinoamérica con más de 200 empleados que procesan pagos digitales..."
               />
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handlePolish}
-                  disabled={polishing || !description.trim()}
-                >
-                  {polishing ? (
-                    <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Polishing...</>
-                  ) : (
-                    <><Sparkles className="mr-1 h-4 w-4" /> Polish with AI</>
-                  )}
-                </Button>
-              </div>
+              <FeatureGate flag="acctmap_ai_polish">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handlePolish}
+                    disabled={polishing || !description.trim()}
+                  >
+                    {polishing ? (
+                      <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Polishing...</>
+                    ) : (
+                      <><Sparkles className="mr-1 h-4 w-4" /> Polish with AI</>
+                    )}
+                  </Button>
+                  <LLMModelSelector />
+                </div>
+              </FeatureGate>
             </>
           )}
 
@@ -759,17 +786,20 @@ function ICPTab({
                   className="w-20 h-8 text-sm"
                 />
               </div>
-              <Button
-                size="sm"
-                onClick={handleDiscover}
-                disabled={discovering || !canDiscover}
-              >
-                {discovering ? (
-                  <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Discovering...</>
-                ) : (
-                  <><Search className="mr-1 h-4 w-4" /> Discover Companies</>
-                )}
-              </Button>
+              <FeatureGate flag="acctmap_ai_discovery">
+                <Button
+                  size="sm"
+                  onClick={handleDiscover}
+                  disabled={discovering || !canDiscover}
+                >
+                  {discovering ? (
+                    <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Discovering...</>
+                  ) : (
+                    <><Search className="mr-1 h-4 w-4" /> Discover Companies</>
+                  )}
+                </Button>
+              </FeatureGate>
+              <LLMModelSelector />
             </div>
           </div>
         </CardContent>
@@ -785,19 +815,22 @@ function ICPTab({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSuggestPersonas}
-              disabled={suggesting || !hasICPData}
-              title={!hasICPData ? 'Fill in ICP builder data first' : undefined}
-            >
-              {suggesting ? (
-                <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Suggesting...</>
-              ) : (
-                <><Sparkles className="mr-1 h-4 w-4" /> Suggest Personas</>
-              )}
-            </Button>
+            <FeatureGate flag="acctmap_persona_suggest">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSuggestPersonas}
+                disabled={suggesting || !hasICPData}
+                title={!hasICPData ? 'Fill in ICP builder data first' : undefined}
+              >
+                {suggesting ? (
+                  <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Suggesting...</>
+                ) : (
+                  <><Sparkles className="mr-1 h-4 w-4" /> Suggest Personas</>
+                )}
+              </Button>
+            </FeatureGate>
+            <LLMModelSelector />
             <Button size="sm" onClick={onAddPersona}>
               <Plus className="mr-1 h-4 w-4" /> Add Persona
             </Button>
@@ -986,18 +1019,22 @@ function CompaniesTab({
   companies,
   prospects,
   personas,
+  sfIsInPipeline,
   onAddCompany,
   onDeleteCompany,
   onSearchProspects,
   onBatchSearch,
+  onDiscoveryChat,
 }: {
   companies: AccountMapCompany[]
   prospects: Prospect[]
   personas: BuyerPersona[]
+  sfIsInPipeline: (domainOrName: string) => SalesforceMatch | null
   onAddCompany: () => void
   onDeleteCompany: (id: string) => void
   onSearchProspects: (company?: AccountMapCompany) => void
   onBatchSearch: () => void
+  onDiscoveryChat: () => void
 }) {
   // Count prospects per company
   const prospectCountByCompany = useMemo(() => {
@@ -1069,11 +1106,18 @@ function CompaniesTab({
               </SelectContent>
             </Select>
           )}
-          {companies.length > 0 && personas.length > 0 && (
-            <Button size="sm" onClick={onBatchSearch}>
-              <UserSearch className="mr-1 h-4 w-4" /> Find All Prospects
+          <FeatureGate flag="acctmap_batch_search">
+            {companies.length > 0 && personas.length > 0 && (
+              <Button size="sm" onClick={onBatchSearch}>
+                <UserSearch className="mr-1 h-4 w-4" /> Find All Prospects
+              </Button>
+            )}
+          </FeatureGate>
+          <FeatureGate flag="acctmap_chat_discovery">
+            <Button size="sm" variant="outline" onClick={onDiscoveryChat}>
+              <Sparkles className="mr-1 h-4 w-4" /> Discover via Chat
             </Button>
-          )}
+          </FeatureGate>
           <Button size="sm" onClick={onAddCompany}>
             <Plus className="mr-1 h-4 w-4" /> Add Company
           </Button>
@@ -1092,6 +1136,7 @@ function CompaniesTab({
                 key={company.id}
                 company={company}
                 prospectCount={prospectCountByCompany[company.id] || 0}
+                sfMatch={sfIsInPipeline(company.company_name)}
                 onSearchProspects={onSearchProspects}
                 onDeleteCompany={onDeleteCompany}
               />
@@ -1149,6 +1194,7 @@ function ProspectsTab({
   cadences,
   accountMapId,
   icpContext,
+  sfIsInPipeline,
   selectedProspects,
   onToggleProspect,
   onToggleAll,
@@ -1164,6 +1210,7 @@ function ProspectsTab({
   cadences: Array<{ id: string; name: string }>
   accountMapId: string
   icpContext: { productCategory: string; companyDescription: string }
+  sfIsInPipeline: (domainOrName: string) => SalesforceMatch | null
   selectedProspects: Set<string>
   onToggleProspect: (id: string) => void
   onToggleAll: () => void
@@ -1342,9 +1389,11 @@ function ProspectsTab({
             <Button size="sm" variant="outline" onClick={onSearch}>
               <Search className="mr-1 h-4 w-4" /> Manual Search
             </Button>
-            <Button size="sm" onClick={onBatchSearch}>
-              <UserSearch className="mr-1 h-4 w-4" /> Find All Prospects
-            </Button>
+            <FeatureGate flag="acctmap_batch_search">
+              <Button size="sm" onClick={onBatchSearch}>
+                <UserSearch className="mr-1 h-4 w-4" /> Find All Prospects
+              </Button>
+            </FeatureGate>
           </div>
         </CardHeader>
         <CardContent>
@@ -1357,9 +1406,11 @@ function ProspectsTab({
                 <Button size="sm" variant="outline" onClick={onSearch}>
                   <Search className="mr-1 h-4 w-4" /> Manual Search
                 </Button>
-                <Button size="sm" onClick={onBatchSearch}>
-                  <UserSearch className="mr-1 h-4 w-4" /> Find All Prospects
-                </Button>
+                <FeatureGate flag="acctmap_batch_search">
+                  <Button size="sm" onClick={onBatchSearch}>
+                    <UserSearch className="mr-1 h-4 w-4" /> Find All Prospects
+                  </Button>
+                </FeatureGate>
               </div>
             </div>
           ) : viewMode === 'company' ? (
@@ -1380,6 +1431,7 @@ function ProspectsTab({
                       <div className="flex items-center gap-2">
                         <Building2 className="h-4 w-4 text-muted-foreground" />
                         <span className="font-semibold text-sm">{companyName}</span>
+                        <SalesforceBadge match={sfIsInPipeline(companyName)} compact />
                         <span className="text-xs text-muted-foreground">{group.company?.industry || ''}{sizeLabel}</span>
                         <Badge variant="secondary" className="text-[10px]">{group.prospects.length} prospects</Badge>
                       </div>
@@ -1549,9 +1601,11 @@ function ProspectsTab({
                     <p className="text-xs font-medium text-amber-700">
                       ⚠️ {companiesWithNoProspects.length} companies with no prospects found
                     </p>
-                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onBatchSearch}>
-                      <UserSearch className="mr-1 h-3 w-3" /> Retry Search
-                    </Button>
+                    <FeatureGate flag="acctmap_batch_search">
+                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onBatchSearch}>
+                        <UserSearch className="mr-1 h-3 w-3" /> Retry Search
+                      </Button>
+                    </FeatureGate>
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {companiesWithNoProspects.map(c => (
@@ -1751,7 +1805,7 @@ function AddCompanyDialog({
   onOpenChange: (open: boolean) => void
   accountMapId: string
   ownerId: string
-  onAdd: (company: Omit<AccountMapCompany, 'id' | 'created_at' | 'updated_at'>) => Promise<AccountMapCompany | null>
+  onAdd: (company: Omit<AccountMapCompany, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<AccountMapCompany | null>
 }) {
   const [name, setName] = useState('')
   const [industry, setIndustry] = useState('')
@@ -2305,7 +2359,7 @@ function DiscoverCompaniesDialog({
   prospectedNames?: Set<string>
   accountMapId: string
   ownerId: string
-  onSave: (company: Omit<AccountMapCompany, 'id' | 'created_at' | 'updated_at'>) => Promise<AccountMapCompany | null>
+  onSave: (company: Omit<AccountMapCompany, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<AccountMapCompany | null>
   onSubmitFeedback: (accountMapId: string, companyName: string, feedback: FeedbackType, discoveryData?: Record<string, unknown>) => Promise<void>
   onDeleteFeedback: (accountMapId: string, companyName: string) => Promise<void>
   onGetFeedback: (accountMapId: string) => Promise<Record<string, FeedbackType>>

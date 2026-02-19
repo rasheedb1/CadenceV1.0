@@ -3,7 +3,7 @@
 // Searches LinkedIn Sales Navigator for people matching filters via Unipile API.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { getAuthUser, getUnipileAccountId } from '../_shared/supabase.ts'
+import { getAuthContext, getUnipileAccountId } from '../_shared/supabase.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
@@ -33,15 +33,15 @@ serve(async (req: Request) => {
       return errorResponse('Missing authorization header', 401)
     }
 
-    const user = await getAuthUser(authHeader)
-    if (!user) {
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) {
       return errorResponse('Unauthorized', 401)
     }
 
     const body: SearchRequest = await req.json()
 
     // Get user's Unipile LinkedIn account
-    const accountId = await getUnipileAccountId(user.id)
+    const accountId = await getUnipileAccountId(ctx.userId)
     if (!accountId) {
       return errorResponse('No LinkedIn account connected. Please connect your LinkedIn in Settings.')
     }
@@ -49,7 +49,7 @@ serve(async (req: Request) => {
     const unipile = createUnipileClient()
     const limit = Math.min(body.limit || 25, 50)
 
-    console.log(`Sales Navigator search by user ${user.id}: keywords="${body.keywords}", companies=${JSON.stringify(body.companyNames)}, titles=${JSON.stringify(body.titleKeywords)}`)
+    console.log(`Sales Navigator search by user ${ctx.userId}: keywords="${body.keywords}", companies=${JSON.stringify(body.companyNames)}, titles=${JSON.stringify(body.titleKeywords)}`)
 
     const result = await unipile.searchSalesNavigator(accountId, {
       keywords: body.keywords,
@@ -74,14 +74,22 @@ serve(async (req: Request) => {
     const cursor = (rawData?.cursor || rawData?.next_cursor || null) as string | null
     const hasMore = !!cursor
 
+    // Log raw response structure for debugging
+    console.log(`Raw response keys: ${Object.keys(rawData || {}).join(', ')}`)
+    console.log(`Items count: ${items.length}`)
+    if (items.length > 0) {
+      console.log(`First item keys: ${Object.keys(items[0]).join(', ')}`)
+      console.log(`First item sample:`, JSON.stringify(items[0]).substring(0, 500))
+    }
+
     const prospects = items.map((item: Record<string, unknown>) => {
       // Sales Navigator returns current company info in current_positions array
       const positions = (item.current_positions || []) as Array<Record<string, unknown>>
       const currentPosition = positions[0] || {}
 
       return {
-        firstName: item.first_name || item.firstName || '',
-        lastName: item.last_name || item.lastName || '',
+        firstName: item.first_name || item.firstName || item.name?.toString().split(' ')[0] || '',
+        lastName: item.last_name || item.lastName || item.name?.toString().split(' ').slice(1).join(' ') || '',
         title: (currentPosition.role as string) || item.title || item.headline || '',
         company: (currentPosition.company as string) || item.company || item.company_name || '',
         linkedinUrl: item.public_profile_url || item.profile_url ||
@@ -92,14 +100,14 @@ serve(async (req: Request) => {
       }
     })
 
-    console.log(`Found ${prospects.length} prospects, hasMore=${hasMore}`)
+    console.log(`Normalized ${prospects.length} prospects, hasMore=${hasMore}`)
 
     return jsonResponse({
       success: true,
-      prospects,
+      results: prospects,
       cursor,
       hasMore,
-      totalFound: prospects.length,
+      total: prospects.length,
     })
   } catch (error) {
     console.error('Error in search-sales-navigator:', error)

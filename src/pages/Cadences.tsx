@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Plus, Workflow, MoreVertical, Pencil, Trash2 } from 'lucide-react'
+import { PermissionGate } from '@/components/PermissionGate'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -72,12 +73,14 @@ export function Cadences() {
           <p className="text-muted-foreground">Manage your sales sequences</p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              New Cadence
-            </Button>
-          </DialogTrigger>
+          <PermissionGate permission="cadences_create">
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                New Cadence
+              </Button>
+            </DialogTrigger>
+          </PermissionGate>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create New Cadence</DialogTitle>
@@ -125,10 +128,12 @@ export function Cadences() {
             <p className="mb-4 text-sm text-muted-foreground">
               Create your first cadence to start automating your outreach
             </p>
-            <Button onClick={() => setIsCreateOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Cadence
-            </Button>
+            <PermissionGate permission="cadences_create">
+              <Button onClick={() => setIsCreateOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Cadence
+              </Button>
+            </PermissionGate>
           </CardContent>
         </Card>
       ) : (

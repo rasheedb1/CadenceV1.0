@@ -1,7 +1,7 @@
 // Edge Function: Import Leads from CSV
 // POST /functions/v1/import-leads
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createSupabaseClient, getAuthUser, logActivity } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthContext, logActivity } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface LeadRow {
@@ -75,9 +75,10 @@ function cleanValue(val?: string): string | null {
   return trimmed
 }
 
-function buildLeadInsert(row: LeadRow, ownerId: string) {
+function buildLeadInsert(row: LeadRow, ownerId: string, orgId: string) {
   return {
     owner_id: ownerId,
+    org_id: orgId,
     first_name: row.first_name.trim(),
     last_name: row.last_name.trim(),
     email: cleanValue(row.email),
@@ -110,8 +111,8 @@ serve(async (req: Request) => {
       return errorResponse('Missing authorization header', 401)
     }
 
-    const user = await getAuthUser(authHeader)
-    if (!user) {
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) {
       return errorResponse('Unauthorized', 401)
     }
 
@@ -153,7 +154,7 @@ serve(async (req: Request) => {
 
     // Insert new leads
     if (deduplicatedRows.length > 0) {
-      const leadsToInsert = deduplicatedRows.map((row) => buildLeadInsert(row, user.id))
+      const leadsToInsert = deduplicatedRows.map((row) => buildLeadInsert(row, ctx.userId, ctx.orgId))
 
       const { data: insertedLeads, error: insertError } = await supabase
         .from('leads')
@@ -200,7 +201,7 @@ serve(async (req: Request) => {
         const { data: updatedLead, error: updateError } = await supabase
           .from('leads')
           .update(updateData)
-          .eq('owner_id', user.id)
+          .eq('org_id', ctx.orgId)
           .eq('email', email)
           .select('id')
           .single()
@@ -232,7 +233,8 @@ serve(async (req: Request) => {
       const cadenceLeadInserts = allLeadIds.map((leadId) => ({
         cadence_id: cadenceId,
         lead_id: leadId,
-        owner_id: user.id,
+        owner_id: ctx.userId,
+        org_id: ctx.orgId,
         current_step_id: firstStepId,
         status: 'active',
       }))
@@ -251,7 +253,8 @@ serve(async (req: Request) => {
           cadence_id: cadenceId,
           cadence_step_id: firstStepId,
           lead_id: leadId,
-          owner_id: user.id,
+          owner_id: ctx.userId,
+          org_id: ctx.orgId,
           status: 'pending',
         }))
 
@@ -267,7 +270,8 @@ serve(async (req: Request) => {
 
     // Log activity
     await logActivity({
-      ownerId: user.id,
+      ownerId: ctx.userId,
+      orgId: ctx.orgId,
       cadenceId: cadenceId || undefined,
       action: 'import_leads',
       status: 'ok',

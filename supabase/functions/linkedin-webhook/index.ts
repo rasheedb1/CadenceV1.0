@@ -70,9 +70,11 @@ serve(async (req: Request) => {
       // (unipile_accounts has a foreign key to profiles)
       const { data: existingProfile } = await supabase
         .from('profiles')
-        .select('user_id')
+        .select('user_id, current_org_id')
         .eq('user_id', userId)
         .single()
+
+      const orgId = existingProfile?.current_org_id || null
 
       if (!existingProfile) {
         console.log(`Creating profile for user ${userId}`)
@@ -138,6 +140,7 @@ serve(async (req: Request) => {
       // Log the activity
       await logActivity({
         ownerId: userId,
+        orgId: orgId,
         action: 'linkedin_connected',
         status: 'ok',
         details: {
@@ -156,8 +159,16 @@ serve(async (req: Request) => {
       // Log the failed attempt
       console.log(`LinkedIn connection ${payload.status.toLowerCase()} for user ${userId}`)
 
+      // Look up org_id for activity logging
+      const { data: failProfile } = await supabase
+        .from('profiles')
+        .select('current_org_id')
+        .eq('user_id', userId)
+        .single()
+
       await logActivity({
         ownerId: userId,
+        orgId: failProfile?.current_org_id || undefined,
         action: 'linkedin_connection_failed',
         status: 'failed',
         details: {

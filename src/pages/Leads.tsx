@@ -42,6 +42,7 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { ImportLeadsDialog } from '@/components/ImportLeadsDialog'
+import { PermissionGate } from '@/components/PermissionGate'
 import { LEAD_STATUS_CONFIG, type LeadStatus, type Lead } from '@/types'
 
 interface LeadFormData {
@@ -344,14 +345,18 @@ export function Leads() {
           <p className="text-muted-foreground">Manage your contacts and prospects</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setIsImportOpen(true)}>
-            <Upload className="mr-2 h-4 w-4" />
-            Import Leads
-          </Button>
-          <Button onClick={handleOpenAddLead}>
-            <Plus className="mr-2 h-4 w-4" />
-            Create Lead
-          </Button>
+          <PermissionGate permission="leads_import">
+            <Button variant="outline" onClick={() => setIsImportOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import Leads
+            </Button>
+          </PermissionGate>
+          <PermissionGate permission="leads_create">
+            <Button onClick={handleOpenAddLead}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Lead
+            </Button>
+          </PermissionGate>
         </div>
       </div>
 
@@ -389,10 +394,12 @@ export function Leads() {
                 {searchQuery ? 'Try a different search' : 'Add your first lead to get started'}
               </p>
               {!searchQuery && (
-                <Button onClick={handleOpenAddLead}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create Lead
-                </Button>
+                <PermissionGate permission="leads_create">
+                  <Button onClick={handleOpenAddLead}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Create Lead
+                  </Button>
+                </PermissionGate>
               )}
             </div>
           ) : (
@@ -495,13 +502,15 @@ export function Leads() {
                                   Resume
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem
-                                className="text-destructive"
-                                onClick={() => openDeleteConfirm(lead.id)}
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Delete
-                              </DropdownMenuItem>
+                              <PermissionGate permission="leads_delete">
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={() => openDeleteConfirm(lead.id)}
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </PermissionGate>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </td>

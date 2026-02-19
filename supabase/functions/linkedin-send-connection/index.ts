@@ -2,7 +2,7 @@
 // POST /functions/v1/linkedin-send-connection
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
-import { createSupabaseClient, getAuthUserOrOwner, logActivity, getUnipileAccountId, trackProspectedCompany } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthContext, logActivity, getUnipileAccountId, trackProspectedCompany } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface SendConnectionRequest {
@@ -13,6 +13,7 @@ interface SendConnectionRequest {
   scheduleId?: string
   instanceId?: string
   ownerId?: string // For service-role calls from process-queue
+  orgId?: string   // For service-role calls from process-queue
 }
 
 serve(async (req: Request) => {
@@ -29,10 +30,10 @@ serve(async (req: Request) => {
 
     // Parse request body
     const body: SendConnectionRequest = await req.json()
-    const { leadId, message, cadenceId, cadenceStepId, scheduleId, instanceId, ownerId } = body
+    const { leadId, message, cadenceId, cadenceStepId, scheduleId, instanceId, ownerId, orgId } = body
 
-    const user = await getAuthUserOrOwner(authHeader, ownerId)
-    if (!user) {
+    const ctx = await getAuthContext(authHeader, { ownerId, orgId })
+    if (!ctx) {
       return errorResponse('Unauthorized', 401)
     }
 
@@ -41,7 +42,7 @@ serve(async (req: Request) => {
     }
 
     // Get Unipile account ID for this user
-    const unipileAccountId = await getUnipileAccountId(user.id)
+    const unipileAccountId = await getUnipileAccountId(ctx.userId)
     if (!unipileAccountId) {
       return errorResponse('No Unipile account connected. Please connect your LinkedIn account in Settings.')
     }
@@ -52,7 +53,7 @@ serve(async (req: Request) => {
       .from('leads')
       .select('*')
       .eq('id', leadId)
-      .eq('owner_id', user.id)
+      .eq('org_id', ctx.orgId)
       .single()
 
     if (leadError || !lead) {
@@ -119,7 +120,8 @@ serve(async (req: Request) => {
       if (isAlreadyConnected) {
         // Log as already connected (not a failure)
         await logActivity({
-          ownerId: user.id,
+          ownerId: ctx.userId,
+          orgId: ctx.orgId,
           cadenceId,
           cadenceStepId,
           leadId,
@@ -137,7 +139,8 @@ serve(async (req: Request) => {
 
       // Log failure
       await logActivity({
-        ownerId: user.id,
+        ownerId: ctx.userId,
+        orgId: ctx.orgId,
         cadenceId,
         cadenceStepId,
         leadId,
@@ -151,7 +154,8 @@ serve(async (req: Request) => {
 
     // Log success
     await logActivity({
-      ownerId: user.id,
+      ownerId: ctx.userId,
+      orgId: ctx.orgId,
       cadenceId,
       cadenceStepId,
       leadId,
@@ -163,7 +167,8 @@ serve(async (req: Request) => {
     // Track company as prospected in registry
     if (lead?.company) {
       trackProspectedCompany({
-        ownerId: user.id,
+        ownerId: ctx.userId,
+        orgId: ctx.orgId,
         companyName: lead.company,
         prospectedVia: 'linkedin_connect',
       })

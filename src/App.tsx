@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import { AuthProvider } from '@/contexts/AuthContext'
+import { OrgProvider } from '@/contexts/OrgContext'
 import { CadenceProvider } from '@/contexts/CadenceContext'
 import { WorkflowProvider } from '@/contexts/WorkflowContext'
 import { ThemeProvider } from '@/contexts/ThemeContext'
@@ -31,6 +32,13 @@ import { AccountMapping } from '@/pages/AccountMapping'
 import { AccountMapDetail } from '@/pages/AccountMapDetail'
 import { CompanyRegistry } from '@/pages/CompanyRegistry'
 import { AccountMappingProvider } from '@/contexts/AccountMappingContext'
+import { OrgSelect } from '@/pages/OrgSelect'
+import { AcceptInvite } from '@/pages/AcceptInvite'
+import { OrgSettings } from '@/pages/OrgSettings'
+import { OrgMembers } from '@/pages/OrgMembers'
+import { SuperAdminOrgs } from '@/pages/SuperAdminOrgs'
+import { FeatureRoute } from '@/components/FeatureRoute'
+import { SalesforceCallback } from '@/pages/SalesforceCallback'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,38 +56,46 @@ function App() {
       <TooltipProvider>
         <BrowserRouter>
           <AuthProvider>
+            <OrgProvider>
             <CadenceProvider>
             <WorkflowProvider>
             <AccountMappingProvider>
               <Routes>
                 <Route path="/auth" element={<Auth />} />
                 <Route path="/onboarding" element={<Onboarding />} />
+                <Route path="/org-select" element={<OrgSelect />} />
+                <Route path="/invite/:token" element={<AcceptInvite />} />
                 <Route element={<MainLayout />}>
                   <Route path="/" element={<Dashboard />} />
-                  <Route path="/cadences" element={<Cadences />} />
-                  <Route path="/cadences/:id" element={<CadenceBuilder />} />
-                  <Route path="/cadences/:cadenceId/step/:stepId" element={<LeadStepExecution />} />
-                  <Route path="/workflows" element={<Workflows />} />
-                  <Route path="/workflows/:id" element={<WorkflowBuilder />} />
-                  <Route path="/workflows/:id/runs" element={<WorkflowRuns />} />
-                  <Route path="/account-mapping" element={<AccountMapping />} />
-                  <Route path="/account-mapping/:id" element={<AccountMapDetail />} />
-                  <Route path="/company-registry" element={<CompanyRegistry />} />
-                  <Route path="/leads" element={<Leads />} />
-                  <Route path="/inbox" element={<LinkedInInbox />} />
-                  <Route path="/templates" element={<Templates />} />
-                  <Route path="/ai-prompts" element={<AIPrompts />} />
-                  <Route path="/notifications" element={<Notifications />} />
+                  <Route path="/cadences" element={<FeatureRoute flag="section_cadences"><Cadences /></FeatureRoute>} />
+                  <Route path="/cadences/:id" element={<FeatureRoute flag="section_cadences"><CadenceBuilder /></FeatureRoute>} />
+                  <Route path="/cadences/:cadenceId/step/:stepId" element={<FeatureRoute flag="section_cadences"><LeadStepExecution /></FeatureRoute>} />
+                  <Route path="/workflows" element={<FeatureRoute flag="section_workflows"><Workflows /></FeatureRoute>} />
+                  <Route path="/workflows/:id" element={<FeatureRoute flag="section_workflows"><WorkflowBuilder /></FeatureRoute>} />
+                  <Route path="/workflows/:id/runs" element={<FeatureRoute flag="section_workflows"><WorkflowRuns /></FeatureRoute>} />
+                  <Route path="/account-mapping" element={<FeatureRoute flag="section_account_mapping"><AccountMapping /></FeatureRoute>} />
+                  <Route path="/account-mapping/:id" element={<FeatureRoute flag="section_account_mapping"><AccountMapDetail /></FeatureRoute>} />
+                  <Route path="/company-registry" element={<FeatureRoute flag="section_company_registry"><CompanyRegistry /></FeatureRoute>} />
+                  <Route path="/leads" element={<FeatureRoute flag="section_leads"><Leads /></FeatureRoute>} />
+                  <Route path="/inbox" element={<FeatureRoute flag="section_linkedin_inbox"><LinkedInInbox /></FeatureRoute>} />
+                  <Route path="/templates" element={<FeatureRoute flag="section_templates"><Templates /></FeatureRoute>} />
+                  <Route path="/ai-prompts" element={<FeatureRoute flag="section_ai_prompts"><AIPrompts /></FeatureRoute>} />
+                  <Route path="/notifications" element={<FeatureRoute flag="section_notifications"><Notifications /></FeatureRoute>} />
                   <Route path="/settings" element={<Settings />} />
+                  <Route path="/settings/organization" element={<OrgSettings />} />
+                  <Route path="/settings/members" element={<OrgMembers />} />
+                  <Route path="/settings/salesforce/callback" element={<SalesforceCallback />} />
                   <Route path="/admin" element={<Admin />} />
                   <Route path="/admin/logs" element={<AdminLogs />} />
                   <Route path="/admin/metrics" element={<AdminMetrics />} />
+                  <Route path="/super-admin/organizations" element={<SuperAdminOrgs />} />
                 </Route>
               </Routes>
               <Toaster position="bottom-right" />
             </AccountMappingProvider>
             </WorkflowProvider>
             </CadenceProvider>
+            </OrgProvider>
           </AuthProvider>
         </BrowserRouter>
       </TooltipProvider>

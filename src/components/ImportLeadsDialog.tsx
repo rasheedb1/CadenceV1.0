@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
 import { useCadence } from '@/contexts/CadenceContext'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -106,6 +107,7 @@ interface ImportLeadsDialogProps {
 
 export function ImportLeadsDialog({ open, onOpenChange, preSelectedCadenceId }: ImportLeadsDialogProps) {
   const { user } = useAuth()
+  const { orgId } = useOrg()
   const { cadences } = useCadence()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -506,7 +508,7 @@ export function ImportLeadsDialog({ open, onOpenChange, preSelectedCadenceId }: 
         const { data: existing } = await supabase
           .from('leads')
           .select('id, first_name, last_name, company, email')
-          .eq('owner_id', user.id)
+          .eq('org_id', orgId!)
           .in('email', batch)
 
         if (existing) {

@@ -1,9 +1,9 @@
 /**
  * Cascade Search: 3-level progressive search strategy.
  *
- * Level 1 — Specific title keywords (cleaned + variations), one API call
- * Level 2 — Domain terms as keywords + broad seniority, one API call
- * Level 3 — Company + seniority only (no title filter), one API call
+ * Level 1 — Functional keywords + tier seniority (one API call)
+ * Level 2 — Domain terms as general keywords + broad seniority (one API call)
+ * Level 3 — Company + seniority only, no title filter (one API call)
  *
  * Each level is ONE call to the search-sales-navigator edge function.
  * Stops at the first level that produces results.
@@ -108,7 +108,8 @@ function getDomainTerms(persona: BuyerPersona): string[] {
   if (terms.length === 0) {
     const stopWords = new Set([
       'head', 'chief', 'vice', 'president', 'director', 'manager',
-      'senior', 'lead', 'officer', 'the', 'and', 'for',
+      'senior', 'lead', 'officer', 'the', 'and', 'for', 'leader',
+      'buyer', 'maker', 'decision',
     ])
     const words = text.split(/\s+/)
       .filter(w => w.length > 3 && !stopWords.has(w))
@@ -141,26 +142,35 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
   // Get adaptive keywords for this company tier
   const { titleKeywords, seniority } = getAdaptiveKeywords(persona, company)
 
-  // ===== LEVEL 1: Cleaned title keywords with variations =====
+  // ===== LEVEL 1: Functional keywords + seniority filter =====
   onLevelStart?.(1)
 
   if (titleKeywords.length > 0) {
+    // Clean keywords: extract functional cores, expand variations
     const variations = generateTitleVariations(titleKeywords)
+
+    // Separate C-level abbreviations from functional terms
+    const cLevelPattern = /^(CEO|CTO|CFO|COO|CMO|CRO|CPO|CIO|CISO|CDO)$/i
+    const cLevelKeywords = variations.filter(v => cLevelPattern.test(v))
+    const functionalKeywords = variations.filter(v => !cLevelPattern.test(v))
+
+    // Combine: functional terms + C-level (cap to 20 to avoid overly broad)
+    const searchKeywords = [...functionalKeywords, ...cLevelKeywords].slice(0, 20)
 
     try {
       const response = await onSearch({
         accountMapId,
         companyNames: [company.company_name],
-        titleKeywords: variations.slice(0, 15), // Cap to avoid overly broad
-        seniority: seniority.length > 0 ? seniority : undefined,
-        limit: maxResults * 2,
+        titleKeywords: searchKeywords,
+        seniority: seniority.length > 0 ? seniority : BROAD_SENIORITY,
+        limit: maxResults * 3,
       })
 
       const results = response.results || []
       const unique = deduplicateProfiles(results, excludeProviderIds)
       levelDetails.push({
         level: 1, label: 'Title match',
-        keywords: variations.slice(0, 8),
+        keywords: searchKeywords.slice(0, 8),
         resultsCount: unique.length,
       })
 
@@ -168,19 +178,19 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
         return {
           prospects: unique.slice(0, maxResults * 2),
           level: 1,
-          queryUsed: variations.slice(0, 4).join(', '),
+          queryUsed: searchKeywords.slice(0, 4).join(', '),
           levelDetails,
         }
       }
     } catch (e) {
       console.warn(`Cascade L1 failed for "${persona.name}" at ${company.company_name}:`, e)
-      levelDetails.push({ level: 1, label: 'Title match', keywords: variations, resultsCount: 0 })
+      levelDetails.push({ level: 1, label: 'Title match', keywords: searchKeywords, resultsCount: 0 })
     }
   } else {
     levelDetails.push({ level: 1, label: 'Title match', keywords: [], resultsCount: 0, skipped: true })
   }
 
-  // ===== LEVEL 2: Domain terms + broad seniority =====
+  // ===== LEVEL 2: Domain terms as general keywords + broad seniority =====
   await sleep(delayBetweenLevels)
   onLevelStart?.(2)
 
@@ -258,7 +268,7 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
 
     return {
       prospects: unique.slice(0, maxResults),
-      level: unique.length > 0 ? 3 : 3,
+      level: 3,
       queryUsed: unique.length > 0
         ? `Senior profiles at ${company.company_name}`
         : 'All levels exhausted',

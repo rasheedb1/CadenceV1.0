@@ -12,6 +12,7 @@ export const EXCLUSION_TYPES: RegistryType[] = ['customer', 'competitor', 'dnc']
 export interface CompanyRegistryEntry {
   id: string
   owner_id: string
+  org_id: string
   company_name: string           // normalized
   company_name_display: string   // original casing
   website: string | null

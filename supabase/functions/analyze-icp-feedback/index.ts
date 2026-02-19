@@ -1,6 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
-import { getAuthUser, createSupabaseClient } from '../_shared/supabase.ts'
+import { getAuthContext, createSupabaseClient } from '../_shared/supabase.ts'
 import { createLLMClientForUser } from '../_shared/llm.ts'
 
 interface ICPInsight {
@@ -34,8 +34,8 @@ serve(async (req: Request) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return errorResponse('Missing authorization header', 401)
 
-    const user = await getAuthUser(authHeader)
-    if (!user) return errorResponse('Unauthorized', 401)
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) return errorResponse('Unauthorized', 401)
 
     const body = await req.json()
     const { accountMapId } = body as { accountMapId: string }
@@ -49,7 +49,7 @@ serve(async (req: Request) => {
       .from('icp_discovery_feedback')
       .select('*')
       .eq('account_map_id', accountMapId)
-      .eq('owner_id', user.id)
+      .eq('org_id', ctx.orgId)
 
     if (fbErr) return errorResponse(`Failed to fetch feedback: ${fbErr.message}`, 500)
 
@@ -66,7 +66,7 @@ serve(async (req: Request) => {
       .from('account_maps')
       .select('filters_json, icp_description')
       .eq('id', accountMapId)
-      .eq('owner_id', user.id)
+      .eq('org_id', ctx.orgId)
       .single()
 
     if (amErr) return errorResponse(`Failed to fetch account map: ${amErr.message}`, 500)
@@ -91,7 +91,7 @@ serve(async (req: Request) => {
     // Initialize LLM
     let llm
     try {
-      llm = await createLLMClientForUser(user.id)
+      llm = await createLLMClientForUser(ctx.userId)
     } catch (err) {
       return errorResponse(`LLM not configured: ${err instanceof Error ? err.message : 'Unknown'}`, 500)
     }

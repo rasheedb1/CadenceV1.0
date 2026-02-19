@@ -2,7 +2,7 @@
 // GET /functions/v1/linkedin-get-messages?chatId={chatId}
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
-import { getAuthUser, getUnipileAccountId } from '../_shared/supabase.ts'
+import { getAuthContext, getUnipileAccountId } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface UnipileMessage {
@@ -46,13 +46,13 @@ serve(async (req: Request) => {
       return errorResponse('Missing authorization header', 401)
     }
 
-    const user = await getAuthUser(authHeader)
-    if (!user) {
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) {
       return errorResponse('Unauthorized', 401)
     }
 
     // Get Unipile account ID for this user
-    const unipileAccountId = await getUnipileAccountId(user.id)
+    const unipileAccountId = await getUnipileAccountId(ctx.userId)
     if (!unipileAccountId) {
       return errorResponse('No LinkedIn account connected. Please connect your LinkedIn account in Settings.')
     }

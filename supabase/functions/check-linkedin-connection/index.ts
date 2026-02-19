@@ -4,7 +4,7 @@
 // This is a fallback when the webhook doesn't fire
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createSupabaseClient, getAuthUser } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthContext } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface UnipileAccount {
@@ -31,12 +31,12 @@ serve(async (req: Request) => {
       return errorResponse('Missing authorization header', 401)
     }
 
-    const user = await getAuthUser(authHeader)
-    if (!user) {
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) {
       return errorResponse('Invalid or expired token', 401)
     }
 
-    console.log('Checking LinkedIn connection for user:', user.id)
+    console.log('Checking LinkedIn connection for user:', ctx.userId)
 
     // Get Unipile credentials
     const unipileDsn = Deno.env.get('UNIPILE_DSN')
@@ -54,7 +54,7 @@ serve(async (req: Request) => {
     const { data: existingAccount } = await supabase
       .from('unipile_accounts')
       .select('id, account_id, status, connected_at')
-      .eq('user_id', user.id)
+      .eq('user_id', ctx.userId)
       .eq('provider', 'LINKEDIN')
       .eq('status', 'active')
       .single()
@@ -90,7 +90,7 @@ serve(async (req: Request) => {
 
     const data: UnipileAccountsResponse = await response.json()
     console.log('Unipile accounts found:', data.items?.length || 0)
-    console.log('User ID we are looking for:', user.id)
+    console.log('User ID we are looking for:', ctx.userId)
 
     // Log all accounts for debugging
     if (data.items && data.items.length > 0) {
@@ -111,9 +111,9 @@ serve(async (req: Request) => {
 
     console.log('LinkedIn accounts in Unipile:', linkedinAccounts.length)
 
-    // Strategy 1: Match by name field (user.id was set when creating auth link)
+    // Strategy 1: Match by name field (ctx.userId was set when creating auth link)
     let userAccount = linkedinAccounts.find(
-      (account) => account.name === user.id
+      (account) => account.name === ctx.userId
     )
 
     if (userAccount) {
@@ -158,14 +158,14 @@ serve(async (req: Request) => {
       const { data: existingProfile } = await supabase
         .from('profiles')
         .select('user_id')
-        .eq('user_id', user.id)
+        .eq('user_id', ctx.userId)
         .single()
 
       if (!existingProfile) {
-        console.log('Creating profile for user:', user.id)
+        console.log('Creating profile for user:', ctx.userId)
         const { error: profileError } = await supabase
           .from('profiles')
-          .insert({ user_id: user.id, full_name: '' })
+          .insert({ user_id: ctx.userId, full_name: '' })
         if (profileError) {
           console.error('Error creating profile:', profileError)
         }
@@ -175,7 +175,7 @@ serve(async (req: Request) => {
       const { data: existingUnipileAccount } = await supabase
         .from('unipile_accounts')
         .select('id')
-        .eq('user_id', user.id)
+        .eq('user_id', ctx.userId)
         .eq('provider', 'LINKEDIN')
         .single()
 
@@ -200,7 +200,7 @@ serve(async (req: Request) => {
         const { error } = await supabase
           .from('unipile_accounts')
           .insert({
-            user_id: user.id,
+            user_id: ctx.userId,
             provider: 'LINKEDIN',
             account_id: userAccount.id,
             status: 'active',
@@ -221,7 +221,7 @@ serve(async (req: Request) => {
       const { error: profileUpdateError } = await supabase
         .from('profiles')
         .update({ unipile_account_id: userAccount.id })
-        .eq('user_id', user.id)
+        .eq('user_id', ctx.userId)
 
       if (profileUpdateError) {
         console.error('Error updating profile:', profileUpdateError)
@@ -239,7 +239,7 @@ serve(async (req: Request) => {
       })
     }
 
-    console.log('No matching LinkedIn account found for user:', user.id)
+    console.log('No matching LinkedIn account found for user:', ctx.userId)
     return jsonResponse({
       success: true,
       isConnected: false,

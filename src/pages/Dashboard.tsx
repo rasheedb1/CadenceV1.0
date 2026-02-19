@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { useQuery } from '@tanstack/react-query'
 import { useCadence } from '@/contexts/CadenceContext'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
 import { supabase } from '@/integrations/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -70,6 +71,7 @@ const ACTION_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
 export function Dashboard() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { orgId } = useOrg()
   const { cadences, leads, isLoading } = useCadence()
 
   const [selectedCadence, setSelectedCadence] = useState<Cadence | null>(null)
@@ -77,13 +79,13 @@ export function Dashboard() {
 
   // Fetch activity logs
   const { data: activityLogs = [] } = useQuery({
-    queryKey: ['activity-logs', user?.id],
+    queryKey: ['activity-logs', orgId],
     queryFn: async () => {
       if (!user) return []
       const { data, error } = await supabase
         .from('activity_log')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('created_at', { ascending: false })
         .limit(50)
       if (error) {
@@ -92,7 +94,7 @@ export function Dashboard() {
       }
       return (data || []) as ActivityLogEntry[]
     },
-    enabled: !!user,
+    enabled: !!user && !!orgId,
   })
 
   // Calculate stats
@@ -425,8 +427,9 @@ export function Dashboard() {
                 </p>
               </div>
             ) : (
-              <ScrollArea className="h-[320px]">
-                <div className="space-y-3">
+              <div className="relative">
+              <ScrollArea className="h-[400px]">
+                <div className="space-y-3 pb-6">
                   {recentActivities.map((activity) => {
                     const ActionIcon =
                       ACTION_ICONS[activity.action] || ACTION_ICONS.default
@@ -490,6 +493,8 @@ export function Dashboard() {
                   })}
                 </div>
               </ScrollArea>
+              <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-card to-transparent" />
+              </div>
             )}
           </CardContent>
         </Card>

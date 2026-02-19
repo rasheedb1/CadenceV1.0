@@ -17,6 +17,7 @@ const LLM_OPTIONS = {
     label: 'OpenAI',
     models: [
       { value: 'gpt-5.2', label: 'GPT-5.2 Thinking' },
+      { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' },
       { value: 'gpt-5.1', label: 'GPT-5.1' },
       { value: 'gpt-5', label: 'GPT-5' },
       { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
@@ -30,6 +31,7 @@ const LLM_OPTIONS = {
     label: 'Anthropic',
     models: [
       { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
       { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
       { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
       { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5 (Legacy)' },

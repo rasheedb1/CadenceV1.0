@@ -22,7 +22,7 @@ serve(async (req: Request) => {
     // - Status is 'messaged' or 'awaiting_reply'
     const { data: conversations, error: convError } = await supabase
       .from('linkedin_conversations')
-      .select('id, owner_id, lead_id, linkedin_thread_id, last_reply_checked_at, last_activity_at')
+      .select('id, owner_id, org_id, lead_id, linkedin_thread_id, last_reply_checked_at, last_activity_at')
       .in('status', ['messaged', 'awaiting_reply'])
       .not('linkedin_thread_id', 'is', null)
       .limit(100)
@@ -136,6 +136,7 @@ serve(async (req: Request) => {
           const replyPreview = (latestReply.text || '').substring(0, 200)
           await supabase.from('notifications').insert({
             owner_id: conv.owner_id,
+            org_id: conv.org_id,
             lead_id: conv.lead_id,
             cadence_id: cadenceIds[0] || null,
             type: 'reply_detected',
@@ -152,6 +153,7 @@ serve(async (req: Request) => {
           // 5. Log activity
           await logActivity({
             ownerId: conv.owner_id,
+            orgId: conv.org_id,
             cadenceId: cadenceIds[0],
             leadId: conv.lead_id,
             action: 'reply_detected',
@@ -271,6 +273,7 @@ serve(async (req: Request) => {
             if (!existingReadNotif) {
               await supabase.from('notifications').insert({
                 owner_id: conv.owner_id,
+                org_id: conv.org_id,
                 lead_id: conv.lead_id,
                 cadence_id: leadCadenceIds[0] || null,
                 type: 'message_read',
@@ -305,7 +308,7 @@ serve(async (req: Request) => {
       // Get sent emails that haven't been replied to
       const { data: sentEmails, error: emailError } = await supabase
         .from('email_messages')
-        .select('id, event_id, owner_user_id, lead_id, cadence_id, cadence_step_id, to_email, subject, gmail_message_id')
+        .select('id, event_id, owner_user_id, org_id, lead_id, cadence_id, cadence_step_id, to_email, subject, gmail_message_id')
         .eq('status', 'sent')
         .not('gmail_message_id', 'is', null)
         .limit(50)
@@ -420,6 +423,7 @@ serve(async (req: Request) => {
                   // Create notification
                   await supabase.from('notifications').insert({
                     owner_id: ownerId,
+                    org_id: email.org_id,
                     lead_id: email.lead_id,
                     cadence_id: email.cadence_id,
                     type: 'reply_detected',
@@ -437,6 +441,7 @@ serve(async (req: Request) => {
                   // Log activity
                   await logActivity({
                     ownerId,
+                    orgId: email.org_id,
                     cadenceId: email.cadence_id || undefined,
                     leadId: email.lead_id || undefined,
                     action: 'reply_detected',

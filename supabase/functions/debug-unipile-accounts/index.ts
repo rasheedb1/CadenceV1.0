@@ -3,7 +3,7 @@
 // Lists all accounts in Unipile and database for debugging purposes
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createSupabaseClient, getAuthUser } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthContext } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 serve(async (req: Request) => {
@@ -18,8 +18,8 @@ serve(async (req: Request) => {
       return errorResponse('Missing authorization header', 401)
     }
 
-    const user = await getAuthUser(authHeader)
-    if (!user) {
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) {
       return errorResponse('Invalid or expired token', 401)
     }
 
@@ -29,12 +29,12 @@ serve(async (req: Request) => {
     const { data: dbAccounts, error: dbError } = await supabase
       .from('unipile_accounts')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', ctx.userId)
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('user_id, unipile_account_id')
-      .eq('user_id', user.id)
+      .eq('user_id', ctx.userId)
       .single()
 
     // Get Unipile credentials
@@ -58,7 +58,7 @@ serve(async (req: Request) => {
       const errorText = await response.text()
       return jsonResponse({
         success: false,
-        currentUserId: user.id,
+        currentUserId: ctx.userId,
         database: {
           unipileAccounts: dbAccounts || [],
           dbError: dbError?.message,
@@ -97,7 +97,7 @@ serve(async (req: Request) => {
           name: account.name,
           type: account.type,
           created_at: account.created_at,
-          matchesUserId: account.name === user.id,
+          matchesUserId: account.name === ctx.userId,
           details: accountDetails,
         }
       })
@@ -106,7 +106,7 @@ serve(async (req: Request) => {
     // Return all info for debugging
     return jsonResponse({
       success: true,
-      currentUserId: user.id,
+      currentUserId: ctx.userId,
       database: {
         unipileAccounts: dbAccounts || [],
         dbError: dbError?.message,

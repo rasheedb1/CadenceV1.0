@@ -1,6 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
-import { getAuthUser } from '../_shared/supabase.ts'
+import { getAuthContext } from '../_shared/supabase.ts'
 import { createLLMClientForUser } from '../_shared/llm.ts'
 
 interface PolishPromptRequest {
@@ -141,8 +141,8 @@ serve(async (req: Request) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return errorResponse('Missing authorization header', 401)
 
-    const user = await getAuthUser(authHeader)
-    if (!user) return errorResponse('Unauthorized', 401)
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) return errorResponse('Unauthorized', 401)
 
     // Parse request
     const body: PolishPromptRequest = await req.json()
@@ -164,7 +164,7 @@ serve(async (req: Request) => {
     // Initialize LLM using user's settings
     let llm
     try {
-      llm = await createLLMClientForUser(user.id)
+      llm = await createLLMClientForUser(ctx.userId)
     } catch (err) {
       return errorResponse(`LLM not configured: ${err instanceof Error ? err.message : 'Unknown'}`, 500)
     }

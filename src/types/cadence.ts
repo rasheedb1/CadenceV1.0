@@ -64,6 +64,7 @@ export interface Profile {
 export interface Lead {
   id: string
   owner_id: string
+  org_id: string
   user_id?: string // Alias for owner_id (backward compatibility)
   first_name: string
   last_name: string
@@ -95,6 +96,7 @@ export interface Lead {
 export interface Cadence {
   id: string
   owner_id: string
+  org_id: string
   name: string
   description?: string | null
   status: CadenceStatus
@@ -112,6 +114,7 @@ export interface CadenceStep {
   id: string
   cadence_id: string
   owner_id: string
+  org_id: string
   step_type: StepType
   step_label: string
   // Aliases for backward compatibility
@@ -129,6 +132,7 @@ export interface CadenceLead {
   cadence_id: string
   lead_id: string
   owner_id: string
+  org_id: string
   current_step_id: string | null
   status: CadenceLeadStatus
   created_at: string
@@ -145,6 +149,7 @@ export interface LeadStepInstance {
   cadence_step_id: string
   lead_id: string
   owner_id: string
+  org_id: string
   status: LeadStepInstanceStatus
   draft_json: Record<string, unknown> | null
   message_template_text: string | null
@@ -162,6 +167,7 @@ export interface Schedule {
   cadence_step_id: string
   lead_id: string
   owner_id: string
+  org_id: string
   scheduled_at: string
   timezone: string
   status: ScheduleStatus
@@ -175,6 +181,7 @@ export interface Schedule {
 export interface Template {
   id: string
   owner_id: string
+  org_id: string
   name: string
   step_type: StepType | 'send_email' | 'whatsapp_message' | 'call_manual'
   subject_template: string | null
@@ -191,6 +198,7 @@ export interface EmailMessage {
   id: string
   event_id: string
   owner_user_id: string
+  org_id: string
   lead_id: string | null
   cadence_id: string | null
   cadence_step_id: string | null
@@ -209,6 +217,7 @@ export interface EmailEvent {
   id: string
   event_id: string
   owner_user_id: string
+  org_id: string
   lead_id: string | null
   cadence_id: string | null
   cadence_step_id: string | null
@@ -224,6 +233,7 @@ export interface EmailEvent {
 export interface LinkedInConversation {
   id: string
   owner_id: string
+  org_id: string
   lead_id: string
   linkedin_thread_id: string | null
   phantom_thread_id: string | null
@@ -241,6 +251,7 @@ export interface LinkedInMessage {
   id: string
   conversation_id: string
   owner_id: string
+  org_id: string
   body: string
   content?: string // Alias for body (backward compatibility)
   direction: MessageDirection
@@ -256,6 +267,7 @@ export interface LinkedInMessage {
 export interface ActivityLogEntry {
   id: string
   owner_id: string
+  org_id: string
   cadence_id: string | null
   cadence_step_id: string | null
   lead_id: string | null
@@ -272,6 +284,7 @@ export interface ActivityLogEntry {
 export interface WeeklyMessageStats {
   id: string
   owner_id: string
+  org_id: string
   week_start: string
   linkedin_sent: number
   sales_navigator_sent: number
@@ -320,6 +333,7 @@ export type NotificationType = 'reply_detected' | 'cadence_completed' | 'step_fa
 export interface AppNotification {
   id: string
   owner_id: string
+  org_id: string
   cadence_id: string | null
   lead_id: string | null
   type: NotificationType

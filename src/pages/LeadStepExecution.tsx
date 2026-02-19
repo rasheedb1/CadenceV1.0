@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useCadence } from '@/contexts/CadenceContext'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
 import { supabase } from '@/integrations/supabase/client'
 import { AIGenerateDialog } from '@/components/AIGenerateDialog'
 import { BulkAIGenerateDialog } from '@/components/BulkAIGenerateDialog'
@@ -62,6 +63,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { FeatureGate } from '@/components/FeatureGate'
 
 // Type for tracking individual lead results
 interface LeadResult {
@@ -114,6 +116,7 @@ export function LeadStepExecution() {
   const { cadenceId, stepId } = useParams<{ cadenceId: string; stepId: string }>()
   const navigate = useNavigate()
   const { user, session } = useAuth()
+  const { orgId } = useOrg()
   const {
     cadences,
     leads,
@@ -157,17 +160,17 @@ export function LeadStepExecution() {
   // (CadenceContext only keeps cadenceLeads[0], so leads in multiple cadences
   // may show the wrong cadence_id)
   const { data: cadenceLeadRecords = [] } = useQuery({
-    queryKey: ['cadence-leads-direct', cadenceId, user?.id],
+    queryKey: ['cadence-leads-direct', cadenceId, orgId],
     queryFn: async () => {
-      if (!cadenceId || !user) return []
+      if (!cadenceId || !user || !orgId) return []
       const { data } = await supabase
         .from('cadence_leads')
         .select('lead_id, status, current_step_id')
         .eq('cadence_id', cadenceId)
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
       return data || []
     },
-    enabled: !!cadenceId && !!user,
+    enabled: !!cadenceId && !!user && !!orgId,
   })
 
   // Get leads at this step using direct cadence_leads records
@@ -841,84 +844,90 @@ export function LeadStepExecution() {
                 <XCircle className="mr-1 h-3.5 w-3.5" />
                 Eliminar
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowAIDialog(true)}
-                disabled={
-                  sending ||
-                  sendingAll ||
-                  !currentLead ||
-                  step?.step_type === 'linkedin_like'
-                }
-              >
-                <Sparkles className="mr-1 h-3.5 w-3.5" />
-                AI Generate
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowBulkAIDialog(true)}
-                disabled={
-                  sending ||
-                  sendingAll ||
-                  totalLeads === 0 ||
-                  step?.step_type === 'linkedin_like'
-                }
-              >
-                <Sparkles className="mr-1 h-3.5 w-3.5" />
-                AI All ({totalLeads})
-              </Button>
+              <FeatureGate flag="cadence_ai_generate">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAIDialog(true)}
+                  disabled={
+                    sending ||
+                    sendingAll ||
+                    !currentLead ||
+                    step?.step_type === 'linkedin_like'
+                  }
+                >
+                  <Sparkles className="mr-1 h-3.5 w-3.5" />
+                  AI Generate
+                </Button>
+              </FeatureGate>
+              <FeatureGate flag="cadence_ai_generate">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowBulkAIDialog(true)}
+                  disabled={
+                    sending ||
+                    sendingAll ||
+                    totalLeads === 0 ||
+                    step?.step_type === 'linkedin_like'
+                  }
+                >
+                  <Sparkles className="mr-1 h-3.5 w-3.5" />
+                  AI All ({totalLeads})
+                </Button>
+              </FeatureGate>
             </div>
             <div className="flex gap-1.5">
               <Button variant="outline" size="sm" disabled>
                 <Calendar className="mr-1 h-3.5 w-3.5" />
                 Schedule
               </Button>
-              <Button
-                size="sm"
-                onClick={handleSend}
-                disabled={
-                  sending ||
-                  sendingAll ||
-                  (step.step_type !== 'linkedin_connect' && step.step_type !== 'linkedin_like' && !message.trim()) ||
-                  (step.step_type === 'linkedin_like' && !latestPost?.url) ||
-                  (isEmailStep && !emailSubject.trim())
-                }
-              >
-                {sending ? (
-                  <>
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                    {step.step_type === 'linkedin_connect'
-                      ? 'Connecting...'
-                      : step.step_type === 'linkedin_like'
-                      ? 'Liking...'
-                      : isEmailStep
-                      ? 'Sending...'
-                      : 'Sending...'}
-                  </>
-                ) : step.step_type === 'linkedin_connect' ? (
-                  <>
-                    <UserPlus className="mr-1 h-3.5 w-3.5" />
-                    Connect
-                  </>
-                ) : step.step_type === 'linkedin_like' ? (
-                  <>
-                    <ThumbsUp className="mr-1 h-3.5 w-3.5" />
-                    Like
-                  </>
-                ) : isEmailStep ? (
-                  <>
-                    <Mail className="mr-1 h-3.5 w-3.5" />
-                    Send Email
-                  </>
-                ) : (
-                  <>
-                    <Send className="mr-1 h-3.5 w-3.5" />
-                    Send
-                  </>
-                )}
-              </Button>
+              <FeatureGate flag="cadence_manual_execute">
+                <Button
+                  size="sm"
+                  onClick={handleSend}
+                  disabled={
+                    sending ||
+                    sendingAll ||
+                    (step.step_type !== 'linkedin_connect' && step.step_type !== 'linkedin_like' && !message.trim()) ||
+                    (step.step_type === 'linkedin_like' && !latestPost?.url) ||
+                    (isEmailStep && !emailSubject.trim())
+                  }
+                >
+                  {sending ? (
+                    <>
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      {step.step_type === 'linkedin_connect'
+                        ? 'Connecting...'
+                        : step.step_type === 'linkedin_like'
+                        ? 'Liking...'
+                        : isEmailStep
+                        ? 'Sending...'
+                        : 'Sending...'}
+                    </>
+                  ) : step.step_type === 'linkedin_connect' ? (
+                    <>
+                      <UserPlus className="mr-1 h-3.5 w-3.5" />
+                      Connect
+                    </>
+                  ) : step.step_type === 'linkedin_like' ? (
+                    <>
+                      <ThumbsUp className="mr-1 h-3.5 w-3.5" />
+                      Like
+                    </>
+                  ) : isEmailStep ? (
+                    <>
+                      <Mail className="mr-1 h-3.5 w-3.5" />
+                      Send Email
+                    </>
+                  ) : (
+                    <>
+                      <Send className="mr-1 h-3.5 w-3.5" />
+                      Send
+                    </>
+                  )}
+                </Button>
+              </FeatureGate>
             </div>
           </div>
         </div>
@@ -1104,58 +1113,60 @@ export function LeadStepExecution() {
           )}
 
           {/* Send All Button */}
-          <Button
-            className="w-full"
-            variant="default"
-            onClick={handleSendAll}
-            disabled={
-              sending ||
-              sendingAll ||
-              (step.step_type !== 'linkedin_connect' && step.step_type !== 'linkedin_like' && !message.trim()) ||
-              (isEmailStep && !emailSubject.trim()) ||
-              totalLeads === 0
-            }
-          >
-            {sendingAll ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {step.step_type === 'linkedin_connect'
-                  ? 'Connecting to all...'
-                  : step.step_type === 'linkedin_comment'
-                  ? 'Commenting on all...'
-                  : step.step_type === 'linkedin_like'
-                  ? 'Liking all posts...'
-                  : isEmailStep
-                  ? 'Sending emails...'
-                  : 'Sending to all...'}
-              </>
-            ) : step.step_type === 'linkedin_connect' ? (
-              <>
-                <UserPlus className="mr-2 h-4 w-4" />
-                Connect All ({totalLeads})
-              </>
-            ) : step.step_type === 'linkedin_comment' ? (
-              <>
-                <MessageSquare className="mr-2 h-4 w-4" />
-                Comment All ({totalLeads})
-              </>
-            ) : step.step_type === 'linkedin_like' ? (
-              <>
-                <ThumbsUp className="mr-2 h-4 w-4" />
-                Like All ({totalLeads})
-              </>
-            ) : isEmailStep ? (
-              <>
-                <Mail className="mr-2 h-4 w-4" />
-                Email All ({totalLeads})
-              </>
-            ) : (
-              <>
-                <Send className="mr-2 h-4 w-4" />
-                Send All ({totalLeads})
-              </>
-            )}
-          </Button>
+          <FeatureGate flag="cadence_manual_execute">
+            <Button
+              className="w-full"
+              variant="default"
+              onClick={handleSendAll}
+              disabled={
+                sending ||
+                sendingAll ||
+                (step.step_type !== 'linkedin_connect' && step.step_type !== 'linkedin_like' && !message.trim()) ||
+                (isEmailStep && !emailSubject.trim()) ||
+                totalLeads === 0
+              }
+            >
+              {sendingAll ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {step.step_type === 'linkedin_connect'
+                    ? 'Connecting to all...'
+                    : step.step_type === 'linkedin_comment'
+                    ? 'Commenting on all...'
+                    : step.step_type === 'linkedin_like'
+                    ? 'Liking all posts...'
+                    : isEmailStep
+                    ? 'Sending emails...'
+                    : 'Sending to all...'}
+                </>
+              ) : step.step_type === 'linkedin_connect' ? (
+                <>
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Connect All ({totalLeads})
+                </>
+              ) : step.step_type === 'linkedin_comment' ? (
+                <>
+                  <MessageSquare className="mr-2 h-4 w-4" />
+                  Comment All ({totalLeads})
+                </>
+              ) : step.step_type === 'linkedin_like' ? (
+                <>
+                  <ThumbsUp className="mr-2 h-4 w-4" />
+                  Like All ({totalLeads})
+                </>
+              ) : isEmailStep ? (
+                <>
+                  <Mail className="mr-2 h-4 w-4" />
+                  Email All ({totalLeads})
+                </>
+              ) : (
+                <>
+                  <Send className="mr-2 h-4 w-4" />
+                  Send All ({totalLeads})
+                </>
+              )}
+            </Button>
+          </FeatureGate>
           </div>
         </div>
       </div>

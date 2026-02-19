@@ -2,7 +2,7 @@
 // POST /functions/v1/linkedin-like-post
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
-import { createSupabaseClient, getAuthUserOrOwner, logActivity, getUnipileAccountId } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthContext, logActivity, getUnipileAccountId } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface LikePostRequest {
@@ -15,6 +15,7 @@ interface LikePostRequest {
   scheduleId?: string
   instanceId?: string
   ownerId?: string // For service-role calls from process-queue
+  orgId?: string   // For service-role calls from process-queue
 }
 
 serve(async (req: Request) => {
@@ -31,10 +32,10 @@ serve(async (req: Request) => {
 
     // Parse request body
     const body: LikePostRequest = await req.json()
-    const { leadId, postId, postUrl, reactionType, cadenceId, cadenceStepId, scheduleId, instanceId, ownerId } = body
+    const { leadId, postId, postUrl, reactionType, cadenceId, cadenceStepId, scheduleId, instanceId, ownerId, orgId } = body
 
-    const user = await getAuthUserOrOwner(authHeader, ownerId)
-    if (!user) {
+    const ctx = await getAuthContext(authHeader, { ownerId, orgId })
+    if (!ctx) {
       return errorResponse('Unauthorized', 401)
     }
 
@@ -47,7 +48,7 @@ serve(async (req: Request) => {
     }
 
     // Get Unipile account ID for this user
-    const unipileAccountId = await getUnipileAccountId(user.id)
+    const unipileAccountId = await getUnipileAccountId(ctx.userId)
     if (!unipileAccountId) {
       return errorResponse('No Unipile account connected. Please connect your LinkedIn account in Settings.')
     }
@@ -71,7 +72,8 @@ serve(async (req: Request) => {
     if (!result.success) {
       // Log failure
       await logActivity({
-        ownerId: user.id,
+        ownerId: ctx.userId,
+        orgId: ctx.orgId,
         cadenceId,
         cadenceStepId,
         leadId,
@@ -85,7 +87,8 @@ serve(async (req: Request) => {
 
     // Log success
     await logActivity({
-      ownerId: user.id,
+      ownerId: ctx.userId,
+      orgId: ctx.orgId,
       cadenceId,
       cadenceStepId,
       leadId,

@@ -3,7 +3,7 @@
 // Generates a Unipile hosted auth link for the user to connect their LinkedIn account
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createSupabaseClient, getAuthUser } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthContext } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface CreateHostedAuthLinkRequest {
@@ -28,8 +28,8 @@ serve(async (req: Request) => {
       return errorResponse('Missing authorization header', 401)
     }
 
-    const user = await getAuthUser(authHeader)
-    if (!user) {
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) {
       return errorResponse('Invalid or expired token', 401)
     }
 
@@ -57,7 +57,7 @@ serve(async (req: Request) => {
     const { data: existingAccount } = await supabase
       .from('unipile_accounts')
       .select('id, account_id, status')
-      .eq('user_id', user.id)
+      .eq('user_id', ctx.userId)
       .eq('provider', 'LINKEDIN')
       .eq('status', 'active')
       .single()
@@ -82,7 +82,7 @@ serve(async (req: Request) => {
       providers: ['LINKEDIN'],
       api_url: baseUrl,
       expiresOn: expiresOn.toISOString(),
-      name: user.id, // Store user ID to match on callback
+      name: ctx.userId, // Store user ID to match on callback
     }
 
     // Add notify_url if available
@@ -98,7 +98,7 @@ serve(async (req: Request) => {
       hostedAuthPayload.failure_redirect_url = body.failureRedirectUrl
     }
 
-    console.log('Creating Unipile hosted auth link for user:', user.id)
+    console.log('Creating Unipile hosted auth link for user:', ctx.userId)
     console.log('Unipile payload:', JSON.stringify(hostedAuthPayload, null, 2))
     console.log('Notify URL configured:', notifyUrl)
 

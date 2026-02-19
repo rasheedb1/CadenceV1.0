@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
 import type { ExampleSection, ExampleMessage } from '@/lib/edge-functions'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -40,6 +41,7 @@ import { toast } from 'sonner'
 
 export function ExampleSectionsTab() {
   const { user } = useAuth()
+  const { orgId } = useOrg()
   const queryClient = useQueryClient()
 
   const [expandedSectionId, setExpandedSectionId] = useState<string | null>(null)
@@ -59,34 +61,34 @@ export function ExampleSectionsTab() {
   // ─── Queries ───
 
   const { data: sections = [], isLoading: sectionsLoading } = useQuery({
-    queryKey: ['example-sections', user?.id],
+    queryKey: ['example-sections', orgId],
     queryFn: async () => {
       if (!user) return []
       const { data, error } = await supabase
         .from('example_sections')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []) as ExampleSection[]
     },
-    enabled: !!user,
+    enabled: !!user && !!orgId,
   })
 
   const { data: allMessages = [] } = useQuery({
-    queryKey: ['example-messages', user?.id],
+    queryKey: ['example-messages', orgId],
     queryFn: async () => {
       if (!user) return []
       const { data, error } = await supabase
         .from('example_messages')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId!)
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true })
       if (error) throw error
       return (data || []) as ExampleMessage[]
     },
-    enabled: !!user,
+    enabled: !!user && !!orgId,
   })
 
   const getMessagesForSection = (sectionId: string) =>
@@ -101,6 +103,7 @@ export function ExampleSectionsTab() {
         .from('example_sections')
         .insert({
           owner_id: user.id,
+          org_id: orgId!,
           name: form.name,
           description: form.description || null,
         })
@@ -163,6 +166,7 @@ export function ExampleSectionsTab() {
         .insert({
           section_id: sectionId,
           owner_id: user.id,
+          org_id: orgId!,
           body,
           sort_order: nextOrder,
         })

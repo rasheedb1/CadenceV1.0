@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,10 +9,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export function Auth() {
   const { user, profile, signIn, signUp } = useAuth()
+  const [searchParams] = useSearchParams()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Check for invite token from URL param or localStorage (signup flow)
+  const inviteToken = searchParams.get('invite') || localStorage.getItem('pendingInviteToken')
+
   if (user) {
+    // If there's a pending invite, redirect back to the invite page
+    if (inviteToken) {
+      localStorage.removeItem('pendingInviteToken')
+      return <Navigate to={`/invite/${inviteToken}`} replace />
+    }
     if (profile && !profile.onboarding_completed) {
       return <Navigate to="/onboarding" replace />
     }
@@ -49,6 +58,10 @@ export function Auth() {
     if (error) {
       setError(error.message)
     } else {
+      // Store invite token so we can redirect after email confirmation
+      if (inviteToken) {
+        localStorage.setItem('pendingInviteToken', inviteToken)
+      }
       setError('Check your email to confirm your account')
     }
     setLoading(false)
@@ -67,7 +80,14 @@ export function Auth() {
           <CardDescription>Sales automation platform</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="signin">
+          {inviteToken && (
+            <div className="mb-4 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3">
+              <p className="text-sm text-blue-700 dark:text-blue-400 text-center">
+                Create an account to accept your invitation
+              </p>
+            </div>
+          )}
+          <Tabs defaultValue={inviteToken ? 'signup' : 'signin'}>
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="signin">Sign In</TabsTrigger>
               <TabsTrigger value="signup">Sign Up</TabsTrigger>
@@ -82,6 +102,7 @@ export function Auth() {
                     name="email"
                     type="email"
                     placeholder="you@example.com"
+
                     required
                   />
                 </div>
@@ -120,6 +141,7 @@ export function Auth() {
                     name="email"
                     type="email"
                     placeholder="you@example.com"
+
                     required
                   />
                 </div>

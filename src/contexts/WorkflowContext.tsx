@@ -2,6 +2,7 @@ import { createContext, useContext, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from './AuthContext'
+import { useOrg } from './OrgContext'
 import type { Workflow, WorkflowGraph, WorkflowRun, WorkflowEventLog } from '@/types/workflow'
 
 interface WorkflowContextType {
@@ -22,26 +23,27 @@ const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined
 
 export function WorkflowProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
+  const { orgId } = useOrg()
   const queryClient = useQueryClient()
 
   const { data: workflows = [], isLoading } = useQuery({
-    queryKey: ['workflows', user?.id],
+    queryKey: ['workflows', orgId],
     queryFn: async () => {
-      if (!user) return []
+      if (!user || !orgId) return []
       const { data, error } = await supabase
         .from('workflows')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []) as Workflow[]
     },
-    enabled: !!user,
+    enabled: !!user && !!orgId,
   })
 
   const createWorkflowMutation = useMutation({
     mutationFn: async ({ name }: { name: string }) => {
-      if (!user) throw new Error('Not authenticated')
+      if (!user || !orgId) throw new Error('Not authenticated')
 
       const defaultGraph: WorkflowGraph = {
         nodes: [
@@ -60,6 +62,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         .insert({
           name,
           owner_id: user.id,
+          org_id: orgId,
           status: 'draft',
           graph_json: defaultGraph,
           trigger_type: 'manual',
@@ -101,7 +104,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
   const enrollLeadsMutation = useMutation({
     mutationFn: async ({ workflowId, leadIds }: { workflowId: string; leadIds: string[] }) => {
-      if (!user) throw new Error('Not authenticated')
+      if (!user || !orgId) throw new Error('Not authenticated')
 
       const workflow = workflows.find((w) => w.id === workflowId)
       if (!workflow) throw new Error('Workflow not found')
@@ -121,6 +124,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         workflow_id: workflowId,
         lead_id: leadId,
         owner_id: user.id,
+        org_id: orgId,
         current_node_id: firstNodeId,
         status: 'running' as const,
       }))
@@ -137,34 +141,34 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
 
   // Workflow runs query — returns cached data for a workflow
   const { data: allRuns = [] } = useQuery({
-    queryKey: ['workflow-runs', user?.id],
+    queryKey: ['workflow-runs', orgId],
     queryFn: async () => {
-      if (!user) return []
+      if (!user || !orgId) return []
       const { data, error } = await supabase
         .from('workflow_runs')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId)
         .order('started_at', { ascending: false })
       if (error) throw error
       return (data || []) as WorkflowRun[]
     },
-    enabled: !!user,
+    enabled: !!user && !!orgId,
   })
 
   const { data: allEventLogs = [] } = useQuery({
-    queryKey: ['workflow-event-log', user?.id],
+    queryKey: ['workflow-event-log', orgId],
     queryFn: async () => {
-      if (!user) return []
+      if (!user || !orgId) return []
       const { data, error } = await supabase
         .from('workflow_event_log')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('org_id', orgId)
         .order('created_at', { ascending: false })
         .limit(500)
       if (error) throw error
       return (data || []) as WorkflowEventLog[]
     },
-    enabled: !!user,
+    enabled: !!user && !!orgId,
   })
 
   return (

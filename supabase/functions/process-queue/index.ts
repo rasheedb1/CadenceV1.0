@@ -14,6 +14,7 @@ interface Schedule {
   cadence_step_id: string
   lead_id: string
   owner_id: string
+  org_id: string
   scheduled_at: string
   timezone: string
   status: string
@@ -170,6 +171,7 @@ async function generateAIMessage(
         },
         body: JSON.stringify({
           ownerId: schedule.owner_id,
+          orgId: schedule.org_id,
           leadId: schedule.lead_id,
           stepType: cadenceStep.step_type,
           messageTemplate: aiPrompt.prompt_body,
@@ -370,6 +372,7 @@ async function advanceLeadToNextStep(
         cadence_step_id: nextStep.id,
         lead_id,
         owner_id,
+        org_id: schedule.org_id,
         scheduled_at: scheduleAt.toISOString(),
         timezone: 'UTC',
         status: 'scheduled',
@@ -399,6 +402,7 @@ async function advanceLeadToNextStep(
 async function fetchLatestPost(
   leadId: string,
   ownerId: string,
+  orgId: string,
   authToken: string
 ): Promise<{ postId: string; postUrl: string } | null> {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -410,7 +414,7 @@ async function fetchLatestPost(
         'Content-Type': 'application/json',
         'Authorization': authToken,
       },
-      body: JSON.stringify({ leadId, ownerId }),
+      body: JSON.stringify({ leadId, ownerId, orgId }),
     })
 
     const data = await response.json()
@@ -465,6 +469,7 @@ async function executeLinkedInAction(
     scheduleId: schedule.id,
     instanceId: instance?.id,
     ownerId: schedule.owner_id, // Allow sub-functions to auth via service role + ownerId
+    orgId: schedule.org_id,
   }
 
   // Add step-type specific fields
@@ -504,7 +509,7 @@ async function executeLinkedInAction(
 
       if (!likePostId && !likePostUrl) {
         console.log(`No post configured for linkedin_like, fetching latest post for lead ${schedule.lead_id}`)
-        const latestPost = await fetchLatestPost(schedule.lead_id, schedule.owner_id, authToken)
+        const latestPost = await fetchLatestPost(schedule.lead_id, schedule.owner_id, schedule.org_id, authToken)
         if (!latestPost) {
           return { success: false, error: 'No LinkedIn posts found for this lead to like' }
         }
@@ -525,7 +530,7 @@ async function executeLinkedInAction(
 
       if (!commentPostId && !commentPostUrl) {
         console.log(`No post configured for linkedin_comment, fetching latest post for lead ${schedule.lead_id}`)
-        const latestPost = await fetchLatestPost(schedule.lead_id, schedule.owner_id, authToken)
+        const latestPost = await fetchLatestPost(schedule.lead_id, schedule.owner_id, schedule.org_id, authToken)
         if (!latestPost) {
           return { success: false, error: 'No LinkedIn posts found for this lead to comment on' }
         }
@@ -807,6 +812,7 @@ async function processSchedule(
         headers: { 'Content-Type': 'application/json', 'Authorization': authToken },
         body: JSON.stringify({
           ownerId: schedule.owner_id,
+          orgId: schedule.org_id,
           leadId: schedule.lead_id,
           stepType: cadenceStep.step_type,
           tone: 'professional',
@@ -867,6 +873,7 @@ async function processSchedule(
     // Log success activity
     await logActivity({
       ownerId: schedule.owner_id,
+      orgId: schedule.org_id,
       cadenceId: schedule.cadence_id,
       cadenceStepId: schedule.cadence_step_id,
       leadId: schedule.lead_id,
@@ -918,6 +925,7 @@ async function processSchedule(
     // Log failure activity
     await logActivity({
       ownerId: schedule.owner_id,
+      orgId: schedule.org_id,
       cadenceId: schedule.cadence_id,
       cadenceStepId: schedule.cadence_step_id,
       leadId: schedule.lead_id,

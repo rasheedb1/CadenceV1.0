@@ -331,12 +331,13 @@ export class UnipileClient {
   }
 
   // Search Sales Navigator for people
-  // API schema reference (Sales Navigator - People):
-  //   company:   { include: string[] }         — numeric IDs or plain text company names
-  //   role:      { include: string[] }         — numeric IDs or plain text job titles
-  //   seniority: { include: SeniorityEnum[] }  — enum values (see SENIORITY_MAP below)
-  //   company_headcount: [{ min, max }]        — specific enum values for min/max
-  //   keywords:  string                        — free text search
+  // Unipile docs: https://developer.unipile.com/docs/linkedin-search
+  //
+  // Correct formats (Sales Navigator):
+  //   company:   { include: ["stringId", ...] }  — STRING IDs from lookupSearchParameters
+  //   seniority: { include: ["cxo", "vice_president", ...] }  — enum values
+  //   keywords:  string                                        — free text search
+  //   NOTE: role filter causes 400 errors — do NOT use it. Use keywords for title filtering instead.
   async searchSalesNavigator(accountId: string, params: {
     keywords?: string
     company_names?: string[]
@@ -356,45 +357,63 @@ export class UnipileClient {
     // General keywords
     if (params.keywords) body.keywords = params.keywords
 
-    // Company filtering: look up company IDs, fall back to plain text company names
-    // Schema: company.include accepts strings (numeric IDs or plain text names)
+    // Company filtering: look up NUMERIC company IDs (required for SN)
+    // If lookup fails, use company name as keywords instead of in company filter
+    let companyLookupFailed = false
     if (params.company_names?.length) {
-      const companyValues: string[] = []
+      const companyIds: string[] = []
       for (const name of params.company_names) {
         try {
           const lookup = await this.lookupSearchParameters(accountId, 'COMPANY', name, 3)
           if (lookup.success && lookup.data) {
             const data = lookup.data as Record<string, unknown>
             const items = (data?.items || []) as Array<Record<string, unknown>>
+            console.log(`Company lookup "${name}": ${items.length} results`, JSON.stringify(items.slice(0, 2)))
             if (items.length > 0 && items[0].id != null) {
-              companyValues.push(String(items[0].id))
-              console.log(`Resolved company "${name}" → ID ${items[0].id}`)
+              // MUST be string — Unipile rejects numeric IDs
+              const stringId = String(items[0].id)
+              companyIds.push(stringId)
+              console.log(`✓ Resolved company "${name}" → ID "${stringId}"`)
             } else {
-              // No lookup result — use plain text name (schema allows pattern ".+")
-              companyValues.push(name)
-              console.log(`No ID found for "${name}", using plain text`)
+              console.warn(`✗ No lookup results for company "${name}"`)
+              companyLookupFailed = true
             }
           } else {
-            companyValues.push(name)
+            console.warn(`✗ Lookup failed for company "${name}": ${lookup.error}`)
+            companyLookupFailed = true
           }
         } catch (e) {
-          console.warn(`Failed to lookup company ID for "${name}", using plain text:`, e)
-          companyValues.push(name)
+          console.warn(`✗ Exception looking up company "${name}":`, e)
+          companyLookupFailed = true
         }
       }
-      if (companyValues.length > 0) {
-        body.company = { include: companyValues }
+      if (companyIds.length > 0) {
+        body.company = { include: companyIds }
+      } else if (companyLookupFailed && params.company_names.length > 0) {
+        // Fallback: add company name to keywords so it still narrows results
+        const companyKeyword = params.company_names[0]
+        body.keywords = body.keywords
+          ? `${body.keywords} ${companyKeyword}`
+          : companyKeyword
+        console.log(`⚠ Using company name "${companyKeyword}" as keyword fallback`)
       }
     }
 
-    // Title keywords → role.include (SN uses "role", NOT "title")
-    // Schema: role.include accepts plain text job titles or numeric IDs
+    // Title keywords → added to general keywords (role filter causes 400 errors)
+    // We combine title keywords with any existing keywords using OR
     if (params.title_keywords?.length) {
-      body.role = { include: params.title_keywords }
+      const titleTerms = params.title_keywords.join(' OR ')
+      if (body.keywords) {
+        // If we already have keywords (e.g. company name fallback), append title terms
+        body.keywords = `${body.keywords} ${titleTerms}`
+      } else {
+        body.keywords = titleTerms
+      }
+      console.log(`Title keywords added to search: "${titleTerms}"`)
     }
 
     // Seniority → seniority.include with proper enum mapping
-    // Schema enum: owner/partner, cxo, vice_president, director, experienced_manager,
+    // Valid enums: owner/partner, cxo, vice_president, director, experienced_manager,
     //              entry_level_manager, strategic, senior, entry_level, in_training
     if (params.seniority?.length) {
       const seniorityMap: Record<string, string> = {
@@ -416,7 +435,7 @@ export class UnipileClient {
       }
     }
 
-    // Company headcount — enum values: min [1,11,51,201,501,1001,5001,10001], max [1,10,50,200,500,1000,5000,10000]
+    // Company headcount
     if (params.company_size_min || params.company_size_max) {
       const range: Record<string, number> = {}
       if (params.company_size_min) range.min = parseInt(params.company_size_min, 10)
@@ -426,12 +445,25 @@ export class UnipileClient {
       }
     }
 
-    // Pagination — limit as query param since it's not in the SN People body schema
+    // Pagination
     let url = `/api/v1/linkedin/search?account_id=${accountId}`
     if (params.limit) url += `&limit=${params.limit}`
     if (params.cursor) body.cursor = params.cursor
 
-    return this.request('POST', url, body)
+    console.log(`=== SN Search Request ===`)
+    console.log(JSON.stringify(body, null, 2))
+
+    const result = await this.request<Record<string, unknown>>('POST', url, body)
+
+    console.log(`=== SN Search Response ===`)
+    console.log(`Success: ${result.success}`)
+    if (result.data) {
+      const data = result.data
+      const items = (data?.items || data?.results || []) as unknown[]
+      console.log(`Items: ${items.length}, cursor: ${data?.cursor || 'none'}`)
+    }
+
+    return result
   }
 }
 

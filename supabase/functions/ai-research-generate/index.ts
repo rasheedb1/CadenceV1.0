@@ -1,6 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
-import { createSupabaseClient, getAuthUser, getUnipileAccountId, logActivity } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthContext, getUnipileAccountId, logActivity } from '../_shared/supabase.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
 import { createFirecrawlClient, type FirecrawlClient } from '../_shared/firecrawl.ts'
 import { createLLMClientForUser } from '../_shared/llm.ts'
@@ -18,6 +18,7 @@ interface AIGenerateRequest {
   postContext?: string
   exampleMessages?: string[]
   ownerId?: string // For service-role calls from process-queue
+  orgId?: string   // For service-role calls from process-queue
 }
 
 interface ProfileSummary {
@@ -205,22 +206,13 @@ serve(async (req: Request) => {
       postContext,
       exampleMessages,
       ownerId,
+      orgId,
     } = body
 
-    // Support service-role calls (from process-queue) via ownerId param
-    let userId: string
-    if (ownerId) {
-      const serviceKey = Deno.env.get('SERVICE_ROLE_KEY_FULL') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-      const token = authHeader.replace('Bearer ', '')
-      if (token !== serviceKey) {
-        return errorResponse('Unauthorized: ownerId requires service role', 403)
-      }
-      userId = ownerId
-    } else {
-      const user = await getAuthUser(authHeader)
-      if (!user) return errorResponse('Unauthorized', 401)
-      userId = user.id
-    }
+    // Support service-role calls (from process-queue) via ownerId+orgId params
+    const ctx = await getAuthContext(authHeader, { ownerId, orgId })
+    if (!ctx) return errorResponse('Unauthorized', 401)
+    const userId = ctx.userId
 
     if (!leadId) return errorResponse('leadId is required')
     if (!stepType) return errorResponse('stepType is required')
@@ -236,7 +228,7 @@ serve(async (req: Request) => {
       .from('leads')
       .select('*')
       .eq('id', leadId)
-      .eq('owner_id', userId)
+      .eq('org_id', ctx.orgId)
       .single()
 
     if (leadError || !lead) {
@@ -541,6 +533,7 @@ Reglas:
       // Log failure
       await logActivity({
         ownerId: userId,
+        orgId: ctx.orgId,
         leadId,
         action: 'ai_generate_message',
         status: 'failed',
@@ -571,6 +564,7 @@ Reglas:
     // ── Log success ──
     await logActivity({
       ownerId: userId,
+      orgId: ctx.orgId,
       leadId,
       action: 'ai_generate_message',
       status: 'ok',

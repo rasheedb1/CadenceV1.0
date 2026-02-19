@@ -3,7 +3,7 @@
 // Disconnects the user's LinkedIn account from Unipile
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createSupabaseClient, getAuthUser, logActivity } from '../_shared/supabase.ts'
+import { createSupabaseClient, getAuthContext, logActivity } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 serve(async (req: Request) => {
@@ -18,8 +18,8 @@ serve(async (req: Request) => {
       return errorResponse('Missing authorization header', 401)
     }
 
-    const user = await getAuthUser(authHeader)
-    if (!user) {
+    const ctx = await getAuthContext(authHeader)
+    if (!ctx) {
       return errorResponse('Unauthorized', 401)
     }
 
@@ -29,7 +29,7 @@ serve(async (req: Request) => {
     const { data: account, error: fetchError } = await supabase
       .from('unipile_accounts')
       .select('id, account_id')
-      .eq('user_id', user.id)
+      .eq('user_id', ctx.userId)
       .eq('provider', 'LINKEDIN')
       .eq('status', 'active')
       .single()
@@ -84,11 +84,12 @@ serve(async (req: Request) => {
     await supabase
       .from('profiles')
       .update({ unipile_account_id: null })
-      .eq('user_id', user.id)
+      .eq('user_id', ctx.userId)
 
     // Log the activity
     await logActivity({
-      ownerId: user.id,
+      ownerId: ctx.userId,
+      orgId: ctx.orgId,
       action: 'linkedin_disconnected',
       status: 'ok',
       details: {
@@ -96,7 +97,7 @@ serve(async (req: Request) => {
       },
     })
 
-    console.log(`LinkedIn disconnected for user ${user.id}`)
+    console.log(`LinkedIn disconnected for user ${ctx.userId}`)
 
     return jsonResponse({
       success: true,
