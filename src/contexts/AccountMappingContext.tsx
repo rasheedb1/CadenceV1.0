@@ -59,12 +59,20 @@ export interface SearchSalesNavigatorResponse {
 
 export interface EnrichProspectResponse {
   success: boolean
-  enrichment: {
-    emails_found: string[]
-    phones_found: string[]
+  results: Array<{
+    prospectId: string
+    success: boolean
+    email?: string | null
+    phone?: string | null
+    source?: string
+    error?: string
+  }>
+  summary: {
+    total: number
+    enriched: number
+    withEmail: number
+    withPhone: number
   }
-  bestEmailMatch: string | null
-  bestPhoneMatch: string | null
 }
 
 // ── Discover ICP types ──
@@ -142,7 +150,8 @@ interface AccountMappingContextType {
   deleteProspect: (id: string) => Promise<void>
   // Edge function wrappers
   searchSalesNavigator: (params: SearchSalesNavigatorParams) => Promise<SearchSalesNavigatorResponse>
-  enrichProspect: (prospectId: string, companyWebsite: string) => Promise<EnrichProspectResponse>
+  enrichProspect: (prospectId: string, companyWebsite?: string) => Promise<EnrichProspectResponse>
+  bulkEnrichProspects: (prospectIds: string[], companyWebsite?: string) => Promise<EnrichProspectResponse>
   // Promote to lead
   promoteProspectToLead: (prospectId: string, cadenceId?: string) => Promise<{ leadId: string; duplicate: boolean }>
   bulkPromoteProspects: (prospectIds: string[], cadenceId?: string) => Promise<{ promoted: number; duplicates: number }>
@@ -343,6 +352,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
         .select('*')
         .eq('org_id', orgId)
         .order('created_at', { ascending: false })
+        .limit(5000)
       if (error) throw error
       return (data || []) as CompanyRegistryEntry[]
     },
@@ -448,13 +458,12 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
             .filter(e => (EXCLUSION_TYPES as string[]).includes(e.registry_type))
             .map(e => e.company_name_display)
 
-          // Also exclude companies with active Salesforce opportunities (not lost)
+          // Also exclude all companies synced from Salesforce (active pipeline or won deals)
           if (orgId) {
             const { data: sfAccounts } = await supabase
               .from('salesforce_accounts')
               .select('name')
               .eq('org_id', orgId)
-              .eq('has_active_opportunities', true)
             if (sfAccounts) {
               for (const acc of sfAccounts) {
                 if (!excludedCompanyNames.some(n => n.toLowerCase() === acc.name.toLowerCase())) {
@@ -571,13 +580,27 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
           )
         },
 
-        // Edge function: Enrich prospect
+        // Edge function: Enrich prospect (Apollo + Firecrawl fallback)
         enrichProspect: async (prospectId, companyWebsite) => {
           if (!session?.access_token) throw new Error('Not authenticated')
           const result = await callEdgeFunction<EnrichProspectResponse>(
             'enrich-prospect',
             { prospectId, companyWebsite },
-            session.access_token
+            session.access_token,
+            { timeoutMs: 30000 },
+          )
+          queryClient.invalidateQueries({ queryKey: ['account-maps'] })
+          return result
+        },
+
+        // Edge function: Bulk enrich prospects
+        bulkEnrichProspects: async (prospectIds, companyWebsite) => {
+          if (!session?.access_token) throw new Error('Not authenticated')
+          const result = await callEdgeFunction<EnrichProspectResponse>(
+            'enrich-prospect',
+            { prospectIds, companyWebsite },
+            session.access_token,
+            { timeoutMs: prospectIds.length * 10000 + 30000 }, // ~10s per prospect + buffer
           )
           queryClient.invalidateQueries({ queryKey: ['account-maps'] })
           return result

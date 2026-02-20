@@ -73,10 +73,10 @@ export function Auth() {
         <CardHeader className="text-center">
           <div className="flex justify-center mb-2">
             <div className="flex h-12 w-12 items-center justify-center rounded-[10px] logo-gradient text-white text-lg font-bold">
-              L
+              C
             </div>
           </div>
-          <CardTitle className="text-2xl font-heading">Laiky Cadence</CardTitle>
+          <CardTitle className="text-2xl font-heading">Closr</CardTitle>
           <CardDescription>Sales automation platform</CardDescription>
         </CardHeader>
         <CardContent>

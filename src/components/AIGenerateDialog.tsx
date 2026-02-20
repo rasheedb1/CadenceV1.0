@@ -10,6 +10,7 @@ import {
   type AIProfileSummary,
   type AIResearchInsight,
   type AIPrompt,
+  type QualityCheck,
   type ExampleSection,
   type ExampleMessage,
 } from '@/lib/edge-functions'
@@ -46,6 +47,9 @@ import {
   User,
   Star,
   BookOpen,
+  ArrowDownRight,
+  MessageSquare,
+  Shuffle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -77,6 +81,20 @@ const STEP_TYPE_LABELS: Record<string, string> = {
   send_email: 'Email',
 }
 
+function getScoreColor(score: number): string {
+  if (score >= 9) return 'bg-green-500 text-white'
+  if (score >= 7) return 'bg-green-100 text-green-700 border-green-200'
+  if (score >= 5) return 'bg-yellow-100 text-yellow-700 border-yellow-200'
+  return 'bg-red-100 text-red-700 border-red-200'
+}
+
+function getScoreLabel(score: number): string {
+  if (score >= 9) return 'Excelente'
+  if (score >= 7) return 'Bueno'
+  if (score >= 5) return 'Aceptable'
+  return 'Mejorable'
+}
+
 export function AIGenerateDialog({
   open,
   onOpenChange,
@@ -100,9 +118,11 @@ export function AIGenerateDialog({
   const [webInsights, setWebInsights] = useState<AIResearchInsight[]>([])
   const [researchFailed, setResearchFailed] = useState(false)
   const [researchSummary, setResearchSummary] = useState<string | null>(null)
+  const [qualityCheck, setQualityCheck] = useState<QualityCheck | null>(null)
   const [metadata, setMetadata] = useState<AIGenerateResponse['metadata'] | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
   const [showResearch, setShowResearch] = useState(false)
+  const [showConfig, setShowConfig] = useState(false)
   const [copied, setCopied] = useState(false)
   const [copiedResearch, setCopiedResearch] = useState(false)
   const [selectedSectionId, setSelectedSectionId] = useState<string>('none')
@@ -207,9 +227,11 @@ export function AIGenerateDialog({
       setWebInsights([])
       setResearchFailed(false)
       setResearchSummary(null)
+      setQualityCheck(null)
       setMetadata(null)
       setErrorMsg('')
       setShowResearch(false)
+      setShowConfig(false)
       setCopied(false)
       setCopiedResearch(false)
       setSelectedMessagePromptId('none')
@@ -245,7 +267,7 @@ export function AIGenerateDialog({
     return undefined
   }
 
-  const handleGenerate = async () => {
+  const doGenerate = async (regenerateHint?: 'shorter' | 'more_casual' | 'different_angle' | null) => {
     if (!session?.access_token) {
       setErrorMsg('No hay sesion activa')
       setPhase('error')
@@ -255,11 +277,11 @@ export function AIGenerateDialog({
     setPhase('researching')
     setErrorMsg('')
     setCopied(false)
+    setQualityCheck(null)
 
     try {
       const messageTemplate = getActiveMessagePromptBody()
       const researchPromptBody = getActiveResearchPromptBody()
-
       const activePrompt = getActiveMessagePrompt()
       const language = activePrompt?.language || 'es'
 
@@ -270,19 +292,40 @@ export function AIGenerateDialog({
         ? sectionMessages.map(m => m.body)
         : undefined
 
+      const exampleNotes = sectionMessages.length > 0
+        ? sectionMessages.map(m => m.quality_note || '')
+        : undefined
+
+      // Build request with new structured fields
+      const requestBody: Record<string, unknown> = {
+        leadId,
+        stepType,
+        messageTemplate,
+        researchPrompt: researchPromptBody,
+        tone,
+        language,
+        postContext,
+        exampleMessages: exampleMessageBodies,
+        exampleNotes,
+        customInstructions: customPrompt || undefined,
+      }
+
+      // Add structured fields from the selected prompt
+      if (activePrompt) {
+        if (activePrompt.objective) requestBody.objective = activePrompt.objective
+        if (activePrompt.structure) requestBody.structure = activePrompt.structure
+        if (activePrompt.writing_principles?.length > 0) requestBody.writingPrinciples = activePrompt.writing_principles
+        if (activePrompt.anti_patterns?.length > 0) requestBody.antiPatterns = activePrompt.anti_patterns
+      }
+
+      // Add regeneration hint
+      if (regenerateHint) requestBody.regenerateHint = regenerateHint
+
       const result = await callEdgeFunction<AIGenerateResponse>(
         'ai-research-generate',
-        {
-          leadId,
-          stepType,
-          messageTemplate,
-          researchPrompt: researchPromptBody,
-          tone,
-          language,
-          postContext,
-          exampleMessages: exampleMessageBodies,
-        },
-        session.access_token
+        requestBody,
+        session.access_token,
+        { timeoutMs: 120000 } // 2 min: research + up to 5 LLM calls
       )
 
       if (result.success) {
@@ -292,6 +335,7 @@ export function AIGenerateDialog({
         setWebInsights(result.research.webInsights)
         setResearchFailed(result.research.researchFailed)
         setResearchSummary(result.research.researchSummary)
+        setQualityCheck(result.qualityCheck || null)
         setMetadata(result.metadata)
         setPhase('done')
       } else {
@@ -303,6 +347,12 @@ export function AIGenerateDialog({
       setErrorMsg(err instanceof Error ? err.message : 'Error al generar mensaje')
       setPhase('error')
     }
+  }
+
+  const handleGenerate = () => doGenerate()
+
+  const handleRegenerate = (hint?: 'shorter' | 'more_casual' | 'different_angle') => {
+    doGenerate(hint || null)
   }
 
   const handleMessagePromptChange = (promptId: string) => {
@@ -337,6 +387,15 @@ export function AIGenerateDialog({
   const isEmailStep = stepType === 'send_email'
   const isLoading = phase === 'researching' || phase === 'generating'
 
+  // Determine active config for display
+  const activeMessagePrompt = getActiveMessagePrompt()
+  const activeResearchPrompt = selectedResearchPromptId !== 'none'
+    ? researchPrompts.find(p => p.id === selectedResearchPromptId)
+    : undefined
+  const activeSection = selectedSectionId !== 'none'
+    ? exampleSections.find(s => s.id === selectedSectionId)
+    : undefined
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
@@ -357,129 +416,161 @@ export function AIGenerateDialog({
                 {STEP_TYPE_LABELS[stepType] || stepType}
               </Badge>
             </div>
-            {metadata && (
-              <span className="text-xs text-muted-foreground">
-                {(metadata.totalTimeMs / 1000).toFixed(1)}s
-              </span>
-            )}
-          </div>
-
-          {/* Research Prompt selector */}
-          <div>
-            <label className="text-sm text-muted-foreground mb-1 block">
-              Prompt de Investigacion
-            </label>
-            <Select
-              value={selectedResearchPromptId}
-              onValueChange={setSelectedResearchPromptId}
-              disabled={isLoading}
-            >
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder="No usar ninguno" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No usar ninguno</SelectItem>
-                {researchPrompts.map(p => (
-                  <SelectItem key={p.id} value={p.id}>
-                    <span className="flex items-center gap-1.5">
-                      {p.is_default && <Star className="h-3 w-3 text-amber-500 fill-amber-500" />}
-                      {p.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {researchPrompts.length === 0 && (
-              <p className="text-xs text-muted-foreground mt-1">
-                No tienes prompts de investigacion. Crea uno en AI Prompts.
-              </p>
-            )}
-          </div>
-
-          {/* Message Prompt selector */}
-          <div>
-            <label className="text-sm text-muted-foreground mb-1 block">
-              Prompt de Mensaje
-            </label>
-            <Select
-              value={selectedMessagePromptId}
-              onValueChange={handleMessagePromptChange}
-              disabled={isLoading}
-            >
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder="No usar ninguno" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No usar ninguno</SelectItem>
-                {messagePrompts.map(p => (
-                  <SelectItem key={p.id} value={p.id}>
-                    <span className="flex items-center gap-1.5">
-                      {p.is_default && <Star className="h-3 w-3 text-amber-500 fill-amber-500" />}
-                      {p.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {messagePrompts.length === 0 && (
-              <p className="text-xs text-muted-foreground mt-1">
-                No tienes prompts de mensaje para este tipo. Crea uno en AI Prompts.
-              </p>
-            )}
-          </div>
-
-          {/* Example Section selector */}
-          <div>
-            <label className="text-sm text-muted-foreground mb-1 block">
-              <BookOpen className="inline h-3.5 w-3.5 mr-1" />
-              Mensajes Base
-            </label>
-            <Select
-              value={selectedSectionId}
-              onValueChange={setSelectedSectionId}
-              disabled={isLoading}
-            >
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder="No usar ninguno" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No usar ninguno</SelectItem>
-                {exampleSections.map(s => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {exampleSections.length === 0 && (
-              <p className="text-xs text-muted-foreground mt-1">
-                No tienes secciones de mensajes base. Crea una en AI Prompts.
-              </p>
-            )}
-            {selectedSectionId !== 'none' && sectionMessages.length > 0 && (
-              <p className="text-xs text-muted-foreground mt-1">
-                {sectionMessages.length} {sectionMessages.length === 1 ? 'mensaje' : 'mensajes'} de referencia
-              </p>
-            )}
-          </div>
-
-          {/* Tone selector */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Tono:</span>
-            <div className="flex gap-1">
-              {TONE_OPTIONS.map(opt => (
-                <Button
-                  key={opt.value}
-                  variant={tone === opt.value ? 'default' : 'outline'}
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => setTone(opt.value)}
-                  disabled={isLoading}
-                >
-                  {opt.label}
-                </Button>
-              ))}
+            <div className="flex items-center gap-2">
+              {metadata && (
+                <span className="text-xs text-muted-foreground">
+                  {(metadata.totalTimeMs / 1000).toFixed(1)}s
+                </span>
+              )}
+              {/* Human Score Badge */}
+              {qualityCheck && (
+                <Badge className={`text-xs font-semibold ${getScoreColor(qualityCheck.humanScore)}`}>
+                  {qualityCheck.humanScore}/10 — {getScoreLabel(qualityCheck.humanScore)}
+                </Badge>
+              )}
             </div>
+          </div>
+
+          {/* Active config summary (collapsed view) */}
+          <div className="space-y-2">
+            <button
+              onClick={() => setShowConfig(!showConfig)}
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors w-full"
+            >
+              {showConfig ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              <span>Configuracion</span>
+              {/* Config tags summary */}
+              <div className="flex flex-wrap gap-1 ml-2">
+                {activeMessagePrompt && (
+                  <Badge variant="secondary" className="text-[10px] h-5">
+                    <MessageSquare className="h-3 w-3 mr-0.5" />
+                    {activeMessagePrompt.name}
+                  </Badge>
+                )}
+                {activeResearchPrompt && (
+                  <Badge variant="secondary" className="text-[10px] h-5">
+                    <Search className="h-3 w-3 mr-0.5" />
+                    {activeResearchPrompt.name}
+                  </Badge>
+                )}
+                {activeSection && (
+                  <Badge variant="secondary" className="text-[10px] h-5">
+                    <BookOpen className="h-3 w-3 mr-0.5" />
+                    {activeSection.name}
+                  </Badge>
+                )}
+                <Badge variant="secondary" className="text-[10px] h-5">
+                  {TONE_OPTIONS.find(t => t.value === tone)?.label}
+                </Badge>
+              </div>
+            </button>
+
+            {showConfig && (
+              <div className="space-y-3 pl-5 pb-2 border-l-2 border-muted ml-2">
+                {/* Research Prompt selector */}
+                <div>
+                  <label className="text-sm text-muted-foreground mb-1 block">
+                    Prompt de Investigacion
+                  </label>
+                  <Select
+                    value={selectedResearchPromptId}
+                    onValueChange={setSelectedResearchPromptId}
+                    disabled={isLoading}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="No usar ninguno" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No usar ninguno</SelectItem>
+                      {researchPrompts.map(p => (
+                        <SelectItem key={p.id} value={p.id}>
+                          <span className="flex items-center gap-1.5">
+                            {p.is_default && <Star className="h-3 w-3 text-amber-500 fill-amber-500" />}
+                            {p.name}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Message Prompt selector */}
+                <div>
+                  <label className="text-sm text-muted-foreground mb-1 block">
+                    Prompt de Mensaje
+                  </label>
+                  <Select
+                    value={selectedMessagePromptId}
+                    onValueChange={handleMessagePromptChange}
+                    disabled={isLoading}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="No usar ninguno" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No usar ninguno</SelectItem>
+                      {messagePrompts.map(p => (
+                        <SelectItem key={p.id} value={p.id}>
+                          <span className="flex items-center gap-1.5">
+                            {p.is_default && <Star className="h-3 w-3 text-amber-500 fill-amber-500" />}
+                            {p.name}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Example Section selector */}
+                <div>
+                  <label className="text-sm text-muted-foreground mb-1 block">
+                    <BookOpen className="inline h-3.5 w-3.5 mr-1" />
+                    Referencias
+                  </label>
+                  <Select
+                    value={selectedSectionId}
+                    onValueChange={setSelectedSectionId}
+                    disabled={isLoading}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="No usar ninguno" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No usar ninguno</SelectItem>
+                      {exampleSections.map(s => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedSectionId !== 'none' && sectionMessages.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {sectionMessages.length} {sectionMessages.length === 1 ? 'mensaje' : 'mensajes'} de referencia
+                    </p>
+                  )}
+                </div>
+
+                {/* Tone selector */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Tono:</span>
+                  <div className="flex gap-1">
+                    {TONE_OPTIONS.map(opt => (
+                      <Button
+                        key={opt.value}
+                        variant={tone === opt.value ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setTone(opt.value)}
+                        disabled={isLoading}
+                      >
+                        {opt.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Custom instructions (always visible, optional) */}
@@ -539,7 +630,7 @@ export function AIGenerateDialog({
                   )}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Esto puede tomar 5-15 segundos
+                  Esto puede tomar 10-20 segundos
                 </p>
               </div>
             </div>
@@ -591,6 +682,37 @@ export function AIGenerateDialog({
                       {generatedMessage.length}/300 caracteres (excede el limite)
                     </p>
                   )}
+                </div>
+
+                {/* Quality check feedback */}
+                {qualityCheck && qualityCheck.issues.length > 0 && (
+                  <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">Feedback de calidad:</p>
+                    {qualityCheck.issues.map((issue, i) => (
+                      <p key={i} className="text-xs text-muted-foreground">• {issue}</p>
+                    ))}
+                    {qualityCheck.suggestion && (
+                      <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">
+                        Sugerencia: {qualityCheck.suggestion}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Contextual regeneration buttons */}
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleRegenerate('shorter')}>
+                    <ArrowDownRight className="mr-1 h-3 w-3" />
+                    Mas corto
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleRegenerate('more_casual')}>
+                    <MessageSquare className="mr-1 h-3 w-3" />
+                    Mas casual
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleRegenerate('different_angle')}>
+                    <Shuffle className="mr-1 h-3 w-3" />
+                    Otro angulo
+                  </Button>
                 </div>
 
                 {/* Research warning */}
@@ -724,7 +846,7 @@ export function AIGenerateDialog({
                   )}
                   {copied ? 'Copiado' : 'Copiar'}
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleGenerate}>
+                <Button variant="outline" size="sm" onClick={() => handleRegenerate()}>
                   <RefreshCw className="mr-2 h-4 w-4" />
                   Regenerar
                 </Button>

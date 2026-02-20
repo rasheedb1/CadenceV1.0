@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAccountMapping } from '@/contexts/AccountMappingContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,6 +21,12 @@ import {
   Loader2,
   Building2,
   ExternalLink,
+  Users,
+  ChevronDown,
+  ChevronRight,
+  Mail,
+  Phone,
+  RefreshCw,
 } from 'lucide-react'
 import type { RegistryType, CompanyRegistryEntry } from '@/types/registry'
 import { REGISTRY_TYPE_CONFIG } from '@/types/registry'
@@ -27,12 +34,15 @@ import { ImportExclusionDialog } from '@/components/registry/ImportExclusionDial
 import { AddExclusionDialog } from '@/components/registry/AddExclusionDialog'
 import { PermissionGate } from '@/components/PermissionGate'
 import { useSalesforceCheck, type SalesforceMatch } from '@/hooks/useSalesforceCheck'
+import { useSalesforceConnection } from '@/hooks/useSalesforceConnection'
 import { SalesforceBadge } from '@/components/salesforce/SalesforceBadge'
 
 type FilterType = 'all' | RegistryType
 
 export function CompanyRegistry() {
   const { companyRegistry, registryLoading, deleteRegistryEntry } = useAccountMapping()
+  const navigate = useNavigate()
+  const { status: sfStatus, actionLoading: sfSyncing, sync: sfSync } = useSalesforceConnection()
 
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState<FilterType>('all')
@@ -52,11 +62,20 @@ export function CompanyRegistry() {
     }
     if (search.trim()) {
       const q = search.toLowerCase().trim()
-      list = list.filter(e =>
-        e.company_name_display.toLowerCase().includes(q) ||
-        (e.industry && e.industry.toLowerCase().includes(q)) ||
-        (e.website && e.website.toLowerCase().includes(q))
-      )
+      list = list.filter(e => {
+        const meta = e.metadata as Record<string, unknown> | undefined
+        const ownerName = meta?.sf_owner_name as string | undefined
+        const stageName = meta?.sf_latest_stage as string | undefined
+        return (
+          e.company_name_display.toLowerCase().includes(q) ||
+          (e.industry && e.industry.toLowerCase().includes(q)) ||
+          (e.website && e.website.toLowerCase().includes(q)) ||
+          (e.exclusion_reason && e.exclusion_reason.toLowerCase().includes(q)) ||
+          (e.source && e.source.toLowerCase().includes(q)) ||
+          (ownerName && ownerName.toLowerCase().includes(q)) ||
+          (stageName && stageName.toLowerCase().includes(q))
+        )
+      })
     }
     return list
   }, [companyRegistry, filterType, search])
@@ -149,6 +168,16 @@ export function CompanyRegistry() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {sfStatus.isConnected && (
+            <Button variant="outline" size="sm" onClick={sfSync} disabled={sfSyncing}>
+              {sfSyncing ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-1" />
+              )}
+              {sfSyncing ? 'Sincronizando...' : 'Sync Salesforce'}
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={filtered.length === 0}>
             Exportar CSV
           </Button>
@@ -170,7 +199,7 @@ export function CompanyRegistry() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar empresas..."
+            placeholder="Buscar por nombre, industria, fuente..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="pl-9"
@@ -229,7 +258,7 @@ export function CompanyRegistry() {
       ) : (
         <div className="rounded-lg border overflow-hidden">
           {/* Table header */}
-          <div className="grid grid-cols-[40px_1fr_120px_140px_120px_100px_80px] gap-2 px-4 py-2.5 bg-muted/50 border-b text-xs font-medium text-muted-foreground">
+          <div className="grid grid-cols-[40px_1fr_100px_130px_130px_120px_90px_80px_60px] gap-2 px-4 py-2.5 bg-muted/50 border-b text-xs font-medium text-muted-foreground">
             <div>
               <Checkbox
                 checked={filtered.length > 0 && selectedIds.size === filtered.length}
@@ -239,6 +268,8 @@ export function CompanyRegistry() {
             <div>Empresa</div>
             <div>Tipo</div>
             <div>Industria</div>
+            <div>Stage</div>
+            <div>Owner</div>
             <div>Fuente</div>
             <div>Fecha</div>
             <div></div>
@@ -262,6 +293,7 @@ export function CompanyRegistry() {
                 }}
                 formatDate={formatDate}
                 sfMatch={sfIsInPipeline(entry.company_name_display)}
+                onViewLeads={(companyName) => navigate(`/leads?company=${encodeURIComponent(companyName)}`)}
               />
             ))}
           </div>
@@ -275,6 +307,13 @@ export function CompanyRegistry() {
   )
 }
 
+interface SfContact {
+  name: string
+  email: string | null
+  phone: string | null
+  title: string | null
+}
+
 function RegistryRow({
   entry,
   selected,
@@ -282,6 +321,7 @@ function RegistryRow({
   onDelete,
   formatDate,
   sfMatch,
+  onViewLeads,
 }: {
   entry: CompanyRegistryEntry
   selected: boolean
@@ -289,84 +329,169 @@ function RegistryRow({
   onDelete: () => Promise<void>
   formatDate: (d: string) => string
   sfMatch?: SalesforceMatch | null
+  onViewLeads: (companyName: string) => void
 }) {
   const [deleting, setDeleting] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const config = REGISTRY_TYPE_CONFIG[entry.registry_type]
+  const meta = entry.metadata as Record<string, unknown> | undefined
 
   const sourceLabels: Record<string, string> = {
     csv_import: 'CSV',
     manual: 'Manual',
     auto_prospected: 'Auto',
     discovery: 'Discovery',
+    salesforce_sync: 'Salesforce',
   }
 
+  const sfStage = meta?.sf_latest_stage as string | undefined
+  const sfOppName = meta?.sf_latest_opp_name as string | undefined
+  const ownerName = meta?.sf_owner_name as string | undefined
+  const contacts = (meta?.sf_contacts || []) as SfContact[]
+
   return (
-    <div className="grid grid-cols-[40px_1fr_120px_140px_120px_100px_80px] gap-2 px-4 py-2.5 items-center text-sm hover:bg-muted/30 transition-colors">
-      <div>
-        <Checkbox checked={selected} onCheckedChange={onToggle} />
-      </div>
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-medium truncate">{entry.company_name_display}</span>
-          <SalesforceBadge match={sfMatch || null} compact />
+    <div>
+      <div
+        className="grid grid-cols-[40px_1fr_100px_130px_130px_120px_90px_80px_60px] gap-2 px-4 py-2.5 items-center text-sm hover:bg-muted/30 transition-colors cursor-pointer"
+        onClick={() => contacts.length > 0 && setExpanded(!expanded)}
+      >
+        <div onClick={e => e.stopPropagation()}>
+          <Checkbox checked={selected} onCheckedChange={onToggle} />
         </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          {entry.website && (
-            <a
-              href={entry.website.startsWith('http') ? entry.website : `https://${entry.website}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-primary hover:underline flex items-center gap-0.5"
-              onClick={e => e.stopPropagation()}
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            {contacts.length > 0 && (
+              <span className="shrink-0 text-muted-foreground">
+                {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              </span>
+            )}
+            <button
+              className="font-medium truncate text-left hover:text-primary hover:underline transition-colors"
+              onClick={(e) => { e.stopPropagation(); onViewLeads(entry.company_name_display) }}
+              title={`Ver leads de ${entry.company_name_display}`}
             >
-              {entry.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
-          {entry.exclusion_reason && (
-            <span className="text-xs text-muted-foreground truncate max-w-[200px]" title={entry.exclusion_reason}>
-              {entry.exclusion_reason}
-            </span>
-          )}
+              {entry.company_name_display}
+            </button>
+            <SalesforceBadge match={sfMatch || null} compact />
+            {contacts.length > 0 && (
+              <span className="shrink-0 text-[10px] text-muted-foreground bg-muted rounded-full px-1.5 py-0.5">
+                {contacts.length}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-0.5 min-w-0 overflow-hidden">
+            {entry.website && (
+              <a
+                href={entry.website.startsWith('http') ? entry.website : `https://${entry.website}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-primary hover:underline flex items-center gap-0.5 shrink-0"
+                onClick={e => e.stopPropagation()}
+                title={entry.website}
+              >
+                {(() => {
+                  try {
+                    const url = new URL(entry.website.startsWith('http') ? entry.website : `https://${entry.website}`)
+                    return url.hostname.replace(/^www\./, '')
+                  } catch {
+                    return entry.website.replace(/^https?:\/\//, '').replace(/\/$/, '').slice(0, 30)
+                  }
+                })()}
+                <ExternalLink className="h-3 w-3 shrink-0" />
+              </a>
+            )}
+            {entry.exclusion_reason && (
+              <span className="text-xs text-muted-foreground truncate" title={entry.exclusion_reason}>
+                {entry.exclusion_reason}
+              </span>
+            )}
+          </div>
+        </div>
+        <div>
+          <Badge variant="outline" className={`text-[10px] ${config.color}`}>
+            {config.label}
+          </Badge>
+        </div>
+        <div className="text-xs text-muted-foreground truncate">
+          {entry.industry || '-'}
+        </div>
+        <div className="text-xs text-muted-foreground truncate" title={sfOppName || undefined}>
+          {sfStage || '-'}
+        </div>
+        <div className="text-xs text-muted-foreground truncate">
+          {ownerName || '-'}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {sourceLabels[entry.source] || entry.source}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {formatDate(entry.created_at)}
+        </div>
+        <div className="flex justify-end" onClick={e => e.stopPropagation()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+            onClick={async () => {
+              setDeleting(true)
+              try {
+                await onDelete()
+              } finally {
+                setDeleting(false)
+              }
+            }}
+            disabled={deleting}
+          >
+            {deleting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+          </Button>
         </div>
       </div>
-      <div>
-        <Badge variant="outline" className={`text-[10px] ${config.color}`}>
-          {config.label}
-        </Badge>
-      </div>
-      <div className="text-xs text-muted-foreground truncate">
-        {entry.industry || '-'}
-      </div>
-      <div className="text-xs text-muted-foreground">
-        {sourceLabels[entry.source] || entry.source}
-      </div>
-      <div className="text-xs text-muted-foreground">
-        {formatDate(entry.created_at)}
-      </div>
-      <div className="flex justify-end">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-          onClick={async (e) => {
-            e.stopPropagation()
-            setDeleting(true)
-            try {
-              await onDelete()
-            } finally {
-              setDeleting(false)
-            }
-          }}
-          disabled={deleting}
-        >
-          {deleting ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Trash2 className="h-3.5 w-3.5" />
-          )}
-        </Button>
-      </div>
+
+      {/* Expanded contacts panel */}
+      {expanded && contacts.length > 0 && (
+        <div className="bg-muted/20 border-t px-4 py-3 pl-14">
+          <div className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+            <Users className="h-3.5 w-3.5" />
+            Contactos de la oportunidad ({contacts.length})
+          </div>
+          <div className="grid gap-2">
+            {contacts.map((contact, i) => (
+              <div key={i} className="flex items-center gap-4 text-xs bg-background rounded-md px-3 py-2 border">
+                <div className="min-w-0 flex-1">
+                  <span className="font-medium">{contact.name}</span>
+                  {contact.title && (
+                    <span className="text-muted-foreground ml-1.5">- {contact.title}</span>
+                  )}
+                </div>
+                {contact.email && (
+                  <a
+                    href={`mailto:${contact.email}`}
+                    className="flex items-center gap-1 text-primary hover:underline shrink-0"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <Mail className="h-3 w-3" />
+                    {contact.email}
+                  </a>
+                )}
+                {contact.phone && (
+                  <a
+                    href={`tel:${contact.phone}`}
+                    className="flex items-center gap-1 text-primary hover:underline shrink-0"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <Phone className="h-3 w-3" />
+                    {contact.phone}
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

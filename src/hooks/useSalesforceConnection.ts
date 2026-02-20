@@ -90,6 +90,7 @@ export function useSalesforceConnection() {
       )
       queryClient.invalidateQueries({ queryKey: ['salesforce-connection'] })
       queryClient.invalidateQueries({ queryKey: ['salesforce-check'] })
+      queryClient.invalidateQueries({ queryKey: ['company-registry'] })
       toast.success(`Synced ${result.accountsCount} accounts with ${result.opportunitiesCount} opportunities`)
     } catch (err) {
       toast.error('Failed to sync Salesforce data')

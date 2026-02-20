@@ -201,7 +201,7 @@ serve(async (req: Request) => {
                     body: JSON.stringify({
                       to: userEmail,
                       subject: `${leadName} respondio a tu mensaje en LinkedIn`,
-                      body: `<p>Hola,</p><p><strong>${leadName}</strong>${lead?.company ? ` de ${lead.company}` : ''} respondio a tu mensaje en LinkedIn.</p>${replyPreview ? `<p><em>"${replyPreview}"</em></p>` : ''}<p>El lead fue pausado automaticamente en la cadencia. Revisa tus notificaciones para elegir que hacer.</p><p>— Laiky Cadence</p>`,
+                      body: `<p>Hola,</p><p><strong>${leadName}</strong>${lead?.company ? ` de ${lead.company}` : ''} respondio a tu mensaje en LinkedIn.</p>${replyPreview ? `<p><em>"${replyPreview}"</em></p>` : ''}<p>El lead fue pausado automaticamente en la cadencia. Revisa tus notificaciones para elegir que hacer.</p><p>— Closr</p>`,
                     }),
                   })
                   console.log(`Notification email sent to ${userEmail}`)

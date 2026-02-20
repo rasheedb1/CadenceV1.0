@@ -635,12 +635,16 @@ export function CadenceBuilder() {
     }
   }
 
-  // Calculate cadence current day based on creation date
+  // Calculate cadence current day based on UTC calendar days since creation
+  // Day advances at midnight UTC (00:00 UTC), not after 24h from creation
   const cadenceCurrentDay = (() => {
     if (!cadence?.created_at) return 0
     const createdAt = new Date(cadence.created_at)
     const now = new Date()
-    return Math.max(0, Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24)))
+    // Get UTC date components (year, month, day) for both dates
+    const createdUTC = Date.UTC(createdAt.getUTCFullYear(), createdAt.getUTCMonth(), createdAt.getUTCDate())
+    const nowUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+    return Math.max(0, Math.floor((nowUTC - createdUTC) / (1000 * 60 * 60 * 24)))
   })()
 
   // Check if a step's day is available (has arrived)

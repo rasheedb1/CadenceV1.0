@@ -264,6 +264,9 @@ export function BulkAIGenerateDialog({
     const exampleMessageBodies = sectionMessages.length > 0
       ? sectionMessages.map(m => m.body)
       : undefined
+    const exampleNotes = sectionMessages.length > 0
+      ? sectionMessages.map(m => m.quality_note || '')
+      : undefined
 
     const results: LeadGenResult[] = []
 
@@ -276,18 +279,30 @@ export function BulkAIGenerateDialog({
       setGenProgress({ current: i + 1, total: leads.length, currentName: leadName })
 
       try {
+        // Build request with structured fields from selected prompt
+        const requestBody: Record<string, unknown> = {
+          leadId: lead.id,
+          stepType,
+          messageTemplate,
+          researchPrompt: researchPromptBody,
+          tone,
+          language,
+          exampleMessages: exampleMessageBodies,
+          exampleNotes,
+          customInstructions: customPrompt || undefined,
+        }
+        if (activePrompt) {
+          if (activePrompt.objective) requestBody.objective = activePrompt.objective
+          if (activePrompt.structure) requestBody.structure = activePrompt.structure
+          if (activePrompt.writing_principles?.length > 0) requestBody.writingPrinciples = activePrompt.writing_principles
+          if (activePrompt.anti_patterns?.length > 0) requestBody.antiPatterns = activePrompt.anti_patterns
+        }
+
         const result = await callEdgeFunction<AIGenerateResponse>(
           'ai-research-generate',
-          {
-            leadId: lead.id,
-            stepType,
-            messageTemplate,
-            researchPrompt: researchPromptBody,
-            tone,
-            language,
-            exampleMessages: exampleMessageBodies,
-          },
-          session.access_token
+          requestBody,
+          session.access_token,
+          { timeoutMs: 120000 } // 2 min per lead: research + up to 5 LLM calls
         )
 
         if (result.success) {
@@ -500,7 +515,7 @@ export function BulkAIGenerateDialog({
               <div>
                 <label className="text-sm text-muted-foreground mb-1 block">
                   <BookOpen className="inline h-3.5 w-3.5 mr-1" />
-                  Mensajes Base
+                  Referencias
                 </label>
                 <Select value={selectedSectionId} onValueChange={setSelectedSectionId}>
                   <SelectTrigger className="h-9">

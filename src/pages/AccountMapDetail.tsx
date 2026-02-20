@@ -71,6 +71,7 @@ import {
   ChevronDown,
   ChevronUp,
   ShieldX,
+  Mail,
 } from 'lucide-react'
 import {
   PROSPECT_STATUS_CONFIG,
@@ -115,6 +116,7 @@ export function AccountMapDetail() {
     deleteProspect,
     searchSalesNavigator,
     enrichProspect,
+    bulkEnrichProspects,
     bulkPromoteProspects,
     polishICPDescription,
     discoverICPCompanies,
@@ -337,6 +339,7 @@ export function AccountMapDetail() {
           onSearch={() => setShowSearch(true)}
           onBatchSearch={() => setShowBatchSearch(true)}
           onEnrich={(p) => setShowEnrich(p)}
+          onBulkEnrich={bulkEnrichProspects}
           onPromote={() => setShowPromote(true)}
           onDelete={deleteProspect}
         />
@@ -1201,6 +1204,7 @@ function ProspectsTab({
   onSearch,
   onBatchSearch,
   onEnrich,
+  onBulkEnrich,
   onPromote,
   onDelete,
 }: {
@@ -1217,6 +1221,7 @@ function ProspectsTab({
   onSearch: () => void
   onBatchSearch: () => void
   onEnrich: (p: Prospect) => void
+  onBulkEnrich: (prospectIds: string[], companyWebsite?: string) => Promise<any>
   onPromote: () => void
   onDelete: (id: string) => void
 }) {
@@ -1230,6 +1235,8 @@ function ProspectsTab({
   const [skipReason, setSkipReason] = useState('')
   const [addToCadenceProspect, setAddToCadenceProspect] = useState<Prospect | null>(null)
   const [selectedCadence, setSelectedCadence] = useState('')
+  const [bulkEnriching, setBulkEnriching] = useState(false)
+  const [bulkEnrichResult, setBulkEnrichResult] = useState<{ enriched: number; failed: number } | null>(null)
 
   const selectedCount = selectedProspects.size
   const promotableCount = prospects.filter((p) => selectedProspects.has(p.id) && p.status !== 'promoted').length
@@ -1348,6 +1355,25 @@ function ProspectsTab({
     URL.revokeObjectURL(url)
   }
 
+  const handleBulkEnrich = async () => {
+    const ids = Array.from(selectedProspects)
+    if (ids.length === 0) return
+    setBulkEnriching(true)
+    setBulkEnrichResult(null)
+    try {
+      const res = await onBulkEnrich(ids)
+      setBulkEnrichResult({
+        enriched: res.summary?.enriched || 0,
+        failed: res.summary?.failed || 0,
+      })
+    } catch (err) {
+      console.error('Bulk enrichment failed:', err)
+      alert(err instanceof Error ? err.message : 'Enrichment failed')
+    } finally {
+      setBulkEnriching(false)
+    }
+  }
+
   const roleIcon = (role: string | null) => {
     const icons: Record<string, string> = { decision_maker: '🎯', champion: '🏗️', influencer: '💡', technical_evaluator: '🔧', budget_holder: '💰', end_user: '👤' }
     return role ? icons[role] || '' : ''
@@ -1362,12 +1388,24 @@ function ProspectsTab({
             {selectedCount > 0 && (
               <>
                 <Badge variant="secondary">{selectedCount} selected</Badge>
+                <Button size="sm" variant="outline" onClick={handleBulkEnrich} disabled={bulkEnriching}>
+                  {bulkEnriching ? (
+                    <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Enriching...</>
+                  ) : (
+                    <><Mail className="mr-1 h-4 w-4" /> Enrich Selected</>
+                  )}
+                </Button>
                 {promotableCount > 0 && (
                   <Button size="sm" onClick={onPromote}>
                     <ArrowUpRight className="mr-1 h-4 w-4" /> Promote to Leads
                   </Button>
                 )}
               </>
+            )}
+            {bulkEnrichResult && (
+              <Badge variant={bulkEnrichResult.enriched > 0 ? 'default' : 'secondary'}>
+                {bulkEnrichResult.enriched} enriched{bulkEnrichResult.failed > 0 ? `, ${bulkEnrichResult.failed} failed` : ''}
+              </Badge>
             )}
             <Button size="sm" variant="outline" onClick={handleExportCSV} disabled={prospects.length === 0}>
               <FileText className="mr-1 h-4 w-4" /> Export CSV
@@ -2149,26 +2187,26 @@ function EnrichDialog({
   onOpenChange: (open: boolean) => void
   prospect: Prospect
   companies: AccountMapCompany[]
-  onEnrich: (prospectId: string, companyWebsite: string) => Promise<any>
+  onEnrich: (prospectId: string, companyWebsite?: string) => Promise<any>
 }) {
-  // Try to pre-fill website from company
   const linkedCompany = companies.find((c) => c.id === prospect.company_id)
   const [website, setWebsite] = useState(linkedCompany?.website || '')
   const [enriching, setEnriching] = useState(false)
-  const [result, setResult] = useState<{ emails: string[]; phones: string[]; bestEmail: string | null; bestPhone: string | null } | null>(null)
+  const [result, setResult] = useState<{ email: string | null; phone: string | null; source: string } | null>(null)
 
   const handleEnrich = async () => {
-    if (!website.trim()) return
     setEnriching(true)
     setResult(null)
     try {
-      const res = await onEnrich(prospect.id, website)
-      setResult({
-        emails: res.enrichment.emails_found,
-        phones: res.enrichment.phones_found,
-        bestEmail: res.bestEmailMatch,
-        bestPhone: res.bestPhoneMatch,
-      })
+      const res = await onEnrich(prospect.id, website || undefined)
+      const first = res.results?.[0]
+      if (first) {
+        setResult({
+          email: first.email || null,
+          phone: first.phone || null,
+          source: first.source || 'unknown',
+        })
+      }
     } catch (err) {
       console.error('Enrichment failed:', err)
       alert(err instanceof Error ? err.message : 'Enrichment failed')
@@ -2177,72 +2215,69 @@ function EnrichDialog({
     }
   }
 
+  const hasLinkedIn = !!prospect.linkedin_url
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Enrich Prospect</DialogTitle>
+          <DialogTitle>Enriquecer Prospect</DialogTitle>
           <DialogDescription>
-            Scrape {prospect.first_name} {prospect.last_name}'s company website to find contact info
+            Buscar email y telefono de {prospect.first_name} {prospect.last_name} via Apollo.io
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="rounded-md bg-muted p-3 text-sm">
             <p className="font-medium">{prospect.first_name} {prospect.last_name}</p>
             <p className="text-muted-foreground">{prospect.title} at {prospect.company}</p>
+            {prospect.linkedin_url && (
+              <p className="text-xs text-blue-600 mt-1 truncate">{prospect.linkedin_url}</p>
+            )}
           </div>
           <div className="space-y-2">
-            <Label>Company Website *</Label>
+            <Label>Website de la empresa (opcional, mejora la busqueda)</Label>
             <Input
               value={website}
               onChange={(e) => setWebsite(e.target.value)}
-              placeholder="e.g., company.com"
+              placeholder="ej: empresa.com"
             />
           </div>
-          <Button onClick={handleEnrich} disabled={enriching || !website.trim()} className="w-full">
+          <Button onClick={handleEnrich} disabled={enriching || (!hasLinkedIn && !website.trim())} className="w-full">
             {enriching ? (
-              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Enriching...</>
+              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Buscando...</>
             ) : (
-              <><Sparkles className="mr-2 h-4 w-4" /> Enrich</>
+              <><Sparkles className="mr-2 h-4 w-4" /> Enriquecer</>
             )}
           </Button>
+          {!hasLinkedIn && !website.trim() && (
+            <p className="text-xs text-muted-foreground text-center">
+              Se necesita al menos LinkedIn URL o website para buscar
+            </p>
+          )}
 
           {result && (
             <div className="space-y-3 rounded-md border p-3">
-              <div>
-                <p className="text-sm font-medium">Best Email Match</p>
-                <p className="text-sm text-primary">{result.bestEmail || 'No match found'}</p>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-xs capitalize">{result.source}</Badge>
               </div>
               <div>
-                <p className="text-sm font-medium">Best Phone Match</p>
-                <p className="text-sm text-primary">{result.bestPhone || 'No match found'}</p>
+                <p className="text-sm font-medium">Email</p>
+                <p className={`text-sm ${result.email ? 'text-primary font-medium' : 'text-muted-foreground'}`}>
+                  {result.email || 'No encontrado'}
+                </p>
               </div>
-              {result.emails.length > 0 && (
-                <div>
-                  <p className="text-sm font-medium">All Emails Found ({result.emails.length})</p>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {result.emails.map((e) => (
-                      <Badge key={e} variant="outline" className="text-xs">{e}</Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {result.phones.length > 0 && (
-                <div>
-                  <p className="text-sm font-medium">All Phones Found ({result.phones.length})</p>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {result.phones.map((p) => (
-                      <Badge key={p} variant="outline" className="text-xs">{p}</Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <div>
+                <p className="text-sm font-medium">Telefono</p>
+                <p className={`text-sm ${result.phone ? 'text-primary font-medium' : 'text-muted-foreground'}`}>
+                  {result.phone || 'No encontrado'}
+                </p>
+              </div>
             </div>
           )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {result ? 'Done' : 'Cancel'}
+            {result ? 'Listo' : 'Cancelar'}
           </Button>
         </DialogFooter>
       </DialogContent>

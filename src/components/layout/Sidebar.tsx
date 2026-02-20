@@ -69,10 +69,10 @@ export function Sidebar() {
       {/* Logo */}
       <div className="flex items-center gap-3 px-6 py-6">
         <div className="flex h-10 w-10 items-center justify-center rounded-[10px] logo-gradient text-white text-base font-bold shrink-0">
-          L
+          C
         </div>
         <div>
-          <span className="text-base font-semibold tracking-tight font-heading">Laiky Cadence</span>
+          <span className="text-base font-semibold tracking-tight font-heading">Closr</span>
           <p className="text-xs text-muted-foreground">Sales Automation</p>
         </div>
       </div>

@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useCadence } from '@/contexts/CadenceContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -78,8 +79,19 @@ export function Leads() {
     removeLeadFromCadence,
   } = useCadence()
 
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('company') || '')
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false)
+
+  // Sync search query from URL params (e.g., when navigating from Company Registry)
+  useEffect(() => {
+    const company = searchParams.get('company')
+    if (company) {
+      setSearchQuery(company)
+      // Clear the URL param after applying
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
   const [isEditLeadOpen, setIsEditLeadOpen] = useState(false)
   const [isImportOpen, setIsImportOpen] = useState(false)
   const [isAssignOpen, setIsAssignOpen] = useState(false)

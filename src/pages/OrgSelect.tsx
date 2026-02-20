@@ -52,7 +52,7 @@ export function OrgSelect() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center">
-          <h1 className="text-2xl font-bold">Welcome to Laiky</h1>
+          <h1 className="text-2xl font-bold">Welcome to Closr</h1>
           <p className="text-muted-foreground mt-2">
             {allOrgs.length > 0
               ? 'Select an organization or create a new one'

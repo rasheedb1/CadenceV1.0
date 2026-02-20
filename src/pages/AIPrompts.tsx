@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/integrations/supabase/client'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrg } from '@/contexts/OrgContext'
+import { useSenderPersona } from '@/hooks/useSenderPersona'
 import {
   callEdgeFunction,
   type AIPolishPromptResponse,
@@ -54,6 +55,9 @@ import {
   Star,
   Search,
   BookOpen,
+  User,
+  X,
+  Save,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PermissionGate } from '@/components/PermissionGate'
@@ -72,13 +76,28 @@ const TONES = [
   { value: 'friendly', label: 'Amigable' },
 ] as const
 
-type PromptType = 'message' | 'research' | 'examples'
+const OBJECTIVES = [
+  { value: 'first_touch', label: 'Primer contacto' },
+  { value: 'follow_up', label: 'Follow-up' },
+  { value: 're_engage', label: 'Re-engage' },
+  { value: 'break_up', label: 'Break-up' },
+  { value: 'referral', label: 'Referral' },
+] as const
+
+const COMMUNICATION_STYLES = [
+  { value: 'founder_to_founder', label: 'Founder-to-Founder', desc: 'Directo, entre iguales' },
+  { value: 'expert_consultant', label: 'Consultor Experto', desc: 'Autoridad accesible' },
+  { value: 'peer_casual', label: 'Peer Casual', desc: 'Colega de industria' },
+  { value: 'executive_brief', label: 'Executive Brief', desc: 'Conciso y ejecutivo' },
+] as const
+
+type PromptTabType = 'persona' | 'message' | 'research' | 'examples'
 type StepType = 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email'
 type Tone = 'professional' | 'casual' | 'friendly'
 
 const TEMPLATE_VARIABLES = [
   { key: 'first_name', label: 'Nombre', example: 'Juan' },
-  { key: 'last_name', label: 'Apellido', example: 'Pérez' },
+  { key: 'last_name', label: 'Apellido', example: 'Perez' },
   { key: 'company', label: 'Empresa', example: 'Walmart' },
   { key: 'title', label: 'Cargo', example: 'VP Engineering' },
   { key: 'email', label: 'Email', example: 'juan@empresa.com' },
@@ -91,16 +110,20 @@ const TEMPLATE_VARIABLES = [
 
 interface FormData {
   name: string
-  prompt_type: PromptType
+  prompt_type: 'message' | 'research'
   step_type: StepType | null
   description: string
   prompt_body: string
   tone: Tone
   language: string
   is_default: boolean
+  objective: string | null
+  structure: string
+  writing_principles: string[]
+  anti_patterns: string[]
 }
 
-const makeEmptyForm = (promptType: PromptType): FormData => ({
+const makeEmptyForm = (promptType: 'message' | 'research'): FormData => ({
   name: '',
   prompt_type: promptType,
   step_type: promptType === 'message' ? 'linkedin_message' : null,
@@ -109,14 +132,19 @@ const makeEmptyForm = (promptType: PromptType): FormData => ({
   tone: 'professional',
   language: 'es',
   is_default: false,
+  objective: null,
+  structure: '',
+  writing_principles: [],
+  anti_patterns: [],
 })
 
 export function AIPrompts() {
   const { user, session } = useAuth()
   const { orgId } = useOrg()
   const queryClient = useQueryClient()
+  const { persona, isLoading: personaLoading, save: savePersona, isSaving: personaSaving } = useSenderPersona()
 
-  const [activeTab, setActiveTab] = useState<PromptType>('message')
+  const [activeTab, setActiveTab] = useState<PromptTabType>('persona')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -129,6 +157,36 @@ export function AIPrompts() {
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0)
   const promptBodyRef = useRef<HTMLTextAreaElement>(null)
   const slashStartPos = useRef<number | null>(null)
+
+  // Persona form state
+  const [personaForm, setPersonaForm] = useState({
+    full_name: '',
+    role: '',
+    company: '',
+    value_proposition: '',
+    credibility: '',
+    communication_style: 'expert_consultant' as string,
+    signature: '',
+  })
+  const [personaFormLoaded, setPersonaFormLoaded] = useState(false)
+
+  // Load persona into form when data arrives
+  if (persona && !personaFormLoaded) {
+    setPersonaForm({
+      full_name: persona.full_name || '',
+      role: persona.role || '',
+      company: persona.company || '',
+      value_proposition: persona.value_proposition || '',
+      credibility: persona.credibility || '',
+      communication_style: persona.communication_style || 'expert_consultant',
+      signature: persona.signature || '',
+    })
+    setPersonaFormLoaded(true)
+  }
+
+  // Tag input states
+  const [principleInput, setPrincipleInput] = useState('')
+  const [antiPatternInput, setAntiPatternInput] = useState('')
 
   // Fetch all prompts
   const { data: prompts = [], isLoading } = useQuery({
@@ -154,7 +212,6 @@ export function AIPrompts() {
     mutationFn: async (form: FormData) => {
       if (!user) throw new Error('Not authenticated')
 
-      // Unset other defaults in the same scope
       if (form.is_default) {
         if (form.prompt_type === 'research') {
           await supabase
@@ -185,6 +242,10 @@ export function AIPrompts() {
           tone: form.tone,
           language: form.language,
           is_default: form.is_default,
+          objective: form.objective || null,
+          structure: form.structure || null,
+          writing_principles: form.writing_principles,
+          anti_patterns: form.anti_patterns,
         })
         .select()
         .single()
@@ -195,7 +256,7 @@ export function AIPrompts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-prompts'] })
       setIsCreateOpen(false)
-      setFormData(makeEmptyForm(activeTab))
+      setFormData(makeEmptyForm(activeTab === 'message' ? 'message' : 'research'))
       toast.success('Prompt creado')
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Error al crear'),
@@ -236,6 +297,10 @@ export function AIPrompts() {
           tone: form.tone,
           language: form.language,
           is_default: form.is_default,
+          objective: form.objective || null,
+          structure: form.structure || null,
+          writing_principles: form.writing_principles,
+          anti_patterns: form.anti_patterns,
         })
         .eq('id', id)
 
@@ -336,14 +401,66 @@ export function AIPrompts() {
       tone: prompt.tone,
       language: prompt.language,
       is_default: prompt.is_default,
+      objective: prompt.objective || null,
+      structure: prompt.structure || '',
+      writing_principles: prompt.writing_principles || [],
+      anti_patterns: prompt.anti_patterns || [],
     })
     setEditingId(prompt.id)
     setIsEditOpen(true)
   }
 
   const openCreate = () => {
-    setFormData(makeEmptyForm(activeTab))
+    setFormData(makeEmptyForm(activeTab === 'message' ? 'message' : 'research'))
     setIsCreateOpen(true)
+  }
+
+  // Save persona
+  const handleSavePersona = async () => {
+    if (!personaForm.full_name.trim() || !personaForm.role.trim() || !personaForm.company.trim()) {
+      toast.error('Nombre, rol y empresa son requeridos')
+      return
+    }
+    await savePersona({
+      full_name: personaForm.full_name,
+      role: personaForm.role,
+      company: personaForm.company,
+      value_proposition: personaForm.value_proposition,
+      credibility: personaForm.credibility,
+      communication_style: personaForm.communication_style as 'founder_to_founder' | 'expert_consultant' | 'peer_casual' | 'executive_brief',
+      signature: personaForm.signature,
+    })
+  }
+
+  // ─── Tag helpers ───
+  const addPrinciple = () => {
+    const val = principleInput.trim()
+    if (val && !formData.writing_principles.includes(val)) {
+      setFormData(prev => ({ ...prev, writing_principles: [...prev.writing_principles, val] }))
+      setPrincipleInput('')
+    }
+  }
+
+  const removePrinciple = (idx: number) => {
+    setFormData(prev => ({
+      ...prev,
+      writing_principles: prev.writing_principles.filter((_, i) => i !== idx),
+    }))
+  }
+
+  const addAntiPattern = () => {
+    const val = antiPatternInput.trim()
+    if (val && !formData.anti_patterns.includes(val)) {
+      setFormData(prev => ({ ...prev, anti_patterns: [...prev.anti_patterns, val] }))
+      setAntiPatternInput('')
+    }
+  }
+
+  const removeAntiPattern = (idx: number) => {
+    setFormData(prev => ({
+      ...prev,
+      anti_patterns: prev.anti_patterns.filter((_, i) => i !== idx),
+    }))
   }
 
   // ─── Slash command helpers ───
@@ -510,6 +627,27 @@ export function AIPrompts() {
         </div>
       )}
 
+      {/* Objective (only for message prompts) */}
+      {!isResearchForm && (
+        <div>
+          <Label>Objetivo del mensaje</Label>
+          <Select
+            value={formData.objective || 'none'}
+            onValueChange={(v) => setFormData(prev => ({ ...prev, objective: v === 'none' ? null : v }))}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Selecciona un objetivo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Sin objetivo especifico</SelectItem>
+              {OBJECTIVES.map(o => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       {/* Tone + Language row */}
       <div className="grid grid-cols-2 gap-3">
         {!isResearchForm && (
@@ -613,10 +751,7 @@ export function AIPrompts() {
         <div className="relative">
           <Textarea
             ref={promptBodyRef}
-            placeholder={isResearchForm
-              ? 'Escribe instrucciones o usa / para insertar variables del lead...'
-              : 'Escribe instrucciones o usa / para insertar variables del lead...'
-            }
+            placeholder='Escribe instrucciones o usa / para insertar variables del lead...'
             value={formData.prompt_body}
             onChange={handlePromptBodyChange}
             onKeyDown={handlePromptBodyKeyDown}
@@ -660,12 +795,84 @@ export function AIPrompts() {
         </div>
 
         <p className="text-xs text-muted-foreground mt-1">
-          {isResearchForm
-            ? 'Escribe "/" para ver variables disponibles. Las variables como {{company}} se reemplazan con datos reales de cada lead.'
-            : 'Escribe "/" para ver variables disponibles. Las variables como {{first_name}} se reemplazan con datos reales de cada lead.'
-          }
+          Escribe "/" para ver variables disponibles. Las variables como {'{{first_name}}'} se reemplazan con datos reales de cada lead.
         </p>
       </div>
+
+      {/* Structure (only for message prompts) */}
+      {!isResearchForm && (
+        <div>
+          <Label>Estructura del mensaje (opcional)</Label>
+          <Textarea
+            placeholder="Ej: 1. Hook con referencia personal\n2. Conexion con su problema\n3. Propuesta de valor breve\n4. CTA suave"
+            value={formData.structure}
+            onChange={e => setFormData(prev => ({ ...prev, structure: e.target.value }))}
+            rows={4}
+            className="text-sm"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            Define como quieres que se organice el mensaje.
+          </p>
+        </div>
+      )}
+
+      {/* Writing Principles (only for message prompts) */}
+      {!isResearchForm && (
+        <div>
+          <Label>Principios de escritura</Label>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {formData.writing_principles.map((p, i) => (
+              <Badge key={i} variant="secondary" className="gap-1 pr-1">
+                {p}
+                <button type="button" onClick={() => removePrinciple(i)} className="ml-1 hover:text-destructive">
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Ej: Usar datos especificos, no generalidades"
+              value={principleInput}
+              onChange={e => setPrincipleInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addPrinciple() } }}
+              className="text-sm"
+            />
+            <Button variant="outline" size="sm" onClick={addPrinciple} disabled={!principleInput.trim()}>
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Anti-Patterns (only for message prompts) */}
+      {!isResearchForm && (
+        <div>
+          <Label>Anti-patterns (cosas que NO debe hacer)</Label>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {formData.anti_patterns.map((p, i) => (
+              <Badge key={i} variant="outline" className="gap-1 pr-1 border-red-200 text-red-700 dark:border-red-800 dark:text-red-400">
+                {p}
+                <button type="button" onClick={() => removeAntiPattern(i)} className="ml-1 hover:text-destructive">
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Input
+              placeholder='Ej: No usar "espero que estes bien"'
+              value={antiPatternInput}
+              onChange={e => setAntiPatternInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addAntiPattern() } }}
+              className="text-sm"
+            />
+            <Button variant="outline" size="sm" onClick={addAntiPattern} disabled={!antiPatternInput.trim()}>
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Default toggle */}
       <label className="flex items-center gap-2 cursor-pointer">
@@ -697,10 +904,15 @@ export function AIPrompts() {
       )}
       <CardHeader className="pb-2">
         <CardTitle className="text-base pr-20">{prompt.name}</CardTitle>
-        <div className="flex gap-1.5 mt-1">
+        <div className="flex flex-wrap gap-1.5 mt-1">
           {prompt.step_type && (
             <Badge variant="outline" className="text-xs">
               {getStepTypeConfig(prompt.step_type).label}
+            </Badge>
+          )}
+          {prompt.objective && (
+            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
+              {OBJECTIVES.find(o => o.value === prompt.objective)?.label || prompt.objective}
             </Badge>
           )}
           {prompt.prompt_type === 'message' && (
@@ -722,6 +934,19 @@ export function AIPrompts() {
         <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 line-clamp-3 leading-relaxed">
           {renderWithVariables(prompt.prompt_body)}
         </div>
+
+        {/* Show writing principles and anti-patterns */}
+        {(prompt.writing_principles?.length > 0 || prompt.anti_patterns?.length > 0) && (
+          <div className="flex flex-wrap gap-1 mt-2">
+            {prompt.writing_principles?.map((p, i) => (
+              <Badge key={`wp-${i}`} variant="secondary" className="text-[10px]">{p}</Badge>
+            ))}
+            {prompt.anti_patterns?.map((p, i) => (
+              <Badge key={`ap-${i}`} variant="outline" className="text-[10px] border-red-200 text-red-600">{p}</Badge>
+            ))}
+          </div>
+        )}
+
         <div className="flex gap-2 mt-3">
           <Button variant="outline" size="sm" onClick={() => openEdit(prompt)}>
             <Pencil className="mr-1 h-3 w-3" />
@@ -759,10 +984,10 @@ export function AIPrompts() {
             AI Prompts
           </h1>
           <p className="text-muted-foreground mt-1">
-            Crea y gestiona prompts para controlar la investigacion y generacion de mensajes con AI.
+            Configura tu perfil, prompts y referencias para controlar como el AI genera mensajes.
           </p>
         </div>
-        {activeTab !== 'examples' && (
+        {(activeTab === 'message' || activeTab === 'research') && (
           <PermissionGate permission="ai_prompts_create">
             <Button onClick={openCreate}>
               <Plus className="mr-2 h-4 w-4" />
@@ -772,9 +997,13 @@ export function AIPrompts() {
         )}
       </div>
 
-      {/* Tabs: Message / Research */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as PromptType)}>
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as PromptTabType)}>
         <TabsList>
+          <TabsTrigger value="persona" className="gap-1.5">
+            <User className="h-4 w-4" />
+            Mi Perfil
+          </TabsTrigger>
           <TabsTrigger value="message" className="gap-1.5">
             <MessageSquare className="h-4 w-4" />
             Prompts de Mensaje
@@ -784,16 +1013,136 @@ export function AIPrompts() {
           </TabsTrigger>
           <TabsTrigger value="research" className="gap-1.5">
             <Search className="h-4 w-4" />
-            Prompts de Investigacion
+            Investigacion
             {researchPrompts.length > 0 && (
               <Badge variant="secondary" className="text-xs ml-1 h-5">{researchPrompts.length}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="examples" className="gap-1.5">
             <BookOpen className="h-4 w-4" />
-            Mensajes Base
+            Referencias
           </TabsTrigger>
         </TabsList>
+
+        {/* Mi Perfil Tab */}
+        <TabsContent value="persona" className="space-y-6 mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <User className="h-5 w-5 text-purple-500" />
+                Perfil del Remitente
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Esta informacion se incluye automaticamente en cada mensaje que generas. Permite que el AI escriba como si fueras tu.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {personaLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Nombre completo *</Label>
+                      <Input
+                        placeholder="Ej: Carlos Martinez"
+                        value={personaForm.full_name}
+                        onChange={e => setPersonaForm(prev => ({ ...prev, full_name: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label>Rol / Cargo *</Label>
+                      <Input
+                        placeholder="Ej: CEO & Co-Founder"
+                        value={personaForm.role}
+                        onChange={e => setPersonaForm(prev => ({ ...prev, role: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label>Empresa *</Label>
+                    <Input
+                      placeholder="Ej: Closr"
+                      value={personaForm.company}
+                      onChange={e => setPersonaForm(prev => ({ ...prev, company: e.target.value }))}
+                    />
+                  </div>
+
+                  <div>
+                    <Label>Propuesta de valor</Label>
+                    <Textarea
+                      placeholder="Ej: Ayudamos a equipos de ventas B2B a automatizar su prospección en LinkedIn con AI personalizado"
+                      value={personaForm.value_proposition}
+                      onChange={e => setPersonaForm(prev => ({ ...prev, value_proposition: e.target.value }))}
+                      rows={2}
+                      className="text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Que ofreces y por que deberian escucharte.
+                    </p>
+                  </div>
+
+                  <div>
+                    <Label>Credibilidad (opcional)</Label>
+                    <Textarea
+                      placeholder="Ej: +200 empresas usando la plataforma, ex-VP en Salesforce, speaker en SaaStr"
+                      value={personaForm.credibility}
+                      onChange={e => setPersonaForm(prev => ({ ...prev, credibility: e.target.value }))}
+                      rows={2}
+                      className="text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Logros, numeros, o referencias que respaldan tu autoridad.
+                    </p>
+                  </div>
+
+                  <div>
+                    <Label>Estilo de comunicacion</Label>
+                    <Select
+                      value={personaForm.communication_style}
+                      onValueChange={(v) => setPersonaForm(prev => ({ ...prev, communication_style: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {COMMUNICATION_STYLES.map(s => (
+                          <SelectItem key={s.value} value={s.value}>
+                            <span className="flex items-center gap-2">
+                              {s.label}
+                              <span className="text-muted-foreground text-xs">— {s.desc}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label>Firma (opcional)</Label>
+                    <Input
+                      placeholder="Ej: — Carlos, Closr"
+                      value={personaForm.signature}
+                      onChange={e => setPersonaForm(prev => ({ ...prev, signature: e.target.value }))}
+                    />
+                  </div>
+
+                  <Button onClick={handleSavePersona} disabled={personaSaving}>
+                    {personaSaving ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="mr-2 h-4 w-4" />
+                    )}
+                    Guardar perfil
+                  </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* Message Prompts Tab */}
         <TabsContent value="message" className="space-y-6 mt-4">
@@ -862,7 +1211,7 @@ export function AIPrompts() {
           )}
         </TabsContent>
 
-        {/* Example Sections Tab */}
+        {/* Referencias Tab (renamed from Mensajes Base) */}
         <TabsContent value="examples" className="mt-4">
           <ExampleSectionsTab />
         </TabsContent>

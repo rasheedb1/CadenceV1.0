@@ -51,8 +51,66 @@ export interface EdgeFunctionResponse<T> {
 export async function callEdgeFunction<T>(
   functionName: string,
   body: Record<string, unknown>,
-  token: string
+  token: string,
+  options?: { timeoutMs?: number }
 ): Promise<T> {
+  const timeoutMs = options?.timeoutMs
+
+  // If a custom timeout is specified, use raw fetch with AbortController
+  // (supabase.functions.invoke doesn't support custom timeouts)
+  if (timeoutMs) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+      const resp = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+      clearTimeout(timer)
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => 'Unknown error')
+        let msg = text
+        try { msg = JSON.parse(text).error || text } catch { /* use raw text */ }
+        throw new EdgeFunctionError(msg, resp.status, functionName)
+      }
+
+      const data = await resp.json() as T
+      if (data === null || data === undefined) {
+        throw new EdgeFunctionError(
+          `Edge function "${functionName}" returned no data`,
+          undefined,
+          functionName
+        )
+      }
+      return data
+    } catch (err) {
+      clearTimeout(timer)
+      if (err instanceof EdgeFunctionError) throw err
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw new EdgeFunctionError(
+          'La generacion tomo demasiado tiempo. Intenta de nuevo.',
+          504,
+          functionName
+        )
+      }
+      throw new EdgeFunctionError(
+        err instanceof Error ? err.message : `Edge function "${functionName}" failed`,
+        undefined,
+        functionName,
+        err
+      )
+    }
+  }
+
+  // Default: use supabase client
   const { data, error } = await supabase.functions.invoke<T>(functionName, {
     body,
     headers: {
@@ -240,6 +298,30 @@ export interface DisconnectLinkedInResponse {
   message: string
 }
 
+// Sender Persona
+export interface SenderPersona {
+  id?: string
+  user_id?: string
+  org_id?: string
+  full_name: string
+  role: string
+  company: string
+  value_proposition: string
+  credibility?: string
+  communication_style: 'founder_to_founder' | 'expert_consultant' | 'peer_casual' | 'executive_brief'
+  signature?: string
+  created_at?: string
+  updated_at?: string
+}
+
+// Quality Check
+export interface QualityCheck {
+  humanScore: number
+  issues: string[]
+  suggestion: string
+  hasCliches: boolean
+}
+
 // AI Research + Generate Types
 export interface AIGenerateRequest {
   leadId: string
@@ -251,6 +333,16 @@ export interface AIGenerateRequest {
   additionalUrls?: string[]
   postContext?: string
   exampleMessages?: string[]
+  exampleNotes?: string[]
+  // New structured fields
+  senderPersona?: SenderPersona | null
+  objective?: string | null
+  structure?: string | null
+  writingPrinciples?: string[]
+  antiPatterns?: string[]
+  customInstructions?: string
+  // Regeneration context
+  regenerateHint?: 'shorter' | 'more_casual' | 'different_angle' | null
 }
 
 export interface AIProfileSummary {
@@ -278,6 +370,7 @@ export interface AIGenerateResponse {
     researchFailed: boolean
     researchSummary: string | null
   }
+  qualityCheck: QualityCheck | null
   metadata: {
     researchTimeMs: number
     generationTimeMs: number
@@ -316,6 +409,7 @@ export interface ExampleMessage {
   section_id: string
   owner_id: string
   body: string
+  quality_note: string | null
   sort_order: number
   created_at: string
   updated_at: string
@@ -333,6 +427,11 @@ export interface AIPrompt {
   tone: 'professional' | 'casual' | 'friendly'
   language: string
   is_default: boolean
+  // New structured fields
+  objective: 'first_touch' | 'follow_up' | 're_engage' | 'break_up' | 'referral' | null
+  structure: string | null
+  writing_principles: string[]
+  anti_patterns: string[]
   created_at: string
   updated_at: string
 }
