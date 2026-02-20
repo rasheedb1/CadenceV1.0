@@ -129,13 +129,14 @@ export function AIGenerateDialog({
 
   // Fetch message prompts for this step type
   const { data: messagePrompts = [] } = useQuery({
-    queryKey: ['ai-prompts-message', orgId, stepType],
+    queryKey: ['ai-prompts-message', orgId, stepType, user?.id],
     queryFn: async () => {
       if (!user) return []
       const { data, error } = await supabase
         .from('ai_prompts')
         .select('*')
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
         .eq('prompt_type', 'message')
         .eq('step_type', stepType)
         .order('is_default', { ascending: false })
@@ -148,13 +149,14 @@ export function AIGenerateDialog({
 
   // Fetch research prompts
   const { data: researchPrompts = [] } = useQuery({
-    queryKey: ['ai-prompts-research', orgId],
+    queryKey: ['ai-prompts-research', orgId, user?.id],
     queryFn: async () => {
       if (!user) return []
       const { data, error } = await supabase
         .from('ai_prompts')
         .select('*')
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
         .eq('prompt_type', 'research')
         .order('is_default', { ascending: false })
         .order('name', { ascending: true })
@@ -166,13 +168,14 @@ export function AIGenerateDialog({
 
   // Fetch example sections
   const { data: exampleSections = [] } = useQuery({
-    queryKey: ['example-sections', orgId],
+    queryKey: ['example-sections', orgId, user?.id],
     queryFn: async () => {
       if (!user) return []
       const { data, error } = await supabase
         .from('example_sections')
         .select('*')
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
         .order('name', { ascending: true })
       if (error) throw error
       return (data || []) as ExampleSection[]

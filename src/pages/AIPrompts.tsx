@@ -190,13 +190,14 @@ export function AIPrompts() {
 
   // Fetch all prompts
   const { data: prompts = [], isLoading } = useQuery({
-    queryKey: ['ai-prompts', orgId],
+    queryKey: ['ai-prompts', orgId, user?.id],
     queryFn: async () => {
       if (!user || !orgId) return []
       const { data, error } = await supabase
         .from('ai_prompts')
         .select('*')
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []) as AIPrompt[]
@@ -218,12 +219,14 @@ export function AIPrompts() {
             .from('ai_prompts')
             .update({ is_default: false })
             .eq('org_id', orgId!)
+            .eq('owner_id', user.id)
             .eq('prompt_type', 'research')
         } else {
           await supabase
             .from('ai_prompts')
             .update({ is_default: false })
             .eq('org_id', orgId!)
+            .eq('owner_id', user.id)
             .eq('prompt_type', 'message')
             .eq('step_type', form.step_type!)
         }
@@ -273,6 +276,7 @@ export function AIPrompts() {
             .from('ai_prompts')
             .update({ is_default: false })
             .eq('org_id', orgId!)
+            .eq('owner_id', user.id)
             .eq('prompt_type', 'research')
             .neq('id', id)
         } else {
@@ -280,6 +284,7 @@ export function AIPrompts() {
             .from('ai_prompts')
             .update({ is_default: false })
             .eq('org_id', orgId!)
+            .eq('owner_id', user.id)
             .eq('prompt_type', 'message')
             .eq('step_type', form.step_type!)
             .neq('id', id)

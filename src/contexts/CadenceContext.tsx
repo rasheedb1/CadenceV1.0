@@ -80,13 +80,14 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
 
   const { data: cadences = [], isLoading: cadencesLoading } = useQuery({
-    queryKey: ['cadences', orgId],
+    queryKey: ['cadences', orgId, user?.id],
     queryFn: async () => {
       if (!user || !orgId) return []
       const { data, error } = await supabase
         .from('cadences')
         .select('*, cadence_steps(*)')
         .eq('org_id', orgId)
+        .eq('owner_id', user.id)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []).map((c: Record<string, unknown>) => ({
@@ -98,7 +99,7 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
   })
 
   const { data: leads = [], isLoading: leadsLoading } = useQuery({
-    queryKey: ['leads', orgId],
+    queryKey: ['leads', orgId, user?.id],
     queryFn: async () => {
       if (!user || !orgId) return []
       // Fetch leads with their cadence_leads relationship to get cadence info
@@ -106,6 +107,7 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
         .from('leads')
         .select('*, cadence_leads(cadence_id, current_step_id, status)')
         .eq('org_id', orgId)
+        .eq('owner_id', user.id)
         .order('created_at', { ascending: false })
       if (error) throw error
 
@@ -130,13 +132,14 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
   })
 
   const { data: templates = [] } = useQuery({
-    queryKey: ['templates', orgId],
+    queryKey: ['templates', orgId, user?.id],
     queryFn: async () => {
       if (!user || !orgId) return []
       const { data, error } = await supabase
         .from('templates')
         .select('*')
         .eq('org_id', orgId)
+        .eq('owner_id', user.id)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []) as Template[]

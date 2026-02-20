@@ -95,7 +95,7 @@ export function Templates() {
   const editBodyTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   const { data: templates, isLoading } = useQuery({
-    queryKey: ['templates', orgId],
+    queryKey: ['templates', orgId, user?.id],
     queryFn: async () => {
       if (!user?.id || !orgId) return []
 
@@ -103,6 +103,7 @@ export function Templates() {
         .from('templates')
         .select('*')
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
         .order('created_at', { ascending: false })
 
       if (error) {

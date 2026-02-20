@@ -176,7 +176,7 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
 
       if (unique.length > 0) {
         return {
-          prospects: unique.slice(0, maxResults * 2),
+          prospects: unique.slice(0, maxResults),
           level: 1,
           queryUsed: searchKeywords.slice(0, 4).join(', '),
           levelDetails,
@@ -224,7 +224,7 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
 
       if (unique.length > 0) {
         return {
-          prospects: unique.slice(0, maxResults * 2),
+          prospects: unique.slice(0, maxResults),
           level: 2,
           queryUsed: domainTerms.slice(0, 3).join(', '),
           levelDetails,

@@ -15,9 +15,7 @@ export interface FirecrawlSearchResult {
 
 export interface FirecrawlSearchResponse {
   success: boolean
-  data?: {
-    web?: FirecrawlSearchResult[]
-  }
+  data?: FirecrawlSearchResult[] | { web?: FirecrawlSearchResult[] }
   creditsUsed?: number
 }
 
@@ -91,6 +89,7 @@ export class FirecrawlClient {
     options?: {
       limit?: number
       tbs?: string // time-based filter: qdr:d (day), qdr:w (week), qdr:m (month), qdr:y (year)
+      maxRetries?: number // override default 3 retries for faster fail
     }
   ): Promise<FirecrawlResponse<FirecrawlSearchResult[]>> {
     try {
@@ -112,7 +111,8 @@ export class FirecrawlClient {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(body),
-        }
+        },
+        options?.maxRetries ?? 3
       )
 
       const responseText = await response.text()
@@ -123,7 +123,17 @@ export class FirecrawlClient {
       }
 
       const data = JSON.parse(responseText) as FirecrawlSearchResponse
-      const results = data.data?.web || []
+      // Log raw response structure to debug empty results
+      const dataType = data.data === null ? 'null' : data.data === undefined ? 'undefined' : Array.isArray(data.data) ? 'array' : typeof data.data
+      const dataKeys = data.data && typeof data.data === 'object' && !Array.isArray(data.data) ? Object.keys(data.data) : []
+      console.log(`Firecrawl raw response: success=${data.success}, data type=${dataType}, keys=${JSON.stringify(dataKeys)}, response length=${responseText.length}`)
+      if (responseText.length < 500) console.log(`Firecrawl full response: ${responseText}`)
+
+      // Firecrawl v2 without scraping: { data: { web: [...] } }
+      // Firecrawl v2 with scraping: { data: [...] }
+      const results = Array.isArray(data.data)
+        ? data.data
+        : (data.data as { web?: FirecrawlSearchResult[] })?.web || []
       console.log(`Firecrawl search returned ${results.length} results`)
       return { success: true, data: results }
     } catch (error) {

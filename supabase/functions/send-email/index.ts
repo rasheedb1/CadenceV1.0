@@ -149,7 +149,7 @@ serve(async (req: Request) => {
       status: 'queued',
     })
 
-    // Send email via Unipile API
+    // Send email via Unipile API with retry for transient errors (502/503/504)
     console.log(`Sending email to: ${recipientEmail}, subject: ${subject}, event_id: ${eventId}`)
 
     const emailPayload = {
@@ -164,18 +164,60 @@ serve(async (req: Request) => {
       (emailPayload as Record<string, unknown>).body_type = 'text/plain'
     }
 
-    const response = await fetch(`${baseUrl}/api/v1/emails`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-API-KEY': unipileAccessToken,
-      },
-      body: JSON.stringify(emailPayload),
-    })
+    const MAX_RETRIES = 2
+    let response: Response | null = null
+    let lastError = ''
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('Unipile email API error:', response.status, errorText)
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        console.log(`Retry attempt ${attempt + 1} after transient error...`)
+        await new Promise(r => setTimeout(r, 2000 * attempt))
+      }
+
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 25000) // 25s timeout per attempt
+
+      try {
+        response = await fetch(`${baseUrl}/api/v1/emails`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-KEY': unipileAccessToken,
+          },
+          body: JSON.stringify(emailPayload),
+          signal: controller.signal,
+        })
+        clearTimeout(timeout)
+
+        // If success or non-retryable error, break out
+        if (response.ok || ![502, 503, 504].includes(response.status)) {
+          break
+        }
+
+        lastError = await response.text()
+        console.warn(`Unipile returned ${response.status} on attempt ${attempt + 1}: ${lastError}`)
+      } catch (fetchErr) {
+        clearTimeout(timeout)
+        if (fetchErr instanceof DOMException && fetchErr.name === 'AbortError') {
+          lastError = 'Request timed out after 25 seconds'
+          console.warn(`Unipile request timed out on attempt ${attempt + 1}`)
+        } else {
+          lastError = fetchErr instanceof Error ? fetchErr.message : 'Network error'
+          console.warn(`Fetch error on attempt ${attempt + 1}: ${lastError}`)
+        }
+        response = null
+      }
+    }
+
+    if (!response || !response.ok) {
+      const errorText = response ? (lastError || await response.text()) : lastError
+      const statusCode = response?.status || 504
+      console.error('Unipile email API error after retries:', statusCode, errorText)
+
+      // Friendly error message based on status
+      const userMessage = statusCode === 504 || !response
+        ? 'Gmail no respondio a tiempo. Tu conexion de Gmail puede haber expirado — ve a Settings para reconectar.'
+        : `Error enviando email: ${response.statusText}`
 
       // Update email_messages status to failed
       await supabase
@@ -219,7 +261,7 @@ serve(async (req: Request) => {
           .eq('id', instanceId)
       }
 
-      return errorResponse(`Failed to send email: ${response.statusText}`, response.status)
+      return errorResponse(userMessage, statusCode)
     }
 
     const result = await response.json()

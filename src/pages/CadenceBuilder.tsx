@@ -127,7 +127,7 @@ export function CadenceBuilder() {
   // (CadenceContext only keeps the first cadence_leads entry per lead,
   //  so leads in multiple cadences are invisible in all but the first)
   const { data: cadenceLeadRecords = [], refetch: refetchCadenceLeads } = useQuery({
-    queryKey: ['cadence-leads-direct', id, orgId],
+    queryKey: ['cadence-leads-direct', id, orgId, user?.id],
     queryFn: async () => {
       if (!id || !user || !orgId) return []
       const { data } = await supabase
@@ -135,6 +135,7 @@ export function CadenceBuilder() {
         .select('lead_id, status, current_step_id')
         .eq('cadence_id', id)
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
       return data || []
     },
     enabled: !!id && !!user && !!orgId,
@@ -152,13 +153,14 @@ export function CadenceBuilder() {
 
   // Query AI prompts for automation config
   const { data: aiPrompts = [] } = useQuery({
-    queryKey: ['ai-prompts', orgId],
+    queryKey: ['ai-prompts', orgId, user?.id],
     queryFn: async () => {
       if (!user?.id || !orgId) return []
       const { data, error } = await supabase
         .from('ai_prompts')
         .select('*')
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
         .order('name', { ascending: true })
       if (error) throw error
       return (data || []) as AIPrompt[]
@@ -168,13 +170,14 @@ export function CadenceBuilder() {
 
   // Query example sections for automation config
   const { data: exampleSections = [] } = useQuery({
-    queryKey: ['example-sections-cadence', orgId],
+    queryKey: ['example-sections-cadence', orgId, user?.id],
     queryFn: async () => {
       if (!user?.id || !orgId) return []
       const { data, error } = await supabase
         .from('example_sections')
         .select('*')
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
         .order('name', { ascending: true })
       if (error) throw error
       return data || []

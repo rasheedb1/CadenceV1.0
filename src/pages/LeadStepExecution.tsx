@@ -160,7 +160,7 @@ export function LeadStepExecution() {
   // (CadenceContext only keeps cadenceLeads[0], so leads in multiple cadences
   // may show the wrong cadence_id)
   const { data: cadenceLeadRecords = [] } = useQuery({
-    queryKey: ['cadence-leads-direct', cadenceId, orgId],
+    queryKey: ['cadence-leads-direct', cadenceId, orgId, user?.id],
     queryFn: async () => {
       if (!cadenceId || !user || !orgId) return []
       const { data } = await supabase
@@ -168,17 +168,20 @@ export function LeadStepExecution() {
         .select('lead_id, status, current_step_id')
         .eq('cadence_id', cadenceId)
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
       return data || []
     },
     enabled: !!cadenceId && !!user && !!orgId,
   })
 
   // Get leads at this step using direct cadence_leads records
+  // Must match the statuses used in CadenceBuilder to avoid showing "0 leads" when
+  // CadenceBuilder shows leads (e.g. scheduled/generated leads from automation)
   const leadsAtStep = useMemo(() => {
     return leads
       .filter((lead) => {
         const clRecord = cadenceLeadRecords.find((cl) => cl.lead_id === lead.id)
-        return clRecord && clRecord.current_step_id === stepId && clRecord.status === 'active'
+        return clRecord && clRecord.current_step_id === stepId && ['active', 'scheduled', 'generated'].includes(clRecord.status)
       })
       .map((lead) => {
         const clRecord = cadenceLeadRecords.find((cl) => cl.lead_id === lead.id)!

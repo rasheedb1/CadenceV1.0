@@ -13,7 +13,6 @@ interface SfOpportunity {
   Name: string
   StageName: string
   Amount: number | null
-  CurrencyIsoCode?: string
   CloseDate: string | null
   Probability: number | null
   IsClosed: boolean
@@ -62,9 +61,11 @@ serve(async (req: Request) => {
 
     // Query Accounts with non-lost Opportunities (open OR closed-won)
     // Includes Contacts for each account and Opportunities in one query
+    // Note: CurrencyIsoCode is intentionally excluded — it only exists when
+    // multi-currency is enabled and causes errors on single-currency orgs.
     const soql = `
       SELECT Id, Name, Website, Industry, Owner.Name,
-        (SELECT Id, Name, StageName, Amount, CurrencyIsoCode, CloseDate,
+        (SELECT Id, Name, StageName, Amount, CloseDate,
                 Probability, IsClosed, IsWon, Owner.Name
          FROM Opportunities
          WHERE IsWon = true OR IsClosed = false),
@@ -141,7 +142,7 @@ serve(async (req: Request) => {
           name: opp.Name,
           stage_name: opp.StageName,
           amount: opp.Amount,
-          currency_code: opp.CurrencyIsoCode || 'USD',
+          currency_code: 'USD',
           close_date: opp.CloseDate,
           probability: opp.Probability,
           is_closed: opp.IsClosed,

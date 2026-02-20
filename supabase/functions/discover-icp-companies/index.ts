@@ -166,9 +166,10 @@ serve(async (req: Request) => {
     }
 
     // Scale search effort based on how many companies are requested
+    // Keep queries minimal to avoid edge function timeout (60s limit)
     const isLargeRequest = maxCompanies > 30
-    const numQueries = isLargeRequest ? 10 : 5
-    const resultsPerQuery = isLargeRequest ? 15 : 10
+    const numQueries = isLargeRequest ? 5 : 3
+    const resultsPerQuery = isLargeRequest ? 10 : 5
 
     // ── Step 1: Generate search queries from ICP description ──
     console.log(`Step 1: Generating ${numQueries} search queries (${llm.provider}/${llm.model})...`)
@@ -189,7 +190,7 @@ You MUST respond with a JSON object: {"queries": [${Array.from({ length: numQuer
       llm,
       querySystem,
       `Generate ${numQueries} search queries to find companies matching this ICP:\n\n${icpDescription.trim()}`,
-      { maxTokens: 1024, temperature: 0.7, maxRetries: 2, parseKey: 'queries' }
+      { maxTokens: 512, temperature: 0.7, maxRetries: 1, parseKey: 'queries' }
     )
 
     if (!queryResult.success) {
@@ -203,7 +204,7 @@ You MUST respond with a JSON object: {"queries": [${Array.from({ length: numQuer
     console.log('Step 2: Running Firecrawl searches...')
 
     const searchPromises = searchQueries.map((query) =>
-      firecrawl.search(query, { limit: resultsPerQuery })
+      firecrawl.search(query, { limit: resultsPerQuery, maxRetries: 1 })
     )
     const searchResults = await Promise.all(searchPromises)
 
@@ -278,14 +279,14 @@ You MUST respond with a JSON object with this exact structure:
 
     const allExtracted: DiscoveredCompany[] = []
 
-    for (let batchIdx = 0; batchIdx < resultBatches.length; batchIdx++) {
-      const batch = resultBatches[batchIdx]
+    // Run all analysis batches in parallel to minimize total time
+    const batchPromises = resultBatches.map((batch, batchIdx) => {
       const companiesPerBatch = Math.ceil(maxCompanies / resultBatches.length)
       const batchMaxTokens = Math.min(8192, Math.max(4096, companiesPerBatch * 250))
 
       console.log(`Analysis batch ${batchIdx + 1}/${resultBatches.length}: ${batch.length} results, targeting ~${companiesPerBatch} companies, maxTokens=${batchMaxTokens}`)
 
-      const batchResult = await callLLMForJSON<DiscoveredCompany[]>(
+      return callLLMForJSON<DiscoveredCompany[]>(
         llm,
         analysisSystem,
         `## ICP Description:
@@ -295,14 +296,17 @@ ${icpDescription.trim()}
 ${batch.map((r, i) => `${i + 1}. [${r.title}](${r.url})\n   ${r.description}`).join('\n\n')}
 
 Extract and rank companies from these results that match the ICP. Return up to ${companiesPerBatch} companies as JSON.`,
-        { maxTokens: batchMaxTokens, temperature: 0.3, maxRetries: 2, parseKey: 'companies' }
-      )
+        { maxTokens: batchMaxTokens, temperature: 0.3, maxRetries: 1, parseKey: 'companies' }
+      ).then(result => ({ batchIdx, result }))
+    })
 
-      if (batchResult.success) {
-        allExtracted.push(...batchResult.data)
-        console.log(`Batch ${batchIdx + 1} extracted ${batchResult.data.length} companies`)
+    const batchResults = await Promise.all(batchPromises)
+    for (const { batchIdx, result } of batchResults) {
+      if (result.success) {
+        allExtracted.push(...result.data)
+        console.log(`Batch ${batchIdx + 1} extracted ${result.data.length} companies`)
       } else {
-        console.error(`Batch ${batchIdx + 1} failed: ${batchResult.error}`)
+        console.error(`Batch ${batchIdx + 1} failed: ${result.error}`)
       }
     }
 

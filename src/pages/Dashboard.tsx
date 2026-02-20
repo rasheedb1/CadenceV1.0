@@ -79,13 +79,14 @@ export function Dashboard() {
 
   // Fetch activity logs
   const { data: activityLogs = [] } = useQuery({
-    queryKey: ['activity-logs', orgId],
+    queryKey: ['activity-logs', orgId, user?.id],
     queryFn: async () => {
       if (!user) return []
       const { data, error } = await supabase
         .from('activity_log')
         .select('*')
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
         .order('created_at', { ascending: false })
         .limit(50)
       if (error) {

@@ -181,7 +181,7 @@ interface AccountMappingContextType {
   getExclusionNames: () => string[]
   getExclusionStats: () => ExclusionStats
   // AI Prospect Validation
-  validateProspects: (accountMapId: string, companyId: string, productDescription: string, productCategory: string) => Promise<{ validated: number; total: number }>
+  validateProspects: (accountMapId: string, companyId: string, productDescription: string, productCategory: string, icpDescription?: string) => Promise<{ validated: number; total: number }>
   skipProspect: (prospectId: string, reason?: string) => Promise<void>
   unskipProspect: (prospectId: string) => Promise<void>
   // Outreach Strategy
@@ -476,7 +476,8 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
           return callEdgeFunction<DiscoverICPResponse>(
             'discover-icp-companies',
             { icpDescription, minCompanies: min, maxCompanies: max, excludedCompanies: excludedCompanyNames },
-            session.access_token
+            session.access_token,
+            { timeoutMs: 120000 } // 2 min — LLM + Firecrawl searches take time
           )
         },
 
@@ -903,11 +904,11 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
         },
 
         // AI Prospect Validation
-        validateProspects: async (accountMapId, companyId, productDescription, productCategory) => {
+        validateProspects: async (accountMapId, companyId, productDescription, productCategory, icpDescription?) => {
           if (!session?.access_token) throw new Error('Not authenticated')
           const result = await callEdgeFunction<{ success: boolean; validated: number; total: number }>(
             'validate-prospects',
-            { accountMapId, companyId, productDescription, productCategory },
+            { accountMapId, companyId, productDescription, productCategory, icpDescription },
             session.access_token
           )
           queryClient.invalidateQueries({ queryKey: ['account-maps'] })

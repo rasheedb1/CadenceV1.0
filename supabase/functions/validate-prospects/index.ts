@@ -8,6 +8,7 @@ interface ValidateRequest {
   companyId: string       // validate prospects for a specific company
   productDescription: string
   productCategory: string
+  icpDescription?: string // full ICP description for better context
 }
 
 interface ProfileValidation {
@@ -41,7 +42,7 @@ serve(async (req: Request) => {
     if (!ctx) return errorResponse('Unauthorized', 401)
 
     const body: ValidateRequest = await req.json()
-    const { accountMapId, companyId, productDescription, productCategory } = body
+    const { accountMapId, companyId, productDescription, productCategory, icpDescription } = body
 
     if (!accountMapId || !companyId) return errorResponse('accountMapId and companyId are required')
 
@@ -117,7 +118,7 @@ serve(async (req: Request) => {
 
 CONTEXT:
 - We sell: ${productDescription || productCategory || 'B2B software'}
-- Product category: ${productCategory || 'N/A'}
+- Product category: ${productCategory || 'N/A'}${icpDescription ? `\n- Our ICP: ${icpDescription}` : ''}
 - Target company: ${company.company_name} (${company.industry || 'Unknown industry'}, ${companyTier})
 - Company website: ${company.website || 'N/A'}
 

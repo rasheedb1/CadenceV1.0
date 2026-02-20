@@ -61,13 +61,14 @@ export function ExampleSectionsTab() {
   // ─── Queries ───
 
   const { data: sections = [], isLoading: sectionsLoading } = useQuery({
-    queryKey: ['example-sections', orgId],
+    queryKey: ['example-sections', orgId, user?.id],
     queryFn: async () => {
       if (!user) return []
       const { data, error } = await supabase
         .from('example_sections')
         .select('*')
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []) as ExampleSection[]
@@ -76,13 +77,14 @@ export function ExampleSectionsTab() {
   })
 
   const { data: allMessages = [] } = useQuery({
-    queryKey: ['example-messages', orgId],
+    queryKey: ['example-messages', orgId, user?.id],
     queryFn: async () => {
       if (!user) return []
       const { data, error } = await supabase
         .from('example_messages')
         .select('*')
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true })
       if (error) throw error

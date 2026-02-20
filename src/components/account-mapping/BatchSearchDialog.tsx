@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import {
   Dialog,
@@ -11,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Loader2, CheckCircle2, XCircle, Clock, Pause, Play, UserSearch, AlertTriangle } from 'lucide-react'
+import { Loader2, CheckCircle2, XCircle, Clock, Pause, Play, UserSearch, AlertTriangle, Sparkles } from 'lucide-react'
 import type {
   AccountMapCompany,
   BuyerPersona,
@@ -36,9 +37,10 @@ interface BatchSearchDialogProps {
     options?: { personaId?: string; buyingRole?: string; searchMetadata?: Record<string, unknown> }
   ) => Promise<number>
   onRefresh: () => void
+  onValidate?: (companyId: string) => Promise<{ validated: number; total: number }>
 }
 
-type SearchStatus = 'queued' | 'searching' | 'done' | 'error' | 'skipped'
+type SearchStatus = 'queued' | 'searching' | 'validating' | 'done' | 'error' | 'skipped'
 
 interface PersonaStatus {
   personaId: string
@@ -70,10 +72,14 @@ export function BatchSearchDialog({
   onSearch,
   onSaveProspects,
   onRefresh,
+  onValidate,
 }: BatchSearchDialogProps) {
   // Selection state (pre-search)
   const [selectedCompanyIds, setSelectedCompanyIds] = useState<Set<string>>(
     new Set(companies.map(c => c.id))
+  )
+  const [maxPerRole, setMaxPerRole] = useState<number>(
+    Math.max(...personas.map(p => p.max_per_company), 3)
   )
 
   // Search state
@@ -173,6 +179,7 @@ export function BatchSearchDialog({
 
       // Track found provider IDs per company to avoid duplicates across personas
       const foundProviderIds = new Set<string>()
+      let companyProspectCount = 0
 
       for (const persona of sortedPersonas) {
         if (abortRef.current) break
@@ -194,7 +201,7 @@ export function BatchSearchDialog({
             persona,
             accountMapId,
             onSearch,
-            maxResults: persona.max_per_company,
+            maxResults: maxPerRole,
             excludeProviderIds: foundProviderIds,
             onLevelStart: (level) => {
               updatePersonaStatus(company.id, persona.id, { searchingLevel: level })
@@ -220,6 +227,7 @@ export function BatchSearchDialog({
               },
             })
             totalFound += cascadeResult.prospects.length
+            companyProspectCount += cascadeResult.prospects.length
             setTotalProspectsFound(totalFound)
           }
 
@@ -245,6 +253,16 @@ export function BatchSearchDialog({
           if (errorMsg.includes('429') || errorMsg.includes('rate')) {
             await new Promise(r => setTimeout(r, 10000))
           }
+        }
+      }
+
+      // Auto-validate prospects with AI after search (if any found)
+      if (onValidate && !abortRef.current && companyProspectCount > 0) {
+        updateCompanyStatus(company.id, 'validating')
+        try {
+          await onValidate(company.id)
+        } catch (e) {
+          console.warn('Auto-validation failed for', company.company_name, e)
         }
       }
 
@@ -335,6 +353,26 @@ export function BatchSearchDialog({
             {personas.length === 0 && (
               <div className="text-center py-4 text-sm text-muted-foreground">
                 No buyer personas defined. Add personas in the ICP & Personas tab first.
+              </div>
+            )}
+
+            {/* Max per role config */}
+            {personas.length > 0 && (
+              <div className="space-y-1">
+                <Label className="text-xs font-medium text-muted-foreground">Max prospects per role</Label>
+                <div className="flex items-center gap-3">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={25}
+                    value={maxPerRole}
+                    onChange={(e) => setMaxPerRole(Math.max(1, Math.min(25, parseInt(e.target.value) || 1)))}
+                    className="w-20 h-8 text-sm"
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    per empresa, por cada persona
+                  </span>
+                </div>
               </div>
             )}
 
@@ -451,6 +489,7 @@ function CompanySearchRow({ state }: { state: CompanySearchState }) {
   const statusIcon = {
     queued: <Clock className="h-4 w-4 text-muted-foreground" />,
     searching: <Loader2 className="h-4 w-4 animate-spin text-blue-500" />,
+    validating: <Sparkles className="h-4 w-4 animate-pulse text-purple-500" />,
     done: <CheckCircle2 className="h-4 w-4 text-green-500" />,
     error: <XCircle className="h-4 w-4 text-red-500" />,
     skipped: <Clock className="h-4 w-4 text-muted-foreground/50" />,
@@ -465,6 +504,11 @@ function CompanySearchRow({ state }: { state: CompanySearchState }) {
         {statusIcon[state.status]}
         <span className="text-sm font-medium flex-1">{state.companyName}</span>
         <Badge variant="outline" className="text-[10px]">{state.tier}</Badge>
+        {state.status === 'validating' && (
+          <Badge variant="outline" className="text-[10px] text-purple-600 border-purple-300">
+            Validating...
+          </Badge>
+        )}
         {state.totalFound > 0 && (
           <Badge variant="secondary" className="text-[10px]">
             {state.totalFound} found
@@ -483,9 +527,10 @@ function CompanySearchRow({ state }: { state: CompanySearchState }) {
 }
 
 function PersonaStatusRow({ ps }: { ps: PersonaStatus }) {
-  const statusIcon = {
+  const statusIcon: Record<SearchStatus, React.ReactNode> = {
     queued: <Clock className="h-3.5 w-3.5 text-muted-foreground" />,
     searching: <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />,
+    validating: <Sparkles className="h-3.5 w-3.5 animate-pulse text-purple-500" />,
     done: ps.resultsCount > 0
       ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
       : <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />,

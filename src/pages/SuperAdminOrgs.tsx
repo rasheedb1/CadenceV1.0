@@ -89,7 +89,7 @@ export function SuperAdminOrgs() {
   const [editPlan, setEditPlan] = useState<OrgPlan>('free')
   const [editActive, setEditActive] = useState(true)
   const [savingEdit, setSavingEdit] = useState(false)
-  const [orgMembers, setOrgMembers] = useState<{ id: string; user_id: string; role: string; feature_flags: Record<string, boolean>; profiles: { full_name: string | null } | null }[]>([])
+  const [orgMembers, setOrgMembers] = useState<{ id: string; user_id: string; role: string; feature_flags: Record<string, boolean>; profiles: { full_name: string | null } | null; email: string | null }[]>([])
   const [editingMemberFlags, setEditingMemberFlags] = useState<string | null>(null) // member id being edited
   const [memberFlagsEdit, setMemberFlagsEdit] = useState<Partial<OrgFeatureFlags>>({})
   const [orgInvitations, setOrgInvitations] = useState<InvitationRow[]>([])
@@ -195,15 +195,27 @@ export function SuperAdminOrgs() {
         .order('created_at', { ascending: false }),
     ])
 
-    setOrgMembers(
-      (membersRes.data || []).map((m: Record<string, unknown>) => ({
-        id: m.id as string,
-        user_id: m.user_id as string,
-        role: m.role as string,
-        feature_flags: (m.feature_flags as Record<string, boolean>) || {},
-        profiles: Array.isArray(m.profiles) ? m.profiles[0] : m.profiles,
-      }))
-    )
+    const members = (membersRes.data || []).map((m: Record<string, unknown>) => ({
+      id: m.id as string,
+      user_id: m.user_id as string,
+      role: m.role as string,
+      feature_flags: (m.feature_flags as Record<string, boolean>) || {},
+      profiles: Array.isArray(m.profiles) ? m.profiles[0] : m.profiles,
+      email: null as string | null,
+    }))
+
+    // Fetch emails from auth.users via super-admin RPC
+    if (members.length > 0) {
+      const { data: emailRows } = await supabase.rpc('get_user_emails', {
+        p_user_ids: members.map(m => m.user_id),
+      })
+      if (emailRows) {
+        const emailMap = new Map((emailRows as { user_id: string; email: string }[]).map(r => [r.user_id, r.email]))
+        members.forEach(m => { m.email = emailMap.get(m.user_id) || null })
+      }
+    }
+
+    setOrgMembers(members)
     setEditingMemberFlags(null)
     setOrgInvitations((invitesRes.data as InvitationRow[]) || [])
   }
@@ -627,7 +639,12 @@ export function SuperAdminOrgs() {
                       <div key={m.id}>
                         <div className="flex items-center justify-between px-3 py-2">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm">{m.profiles?.full_name || m.user_id.slice(0, 8)}</span>
+                            <div>
+                              <span className="text-sm">{m.profiles?.full_name || m.email || m.user_id.slice(0, 8)}</span>
+                              {m.email && m.profiles?.full_name && (
+                                <p className="text-xs text-muted-foreground">{m.email}</p>
+                              )}
+                            </div>
                             {hasOverrides && (
                               <Badge variant="outline" className="text-xs">
                                 {Object.keys(m.feature_flags).length} overrides

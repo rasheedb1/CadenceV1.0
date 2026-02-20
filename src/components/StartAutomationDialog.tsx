@@ -88,13 +88,14 @@ export function StartAutomationDialog({
 
   // Fetch example sections
   const { data: exampleSections = [] } = useQuery({
-    queryKey: ['example-sections', orgId],
+    queryKey: ['example-sections', orgId, user?.id],
     queryFn: async () => {
       if (!user?.id) return []
       const { data, error } = await supabase
         .from('example_sections')
         .select('*')
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
         .order('name', { ascending: true })
       if (error) throw error
       return (data || []) as ExampleSection[]
@@ -104,13 +105,14 @@ export function StartAutomationDialog({
 
   // Fetch templates
   const { data: templates = [] } = useQuery({
-    queryKey: ['templates-for-automation', orgId],
+    queryKey: ['templates-for-automation', orgId, user?.id],
     queryFn: async () => {
       if (!user?.id) return []
       const { data, error } = await supabase
         .from('templates')
         .select('id, name, body_template')
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
         .order('name', { ascending: true })
       if (error) throw error
       return (data || []) as { id: string; name: string; body_template: string }[]
@@ -120,13 +122,14 @@ export function StartAutomationDialog({
 
   // Fetch all leads
   const { data: allLeads = [] } = useQuery({
-    queryKey: ['leads-for-automation', orgId],
+    queryKey: ['leads-for-automation', orgId, user?.id],
     queryFn: async () => {
       if (!user?.id) return []
       const { data, error } = await supabase
         .from('leads')
         .select('*')
         .eq('org_id', orgId!)
+        .eq('owner_id', user.id)
         .order('first_name', { ascending: true })
       if (error) throw error
       return (data || []) as Lead[]

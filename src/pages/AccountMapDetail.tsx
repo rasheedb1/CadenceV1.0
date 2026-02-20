@@ -133,6 +133,7 @@ export function AccountMapDetail() {
     reEvaluateCompanies,
     companyRegistry,
     refreshAccountMaps,
+    validateProspects,
   } = useAccountMapping()
   const { cadences } = useCadence()
 
@@ -412,6 +413,12 @@ export function AccountMapDetail() {
         onSearch={searchSalesNavigator}
         onSaveProspects={saveProspects}
         onRefresh={refreshAccountMaps}
+        onValidate={(companyId) => validateProspects(
+          map.id, companyId,
+          map.icp_description || map.filters_json?.icp_builder_data?.companyDescription || '',
+          map.filters_json?.icp_builder_data?.productCategory || '',
+          map.icp_description || ''
+        )}
       />
 
       {/* Discover Companies Dialog */}
@@ -1289,7 +1296,7 @@ function ProspectsTab({
   const handleValidateCompany = async (companyId: string) => {
     setValidatingCompanyId(companyId)
     try {
-      await validateProspects(accountMapId, companyId, icpContext.companyDescription, icpContext.productCategory)
+      await validateProspects(accountMapId, companyId, icpContext.companyDescription, icpContext.productCategory, icpContext.companyDescription)
     } catch (err) {
       console.error('Validation failed:', err)
     } finally {

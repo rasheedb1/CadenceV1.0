@@ -2,7 +2,7 @@
 import { createSupabaseClient } from './supabase.ts'
 
 const SF_LOGIN_URL = 'https://login.salesforce.com'
-const SF_API_VERSION = 'v62.0'
+const SF_API_VERSION = 'v58.0'
 
 interface SalesforceConnection {
   id: string
@@ -64,7 +64,20 @@ export async function refreshSalesforceToken(connection: SalesforceConnection): 
   }
 }
 
-// Make an authenticated API call to Salesforce with auto-refresh on 401
+// Build the full Salesforce API URL for a given endpoint
+function buildSalesforceUrl(instanceUrl: string, endpoint: string): string {
+  // If the endpoint is already a full path from Salesforce (e.g. nextRecordsUrl),
+  // just prepend the instance URL without adding the API version prefix again.
+  if (endpoint.startsWith('/services/')) {
+    return `${instanceUrl}${endpoint}`
+  }
+  if (endpoint.startsWith('http')) {
+    return endpoint
+  }
+  return `${instanceUrl}/services/data/${SF_API_VERSION}${endpoint}`
+}
+
+// Make an authenticated API call to Salesforce with auto-refresh on 401/404
 export async function salesforceApiCall(
   orgId: string,
   endpoint: string,
@@ -75,9 +88,8 @@ export async function salesforceApiCall(
   if (!connection) throw new Error('No active Salesforce connection found')
 
   const makeRequest = async (token: string, instanceUrl: string) => {
-    const url = endpoint.startsWith('http')
-      ? endpoint
-      : `${instanceUrl}/services/data/${SF_API_VERSION}${endpoint}`
+    const url = buildSalesforceUrl(instanceUrl, endpoint)
+    console.log(`Salesforce API: ${method} ${url}`)
 
     return fetch(url, {
       method,
@@ -92,13 +104,14 @@ export async function salesforceApiCall(
   // First attempt
   let response = await makeRequest(connection.access_token, connection.instance_url)
 
-  // If 401, refresh and retry
-  if (response.status === 401) {
-    console.log('Salesforce token expired, refreshing...')
+  // If 401 or 404, refresh token and retry.
+  // 401 = token expired; 404 = instance URL may have changed after org migration.
+  if (response.status === 401 || response.status === 404) {
+    console.log(`Salesforce returned ${response.status}, refreshing token (instance URL may have changed)...`)
     try {
       const newTokens = await refreshSalesforceToken(connection)
 
-      // Update tokens in DB
+      // Update tokens + instance URL in DB
       const supabase = createSupabaseClient()
       await supabase
         .from('salesforce_connections')
@@ -110,7 +123,7 @@ export async function salesforceApiCall(
         })
         .eq('id', connection.id)
 
-      // Retry with new token
+      // Retry with new token + potentially new instance URL
       response = await makeRequest(newTokens.access_token, newTokens.instance_url)
     } catch (refreshError) {
       // Mark connection as inactive if refresh fails (token revoked)
