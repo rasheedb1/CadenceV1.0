@@ -82,7 +82,7 @@ export function Onboarding() {
                   Welcome, {userName}!
                 </h1>
                 <p className="text-muted-foreground mt-2">
-                  Let's get you set up with Closr
+                  Let's get you set up with Chief
                 </p>
               </div>
 

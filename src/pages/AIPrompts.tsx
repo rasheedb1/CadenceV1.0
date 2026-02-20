@@ -1065,7 +1065,7 @@ export function AIPrompts() {
                   <div>
                     <Label>Empresa *</Label>
                     <Input
-                      placeholder="Ej: Closr"
+                      placeholder="Ej: Chief"
                       value={personaForm.company}
                       onChange={e => setPersonaForm(prev => ({ ...prev, company: e.target.value }))}
                     />
@@ -1124,7 +1124,7 @@ export function AIPrompts() {
                   <div>
                     <Label>Firma (opcional)</Label>
                     <Input
-                      placeholder="Ej: — Carlos, Closr"
+                      placeholder="Ej: — Carlos, Chief"
                       value={personaForm.signature}
                       onChange={e => setPersonaForm(prev => ({ ...prev, signature: e.target.value }))}
                     />

@@ -253,7 +253,7 @@ export function LinkedInInbox() {
           <MessageSquare className="mx-auto mb-4 h-16 w-16 text-muted-foreground" />
           <h2 className="text-xl font-semibold mb-2">LinkedIn Not Connected</h2>
           <p className="text-muted-foreground mb-6">
-            Connect your LinkedIn account to view and manage your messages directly from Closr.
+            Connect your LinkedIn account to view and manage your messages directly from Chief.
           </p>
           <Button onClick={() => navigate('/settings')} className="gap-2">
             <Settings className="h-4 w-4" />

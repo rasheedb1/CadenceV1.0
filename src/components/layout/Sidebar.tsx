@@ -72,7 +72,7 @@ export function Sidebar() {
           C
         </div>
         <div>
-          <span className="text-base font-semibold tracking-tight font-heading">Closr</span>
+          <span className="text-base font-semibold tracking-tight font-heading">Chief</span>
           <p className="text-xs text-muted-foreground">Sales Automation</p>
         </div>
       </div>

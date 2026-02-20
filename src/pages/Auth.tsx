@@ -76,7 +76,7 @@ export function Auth() {
               C
             </div>
           </div>
-          <CardTitle className="text-2xl font-heading">Closr</CardTitle>
+          <CardTitle className="text-2xl font-heading">Chief</CardTitle>
           <CardDescription>Sales automation platform</CardDescription>
         </CardHeader>
         <CardContent>
