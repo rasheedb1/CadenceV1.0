@@ -86,24 +86,60 @@ serve(async (req: Request) => {
     // Send connection request via Unipile
     const unipile = createUnipileClient()
 
-    // First, look up the user profile to get the provider_id
-    // Unipile requires the provider_id (internal LinkedIn ID), not the username
-    let providerId = username // Fallback to username if profile lookup fails
+    // Resolve provider_id (LinkedIn internal ID like "ACoAAA...")
+    // Chain: lead cache → prospect source → Unipile profile lookup
+    let providerId: string | null = null
 
-    console.log('Looking up user profile to get provider_id...')
-    const profileResult = await unipile.getProfile(unipileAccountId, username)
+    // 1. Check if lead already has a cached provider_id
+    if (lead.linkedin_provider_id) {
+      providerId = lead.linkedin_provider_id
+      console.log(`Using stored linkedin_provider_id from lead: ${providerId}`)
+    }
 
-    if (profileResult.success && profileResult.data) {
-      const profileData = profileResult.data as { provider_id?: string; id?: string }
-      if (profileData.provider_id) {
-        providerId = profileData.provider_id
-        console.log(`Found provider_id: ${providerId}`)
-      } else if (profileData.id) {
-        providerId = profileData.id
-        console.log(`Using profile id: ${providerId}`)
+    // 2. Check if the original prospect has it (from Sales Navigator search)
+    if (!providerId) {
+      const { data: sourceProspect } = await supabase
+        .from('prospects')
+        .select('linkedin_provider_id')
+        .eq('promoted_lead_id', leadId)
+        .not('linkedin_provider_id', 'is', null)
+        .limit(1)
+        .single()
+      if (sourceProspect?.linkedin_provider_id) {
+        providerId = sourceProspect.linkedin_provider_id
+        console.log(`Found provider_id from source prospect: ${providerId}`)
       }
-    } else {
-      console.log('Profile lookup failed, trying with username directly')
+    }
+
+    // 3. Unipile profile lookup (username with retries, then URL)
+    if (!providerId) {
+      const resolved = await unipile.resolveProviderId(unipileAccountId, username, linkedinUrl)
+      providerId = resolved.providerId
+    }
+
+    if (!providerId) {
+      return errorResponse(
+        `Could not resolve LinkedIn ID for "${username}". Please check that the LinkedIn account is still connected in Settings, or try reconnecting it.`
+      )
+    }
+
+    // Validate provider_id format — LinkedIn IDs start with "ACoAAA"
+    if (!providerId.startsWith('ACoAAA')) {
+      console.warn(`provider_id has unexpected format: ${providerId} — may not work with Unipile invite`)
+    }
+
+    // Cache the provider_id on the lead for next time
+    if (!lead.linkedin_provider_id) {
+      try {
+        await supabase
+          .from('leads')
+          .update({ linkedin_provider_id: providerId, updated_at: new Date().toISOString() })
+          .eq('id', leadId)
+          .eq('org_id', ctx.orgId)
+        console.log(`Saved provider_id ${providerId} to lead ${leadId}`)
+      } catch (e) {
+        console.warn('Could not cache provider_id on lead:', e)
+      }
     }
 
     // Send the connection request

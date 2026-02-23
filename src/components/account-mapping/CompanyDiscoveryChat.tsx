@@ -20,6 +20,7 @@ import {
   Plus,
   CheckCircle2,
   MessageSquare,
+  AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
@@ -42,6 +43,7 @@ interface CompanyDiscoveryChatProps {
   icpDescription: string | null
   icpBuilderData: ICPBuilderData | null
   existingCompanies: AccountMapCompany[]
+  excludedCompanyNames?: string[]
   onAddCompany: (company: Omit<AccountMapCompany, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<AccountMapCompany | null>
 }
 
@@ -59,14 +61,17 @@ function SuggestionCard({
   const [expanded, setExpanded] = useState(false)
   const isAccepted = company.decision === 'accepted'
   const isRejected = company.decision === 'rejected'
+  const isAdded = company.decision === 'added'
+  const isDuplicate = company.decision === 'duplicate'
   const isPending = company.decision === 'pending'
 
   return (
     <div
       className={cn(
         'rounded-lg border transition-colors',
-        isAccepted && 'border-green-300 bg-green-50 dark:border-green-700 dark:bg-green-950/30',
+        (isAccepted || isAdded) && 'border-green-300 bg-green-50 dark:border-green-700 dark:bg-green-950/30',
         isRejected && 'border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20 opacity-60',
+        isDuplicate && 'border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30',
         isPending && 'hover:border-primary/30'
       )}
     >
@@ -103,13 +108,14 @@ function SuggestionCard({
             </>
           ) : (
             <Badge
-              variant={isAccepted ? 'default' : 'secondary'}
+              variant={isDuplicate ? 'outline' : (isAccepted || isAdded) ? 'default' : 'secondary'}
               className={cn(
                 'text-[10px]',
-                isAccepted && 'bg-green-600 hover:bg-green-600'
+                (isAccepted || isAdded) && 'bg-green-600 hover:bg-green-600',
+                isDuplicate && 'border-amber-500 text-amber-700 dark:text-amber-400'
               )}
             >
-              {isAccepted ? 'Added' : 'Skipped'}
+              {isDuplicate ? 'Duplicate' : isAdded ? 'Added' : isAccepted ? 'Selected' : 'Skipped'}
             </Badge>
           )}
         </div>
@@ -195,6 +201,7 @@ export function CompanyDiscoveryChat({
   icpDescription,
   icpBuilderData,
   existingCompanies,
+  excludedCompanyNames = [],
   onAddCompany,
 }: CompanyDiscoveryChatProps) {
   const { session } = useAuth()
@@ -205,6 +212,8 @@ export function CompanyDiscoveryChat({
   const [rejectedCompanies, setRejectedCompanies] = useState<SuggestedCompany[]>([])
   const [savedCount, setSavedCount] = useState(0)
   const [isSaving, setIsSaving] = useState(false)
+  const [savedNames, setSavedNames] = useState<Set<string>>(new Set())
+  const [duplicateNames, setDuplicateNames] = useState<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -229,15 +238,21 @@ export function CompanyDiscoveryChat({
       setRejectedCompanies([])
       setSavedCount(0)
       setIsSaving(false)
+      setSavedNames(new Set())
+      setDuplicateNames([])
       autoSentRef.current = false
       setTimeout(() => inputRef.current?.focus(), 200)
     }
   }, [open])
 
-  // Auto-scroll to bottom when messages change
+  // Auto-scroll to bottom only when new messages are added or loading state changes
+  const messageCountRef = useRef(0)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isLoading])
+    if (messages.length > messageCountRef.current || isLoading) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+    messageCountRef.current = messages.length
+  }, [messages.length, isLoading])
 
   // Core send function that accepts explicit text
   const sendMessage = useCallback(async (text: string, currentMessages: ChatMessage[] = []) => {
@@ -269,17 +284,31 @@ export function CompanyDiscoveryChat({
           },
           acceptedCompanies,
           rejectedCompanies,
-          existingCompanyNames: existingCompanies.map(c => c.company_name),
+          existingCompanyNames: [
+            ...existingCompanies.map(c => c.company_name),
+            ...Array.from(savedNames),
+          ],
+          excludedCompanyNames,
           userMessage: text.trim(),
         },
-        session.access_token
+        session.access_token,
+        { timeoutMs: 120000 }
+      )
+
+      // Filter out companies already in the account map or saved in this session
+      const knownNames = new Set([
+        ...existingCompanies.map(c => c.company_name.toLowerCase()),
+        ...Array.from(savedNames).map(n => n.toLowerCase()),
+      ])
+      const filteredCompanies = (response.companies || []).filter(
+        (c: { company_name: string }) => !knownNames.has(c.company_name.toLowerCase())
       )
 
       const assistantMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
         text: response.responseText || 'Here are some suggestions:',
-        companies: (response.companies || []).map(c => ({
+        companies: filteredCompanies.map(c => ({
           ...c,
           decision: 'pending' as const,
         })),
@@ -298,7 +327,7 @@ export function CompanyDiscoveryChat({
       setIsLoading(false)
       setTimeout(() => inputRef.current?.focus(), 100)
     }
-  }, [session, icpDescription, icpBuilderData, acceptedCompanies, rejectedCompanies, existingCompanies])
+  }, [session, icpDescription, icpBuilderData, acceptedCompanies, rejectedCompanies, existingCompanies, excludedCompanyNames, savedNames])
 
   // Wrapper for the input field send
   const handleSend = useCallback(() => {
@@ -355,9 +384,35 @@ export function CompanyDiscoveryChat({
   const handleAddToCompanies = useCallback(async () => {
     if (acceptedCompanies.length === 0 || isSaving) return
     setIsSaving(true)
+    setDuplicateNames([])
     try {
-      let count = 0
+      // Check for duplicates against existing companies in the account map
+      const existingNormalized = new Set(
+        existingCompanies.map(c => c.company_name.toLowerCase())
+      )
+      const alreadySavedNormalized = new Set(
+        Array.from(savedNames).map(n => n.toLowerCase())
+      )
+
+      const newCompanies: SuggestedCompany[] = []
+      const dupes: string[] = []
       for (const c of acceptedCompanies) {
+        const norm = c.company_name.toLowerCase()
+        if (existingNormalized.has(norm) || alreadySavedNormalized.has(norm)) {
+          dupes.push(c.company_name)
+        } else {
+          newCompanies.push(c)
+        }
+      }
+
+      if (dupes.length > 0) {
+        setDuplicateNames(dupes)
+      }
+
+      // Save only non-duplicate companies
+      let count = 0
+      const justSaved = new Set<string>()
+      for (const c of newCompanies) {
         await onAddCompany({
           account_map_id: accountMapId,
           owner_id: ownerId,
@@ -369,15 +424,33 @@ export function CompanyDiscoveryChat({
           location: c.location,
           description: c.description,
         })
+        justSaved.add(c.company_name)
         count++
       }
-      setSavedCount(count)
+      if (count > 0) setSavedCount(prev => prev + count)
+      // Track saved names so they're excluded from future suggestions
+      setSavedNames(prev => new Set([...prev, ...justSaved]))
+      // Clear saved companies from accepted list so button resets for next batch
+      setAcceptedCompanies([])
+      // Mark saved companies as "added" and duplicates as "duplicate" in the message cards
+      const dupeSet = new Set(dupes.map(n => n.toLowerCase()))
+      setMessages(prev => prev.map(msg => {
+        if (!msg.companies) return msg
+        return {
+          ...msg,
+          companies: msg.companies.map(c => {
+            if (justSaved.has(c.company_name)) return { ...c, decision: 'added' as const }
+            if (dupeSet.has(c.company_name.toLowerCase())) return { ...c, decision: 'duplicate' as const }
+            return c
+          }),
+        }
+      }))
     } catch (err) {
       console.error('Failed to save companies:', err)
     } finally {
       setIsSaving(false)
     }
-  }, [acceptedCompanies, isSaving, onAddCompany, accountMapId, ownerId])
+  }, [acceptedCompanies, isSaving, onAddCompany, accountMapId, ownerId, existingCompanies, savedNames])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -490,6 +563,24 @@ export function CompanyDiscoveryChat({
           </div>
         </div>
 
+        {duplicateNames.length > 0 && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30 px-3 py-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-xs text-amber-800 dark:text-amber-300">
+              <span className="font-medium">{duplicateNames.length} duplicate{duplicateNames.length > 1 ? 's' : ''} skipped:</span>{' '}
+              {duplicateNames.join(', ')} — already in your company list.
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 px-1.5 text-[10px] ml-1 text-amber-700 hover:text-amber-900"
+                onClick={() => setDuplicateNames([])}
+              >
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        )}
+
         <DialogFooter className="flex items-center justify-between sm:justify-between gap-2 pt-2">
           <div className="flex items-center gap-2">
             <LLMModelSelector />
@@ -508,7 +599,7 @@ export function CompanyDiscoveryChat({
           </div>
           <Button
             onClick={handleAddToCompanies}
-            disabled={acceptedCompanies.length === 0 || isSaving || savedCount > 0}
+            disabled={acceptedCompanies.length === 0 || isSaving}
             className="gap-1"
           >
             {isSaving ? (
@@ -516,15 +607,20 @@ export function CompanyDiscoveryChat({
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Saving...
               </>
+            ) : acceptedCompanies.length > 0 ? (
+              <>
+                <Plus className="h-4 w-4" />
+                Add {acceptedCompanies.length} to Companies
+              </>
             ) : savedCount > 0 ? (
               <>
                 <Check className="h-4 w-4" />
-                Saved {savedCount} Companies
+                {savedCount} Saved
               </>
             ) : (
               <>
                 <Plus className="h-4 w-4" />
-                Add {acceptedCompanies.length} to Companies
+                Add to Companies
               </>
             )}
           </Button>

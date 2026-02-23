@@ -55,6 +55,29 @@ export interface SearchSalesNavigatorResponse {
   total: number
 }
 
+// ── Cascade Search Company types ──
+
+export interface CascadeSearchCompanyResponse {
+  success: boolean
+  totalFound: number
+  companyName: string
+  personaResults: Array<{
+    personaId: string
+    personaName: string
+    resultsCount: number
+    searchLevel: 1 | 2 | 3
+    queryUsed: string
+    levelDetails: Array<{
+      level: 1 | 2 | 3
+      label: string
+      keywords: string[]
+      resultsCount: number
+      skipped?: boolean
+    }>
+    error?: string
+  }>
+}
+
 // ── Enrich types ──
 
 export interface EnrichProspectResponse {
@@ -148,10 +171,14 @@ interface AccountMappingContextType {
   saveProspectsBatch: (accountMapId: string, companyId: string | null, prospects: SalesNavResult[], options?: { personaId?: string; buyingRole?: string; searchMetadata?: Record<string, unknown> }) => Promise<number>
   refreshAccountMaps: () => void
   deleteProspect: (id: string) => Promise<void>
+  bulkDeleteProspects: (ids: string[]) => Promise<void>
   // Edge function wrappers
   searchSalesNavigator: (params: SearchSalesNavigatorParams) => Promise<SearchSalesNavigatorResponse>
+  cascadeSearchCompany: (accountMapId: string, companyId: string, maxPerRole: number) => Promise<CascadeSearchCompanyResponse>
   enrichProspect: (prospectId: string, companyWebsite?: string) => Promise<EnrichProspectResponse>
   bulkEnrichProspects: (prospectIds: string[], companyWebsite?: string) => Promise<EnrichProspectResponse>
+  enrichCompanyProspects: (accountMapId: string, companyId: string) => Promise<void>
+  findDuplicateProspects: (prospects: Array<{ id: string; linkedin_url: string | null; linkedin_provider_id: string | null; email: string | null; first_name: string; last_name: string; company: string | null }>) => Promise<{ duplicateIds: Set<string>; duplicatesOfLeads: number; duplicatesAmongProspects: number }>
   // Promote to lead
   promoteProspectToLead: (prospectId: string, cadenceId?: string) => Promise<{ leadId: string; duplicate: boolean }>
   bulkPromoteProspects: (prospectIds: string[], cadenceId?: string) => Promise<{ promoted: number; duplicates: number }>
@@ -560,6 +587,18 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
         deleteProspect: async (id) =>
           deleteProspectMutation.mutateAsync(id),
 
+        bulkDeleteProspects: async (ids) => {
+          if (ids.length === 0) return
+          // Supabase .in() supports up to ~300 items; batch in chunks of 200
+          const CHUNK = 200
+          for (let i = 0; i < ids.length; i += CHUNK) {
+            const chunk = ids.slice(i, i + CHUNK)
+            const { error } = await supabase.from('prospects').delete().in('id', chunk)
+            if (error) throw error
+          }
+          queryClient.invalidateQueries({ queryKey: ['account-maps'] })
+        },
+
         // Edge function: Sales Navigator search
         searchSalesNavigator: async (params) => {
           if (!session?.access_token) throw new Error('Not authenticated')
@@ -578,6 +617,17 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
               cursor: params.cursor,
             },
             session.access_token
+          )
+        },
+
+        // Edge function: Server-side cascade search for one company (all personas)
+        cascadeSearchCompany: async (accountMapId, companyId, maxPerRole) => {
+          if (!session?.access_token) throw new Error('Not authenticated')
+          return callEdgeFunction<CascadeSearchCompanyResponse>(
+            'cascade-search-company',
+            { accountMapId, companyId, maxPerRole },
+            session.access_token,
+            { timeoutMs: 120000 }, // 2 min — server does all personas sequentially
           )
         },
 
@@ -605,6 +655,117 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
           )
           queryClient.invalidateQueries({ queryKey: ['account-maps'] })
           return result
+        },
+
+        // Enrich all un-enriched prospects for a company (used by batch search auto-enrich)
+        enrichCompanyProspects: async (accountMapId, companyId) => {
+          if (!session?.access_token || !orgId) throw new Error('Not authenticated')
+          // Query prospects for this company that don't have email yet
+          const { data: prospects } = await supabase
+            .from('prospects')
+            .select('id')
+            .eq('account_map_id', accountMapId)
+            .eq('company_id', companyId)
+            .eq('org_id', orgId)
+            .is('email', null)
+          if (!prospects || prospects.length === 0) return
+          const ids = prospects.map((p: { id: string }) => p.id)
+          await callEdgeFunction<EnrichProspectResponse>(
+            'enrich-prospect',
+            { prospectIds: ids },
+            session.access_token,
+            { timeoutMs: ids.length * 10000 + 30000 },
+          )
+          queryClient.invalidateQueries({ queryKey: ['account-maps'] })
+        },
+
+        // Find duplicate prospects among themselves (same person appearing multiple times).
+        // Groups by identity, keeps the copy with the most data, marks the rest.
+        findDuplicateProspects: async (prospects) => {
+          if (!orgId) throw new Error('Not authenticated')
+          const duplicateIds = new Set<string>()
+          let duplicatesAmongProspects = 0
+
+          // Score: prefer prospects with more contact data
+          const dataScore = (p: typeof prospects[number]) => {
+            let s = 0
+            if (p.email) s += 2
+            if (p.linkedin_url) s += 1
+            return s
+          }
+
+          // Build identity groups using Union-Find so one prospect can link groups
+          // e.g. prospect A has same linkedin_url as B, and B has same email as C → all 3 grouped
+          const parent = new Map<string, string>() // prospect id → root id
+          const find = (id: string): string => {
+            let root = id
+            while (parent.get(root) !== root) root = parent.get(root)!
+            // Path compression
+            let cur = id
+            while (cur !== root) { const next = parent.get(cur)!; parent.set(cur, root); cur = next }
+            return root
+          }
+          const union = (a: string, b: string) => {
+            const ra = find(a), rb = find(b)
+            if (ra !== rb) parent.set(ra, rb)
+          }
+
+          // Initialize each prospect as its own root
+          for (const p of prospects) parent.set(p.id, p.id)
+
+          // Index by identity keys and union matches
+          const byProvId = new Map<string, string>() // linkedin_provider_id → first prospect id
+          const byUrl = new Map<string, string>()    // linkedin_url → first prospect id
+          const byEmail = new Map<string, string>()   // email (lower) → first prospect id
+          const byName = new Map<string, string>()    // "first|last|company" → first prospect id
+
+          for (const p of prospects) {
+            // linkedin_provider_id
+            if (p.linkedin_provider_id) {
+              const existing = byProvId.get(p.linkedin_provider_id)
+              if (existing) { union(p.id, existing) } else { byProvId.set(p.linkedin_provider_id, p.id) }
+            }
+            // linkedin_url
+            if (p.linkedin_url) {
+              const normalized = p.linkedin_url.replace(/\/+$/, '').toLowerCase()
+              const existing = byUrl.get(normalized)
+              if (existing) { union(p.id, existing) } else { byUrl.set(normalized, p.id) }
+            }
+            // email
+            if (p.email) {
+              const emailLower = p.email.toLowerCase()
+              const existing = byEmail.get(emailLower)
+              if (existing) { union(p.id, existing) } else { byEmail.set(emailLower, p.id) }
+            }
+            // first + last + company (only if we have all three, for catching remaining dups)
+            if (p.first_name && p.last_name && p.company) {
+              const nameKey = `${p.first_name.toLowerCase()}|${p.last_name.toLowerCase()}|${p.company.toLowerCase()}`
+              const existing = byName.get(nameKey)
+              if (existing) { union(p.id, existing) } else { byName.set(nameKey, p.id) }
+            }
+          }
+
+          // Collect groups
+          const groups = new Map<string, typeof prospects>() // root → members
+          for (const p of prospects) {
+            const root = find(p.id)
+            if (!groups.has(root)) groups.set(root, [])
+            groups.get(root)!.push(p)
+          }
+
+          // For each group with >1 member: keep the best, mark rest as duplicates
+          for (const members of groups.values()) {
+            if (members.length <= 1) continue
+            // Sort: highest data score first
+            members.sort((a, b) => dataScore(b) - dataScore(a))
+            // Keep first (best), mark rest
+            for (let i = 1; i < members.length; i++) {
+              duplicateIds.add(members[i].id)
+              duplicatesAmongProspects++
+            }
+          }
+
+          return { duplicateIds, duplicatesOfLeads: 0, duplicatesAmongProspects }
         },
 
         // Promote prospect → lead
@@ -641,7 +802,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
             if (existing && existing.length > 0) duplicate = true
           }
 
-          // Insert into leads
+          // Insert into leads (include linkedin_provider_id so LinkedIn actions work without profile lookup)
           const { data: newLead, error: leadErr } = await supabase
             .from('leads')
             .insert({
@@ -654,6 +815,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
               title: prospect.title,
               company: prospect.company,
               linkedin_url: prospect.linkedin_url,
+              linkedin_provider_id: prospect.linkedin_provider_id,
             })
             .select('id')
             .single()

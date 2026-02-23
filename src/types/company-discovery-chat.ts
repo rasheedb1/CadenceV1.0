@@ -15,7 +15,7 @@ export interface SuggestedCompany {
 }
 
 /** User decision on a suggested company */
-export type CompanyDecision = 'accepted' | 'rejected' | 'pending'
+export type CompanyDecision = 'accepted' | 'rejected' | 'pending' | 'added' | 'duplicate'
 
 /** A suggested company card in the UI, with user decision state */
 export interface SuggestedCompanyWithDecision extends SuggestedCompany {

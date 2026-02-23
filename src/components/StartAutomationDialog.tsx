@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -84,6 +85,7 @@ export function StartAutomationDialog({
     })
     return times
   })
+  const [useSignals, setUseSignals] = useState(true)
   const [timezone, setTimezone] = useState(cadence.timezone || 'America/New_York')
 
   // Fetch example sections
@@ -248,6 +250,10 @@ export function StartAutomationDialog({
           changed = true
         }
 
+        // Signals toggle
+        updates.use_signals = useSignals
+        changed = true
+
         if (changed) {
           await supabase
             .from('cadence_steps')
@@ -291,12 +297,25 @@ export function StartAutomationDialog({
       // 3. Create schedules for ALL steps at their configured times
       const now = new Date()
 
+      // Helper: add business days (skip weekends) to a base date
+      const addBusinessDays = (year: number, month: number, day: number, bizDays: number): Date => {
+        const d = new Date(year, month, day)
+        let remaining = bizDays
+        while (remaining > 0) {
+          d.setDate(d.getDate() + 1)
+          if (d.getDay() !== 0 && d.getDay() !== 6) remaining--
+        }
+        return d
+      }
+
       // Helper: convert local time (HH:MM) in a timezone to UTC
       const toUTC = (dayOffset: number, timeStr: string, tz: string): Date => {
         const dateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
         const todayStr = dateFmt.format(now)
         const [y, m, d] = todayStr.split('-').map(Number)
-        const target = new Date(y, m - 1, d + dayOffset)
+        const target = dayOffset === 0
+          ? new Date(y, m - 1, d)
+          : addBusinessDays(y, m - 1, d, dayOffset)
         const [hours, minutes] = timeStr.split(':').map(Number)
         const guessUTC = Date.UTC(target.getFullYear(), target.getMonth(), target.getDate(), hours, minutes, 0)
         const guess = new Date(guessUTC)
@@ -402,6 +421,7 @@ export function StartAutomationDialog({
       setStepExampleOverrides({})
       setStepTemplateOverrides({})
       setStepSendNote({})
+      setUseSignals(true)
       setStepScheduledTimes({})
     } catch (error) {
       console.error('Error starting automation:', error)
@@ -430,6 +450,14 @@ export function StartAutomationDialog({
             <h3 className="text-sm font-medium flex items-center gap-2">
               Steps de la cadencia ({sortedSteps.length})
             </h3>
+            <div className="flex items-center gap-3 rounded-lg border p-2.5">
+              <Zap className="h-4 w-4 text-amber-500 shrink-0" />
+              <label className="text-sm flex-1">Señales de venta</label>
+              <span className="text-xs text-muted-foreground mr-2">
+                {useSignals ? 'Activadas' : 'Desactivadas'}
+              </span>
+              <Switch checked={useSignals} onCheckedChange={setUseSignals} />
+            </div>
             <div className="flex items-center gap-3 rounded-lg border p-2.5">
               <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
               <label className="text-sm flex-1">Zona horaria</label>

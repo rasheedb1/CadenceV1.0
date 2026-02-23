@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client'
+import type { DetectedSignal } from '@/types/signals'
 
 /**
  * Error class for Edge Function failures
@@ -371,12 +372,14 @@ export interface AIGenerateResponse {
     researchSummary: string | null
   }
   qualityCheck: QualityCheck | null
+  detectedSignals?: DetectedSignal[]
   metadata: {
     researchTimeMs: number
     generationTimeMs: number
     totalTimeMs: number
     totalInsights: number
     sourcesUsed: string[]
+    signalsSearchTimeMs?: number
   }
 }
 

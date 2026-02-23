@@ -232,17 +232,17 @@ serve(async (req: Request) => {
     // Send message via Unipile
     let result
 
-    // Helper function to send message with optional Sales Navigator
+    // Helper function to send message with optional InMail mode
     const sendMessageToRecipient = async (
       recipientId: string,
-      useSalesNavigator: boolean = false
+      inmailMode?: 'auto' | 'sales_navigator'
     ) => {
       return unipile.sendMessage({
         accountId: unipileAccountId,
         attendeeId: recipientId,
         text: message,
-        useSalesNavigator,
-        inmailSubject: useSalesNavigator ? `Message from ${lead.first_name || 'a connection'}` : undefined,
+        inmailMode,
+        inmailSubject: inmailMode ? `Message from ${lead.first_name || 'a connection'}` : undefined,
       })
     }
 
@@ -276,23 +276,54 @@ serve(async (req: Request) => {
       console.log(`Lead: ${lead.first_name} ${lead.last_name}`)
       console.log(`Requested channel: ${channel || 'auto'}`)
 
-      // First, try to get the user profile to get the correct ID
-      let recipientId = username || linkedinUrl
+      // Resolve provider_id (LinkedIn internal ID like "ACoAAA...")
+      // Chain: lead cache → prospect source → Unipile profile lookup
+      let recipientId: string | null = null
 
-      if (username) {
-        console.log('Looking up user profile first...')
-        const profileResult = await unipile.getProfile(unipileAccountId, username)
+      // 1. Check if lead already has a cached provider_id
+      if (lead.linkedin_provider_id) {
+        recipientId = lead.linkedin_provider_id
+        console.log(`Using stored linkedin_provider_id from lead: ${recipientId}`)
+      }
 
-        if (profileResult.success && profileResult.data) {
-          const profileData = profileResult.data as { id?: string; provider_id?: string }
-          const profileId = profileData.provider_id || profileData.id
+      // 2. Check if the original prospect has it (from Sales Navigator search)
+      if (!recipientId) {
+        const { data: sourceProspect } = await supabase
+          .from('prospects')
+          .select('linkedin_provider_id')
+          .eq('promoted_lead_id', leadId)
+          .not('linkedin_provider_id', 'is', null)
+          .limit(1)
+          .single()
+        if (sourceProspect?.linkedin_provider_id) {
+          recipientId = sourceProspect.linkedin_provider_id
+          console.log(`Found provider_id from source prospect: ${recipientId}`)
+        }
+      }
 
-          if (profileId) {
-            console.log(`Found profile ID: ${profileId}`)
-            recipientId = profileId
-          }
-        } else {
-          console.log('Profile lookup failed, using username')
+      // 3. Unipile profile lookup (username with retries)
+      if (!recipientId && username) {
+        const resolved = await unipile.resolveProviderId(unipileAccountId, username, linkedinUrl)
+        recipientId = resolved.providerId
+      }
+
+      if (!recipientId) {
+        return errorResponse(
+          `Could not resolve LinkedIn ID for "${username}". Please check that the LinkedIn account is still connected in Settings.`
+        )
+      }
+
+      // Cache the provider_id on the lead for next time
+      if (!lead.linkedin_provider_id) {
+        try {
+          await supabase
+            .from('leads')
+            .update({ linkedin_provider_id: recipientId, updated_at: new Date().toISOString() })
+            .eq('id', leadId)
+            .eq('org_id', ctx.orgId)
+          console.log(`Saved provider_id ${recipientId} to lead ${leadId}`)
+        } catch (e) {
+          console.warn('Could not cache provider_id on lead:', e)
         }
       }
 
@@ -303,31 +334,47 @@ serve(async (req: Request) => {
         // User explicitly requested Sales Navigator
         console.log('Sending via Sales Navigator (forced)')
         usedChannel = 'sales_navigator'
-        result = await sendMessageToRecipient(recipientId, true)
+        result = await sendMessageToRecipient(recipientId, 'sales_navigator')
       } else {
-        // Try regular LinkedIn first
+        // Step 1: Try regular LinkedIn first
         console.log('Attempting to send via regular LinkedIn...')
-        result = await sendMessageToRecipient(recipientId, false)
+        result = await sendMessageToRecipient(recipientId)
 
         console.log('Regular LinkedIn result:', JSON.stringify(result, null, 2))
 
-        // If regular LinkedIn fails with "not connected" error, fallback to Sales Navigator
+        // If regular LinkedIn fails with "not connected" error, try InMail fallbacks
         const isNotConnected = unipile.isNotConnectedError(result.error)
         console.log(`Is "not connected" error: ${isNotConnected}`)
         console.log(`Error message: ${result.error}`)
 
         if (!result.success && isNotConnected) {
-          console.log('=== FALLBACK TO SALES NAVIGATOR ===')
-          console.log('Regular LinkedIn failed (not connected), falling back to Sales Navigator InMail...')
+          // Step 2: Try InMail auto-detect (let Unipile pick the right API)
+          console.log('=== FALLBACK: InMail auto-detect ===')
           usedChannel = 'sales_navigator'
-          result = await sendMessageToRecipient(recipientId, true)
+          result = await sendMessageToRecipient(recipientId, 'auto')
 
-          console.log('Sales Navigator result:', JSON.stringify(result, null, 2))
+          console.log('InMail auto-detect result:', JSON.stringify(result, null, 2))
 
-          if (result.success) {
-            console.log('Successfully sent via Sales Navigator InMail!')
+          if (!result.success) {
+            // Step 3: Try explicit Sales Navigator InMail
+            console.log('=== FALLBACK: Explicit Sales Navigator ===')
+            const autoError = result.error
+            result = await sendMessageToRecipient(recipientId, 'sales_navigator')
+
+            console.log('SN InMail result:', JSON.stringify(result, null, 2))
+
+            if (result.success) {
+              console.log('Successfully sent via explicit Sales Navigator InMail!')
+            } else {
+              // Both InMail attempts failed — provide user-friendly error
+              console.log(`All InMail attempts failed. Auto: ${autoError}, SN: ${result.error}`)
+              result = {
+                ...result,
+                error: `Cannot send message to ${lead.first_name || 'this person'} — they are not a 1st-degree LinkedIn connection. Please send a connection request first, or check that your Sales Navigator subscription supports InMail.`,
+              }
+            }
           } else {
-            console.log('Sales Navigator also failed:', result.error)
+            console.log('Successfully sent via InMail auto-detect!')
           }
         }
       }

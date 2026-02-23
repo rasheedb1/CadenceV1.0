@@ -16,6 +16,7 @@ export interface AnthropicResponseData {
   role: 'assistant'
   content: Array<{ type: 'text'; text: string }>
   model: string
+  stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | string | null
   usage: { input_tokens: number; output_tokens: number }
 }
 
@@ -71,7 +72,7 @@ export class AnthropicClient {
       }
 
       const data = JSON.parse(responseText) as AnthropicResponseData
-      console.log(`Anthropic response: ${data.usage?.input_tokens} input, ${data.usage?.output_tokens} output tokens`)
+      console.log(`Anthropic response: ${data.usage?.input_tokens} input, ${data.usage?.output_tokens} output tokens, stop_reason=${data.stop_reason}`)
       return { success: true, data }
     } catch (error) {
       console.error('Anthropic request error:', error)

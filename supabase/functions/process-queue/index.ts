@@ -179,6 +179,7 @@ async function generateAIMessage(
           tone: aiPrompt.tone || 'professional',
           language: aiPrompt.language || 'es',
           exampleMessages,
+          useSignals: config.use_signals !== false,
         }),
       })
 
@@ -324,12 +325,25 @@ async function advanceLeadToNextStep(
       const dayDiff = nextStep.day_offset - cadenceStep.day_offset
       let scheduleAt: Date
 
+      // Helper: add business days (skip weekends) to a base date
+      const addBusinessDays = (year: number, month: number, day: number, bizDays: number): Date => {
+        const bd = new Date(year, month, day)
+        let remaining = bizDays
+        while (remaining > 0) {
+          bd.setDate(bd.getDate() + 1)
+          if (bd.getDay() !== 0 && bd.getDay() !== 6) remaining--
+        }
+        return bd
+      }
+
       if (scheduledTime) {
         const now = new Date()
         const dateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
         const todayStr = dateFmt.format(now)
         const [y, m, d] = todayStr.split('-').map(Number)
-        const target = new Date(y, m - 1, d + dayDiff)
+        const target = dayDiff === 0
+          ? new Date(y, m - 1, d)
+          : addBusinessDays(y, m - 1, d, dayDiff)
         const [hours, minutes] = scheduledTime.split(':').map(Number)
         const guessUTC = Date.UTC(target.getFullYear(), target.getMonth(), target.getDate(), hours, minutes, 0)
         const guess = new Date(guessUTC)
@@ -351,7 +365,8 @@ async function advanceLeadToNextStep(
             scheduleAt = new Date(now.getTime() + 5 * 60 * 1000)
             console.log(`Same-day step scheduled_time already passed, executing in 5 min`)
           } else {
-            scheduleAt = new Date(scheduleAt.getTime() + 86400000)
+            // Push to next business day
+            do { scheduleAt.setDate(scheduleAt.getDate() + 1) } while (scheduleAt.getDay() === 0 || scheduleAt.getDay() === 6)
           }
         }
 
@@ -361,9 +376,17 @@ async function advanceLeadToNextStep(
         if (dayDiff === 0) {
           scheduleAt.setMinutes(scheduleAt.getMinutes() + 60)
         } else {
-          scheduleAt.setDate(scheduleAt.getDate() + dayDiff)
+          // Add business days instead of calendar days
+          let remaining = dayDiff
+          while (remaining > 0) {
+            scheduleAt.setDate(scheduleAt.getDate() + 1)
+            if (scheduleAt.getDay() !== 0 && scheduleAt.getDay() !== 6) remaining--
+          }
           scheduleAt.setHours(9 + Math.floor(Math.random() * 8), Math.floor(Math.random() * 60), 0, 0)
-          if (scheduleAt <= new Date()) scheduleAt.setDate(scheduleAt.getDate() + 1)
+          // If time passed, push to next business day
+          if (scheduleAt <= new Date()) {
+            do { scheduleAt.setDate(scheduleAt.getDate() + 1) } while (scheduleAt.getDay() === 0 || scheduleAt.getDay() === 6)
+          }
         }
       }
 
@@ -817,6 +840,7 @@ async function processSchedule(
           stepType: cadenceStep.step_type,
           tone: 'professional',
           language: 'es',
+          useSignals: config.use_signals !== false,
         }),
       })
       const data = await response.json()

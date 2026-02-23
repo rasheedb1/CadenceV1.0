@@ -44,6 +44,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import {
   ArrowLeft,
@@ -72,6 +73,9 @@ import {
   ChevronUp,
   ShieldX,
   Mail,
+  Copy,
+  Phone,
+  ListFilter,
 } from 'lucide-react'
 import {
   PROSPECT_STATUS_CONFIG,
@@ -115,8 +119,10 @@ export function AccountMapDetail() {
     saveProspects,
     deleteProspect,
     searchSalesNavigator,
+    cascadeSearchCompany,
     enrichProspect,
     bulkEnrichProspects,
+    enrichCompanyProspects,
     bulkPromoteProspects,
     polishICPDescription,
     discoverICPCompanies,
@@ -410,8 +416,7 @@ export function AccountMapDetail() {
         accountMapId={map.id}
         companies={companies}
         personas={personas}
-        onSearch={searchSalesNavigator}
-        onSaveProspects={saveProspects}
+        onSearchCompany={(companyId, maxPerRole) => cascadeSearchCompany(map.id, companyId, maxPerRole)}
         onRefresh={refreshAccountMaps}
         onValidate={(companyId) => validateProspects(
           map.id, companyId,
@@ -419,6 +424,7 @@ export function AccountMapDetail() {
           map.filters_json?.icp_builder_data?.productCategory || '',
           map.icp_description || ''
         )}
+        onEnrich={(companyId) => enrichCompanyProspects(map.id, companyId)}
       />
 
       {/* Discover Companies Dialog */}
@@ -449,6 +455,9 @@ export function AccountMapDetail() {
         icpDescription={map.icp_description}
         icpBuilderData={map.filters_json?.icp_builder_data || null}
         existingCompanies={companies}
+        excludedCompanyNames={companyRegistry
+          .filter(e => (EXCLUSION_TYPES as string[]).includes(e.registry_type))
+          .map(e => e.company_name_display)}
         onAddCompany={addCompany}
       />
     </div>
@@ -1232,7 +1241,7 @@ function ProspectsTab({
   onPromote: () => void
   onDelete: (id: string) => void
 }) {
-  const { validateProspects, skipProspect, getOutreachStrategy, promoteProspectToLead } = useAccountMapping()
+  const { validateProspects, skipProspect, getOutreachStrategy, promoteProspectToLead, findDuplicateProspects, bulkDeleteProspects } = useAccountMapping()
   const [viewMode, setViewMode] = useState<'company' | 'table'>('company')
   const [validatingCompanyId, setValidatingCompanyId] = useState<string | null>(null)
   const [strategyCompanyId, setStrategyCompanyId] = useState<string | null>(null)
@@ -1244,6 +1253,8 @@ function ProspectsTab({
   const [selectedCadence, setSelectedCadence] = useState('')
   const [bulkEnriching, setBulkEnriching] = useState(false)
   const [bulkEnrichResult, setBulkEnrichResult] = useState<{ enriched: number; failed: number } | null>(null)
+  const [findingDuplicates, setFindingDuplicates] = useState(false)
+  const [dupResult, setDupResult] = useState<{ duplicatesOfLeads: number; duplicatesAmongProspects: number } | null>(null)
 
   const selectedCount = selectedProspects.size
   const promotableCount = prospects.filter((p) => selectedProspects.has(p.id) && p.status !== 'promoted').length
@@ -1381,6 +1392,58 @@ function ProspectsTab({
     }
   }
 
+  const handleFindDuplicates = async () => {
+    setFindingDuplicates(true)
+    setDupResult(null)
+    try {
+      const activeProspects = prospects.filter(p => !p.skipped)
+      const result = await findDuplicateProspects(activeProspects)
+      setDupResult({
+        duplicatesOfLeads: result.duplicatesOfLeads,
+        duplicatesAmongProspects: result.duplicatesAmongProspects,
+      })
+      // Pre-select duplicates for easy deletion
+      if (result.duplicateIds.size > 0) {
+        for (const id of result.duplicateIds) {
+          if (!selectedProspects.has(id)) onToggleProspect(id)
+        }
+      }
+    } catch (err) {
+      console.error('Find duplicates failed:', err)
+      alert(err instanceof Error ? err.message : 'Failed to find duplicates')
+    } finally {
+      setFindingDuplicates(false)
+    }
+  }
+
+  const handleDeleteSelected = async () => {
+    const ids = Array.from(selectedProspects)
+    if (ids.length === 0) return
+    if (!confirm(`Delete ${ids.length} selected prospect${ids.length !== 1 ? 's' : ''}? This cannot be undone.`)) return
+    try {
+      await bulkDeleteProspects(ids)
+    } catch (e) {
+      console.error('Bulk delete failed:', e)
+    }
+    setDupResult(null)
+  }
+
+  const handleSelectByContact = (mode: 'no_email' | 'no_phone' | 'no_both') => {
+    const activeProspects = prospects.filter(p => !p.skipped)
+    const matching = activeProspects.filter(p => {
+      if (mode === 'no_email') return !p.email
+      if (mode === 'no_phone') return !p.phone
+      return !p.email && !p.phone // no_both
+    })
+    // Toggle on all matching, toggle off those that don't match
+    for (const p of activeProspects) {
+      const shouldBeSelected = matching.some(m => m.id === p.id)
+      const isSelected = selectedProspects.has(p.id)
+      if (shouldBeSelected && !isSelected) onToggleProspect(p.id)
+      if (!shouldBeSelected && isSelected) onToggleProspect(p.id)
+    }
+  }
+
   const roleIcon = (role: string | null) => {
     const icons: Record<string, string> = { decision_maker: '🎯', champion: '🏗️', influencer: '💡', technical_evaluator: '🔧', budget_holder: '💰', end_user: '👤' }
     return role ? icons[role] || '' : ''
@@ -1390,7 +1453,43 @@ function ProspectsTab({
     <div className="space-y-4">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Prospects ({prospects.filter(p => !p.skipped).length})</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-base">Prospects ({prospects.filter(p => !p.skipped).length})</CardTitle>
+            {prospects.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={onToggleAll}
+              >
+                {selectedCount === prospects.length ? 'Deselect All' : 'Select All'}
+              </Button>
+            )}
+            {prospects.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="outline" className="h-7 text-xs">
+                    <ListFilter className="mr-1 h-3.5 w-3.5" /> Select Missing
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => handleSelectByContact('no_email')}>
+                    <Mail className="mr-2 h-4 w-4 text-muted-foreground" /> Without Email
+                    <Badge variant="secondary" className="ml-auto text-xs">{prospects.filter(p => !p.skipped && !p.email).length}</Badge>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleSelectByContact('no_phone')}>
+                    <Phone className="mr-2 h-4 w-4 text-muted-foreground" /> Without Phone
+                    <Badge variant="secondary" className="ml-auto text-xs">{prospects.filter(p => !p.skipped && !p.phone).length}</Badge>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handleSelectByContact('no_both')}>
+                    <ListFilter className="mr-2 h-4 w-4 text-muted-foreground" /> Without Email & Phone
+                    <Badge variant="secondary" className="ml-auto text-xs">{prospects.filter(p => !p.skipped && !p.email && !p.phone).length}</Badge>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             {selectedCount > 0 && (
               <>
@@ -1407,6 +1506,9 @@ function ProspectsTab({
                     <ArrowUpRight className="mr-1 h-4 w-4" /> Promote to Leads
                   </Button>
                 )}
+                <Button size="sm" variant="destructive" onClick={handleDeleteSelected}>
+                  <Trash2 className="mr-1 h-4 w-4" /> Delete Selected
+                </Button>
               </>
             )}
             {bulkEnrichResult && (
@@ -1414,6 +1516,21 @@ function ProspectsTab({
                 {bulkEnrichResult.enriched} enriched{bulkEnrichResult.failed > 0 ? `, ${bulkEnrichResult.failed} failed` : ''}
               </Badge>
             )}
+            {dupResult && dupResult.duplicatesAmongProspects > 0 && (
+              <Badge variant="destructive">
+                {dupResult.duplicatesAmongProspects} duplicates found
+              </Badge>
+            )}
+            {dupResult && dupResult.duplicatesAmongProspects === 0 && (
+              <Badge variant="secondary">No duplicates</Badge>
+            )}
+            <Button size="sm" variant="outline" onClick={handleFindDuplicates} disabled={findingDuplicates || prospects.length === 0}>
+              {findingDuplicates ? (
+                <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Scanning...</>
+              ) : (
+                <><Copy className="mr-1 h-4 w-4" /> Find Duplicates</>
+              )}
+            </Button>
             <Button size="sm" variant="outline" onClick={handleExportCSV} disabled={prospects.length === 0}>
               <FileText className="mr-1 h-4 w-4" /> Export CSV
             </Button>
@@ -1544,7 +1661,16 @@ function ProspectsTab({
                         const statusConfig = PROSPECT_STATUS_CONFIG[prospect.status]
 
                         return (
-                          <div key={prospect.id} className="flex items-start gap-3 px-4 py-3 hover:bg-muted/20">
+                          <div
+                            key={prospect.id}
+                            className="flex items-start gap-3 px-4 py-3 hover:bg-muted/20 cursor-pointer"
+                            onClick={(e) => {
+                              // Don't toggle if clicking on buttons, links, or dropdown
+                              const target = e.target as HTMLElement
+                              if (target.closest('button') || target.closest('a') || target.closest('[role="menuitem"]')) return
+                              onToggleProspect(prospect.id)
+                            }}
+                          >
                             <Checkbox
                               className="mt-1"
                               checked={selectedProspects.has(prospect.id)}
@@ -1572,6 +1698,8 @@ function ProspectsTab({
                                 <Badge variant={statusConfig.variant} className="text-[10px] h-4">
                                   {statusConfig.label}
                                 </Badge>
+                                <Mail className={`h-3 w-3 ${prospect.email ? 'text-green-500' : 'text-muted-foreground/30'}`} />
+                                <Phone className={`h-3 w-3 ${prospect.phone ? 'text-green-500' : 'text-muted-foreground/30'}`} />
                               </div>
                               <p className="text-xs text-muted-foreground">
                                 {prospect.title || 'Unknown title'} · {prospect.company || companyName}
@@ -1685,6 +1813,7 @@ function ProspectsTab({
                   <TableHead>Company</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead>Score</TableHead>
+                  <TableHead>Contact</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="w-12" />
                 </TableRow>
@@ -1735,6 +1864,12 @@ function ProspectsTab({
                             {prospect.relevance_score}/10
                           </Badge>
                         ) : '-'}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <Mail className={`h-3.5 w-3.5 ${prospect.email ? 'text-green-500' : 'text-muted-foreground/30'}`} />
+                          <Phone className={`h-3.5 w-3.5 ${prospect.phone ? 'text-green-500' : 'text-muted-foreground/30'}`} />
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Badge variant={statusConfig.variant}>{statusConfig.label}</Badge>
@@ -2362,8 +2497,13 @@ function PromoteDialog({
             </Select>
           </div>
         </div>
+        {promoting && (
+          <p className="text-xs text-muted-foreground text-center">
+            This may take 15 seconds to a minute depending on the number of prospects.
+          </p>
+        )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={promoting}>Cancel</Button>
           <Button onClick={handlePromote} disabled={promoting || prospects.length === 0}>
             {promoting ? 'Promoting...' : `Promote ${prospects.length}`}
           </Button>

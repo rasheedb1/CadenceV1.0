@@ -1,33 +1,35 @@
 /**
- * Cascade Search: 3-level progressive search strategy.
+ * Server-side Cascade Search: 3-level progressive search strategy.
+ * (Deno port of src/lib/prospecting/cascade-search.ts)
  *
- * Level 1 — Functional keywords + tier seniority (one API call)
- * Level 2 — Domain terms as general keywords + broad seniority (one API call)
- * Level 3 — Company + seniority only, no title filter (one API call)
- *
- * Each level is ONE call to the search-sales-navigator edge function.
- * Stops at the first level that produces results.
+ * Calls Unipile directly instead of going through the search-sales-navigator edge function.
  */
 
-import type {
-  SearchSalesNavigatorParams,
-  SearchSalesNavigatorResponse,
-  SalesNavResult,
-} from '@/contexts/AccountMappingContext'
-import type { AccountMapCompany, BuyerPersona } from '@/types/account-mapping'
-import { getAdaptiveKeywords } from './adaptive-keywords'
-import { generateTitleVariations, isSeniorTitle } from './clean-keywords'
+import type { UnipileClient } from './unipile.ts'
+import { getAdaptiveKeywords } from './adaptive-keywords.ts'
+import type { AccountMapCompanyMinimal, BuyerPersonaMinimal } from './adaptive-keywords.ts'
+import { generateTitleVariations, isSeniorTitle } from './clean-keywords.ts'
 
 // ── Types ──
 
 export type SearchLevel = 1 | 2 | 3
+
+export interface SalesNavResult {
+  firstName: string
+  lastName: string
+  title: string
+  company: string
+  linkedinUrl: string
+  linkedinProviderId: string
+  headline: string
+  location: string
+}
 
 export interface CascadeResult {
   prospects: SalesNavResult[]
   level: SearchLevel
   queryUsed: string
   levelDetails: LevelDetail[]
-  /** Total API calls made during this cascade */
   apiCallCount: number
 }
 
@@ -40,22 +42,16 @@ export interface LevelDetail {
 }
 
 export interface CascadeConfig {
-  company: AccountMapCompany
-  persona: BuyerPersona
-  accountMapId: string
-  onSearch: (params: SearchSalesNavigatorParams) => Promise<SearchSalesNavigatorResponse>
+  company: AccountMapCompanyMinimal
+  persona: BuyerPersonaMinimal
+  unipile: UnipileClient
+  accountId: string
   maxResults?: number
-  /** Set of LinkedIn provider IDs to exclude (already found for this company) */
   excludeProviderIds?: Set<string>
-  /** Callback when starting a new cascade level */
-  onLevelStart?: (level: SearchLevel) => void
-  /** Delay in ms between cascade levels (rate limiting) */
   delayBetweenLevels?: number
-  /** Callback reporting each API call made (for global rate tracking) */
-  onApiCall?: () => void
 }
 
-// ── Domain terms for Level 2 ──
+// ── Constants ──
 
 const DOMAIN_TERMS: Record<string, string[]> = {
   payment: ['payments', 'checkout', 'billing', 'fintech', 'transactions'],
@@ -74,9 +70,7 @@ const DOMAIN_TERMS: Record<string, string[]> = {
   supply: ['supply chain', 'logistics', 'procurement', 'warehouse'],
 }
 
-/** Broad seniority for Level 2 */
 const BROAD_SENIORITY = ['CXO', 'VP', 'Director', 'Owner', 'Partner']
-/** All senior levels for Level 3 */
 const ALL_SENIOR = ['CXO', 'VP', 'Director', 'Manager', 'Senior', 'Owner', 'Partner']
 
 // ── Helpers ──
@@ -94,7 +88,7 @@ function deduplicateProfiles(
   return Array.from(seen.values())
 }
 
-function getDomainTerms(persona: BuyerPersona): string[] {
+function getDomainTerms(persona: BuyerPersonaMinimal): string[] {
   const text = (
     persona.name + ' ' +
     (persona.description || '') + ' ' +
@@ -108,7 +102,6 @@ function getDomainTerms(persona: BuyerPersona): string[] {
     }
   }
 
-  // If no domain matched, extract significant words from persona text
   if (terms.length === 0) {
     const stopWords = new Set([
       'head', 'chief', 'vice', 'president', 'director', 'manager',
@@ -127,18 +120,50 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms))
 }
 
-/** Retry a search call with exponential backoff on 429 / rate-limit errors */
+/** Normalize Unipile search results to SalesNavResult */
+function normalizeResults(data: Record<string, unknown>): SalesNavResult[] {
+  const items = (data?.items || data?.results || []) as Array<Record<string, unknown>>
+  return items.map((item: Record<string, unknown>) => {
+    const positions = (item.current_positions || []) as Array<Record<string, unknown>>
+    const currentPosition = positions[0] || {}
+    const name = item.name?.toString() || ''
+    return {
+      firstName: (item.first_name || item.firstName || name.split(' ')[0] || '') as string,
+      lastName: (item.last_name || item.lastName || name.split(' ').slice(1).join(' ') || '') as string,
+      title: ((currentPosition.role as string) || item.title || item.headline || '') as string,
+      company: ((currentPosition.company as string) || item.company || item.company_name || '') as string,
+      linkedinUrl: (item.public_profile_url || item.profile_url ||
+        (item.public_identifier ? `https://www.linkedin.com/in/${item.public_identifier}` : '') || '') as string,
+      linkedinProviderId: (item.provider_id || item.id || '') as string,
+      headline: (item.headline || item.title || '') as string,
+      location: (item.location || '') as string,
+    }
+  })
+}
+
+/** Search with exponential backoff on 429 / rate-limit errors */
 async function searchWithRetry(
-  onSearch: (params: SearchSalesNavigatorParams) => Promise<SearchSalesNavigatorResponse>,
-  params: SearchSalesNavigatorParams,
+  unipile: UnipileClient,
+  accountId: string,
+  params: {
+    keywords?: string
+    company_names?: string[]
+    title_keywords?: string[]
+    seniority?: string[]
+    limit?: number
+  },
   maxRetries = 3,
-): Promise<SearchSalesNavigatorResponse> {
+): Promise<SalesNavResult[]> {
   let lastError: unknown
-  let delay = 15000 // Start at 15 seconds
+  let delay = 15000
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await onSearch(params)
+      const result = await unipile.searchSalesNavigator(accountId, params)
+      if (!result.success) {
+        throw new Error(result.error || 'Search failed')
+      }
+      return normalizeResults(result.data as Record<string, unknown>)
     } catch (e) {
       lastError = e
       const msg = e instanceof Error ? e.message : String(e)
@@ -147,7 +172,7 @@ async function searchWithRetry(
       if (isRateLimit && attempt < maxRetries) {
         console.warn(`Rate limited (attempt ${attempt + 1}/${maxRetries + 1}), waiting ${delay / 1000}s...`)
         await sleep(delay)
-        delay *= 2 // Exponential backoff: 15s → 30s → 60s
+        delay *= 2
       } else {
         throw e
       }
@@ -162,53 +187,35 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
   const {
     company,
     persona,
-    accountMapId,
-    onSearch,
+    unipile,
+    accountId,
     maxResults = 5,
     excludeProviderIds,
-    onLevelStart,
     delayBetweenLevels = 2000,
-    onApiCall,
   } = config
 
   const levelDetails: LevelDetail[] = []
   let apiCallCount = 0
 
-  /** Wrapper that tracks API calls */
-  const trackedSearch = async (params: SearchSalesNavigatorParams) => {
-    apiCallCount++
-    onApiCall?.()
-    return searchWithRetry(onSearch, params)
-  }
-
-  // Get adaptive keywords for this company tier
   const { titleKeywords, seniority } = getAdaptiveKeywords(persona, company)
 
   // ===== LEVEL 1: Functional keywords + seniority filter =====
-  onLevelStart?.(1)
-
   if (titleKeywords.length > 0) {
-    // Clean keywords: extract functional cores, expand variations
     const variations = generateTitleVariations(titleKeywords)
-
-    // Separate C-level abbreviations from functional terms
     const cLevelPattern = /^(CEO|CTO|CFO|COO|CMO|CRO|CPO|CIO|CISO|CDO)$/i
     const cLevelKeywords = variations.filter(v => cLevelPattern.test(v))
     const functionalKeywords = variations.filter(v => !cLevelPattern.test(v))
-
-    // Combine: functional terms + C-level (cap to 20 to avoid overly broad)
     const searchKeywords = [...functionalKeywords, ...cLevelKeywords].slice(0, 20)
 
     try {
-      const response = await trackedSearch({
-        accountMapId,
-        companyNames: [company.company_name],
-        titleKeywords: searchKeywords,
+      apiCallCount++
+      const results = await searchWithRetry(unipile, accountId, {
+        company_names: [company.company_name],
+        title_keywords: searchKeywords,
         seniority: seniority.length > 0 ? seniority : BROAD_SENIORITY,
         limit: maxResults * 3,
       })
 
-      const results = response.results || []
       const unique = deduplicateProfiles(results, excludeProviderIds)
       levelDetails.push({
         level: 1, label: 'Title match',
@@ -233,29 +240,21 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
     levelDetails.push({ level: 1, label: 'Title match', keywords: [], resultsCount: 0, skipped: true })
   }
 
-  // ===== LEVEL 2: Domain terms as general keywords + broad seniority =====
+  // ===== LEVEL 2: Domain terms + broad seniority =====
   await sleep(delayBetweenLevels)
-  onLevelStart?.(2)
-
   const domainTerms = getDomainTerms(persona)
 
   if (domainTerms.length > 0) {
     try {
-      const response = await trackedSearch({
-        accountMapId,
-        companyNames: [company.company_name],
+      apiCallCount++
+      const results = await searchWithRetry(unipile, accountId, {
+        company_names: [company.company_name],
         keywords: domainTerms.join(' OR '),
         seniority: BROAD_SENIORITY,
         limit: maxResults * 3,
       })
 
-      const results = response.results || []
-      // Client-side filter: prefer people with senior titles
-      const seniorResults = results.filter(p => {
-        const title = (p.title || p.headline || '').toString()
-        return isSeniorTitle(title)
-      })
-      // If senior filter is too aggressive, fall back to all results
+      const seniorResults = results.filter(p => isSeniorTitle(p.title || p.headline || ''))
       const filtered = seniorResults.length > 0 ? seniorResults : results
       const unique = deduplicateProfiles(filtered, excludeProviderIds)
 
@@ -282,23 +281,18 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
     levelDetails.push({ level: 2, label: 'Broadened', keywords: [], resultsCount: 0, skipped: true })
   }
 
-  // ===== LEVEL 3: Company + senior seniority only (no title filter) =====
+  // ===== LEVEL 3: Company + senior seniority only =====
   await sleep(delayBetweenLevels)
-  onLevelStart?.(3)
 
   try {
-    const response = await trackedSearch({
-      accountMapId,
-      companyNames: [company.company_name],
+    apiCallCount++
+    const results = await searchWithRetry(unipile, accountId, {
+      company_names: [company.company_name],
       seniority: ALL_SENIOR,
       limit: 15,
     })
 
-    const results = response.results || []
-    const seniorResults = results.filter(p => {
-      const title = (p.title || p.headline || '').toString()
-      return isSeniorTitle(title)
-    })
+    const seniorResults = results.filter(p => isSeniorTitle(p.title || p.headline || ''))
     const unique = deduplicateProfiles(
       seniorResults.length > 0 ? seniorResults : results.slice(0, 5),
       excludeProviderIds
@@ -324,7 +318,6 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
     levelDetails.push({ level: 3, label: 'Broad', keywords: [], resultsCount: 0 })
   }
 
-  // All levels failed
   return {
     prospects: [],
     level: 3,
@@ -332,11 +325,4 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
     levelDetails,
     apiCallCount,
   }
-}
-
-/** Label for search level display */
-export const SEARCH_LEVEL_LABELS: Record<SearchLevel, { label: string; color: string }> = {
-  1: { label: 'exact', color: 'text-green-600' },
-  2: { label: 'broadened', color: 'text-amber-600' },
-  3: { label: 'broad match', color: 'text-orange-600' },
 }

@@ -6,6 +6,8 @@ import { createFirecrawlClient, type FirecrawlClient } from '../_shared/firecraw
 import { createLLMClientForUser } from '../_shared/llm.ts'
 import { detectLanguage, type LanguageConfig } from '../_shared/language-detection.ts'
 import { GLOBAL_ANTI_PATTERNS, getBannedPhrasesForLanguage, findBannedPhrases, findFormatViolations, buildAntiPatternsPromptSection } from '../_shared/anti-patterns.ts'
+import { scanSignals } from '../_shared/signal-scanner.ts'
+import type { SignalConfigWithType, DetectedSignal } from '../_shared/signal-types.ts'
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -29,6 +31,8 @@ interface AIGenerateRequest {
   customInstructions?: string
   // Regeneration context
   regenerateHint?: 'shorter' | 'more_casual' | 'different_angle' | null
+  // Signals toggle
+  useSignals?: boolean
   ownerId?: string
   orgId?: string
 }
@@ -143,12 +147,13 @@ function buildUserPromptV2(params: {
   exampleNotes?: string[]
   postContext?: string
   regenerateHint?: string | null
+  detectedSignals?: DetectedSignal[]
 }): string {
   const {
     senderPersona, profile, insights, researchSummary, stepType, language,
     languageConfig, objective, structure, writingPrinciples, antiPatterns,
     customPrompt, customInstructions, exampleMessages, exampleNotes,
-    postContext, regenerateHint,
+    postContext, regenerateHint, detectedSignals,
   } = params
 
   const isEmail = stepType === 'send_email'
@@ -179,6 +184,17 @@ Cultural context: ${languageConfig.cultural_context}
 Formality level: ${languageConfig.formality}
 Greeting style: ${languageConfig.greeting_style}
 IMPORTANT: Write ONLY in ${languageConfig.language}. Do NOT mix languages. Every single word must be in ${languageConfig.language}.`)
+
+  // ── SECTION 2.5: Detected Sales Signals (hooks for personalization) ──
+  if (detectedSignals && detectedSignals.length > 0) {
+    const signalLines = detectedSignals.map(s =>
+      `- [${s.category.toUpperCase()}] ${s.signalName}: ${s.summary} (confidence: ${Math.round(s.confidence * 100)}%)`
+    )
+    parts.push(`## SALES SIGNALS DETECTED
+The following recent signals were found about this prospect or their company. Use the most relevant one(s) as a natural conversation hook in the message. Do NOT list them all — pick the 1-2 most compelling and weave them naturally into the opening or body.
+
+${signalLines.join('\n')}`)
+  }
 
   // ── SECTION 3: Research Data ──
   parts.push(`## PROSPECT RESEARCH
@@ -445,6 +461,7 @@ serve(async (req: Request) => {
       antiPatterns = [],
       customInstructions,
       regenerateHint,
+      useSignals: useSignalsParam,
       ownerId,
       orgId,
     } = body
@@ -670,6 +687,75 @@ serve(async (req: Request) => {
     }
     console.log(`Using LLM: ${llm.provider}/${llm.model}`)
 
+    // ── Fetch user's signal configs + scan for signals ──
+    const useSignals = useSignalsParam !== false // default true
+    let detectedSignals: DetectedSignal[] = []
+    let signalsSearchTimeMs = 0
+    if (!useSignals) {
+      console.log('Signal scanning disabled by user')
+    } else try {
+      // Try user's saved configs first
+      const { data: signalConfigRows } = await supabase
+        .from('signal_configs')
+        .select('*, signal_type:signal_types(*)')
+        .eq('user_id', userId)
+        .eq('org_id', ctx.orgId)
+        .eq('enabled', true)
+
+      let signalConfigs = (signalConfigRows || []) as unknown as SignalConfigWithType[]
+
+      // If user has no saved configs, fall back to default signal types
+      if (signalConfigs.length === 0) {
+        const { data: defaultTypes } = await supabase
+          .from('signal_types')
+          .select('*')
+          .eq('default_enabled', true)
+          .order('sort_order', { ascending: true })
+
+        if (defaultTypes && defaultTypes.length > 0) {
+          signalConfigs = defaultTypes.map(st => ({
+            id: '',
+            user_id: userId,
+            org_id: ctx.orgId,
+            signal_type_id: st.id,
+            enabled: true,
+            priority: 5,
+            custom_query: null,
+            created_at: '',
+            updated_at: '',
+            signal_type: st,
+          })) as unknown as SignalConfigWithType[]
+          console.log(`Using ${signalConfigs.length} default signal types (user has no saved configs)`)
+        }
+      }
+
+      if (signalConfigs.length > 0 && company) {
+        console.log(`Scanning ${signalConfigs.length} enabled signals...`)
+        const scanResult = await scanSignals(
+          signalConfigs,
+          firecrawl,
+          llm,
+          {
+            company,
+            firstName,
+            lastName,
+            industry: lead.industry || '',
+            linkedinPosts: profileSummary.recentPosts,
+            profileSummary: profileSummary.summary || profileSummary.headline || '',
+          },
+        )
+        detectedSignals = scanResult.signals
+        signalsSearchTimeMs = scanResult.timeMs
+        console.log(`Signal scan complete: ${detectedSignals.length} signals detected in ${signalsSearchTimeMs}ms`)
+      } else if (!company) {
+        console.log('Skipping signal scan: no company data available')
+      } else {
+        console.log('No signal configs available, skipping signal scan')
+      }
+    } catch (err) {
+      console.error('Signal scanning failed (non-fatal):', err)
+    }
+
     // ── Research summary (parallel with setup) ──
     const summaryParts: string[] = []
     summaryParts.push(`Name: ${profileSummary.name}`)
@@ -722,6 +808,7 @@ serve(async (req: Request) => {
       exampleNotes,
       postContext,
       regenerateHint,
+      detectedSignals,
     })
 
     const maxTokens = stepType === 'linkedin_connect' ? 200 : stepType === 'linkedin_comment' ? 400 : isEmailStep ? 800 : 600
@@ -849,6 +936,8 @@ serve(async (req: Request) => {
         researchFailed, researchTimeMs, generationTimeMs,
         humanScore: qualityCheck?.human_score || null,
         hasSenderPersona: !!senderPersona,
+        signalsDetected: detectedSignals.length,
+        signalsSearchTimeMs,
       },
     })
 
@@ -881,6 +970,7 @@ serve(async (req: Request) => {
         opensWithSelfIntro: qualityCheck.opens_with_self_intro ?? false,
         multipleCtas: qualityCheck.multiple_ctas ?? false,
       } : null,
+      detectedSignals: detectedSignals.length > 0 ? detectedSignals : undefined,
       detectedLanguage: {
         language: languageConfig.language,
         code: languageConfig.code,
@@ -891,10 +981,12 @@ serve(async (req: Request) => {
         generationTimeMs,
         totalTimeMs: Date.now() - startTime,
         totalInsights: finalInsights.length,
+        signalsSearchTimeMs: signalsSearchTimeMs || undefined,
         sourcesUsed: [
           ...(settled.profile?.status === 'fulfilled' ? ['unipile_profile'] : []),
           ...(profileSummary.recentPosts.length > 0 ? ['unipile_posts'] : []),
           ...(finalInsights.length > 0 ? ['firecrawl_search'] : []),
+          ...(detectedSignals.length > 0 ? ['signal_scan'] : []),
         ],
       },
     })

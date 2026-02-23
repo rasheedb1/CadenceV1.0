@@ -14,6 +14,8 @@ import {
   type ExampleSection,
   type ExampleMessage,
 } from '@/lib/edge-functions'
+import type { DetectedSignal } from '@/types/signals'
+import { SIGNAL_CATEGORIES } from '@/types/signals'
 import {
   Dialog,
   DialogContent,
@@ -31,6 +33,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
 import { LLMModelSelector } from '@/components/LLMModelSelector'
 import {
   Sparkles,
@@ -50,6 +53,7 @@ import {
   ArrowDownRight,
   MessageSquare,
   Shuffle,
+  Zap,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -119,6 +123,7 @@ export function AIGenerateDialog({
   const [researchFailed, setResearchFailed] = useState(false)
   const [researchSummary, setResearchSummary] = useState<string | null>(null)
   const [qualityCheck, setQualityCheck] = useState<QualityCheck | null>(null)
+  const [detectedSignals, setDetectedSignals] = useState<DetectedSignal[]>([])
   const [metadata, setMetadata] = useState<AIGenerateResponse['metadata'] | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
   const [showResearch, setShowResearch] = useState(false)
@@ -126,6 +131,7 @@ export function AIGenerateDialog({
   const [copied, setCopied] = useState(false)
   const [copiedResearch, setCopiedResearch] = useState(false)
   const [selectedSectionId, setSelectedSectionId] = useState<string>('none')
+  const [useSignals, setUseSignals] = useState(true)
 
   // Fetch message prompts for this step type
   const { data: messagePrompts = [] } = useQuery({
@@ -231,6 +237,7 @@ export function AIGenerateDialog({
       setResearchFailed(false)
       setResearchSummary(null)
       setQualityCheck(null)
+      setDetectedSignals([])
       setMetadata(null)
       setErrorMsg('')
       setShowResearch(false)
@@ -311,6 +318,7 @@ export function AIGenerateDialog({
         exampleMessages: exampleMessageBodies,
         exampleNotes,
         customInstructions: customPrompt || undefined,
+        useSignals,
       }
 
       // Add structured fields from the selected prompt
@@ -339,6 +347,7 @@ export function AIGenerateDialog({
         setResearchFailed(result.research.researchFailed)
         setResearchSummary(result.research.researchSummary)
         setQualityCheck(result.qualityCheck || null)
+        setDetectedSignals(result.detectedSignals || [])
         setMetadata(result.metadata)
         setPhase('done')
       } else {
@@ -465,6 +474,12 @@ export function AIGenerateDialog({
                 <Badge variant="secondary" className="text-[10px] h-5">
                   {TONE_OPTIONS.find(t => t.value === tone)?.label}
                 </Badge>
+                {useSignals && (
+                  <Badge variant="secondary" className="text-[10px] h-5">
+                    <Zap className="h-3 w-3 mr-0.5 text-amber-500" />
+                    Señales
+                  </Badge>
+                )}
               </div>
             </button>
 
@@ -571,6 +586,19 @@ export function AIGenerateDialog({
                       </Button>
                     ))}
                   </div>
+                </div>
+
+                {/* Signals toggle */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Zap className="h-4 w-4 text-amber-500" />
+                    <span className="text-sm text-muted-foreground">Señales de venta</span>
+                  </div>
+                  <Switch
+                    checked={useSignals}
+                    onCheckedChange={setUseSignals}
+                    disabled={isLoading}
+                  />
                 </div>
               </div>
             )}
@@ -699,6 +727,52 @@ export function AIGenerateDialog({
                         Sugerencia: {qualityCheck.suggestion}
                       </p>
                     )}
+                  </div>
+                )}
+
+                {/* Detected signals */}
+                {detectedSignals.length > 0 && (
+                  <div className="rounded-lg border bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800 p-3 space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Zap className="h-3.5 w-3.5 text-amber-600" />
+                      <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                        {detectedSignals.length} {detectedSignals.length === 1 ? 'señal detectada' : 'señales detectadas'}
+                      </span>
+                      {metadata?.signalsSearchTimeMs && (
+                        <span className="text-[10px] text-muted-foreground ml-auto">
+                          {(metadata.signalsSearchTimeMs / 1000).toFixed(1)}s
+                        </span>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      {detectedSignals.map((signal, i) => {
+                        const catMeta = SIGNAL_CATEGORIES[signal.category]
+                        return (
+                          <div key={i} className="flex items-start gap-2 text-xs">
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] shrink-0 ${catMeta?.color || ''}`}
+                            >
+                              {catMeta?.label || signal.category}
+                            </Badge>
+                            <span className="text-muted-foreground leading-relaxed">
+                              <span className="font-medium text-foreground">{signal.signalName}:</span>{' '}
+                              {signal.summary}
+                              {signal.sourceUrl && (
+                                <a
+                                  href={signal.sourceUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="ml-1 text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center"
+                                >
+                                  <ExternalLink className="h-2.5 w-2.5" />
+                                </a>
+                              )}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
                 )}
 

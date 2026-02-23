@@ -11,6 +11,7 @@ export interface LLMResponse {
   text: string
   error?: string
   usage?: { inputTokens: number; outputTokens: number }
+  stopReason?: string | null
 }
 
 export interface LLMClient {
@@ -87,6 +88,7 @@ class AnthropicLLMClient implements LLMClient {
         inputTokens: result.data.usage?.input_tokens || 0,
         outputTokens: result.data.usage?.output_tokens || 0,
       },
+      stopReason: result.data.stop_reason || null,
     }
   }
 }

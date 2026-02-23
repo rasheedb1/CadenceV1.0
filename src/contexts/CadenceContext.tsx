@@ -83,11 +83,11 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
     queryKey: ['cadences', orgId, user?.id],
     queryFn: async () => {
       if (!user || !orgId) return []
+      // RLS handles visibility: owners see own, managers see all org cadences
       const { data, error } = await supabase
         .from('cadences')
         .select('*, cadence_steps(*)')
         .eq('org_id', orgId)
-        .eq('owner_id', user.id)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []).map((c: Record<string, unknown>) => ({

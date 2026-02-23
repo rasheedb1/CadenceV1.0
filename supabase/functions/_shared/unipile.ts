@@ -11,9 +11,11 @@ export interface SendMessageParams {
   chatId?: string
   attendeeId?: string
   text: string
-  // Sales Navigator / InMail options
-  useSalesNavigator?: boolean
+  // InMail mode: 'auto' = let Unipile detect, 'sales_navigator' = force SN API
+  inmailMode?: 'auto' | 'sales_navigator'
   inmailSubject?: string
+  // Deprecated, kept for backward compat
+  useSalesNavigator?: boolean
 }
 
 export type LinkedInApiType = 'classic' | 'recruiter' | 'sales_navigator'
@@ -134,19 +136,20 @@ export class UnipileClient {
         text: params.text,
       }
 
-      // Add Sales Navigator / InMail options if requested
-      // According to Unipile docs, the format is linkedin[api] and linkedin[inmail] as top-level params
-      if (params.useSalesNavigator) {
-        // Try format 1: linkedin as top-level object
-        requestBody.linkedin = {
-          api: 'sales_navigator',
-          inmail: true,
+      // Determine InMail mode (support both new inmailMode and legacy useSalesNavigator)
+      const effectiveInmailMode = params.inmailMode || (params.useSalesNavigator ? 'sales_navigator' : undefined)
+
+      if (effectiveInmailMode) {
+        if (effectiveInmailMode === 'sales_navigator') {
+          requestBody.linkedin = { api: 'sales_navigator', inmail: true }
+        } else {
+          // 'auto' mode — let Unipile detect the right API
+          requestBody.linkedin = { inmail: true }
         }
-        // Add subject for InMail if provided
         if (params.inmailSubject) {
           requestBody.subject = params.inmailSubject
         }
-        console.log('Sending via Sales Navigator InMail')
+        console.log(`Sending InMail (mode=${effectiveInmailMode})`)
         console.log('Request body for InMail:', JSON.stringify(requestBody, null, 2))
       }
 
@@ -270,6 +273,53 @@ export class UnipileClient {
     const encodedIdentifier = encodeURIComponent(identifier)
     console.log(`Looking up user profile: identifier=${identifier}, encodedIdentifier=${encodedIdentifier}`)
     return this.request('GET', `/api/v1/users/${encodedIdentifier}?account_id=${accountId}`)
+  }
+
+  /**
+   * Resolve a LinkedIn profile to its provider_id via Unipile profile lookup.
+   * The /api/v1/users/{identifier} endpoint accepts a LinkedIn username slug.
+   * Retries up to 3 times with backoff in case of transient failures.
+   * Returns the provider_id (format: "ACoAAA...") or null if all attempts fail.
+   */
+  async resolveProviderId(
+    accountId: string,
+    username: string,
+    _linkedinUrl?: string, // kept for backward compat, not used (Unipile only accepts username/provider_id)
+  ): Promise<{ providerId: string | null; error?: string }> {
+    let lastError = ''
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        const waitSec = attempt * 5
+        console.log(`Profile lookup retry ${attempt}/2, waiting ${waitSec}s...`)
+        await new Promise(r => setTimeout(r, waitSec * 1000))
+      }
+
+      const result = await this.getProfile(accountId, username)
+
+      if (result.success && result.data) {
+        const data = result.data as { provider_id?: string; id?: string }
+        // ONLY use provider_id — the "id" field is a Unipile internal ID (not a LinkedIn ID)
+        // LinkedIn provider_ids start with "ACoAAA"
+        const providerId = data.provider_id
+        if (providerId && providerId.startsWith('ACoAAA')) {
+          console.log(`Resolved provider_id via profile lookup: ${providerId}`)
+          return { providerId }
+        } else if (providerId) {
+          // provider_id exists but unexpected format — log but still use it
+          console.warn(`provider_id has unexpected format: ${providerId}`)
+          return { providerId }
+        } else {
+          lastError = `Profile returned but no provider_id field found (keys: ${Object.keys(data).join(', ')})`
+          console.warn(lastError, JSON.stringify(result.data).slice(0, 300))
+        }
+      } else {
+        lastError = result.error || 'Unknown error'
+        console.warn(`Profile lookup attempt ${attempt + 1} failed: ${lastError}`)
+      }
+    }
+
+    return { providerId: null, error: lastError }
   }
 
   // List chats
