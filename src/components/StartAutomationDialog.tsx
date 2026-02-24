@@ -72,16 +72,28 @@ export function StartAutomationDialog({
   const [stepScheduledTimes, setStepScheduledTimes] = useState<Record<string, string>>(() => {
     const sorted = [...steps].sort((a, b) => a.day_offset - b.day_offset || a.order_in_day - b.order_in_day)
     const times: Record<string, string> = {}
-    let currentHour = 9
-    let lastDay = -1
+    const nowForDefaults = new Date()
+    const dayBaseMinutes: Record<number, number> = {}
+
     sorted.forEach((step) => {
-      if (step.day_offset !== lastDay) {
-        currentHour = 9
-        lastDay = step.day_offset
-      }
       const existing = (step.config_json as Record<string, unknown>)?.scheduled_time as string | undefined
-      times[step.id] = existing || `${Math.min(currentHour, 23).toString().padStart(2, '0')}:00`
-      currentHour++
+      if (existing) {
+        times[step.id] = existing
+        // Track the running base for this day so subsequent steps are spaced correctly
+        const [h, m] = existing.split(':').map(Number)
+        dayBaseMinutes[step.day_offset] = (h * 60 + m) + 2
+      } else {
+        if (dayBaseMinutes[step.day_offset] === undefined) {
+          // First unsaved step on this day: default to now+5min rounded to next 2-min boundary
+          const rawMin = nowForDefaults.getHours() * 60 + nowForDefaults.getMinutes() + 5
+          dayBaseMinutes[step.day_offset] = Math.ceil(rawMin / 2) * 2
+        }
+        const totalMin = Math.min(dayBaseMinutes[step.day_offset], 23 * 60 + 58)
+        const h = Math.floor(totalMin / 60)
+        const m = totalMin % 60
+        times[step.id] = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`
+        dayBaseMinutes[step.day_offset] = totalMin + 2
+      }
     })
     return times
   })
@@ -329,34 +341,40 @@ export function StartAutomationDialog({
         return new Date(guessUTC + diffMin * 60 * 1000)
       }
 
+      // Group steps by day_offset and compute a uniform shift per day:
+      // If the first step of a day has already passed, shift ALL steps in that day
+      // forward by (now + 60s − firstStepTime), preserving the user's configured intervals.
+      const dayStepGroups: Record<number, typeof sortedSteps> = {}
+      for (const step of sortedSteps) {
+        if (!dayStepGroups[step.day_offset]) dayStepGroups[step.day_offset] = []
+        dayStepGroups[step.day_offset].push(step) // sortedSteps is already ordered
+      }
+
+      const dayShiftMs: Record<number, number> = {}
+      for (const [dayOffsetStr, daySteps] of Object.entries(dayStepGroups)) {
+        const dayOffset = parseInt(dayOffsetStr)
+        const firstStepUTC = toUTC(dayOffset, stepScheduledTimes[daySteps[0].id] || '09:00', timezone)
+        dayShiftMs[dayOffset] = firstStepUTC <= now
+          ? (now.getTime() + 60_000) - firstStepUTC.getTime() // shift so first step = now+60s
+          : 0                                                   // future — no shift needed
+      }
+
       const scheduleInserts = sortedSteps.flatMap((step) => {
         const stepTime = stepScheduledTimes[step.id] || '09:00'
         const stepUTC = toUTC(step.day_offset, stepTime, timezone)
-        const useImmediate = stepUTC <= now
+        const shift = dayShiftMs[step.day_offset] ?? 0
 
-        return leadIds.map((leadId, index) => {
-          let scheduleAt: Date
-          if (useImmediate) {
-            // Time already passed today - execute immediately with stagger
-            // Stagger: 60s base + 10s per lead + step order * (leadIds.length * 10 + 30)s gap between steps
-            const stepIndex = sortedSteps.indexOf(step)
-            scheduleAt = new Date(now)
-            scheduleAt.setSeconds(scheduleAt.getSeconds() + 60 + stepIndex * (leadIds.length * 10 + 30) + index * 10)
-          } else {
-            // Schedule at configured time with small stagger per lead
-            scheduleAt = new Date(stepUTC.getTime() + index * 10000)
-          }
-          return {
-            cadence_id: cadence.id,
-            cadence_step_id: step.id,
-            lead_id: leadId,
-            owner_id: user.id,
-            org_id: orgId!,
-            scheduled_at: scheduleAt.toISOString(),
-            timezone: 'UTC',
-            status: 'scheduled',
-          }
-        })
+        return leadIds.map((leadId, index) => ({
+          cadence_id: cadence.id,
+          cadence_step_id: step.id,
+          lead_id: leadId,
+          owner_id: user.id,
+          org_id: orgId!,
+          // Apply day-level shift + 10s per-lead stagger for API rate-limiting safety
+          scheduled_at: new Date(stepUTC.getTime() + shift + index * 10_000).toISOString(),
+          timezone: 'UTC',
+          status: 'scheduled',
+        }))
       })
 
       // Cancel any existing scheduled items for these leads in this cadence (prevent duplicates)
