@@ -1018,6 +1018,41 @@ async function processSchedule(
   }
 }
 
+/**
+ * Pre-flight auth check: ping each sub-function with the current auth token.
+ * If any returns HTTP 401, log a warning — indicates that function needs redeployment.
+ * Non-blocking: does not fail the batch if checks fail.
+ */
+async function preflightAuthCheck(
+  authToken: string,
+  ownerId: string,
+  orgId: string
+): Promise<void> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+  const checks = [
+    { name: 'send-email', endpoint: '/functions/v1/send-email' },
+    { name: 'linkedin-comment', endpoint: '/functions/v1/linkedin-comment' },
+    { name: 'linkedin-send-connection', endpoint: '/functions/v1/linkedin-send-connection' },
+    { name: 'linkedin-send-message', endpoint: '/functions/v1/linkedin-send-message' },
+  ]
+  for (const check of checks) {
+    try {
+      const res = await fetch(`${supabaseUrl}${check.endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': authToken },
+        body: JSON.stringify({ ownerId, orgId, _healthcheck: true }),
+      })
+      if (res.status === 401) {
+        console.error(`PREFLIGHT AUTH FAIL: ${check.name} returned 401 — function may need redeployment`)
+      } else {
+        console.log(`PREFLIGHT OK: ${check.name} returned HTTP ${res.status}`)
+      }
+    } catch (err) {
+      console.warn(`PREFLIGHT ERROR: ${check.name} unreachable:`, err)
+    }
+  }
+}
+
 serve(async (req: Request) => {
   // Handle CORS
   const corsResponse = handleCors(req)
@@ -1078,6 +1113,11 @@ serve(async (req: Request) => {
     }
 
     console.log(`Found ${schedules.length} scheduled items to process`)
+
+    // Run pre-flight auth check to detect stale deployments
+    if (schedules.length > 0) {
+      await preflightAuthCheck(authHeader, schedules[0].owner_id, schedules[0].org_id)
+    }
 
     // If dry run, just return what would be processed
     if (config.dryRun) {

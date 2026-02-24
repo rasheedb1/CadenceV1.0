@@ -237,6 +237,29 @@ export function CadenceBuilder() {
     }
   }
 
+  // Retry all failed schedules for this cadence
+  const retryFailed = async () => {
+    if (!id) return
+    const { data, error } = await supabase
+      .from('schedules')
+      .update({
+        status: 'scheduled',
+        scheduled_at: new Date(Date.now() + 60_000).toISOString(),
+        last_error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('cadence_id', id)
+      .eq('status', 'failed')
+      .select('id')
+    if (error) {
+      toast.error('Failed to retry schedules')
+    } else {
+      const count = data?.length || 0
+      toast.success(`${count} failed step${count !== 1 ? 's' : ''} will be retried in ~1 minute`)
+      refetchSchedules()
+    }
+  }
+
   // State for Start Automation dialog
   const [isAutomationOpen, setIsAutomationOpen] = useState(false)
 
@@ -1236,6 +1259,17 @@ export function CadenceBuilder() {
                 <CardDescription>Estado de envio de cada mensaje programado</CardDescription>
               </div>
               <div className="flex gap-2">
+                {schedules.some((s) => s.status === 'failed') && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={retryFailed}
+                    className="text-orange-600 border-orange-200 hover:bg-orange-50 dark:text-orange-400 dark:border-orange-800 dark:hover:bg-orange-950/30"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-1" />
+                    Retry Failed
+                  </Button>
+                )}
                 {schedules.some((s) => s.status === 'scheduled') && (
                   <Button variant="destructive" size="sm" onClick={cancelAllScheduled}>
                     <XCircle className="h-4 w-4 mr-1" />
