@@ -1732,7 +1732,7 @@ function ProspectsTab({
                                 <Mail className={`h-3 w-3 ${prospect.email ? 'text-green-500' : 'text-muted-foreground/30'}`} />
                                 <Phone className={`h-3 w-3 ${prospect.phone ? 'text-green-500' : 'text-muted-foreground/30'}`} />
                               </div>
-                              <p className="text-xs text-muted-foreground">
+                              <p className="text-xs text-muted-foreground break-words">
                                 {prospect.title || 'Unknown title'} · {prospect.company || companyName}
                                 {persona && <span className="ml-1">· {persona.name}</span>}
                               </p>
@@ -1740,12 +1740,12 @@ function ProspectsTab({
                                 <p className="text-xs text-muted-foreground truncate">{prospect.headline}</p>
                               )}
                               {prospect.outreach_angle && (
-                                <p className="text-xs text-blue-600 mt-1">
+                                <p className="text-xs text-blue-600 mt-1 break-words">
                                   💡 {prospect.outreach_angle}
                                 </p>
                               )}
                               {prospect.red_flags && (
-                                <p className="text-xs text-amber-600 mt-0.5">
+                                <p className="text-xs text-amber-600 mt-0.5 break-words">
                                   ⚠️ {prospect.red_flags}
                                 </p>
                               )}
