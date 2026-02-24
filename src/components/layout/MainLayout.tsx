@@ -77,7 +77,7 @@ export function MainLayout() {
           </DropdownMenu>
         </header>
 
-        <main className="flex-1 overflow-auto pl-2">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden pl-2">
           <Outlet />
         </main>
       </div>
