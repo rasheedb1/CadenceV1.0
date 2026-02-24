@@ -76,6 +76,7 @@ import {
   Copy,
   Phone,
   ListFilter,
+  Users,
 } from 'lucide-react'
 import {
   PROSPECT_STATUS_CONFIG,
@@ -1428,6 +1429,16 @@ function ProspectsTab({
     setDupResult(null)
   }
 
+  const handleSelectByPersona = (personaId: string) => {
+    const activeProspects = prospects.filter(p => !p.skipped)
+    for (const p of activeProspects) {
+      const shouldBeSelected = p.persona_id === personaId
+      const isSelected = selectedProspects.has(p.id)
+      if (shouldBeSelected && !isSelected) onToggleProspect(p.id)
+      if (!shouldBeSelected && isSelected) onToggleProspect(p.id)
+    }
+  }
+
   const handleSelectByContact = (mode: 'no_email' | 'no_phone' | 'no_both') => {
     const activeProspects = prospects.filter(p => !p.skipped)
     const matching = activeProspects.filter(p => {
@@ -1452,8 +1463,8 @@ function ProspectsTab({
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div className="flex items-center gap-2">
+        <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <CardTitle className="text-base">Prospects ({prospects.filter(p => !p.skipped).length})</CardTitle>
             {prospects.length > 0 && (
               <Button
@@ -1489,8 +1500,29 @@ function ProspectsTab({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
+            {prospects.length > 0 && personas.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="outline" className="h-7 text-xs">
+                    <Users className="mr-1 h-3.5 w-3.5" /> Select by Persona
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {personas.map(persona => {
+                    const count = prospects.filter(p => !p.skipped && p.persona_id === persona.id).length
+                    return (
+                      <DropdownMenuItem key={persona.id} onClick={() => handleSelectByPersona(persona.id)}>
+                        <span className="mr-2">{roleIcon(persona.role_in_buying_committee)}</span>
+                        {persona.name}
+                        <Badge variant="secondary" className="ml-auto text-xs">{count}</Badge>
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             {selectedCount > 0 && (
               <>
                 <Badge variant="secondary">{selectedCount} selected</Badge>
@@ -1589,13 +1621,13 @@ function ProspectsTab({
                 return (
                   <div key={companyId} className="rounded-lg border">
                     {/* Company Header */}
-                    <div className="flex items-center justify-between px-4 py-3 bg-muted/30 border-b">
-                      <div className="flex items-center gap-2">
-                        <Building2 className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-semibold text-sm">{companyName}</span>
+                    <div className="flex items-center justify-between px-4 py-3 bg-muted/30 border-b flex-wrap gap-y-2">
+                      <div className="flex items-center gap-2 flex-wrap min-w-0">
+                        <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="font-semibold text-sm truncate max-w-[200px]">{companyName}</span>
                         <SalesforceBadge match={sfIsInPipeline(companyName)} compact />
-                        <span className="text-xs text-muted-foreground">{group.company?.industry || ''}{sizeLabel}</span>
-                        <Badge variant="secondary" className="text-[10px]">{group.prospects.length} prospects</Badge>
+                        <span className="text-xs text-muted-foreground truncate">{group.company?.industry || ''}{sizeLabel}</span>
+                        <Badge variant="secondary" className="text-[10px] shrink-0">{group.prospects.length} prospects</Badge>
                       </div>
                       <div className="flex items-center gap-1.5">
                         {!hasValidated && (
