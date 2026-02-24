@@ -534,7 +534,24 @@ async function executeLinkedInAction(
         console.log(`No post configured for linkedin_like, fetching latest post for lead ${schedule.lead_id}`)
         const latestPost = await fetchLatestPost(schedule.lead_id, schedule.owner_id, schedule.org_id, authToken)
         if (!latestPost) {
-          return { success: false, error: 'No LinkedIn posts found for this lead to like' }
+          // Graceful skip: lead has no posts — mark step as skipped and advance pipeline
+          console.warn(`No LinkedIn posts found for lead ${schedule.lead_id}, skipping like step gracefully`)
+          await supabase
+            .from('schedules')
+            .update({ status: 'skipped_due_to_state_change', last_error: 'No LinkedIn posts found for this lead — step skipped', updated_at: new Date().toISOString() })
+            .eq('id', schedule.id)
+          await supabase
+            .from('lead_step_instances')
+            .update({ status: 'skipped', last_error: 'No LinkedIn posts found — step skipped', updated_at: new Date().toISOString() })
+            .eq('cadence_step_id', schedule.cadence_step_id)
+            .eq('lead_id', schedule.lead_id)
+          await advanceLeadToNextStep(supabase, schedule, cadenceStep)
+          return {
+            scheduleId: schedule.id,
+            leadId: schedule.lead_id,
+            stepType: cadenceStep.step_type,
+            success: true,
+          }
         }
         likePostId = latestPost.postId
         likePostUrl = latestPost.postUrl
@@ -555,7 +572,24 @@ async function executeLinkedInAction(
         console.log(`No post configured for linkedin_comment, fetching latest post for lead ${schedule.lead_id}`)
         const latestPost = await fetchLatestPost(schedule.lead_id, schedule.owner_id, schedule.org_id, authToken)
         if (!latestPost) {
-          return { success: false, error: 'No LinkedIn posts found for this lead to comment on' }
+          // Graceful skip: lead has no posts — mark step as skipped and advance pipeline
+          console.warn(`No LinkedIn posts found for lead ${schedule.lead_id}, skipping comment step gracefully`)
+          await supabase
+            .from('schedules')
+            .update({ status: 'skipped_due_to_state_change', last_error: 'No LinkedIn posts found for this lead — step skipped', updated_at: new Date().toISOString() })
+            .eq('id', schedule.id)
+          await supabase
+            .from('lead_step_instances')
+            .update({ status: 'skipped', last_error: 'No LinkedIn posts found — step skipped', updated_at: new Date().toISOString() })
+            .eq('cadence_step_id', schedule.cadence_step_id)
+            .eq('lead_id', schedule.lead_id)
+          await advanceLeadToNextStep(supabase, schedule, cadenceStep)
+          return {
+            scheduleId: schedule.id,
+            leadId: schedule.lead_id,
+            stepType: cadenceStep.step_type,
+            success: true,
+          }
         }
         commentPostId = latestPost.postId
         commentPostUrl = latestPost.postUrl
@@ -799,28 +833,34 @@ async function processSchedule(
         .eq('cadence_step_id', schedule.cadence_step_id)
         .eq('lead_id', schedule.lead_id)
     } else if (stepNeedsContent && !config.message_template && !schedule.message_template_text) {
-      // AI generation failed and there's no fallback template — fail the schedule
-      const error = 'AI generation failed and no fallback template available'
-      console.error(`Schedule ${schedule.id}: ${error}`)
-      await supabase
-        .from('schedules')
-        .update({ status: 'failed', last_error: error, updated_at: new Date().toISOString() })
-        .eq('id', schedule.id)
-      await supabase
-        .from('lead_step_instances')
-        .update({ status: 'failed', last_error: error, updated_at: new Date().toISOString() })
-        .eq('cadence_step_id', schedule.cadence_step_id)
-        .eq('lead_id', schedule.lead_id)
+      // AI generation failed and no explicit template — use the prompt_body as fallback
+      // This renders the prompt itself (which has {{variables}}) rather than failing the step
+      console.warn(`AI generation failed for schedule ${schedule.id}, falling back to prompt_body template`)
+      const { data: aiPromptFallback } = await supabase
+        .from('ai_prompts')
+        .select('prompt_body')
+        .eq('id', config.ai_prompt_id as string)
+        .single()
 
-      // Still advance to next step so the pipeline doesn't get stuck
-      await advanceLeadToNextStep(supabase, schedule, cadenceStep)
-
-      return {
-        scheduleId: schedule.id,
-        leadId: schedule.lead_id,
-        stepType: cadenceStep.step_type,
-        success: false,
-        error,
+      if (aiPromptFallback?.prompt_body) {
+        schedule.message_rendered_text = aiPromptFallback.prompt_body
+        await supabase
+          .from('lead_step_instances')
+          .update({ message_rendered_text: aiPromptFallback.prompt_body, status: 'generated', updated_at: new Date().toISOString() })
+          .eq('cadence_step_id', schedule.cadence_step_id)
+          .eq('lead_id', schedule.lead_id)
+        console.log(`Using prompt_body as fallback message for schedule ${schedule.id}`)
+      } else {
+        // Last resort: minimal default per step type
+        const defaults: Record<string, string> = {
+          send_email: 'Hi {{first_name}},\n\nI wanted to reach out about {{company}}.\n\nBest regards',
+          linkedin_message: 'Hi {{first_name}}, I came across your profile and wanted to connect.',
+          linkedin_comment: 'Great post! Thanks for sharing this.',
+          linkedin_connect: 'Hi {{first_name}}, I\'d love to connect.',
+        }
+        const fallback = defaults[cadenceStep.step_type] || 'Hi {{first_name}}, I wanted to reach out.'
+        schedule.message_rendered_text = fallback
+        console.warn(`Using minimal default message for schedule ${schedule.id} step ${cadenceStep.step_type}`)
       }
     } else {
       console.warn(`AI generation returned null for schedule ${schedule.id}, proceeding with template message`)
@@ -839,7 +879,7 @@ async function processSchedule(
           leadId: schedule.lead_id,
           stepType: cadenceStep.step_type,
           tone: 'professional',
-          language: 'es',
+          language: (config.language as string) || undefined,
           useSignals: config.use_signals !== false,
         }),
       })

@@ -18,6 +18,19 @@ export function createSupabaseClient(authHeader?: string) {
   })
 }
 
+/**
+ * Check if a raw JWT string matches any known service role key.
+ * Checks both SERVICE_ROLE_KEY_FULL (custom) and SUPABASE_SERVICE_ROLE_KEY (auto-injected),
+ * because the cron runner may inject either depending on environment.
+ */
+function isServiceRoleToken(jwt: string): boolean {
+  const keyFull = Deno.env.get('SERVICE_ROLE_KEY_FULL')
+  const keyAuto = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  if (keyFull && jwt === keyFull) return true
+  if (keyAuto && jwt === keyAuto) return true
+  return false
+}
+
 // Get user from JWT auth, or from ownerId when called with service role key (for cron/process-queue)
 export async function getAuthUserOrOwner(authHeader: string, ownerId?: string): Promise<{ id: string } | null> {
   const user = await getAuthUser(authHeader)
@@ -25,9 +38,8 @@ export async function getAuthUserOrOwner(authHeader: string, ownerId?: string): 
 
   // If user auth failed and ownerId was provided, verify caller is using service role key
   if (ownerId) {
-    const serviceKey = Deno.env.get('SERVICE_ROLE_KEY_FULL') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
     const jwt = authHeader.replace('Bearer ', '')
-    if (jwt === serviceKey) {
+    if (isServiceRoleToken(jwt)) {
       console.log(`Service role auth with ownerId: ${ownerId}`)
       return { id: ownerId }
     }
@@ -65,12 +77,12 @@ export async function getAuthContext(
 
   // Service role fallback
   if (opts?.ownerId && opts?.orgId) {
-    const serviceKey = Deno.env.get('SERVICE_ROLE_KEY_FULL') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
     const jwt = authHeader.replace('Bearer ', '')
-    if (jwt === serviceKey) {
+    if (isServiceRoleToken(jwt)) {
       console.log(`Service role auth context: ownerId=${opts.ownerId}, orgId=${opts.orgId}`)
       return { userId: opts.ownerId, orgId: opts.orgId }
     }
+    console.warn(`getAuthContext: service role check failed - jwt length=${jwt.length}, keys available: SERVICE_ROLE_KEY_FULL=${!!Deno.env.get('SERVICE_ROLE_KEY_FULL')}, SUPABASE_SERVICE_ROLE_KEY=${!!Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`)
   }
 
   return null
