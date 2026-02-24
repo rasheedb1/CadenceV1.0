@@ -76,7 +76,6 @@ import {
   Copy,
   Phone,
   ListFilter,
-  Users,
 } from 'lucide-react'
 import {
   PROSPECT_STATUS_CONFIG,
