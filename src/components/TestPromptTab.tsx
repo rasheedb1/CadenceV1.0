@@ -6,7 +6,6 @@ import { useOrg } from '@/contexts/OrgContext'
 import {
   callEdgeFunction,
   type AIGenerateResponse,
-  type AIPolishPromptResponse,
   type AIPrompt,
   type QualityCheck,
 } from '@/lib/edge-functions'
@@ -63,10 +62,24 @@ type StepType = 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | '
 type Tone = 'professional' | 'casual' | 'friendly'
 type Phase = 'idle' | 'generating' | 'done' | 'error'
 
+interface ChangePlan {
+  add: string[]
+  remove: string[]
+  modify: string[]
+  reasoning: string
+}
+
+interface RefinePromptResponse {
+  success: boolean
+  refinedPrompt: string
+  changes: ChangePlan
+}
+
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
-  proposedPrompt?: string   // Only on assistant messages that contain a prompt proposal
+  proposedPrompt?: string   // Only on assistant messages with a prompt proposal
+  changes?: ChangePlan      // Structured change plan from Agent 1
   isApplied?: boolean       // If this proposal was already saved to DB
 }
 
@@ -314,7 +327,7 @@ export function TestPromptTab() {
     }
   }
 
-  // Chat: send feedback to refine the prompt
+  // Chat: send feedback → multi-agent refinement (Agent 1: analyze, Agent 2: refine)
   const handleChatSend = async () => {
     const feedback = chatInput.trim()
     if (!feedback || applyingChat) return
@@ -323,7 +336,7 @@ export function TestPromptTab() {
       ? allPrompts.find(p => p.id === selectedMessagePromptId)
       : undefined
 
-    // Add user message
+    // Add user message to chat
     const userMsg: ChatMessage = { role: 'user', content: feedback }
     setChatMessages(prev => [...prev, userMsg])
     setChatInput('')
@@ -333,10 +346,10 @@ export function TestPromptTab() {
       if (!session?.access_token) throw new Error('No hay sesion activa')
 
       if (!activePrompt) {
-        // No prompt selected — just regenerate with custom instructions
+        // No prompt selected — regenerate using feedback as custom instructions only
         const assistantMsg: ChatMessage = {
           role: 'assistant',
-          content: 'No hay un prompt seleccionado. Aplicare tu feedback como instruccion adicional y regenerare el mensaje.',
+          content: 'No hay un prompt de mensaje seleccionado. Aplicare tu feedback como instruccion directa y regenerare el mensaje.',
         }
         setChatMessages(prev => [...prev, assistantMsg])
         setApplyingChat(false)
@@ -344,35 +357,41 @@ export function TestPromptTab() {
         return
       }
 
-      // Build description: existing prompt + user feedback
-      const descriptionForPolish = `Prompt actual:\n\n${activePrompt.prompt_body}\n\n---\nEl usuario quiere hacer este cambio: ${feedback}`
-
-      const result = await callEdgeFunction<AIPolishPromptResponse>(
-        'ai-polish-prompt',
+      // Call ai-refine-prompt: multi-agent (analyze → plan → refine)
+      const result = await callEdgeFunction<RefinePromptResponse>(
+        'ai-refine-prompt',
         {
-          description: descriptionForPolish,
-          promptType: activePrompt.prompt_type,
+          currentPrompt: activePrompt.prompt_body,
+          userFeedback: feedback,
+          generatedMessage: generatedMessage || undefined,
           stepType: activePrompt.step_type || stepType,
           tone: activePrompt.tone || tone,
           language: activePrompt.language || 'es',
         },
-        session.access_token
+        session.access_token,
+        { timeoutMs: 60000 }
       )
 
-      if (!result.success || !result.polishedPrompt) {
+      if (!result.success || !result.refinedPrompt) {
         throw new Error('No se pudo refinar el prompt')
       }
 
+      const { changes } = result
+      const totalChanges = changes.add.length + changes.remove.length + changes.modify.length
+
       const assistantMsg: ChatMessage = {
         role: 'assistant',
-        content: `Aqui esta el prompt modificado con tu feedback. Revisa los cambios y aplicalos si te parecen bien.`,
-        proposedPrompt: result.polishedPrompt,
+        content: totalChanges > 0
+          ? `Aqui esta el prompt refinado. Analice el prompt original, identifique la causa del problema y aplique los cambios de forma quirurgica.`
+          : `No encontre cambios especificos necesarios en el prompt. ${changes.reasoning}`,
+        proposedPrompt: totalChanges > 0 ? result.refinedPrompt : undefined,
+        changes: totalChanges > 0 ? changes : undefined,
       }
       setChatMessages(prev => [...prev, assistantMsg])
     } catch (err) {
       const assistantMsg: ChatMessage = {
         role: 'assistant',
-        content: `Error al refinar el prompt: ${err instanceof Error ? err.message : 'Error desconocido'}`,
+        content: `Error al analizar el prompt: ${err instanceof Error ? err.message : 'Error desconocido'}`,
       }
       setChatMessages(prev => [...prev, assistantMsg])
     } finally {
@@ -892,12 +911,48 @@ export function TestPromptTab() {
                           {msg.content}
                         </div>
 
-                        {/* Proposed prompt diff/preview */}
+                        {/* Change plan + proposed prompt */}
                         {msg.proposedPrompt && (
                           <div className="w-full space-y-2">
+                            {/* Change summary from Agent 1 */}
+                            {msg.changes && (
+                              <div className="rounded-lg border border-muted bg-muted/40 p-3 space-y-2">
+                                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                                  Plan de cambios (Agente 1)
+                                </p>
+                                {msg.changes.reasoning && (
+                                  <p className="text-xs text-muted-foreground italic">{msg.changes.reasoning}</p>
+                                )}
+                                {msg.changes.add.length > 0 && (
+                                  <div>
+                                    <p className="text-[10px] font-semibold text-green-700 mb-0.5">+ Agregar</p>
+                                    {msg.changes.add.map((item, i) => (
+                                      <p key={i} className="text-xs text-green-800 pl-3">• {item}</p>
+                                    ))}
+                                  </div>
+                                )}
+                                {msg.changes.remove.length > 0 && (
+                                  <div>
+                                    <p className="text-[10px] font-semibold text-red-700 mb-0.5">− Eliminar</p>
+                                    {msg.changes.remove.map((item, i) => (
+                                      <p key={i} className="text-xs text-red-800 pl-3">• {item}</p>
+                                    ))}
+                                  </div>
+                                )}
+                                {msg.changes.modify.length > 0 && (
+                                  <div>
+                                    <p className="text-[10px] font-semibold text-amber-700 mb-0.5">~ Modificar</p>
+                                    {msg.changes.modify.map((item, i) => (
+                                      <p key={i} className="text-xs text-amber-800 pl-3">• {item}</p>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {/* Refined prompt from Agent 2 */}
                             <div className="rounded-lg border border-purple-200 bg-purple-50 p-3">
                               <p className="text-[10px] font-semibold text-purple-600 uppercase tracking-wide mb-1.5">
-                                Prompt propuesto
+                                Prompt refinado (Agente 2)
                               </p>
                               <p className="text-xs text-purple-900 whitespace-pre-wrap line-clamp-6">
                                 {msg.proposedPrompt}
