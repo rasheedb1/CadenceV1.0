@@ -59,11 +59,13 @@ import {
   X,
   Save,
   Zap,
+  FlaskConical,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PermissionGate } from '@/components/PermissionGate'
 import { ExampleSectionsTab } from '@/components/ExampleSectionsTab'
 import { SignalsTab } from '@/components/SignalsTab'
+import { TestPromptTab } from '@/components/TestPromptTab'
 
 const STEP_TYPES = [
   { value: 'linkedin_message', label: 'LinkedIn Message', icon: MessageSquare, color: 'bg-sky-100 text-sky-700' },
@@ -93,7 +95,7 @@ const COMMUNICATION_STYLES = [
   { value: 'executive_brief', label: 'Executive Brief', desc: 'Conciso y ejecutivo' },
 ] as const
 
-type PromptTabType = 'persona' | 'message' | 'research' | 'examples' | 'signals'
+type PromptTabType = 'persona' | 'message' | 'research' | 'examples' | 'signals' | 'test'
 type StepType = 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email'
 type Tone = 'professional' | 'casual' | 'friendly'
 
@@ -1033,6 +1035,10 @@ export function AIPrompts() {
             <Zap className="h-4 w-4" />
             Señales
           </TabsTrigger>
+          <TabsTrigger value="test" className="gap-1.5">
+            <FlaskConical className="h-4 w-4" />
+            Test
+          </TabsTrigger>
         </TabsList>
 
         {/* Mi Perfil Tab */}
@@ -1230,6 +1236,11 @@ export function AIPrompts() {
         {/* Señales Tab */}
         <TabsContent value="signals" className="mt-4">
           <SignalsTab />
+        </TabsContent>
+
+        {/* Test Tab */}
+        <TabsContent value="test" className="mt-4">
+          <TestPromptTab />
         </TabsContent>
       </Tabs>
 
