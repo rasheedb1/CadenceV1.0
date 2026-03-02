@@ -56,11 +56,13 @@ const SYSTEM_PROMPT = `You are an expert B2B market researcher and company disco
 ## Your Task
 Have a natural conversation to help the user discover and refine target companies. Each turn, you should:
 1. Respond conversationally (acknowledge their input, explain your reasoning briefly)
-2. Suggest 5-8 REAL companies that match their criteria
+2. Suggest REAL companies that match their criteria — as many as the user requests, up to 20 per turn
 
 ## Rules
 - Only suggest REAL companies that actually exist. Never invent fake companies.
-- ALWAYS suggest between 5 and 8 companies. Never more than 8 per turn.
+- If the user requests a specific number of companies (e.g. "give me 30"), honor that request by splitting into multiple batches — suggest up to 20 per turn and tell them you will continue in the next message if more are needed.
+- By default (no specific number requested), suggest between 5 and 15 companies per turn.
+- NEVER suggest fewer than 5 companies unless the user explicitly asks for fewer or there are no more matching companies.
 - Each company must have: company_name, industry, company_size (estimate like "51-200", "1001-5000", etc.), website, location, description (1 sentence max), and reason_for_suggesting (1 sentence max).
 - Keep description and reason_for_suggesting SHORT (under 20 words each).
 - Learn from ACCEPTED companies: suggest MORE companies similar to accepted ones (same industry, same size, same region, similar business model).
@@ -265,6 +267,10 @@ serve(async (req: Request) => {
     console.log(`Prompt length: ${userPrompt.length} chars (~${Math.round(userPrompt.length / 4)} tokens)`)
 
     const MIN_COMPANIES = 5
+    // Extract requested count from user message (e.g. "30 companies", "al menos 20")
+    const requestedCountMatch = userMessage.match(/\b(\d+)\s*(?:empresas?|companies|opciones?)\b/i)
+      || userMessage.match(/\b(?:al menos|at least|dame|give me)\s+(\d+)\b/i)
+    const requestedCount = requestedCountMatch ? Math.min(parseInt(requestedCountMatch[1], 10), 20) : MIN_COMPANIES
 
     const callLLM = async (prompt: string, maxTokens: number) => {
       return llm.createMessage({
@@ -325,10 +331,11 @@ serve(async (req: Request) => {
     let { responseText, companies: rawCompanies } = await parseLLMResponse(result.text, result.stopReason, userPrompt)
 
     // If we got too few companies and the model stopped normally, make a fill-up call
-    if (rawCompanies.length > 0 && rawCompanies.length < MIN_COMPANIES && result.stopReason !== 'max_tokens') {
-      console.log(`Only ${rawCompanies.length} companies returned, requesting more to reach ${MIN_COMPANIES}`)
+    const targetCount = Math.max(MIN_COMPANIES, requestedCount)
+    if (rawCompanies.length > 0 && rawCompanies.length < targetCount && result.stopReason !== 'max_tokens') {
+      console.log(`Only ${rawCompanies.length} companies returned, requesting more to reach ${targetCount}`)
       const alreadySuggested = rawCompanies.map((c: { company_name?: string }) => c.company_name).filter(Boolean)
-      const fillUpPrompt = `${userPrompt}\n\n## IMPORTANT: You already suggested these companies: ${alreadySuggested.join(', ')}. DO NOT repeat them. Suggest ${MIN_COMPANIES - rawCompanies.length} MORE different companies that match the criteria. Return the SAME JSON format with only the NEW companies.`
+      const fillUpPrompt = `${userPrompt}\n\n## IMPORTANT: You already suggested these companies: ${alreadySuggested.join(', ')}. DO NOT repeat them. Suggest ${targetCount - rawCompanies.length} MORE different companies that match the criteria. Return the SAME JSON format with only the NEW companies.`
 
       const fillResult = await callLLM(fillUpPrompt, 8192)
       if (fillResult.success) {
