@@ -1065,6 +1065,19 @@ serve(async (req: Request) => {
       return errorResponse('Missing authorization header', 401)
     }
 
+    // CRITICAL: Build a fresh service-role token from env vars to use when calling
+    // sub-functions. We MUST NOT forward the received authHeader — the Supabase cron
+    // runner may inject the anon key or an old/rotated key that doesn't match
+    // SUPABASE_SERVICE_ROLE_KEY. Sub-functions use isServiceRoleToken() which compares
+    // the raw JWT string against SERVICE_ROLE_KEY_FULL / SUPABASE_SERVICE_ROLE_KEY.
+    const _serviceRoleKey = Deno.env.get('SERVICE_ROLE_KEY_FULL') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    if (!_serviceRoleKey) {
+      console.error('FATAL: No service role key available in environment (SERVICE_ROLE_KEY_FULL / SUPABASE_SERVICE_ROLE_KEY)')
+      return errorResponse('Server misconfiguration: missing service role key', 500)
+    }
+    const subFunctionAuth = `Bearer ${_serviceRoleKey}`
+    console.log(`Auth: received token length=${authHeader.length}, sub-function auth uses SERVICE_ROLE key (length=${_serviceRoleKey.length})`)
+
     // Parse optional configuration from request body
     let config = {
       minDelayMs: DEFAULT_MIN_DELAY,
@@ -1116,7 +1129,7 @@ serve(async (req: Request) => {
 
     // Run pre-flight auth check to detect stale deployments
     if (schedules.length > 0) {
-      await preflightAuthCheck(authHeader, schedules[0].owner_id, schedules[0].org_id)
+      await preflightAuthCheck(subFunctionAuth, schedules[0].owner_id, schedules[0].org_id)
     }
 
     // If dry run, just return what would be processed
@@ -1158,8 +1171,8 @@ serve(async (req: Request) => {
       }
       processedLeadSteps.add(dedupeKey)
 
-      // Process this schedule
-      const result = await processSchedule(schedule, authHeader)
+      // Process this schedule (use subFunctionAuth — service role key — not the forwarded cron token)
+      const result = await processSchedule(schedule, subFunctionAuth)
       results.push(result)
 
       // Add random delay before next item (except for the last one)
