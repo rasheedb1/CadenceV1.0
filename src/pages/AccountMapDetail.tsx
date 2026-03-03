@@ -1239,7 +1239,7 @@ function ProspectsTab({
   onSearch: () => void
   onBatchSearch: () => void
   onEnrich: (p: Prospect) => void
-  onBulkEnrich: (prospectIds: string[], companyWebsite?: string) => Promise<any>
+  onBulkEnrich: (prospectIds: string[], companyWebsite?: string, onProgress?: (done: number, total: number) => void) => Promise<any>
   onPromote: () => void
   onDelete: (id: string) => void
 }) {
@@ -1255,6 +1255,7 @@ function ProspectsTab({
   const [selectedCadence, setSelectedCadence] = useState('')
   const [bulkEnriching, setBulkEnriching] = useState(false)
   const [bulkEnrichResult, setBulkEnrichResult] = useState<{ enriched: number; failed: number } | null>(null)
+  const [enrichProgress, setEnrichProgress] = useState<{ done: number; total: number } | null>(null)
   const [findingDuplicates, setFindingDuplicates] = useState(false)
   const [dupResult, setDupResult] = useState<{ duplicatesOfLeads: number; duplicatesAmongProspects: number } | null>(null)
 
@@ -1380,17 +1381,19 @@ function ProspectsTab({
     if (ids.length === 0) return
     setBulkEnriching(true)
     setBulkEnrichResult(null)
+    setEnrichProgress({ done: 0, total: ids.length })
     try {
-      const res = await onBulkEnrich(ids)
+      const res = await onBulkEnrich(ids, undefined, (done, total) => setEnrichProgress({ done, total }))
       setBulkEnrichResult({
         enriched: res.summary?.enriched || 0,
-        failed: res.summary?.failed || 0,
+        failed: (res.summary?.total || 0) - (res.summary?.enriched || 0),
       })
     } catch (err) {
       console.error('Bulk enrichment failed:', err)
       alert(err instanceof Error ? err.message : 'Enrichment failed')
     } finally {
       setBulkEnriching(false)
+      setEnrichProgress(null)
     }
   }
 
@@ -1528,10 +1531,12 @@ function ProspectsTab({
               <>
                 <Badge variant="secondary">{selectedCount} selected</Badge>
                 <Button size="sm" variant="outline" onClick={handleBulkEnrich} disabled={bulkEnriching}>
-                  {bulkEnriching ? (
-                    <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Enriching...</>
+                  {bulkEnriching && enrichProgress ? (
+                    <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Enriching {enrichProgress.done}/{enrichProgress.total}...</>
+                  ) : bulkEnriching ? (
+                    <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Starting...</>
                   ) : (
-                    <><Mail className="mr-1 h-4 w-4" /> Enrich Selected</>
+                    <>Enrich Selected</>
                   )}
                 </Button>
                 {promotableCount > 0 && (

@@ -38,6 +38,24 @@ interface ApolloPersonMatch {
   }
 }
 
+// ─── Concurrency helper ───────────────────────────────────────────
+
+async function runWithConcurrency<T>(
+  tasks: Array<() => Promise<T>>,
+  concurrency: number,
+): Promise<T[]> {
+  const results: T[] = new Array(tasks.length)
+  let nextIndex = 0
+  async function worker() {
+    while (nextIndex < tasks.length) {
+      const index = nextIndex++
+      results[index] = await tasks[index]()
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker))
+  return results
+}
+
 // ─── Apollo.io People Enrichment ─────────────────────────────────
 
 async function enrichWithApollo(
@@ -331,17 +349,15 @@ serve(async (req: Request) => {
 
     const supabase = createSupabaseClient()
 
-    // Process each prospect
-    const results: Array<{
-      prospectId: string
-      success: boolean
-      email?: string | null
-      phone?: string | null
-      source?: string
-      error?: string
-    }> = []
+    // Cap batch size to prevent Supabase 60s timeout
+    const MAX_BATCH = 4
+    const cappedIds = prospectIds.slice(0, MAX_BATCH)
+    if (cappedIds.length < prospectIds.length) {
+      console.warn(`enrich-prospect: received ${prospectIds.length} IDs, capping at ${MAX_BATCH}`)
+    }
 
-    for (const pid of prospectIds) {
+    const CONCURRENCY = 3
+    const tasks = cappedIds.map((pid) => async () => {
       const result = await enrichSingleProspect(
         supabase,
         pid,
@@ -350,13 +366,9 @@ serve(async (req: Request) => {
         firecrawlApiKey,
         body.companyWebsite,
       )
-      results.push({ prospectId: pid, ...result })
-
-      // Small delay between prospects to avoid rate limits
-      if (prospectIds.length > 1) {
-        await new Promise(resolve => setTimeout(resolve, 200))
-      }
-    }
+      return { prospectId: pid, ...result }
+    })
+    const results = await runWithConcurrency(tasks, CONCURRENCY)
 
     const enriched = results.filter(r => r.email)
     console.log(`Enrichment complete: ${enriched.length}/${results.length} prospects got emails`)

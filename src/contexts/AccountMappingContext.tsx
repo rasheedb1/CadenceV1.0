@@ -176,7 +176,7 @@ interface AccountMappingContextType {
   searchSalesNavigator: (params: SearchSalesNavigatorParams) => Promise<SearchSalesNavigatorResponse>
   cascadeSearchCompany: (accountMapId: string, companyId: string, maxPerRole: number) => Promise<CascadeSearchCompanyResponse>
   enrichProspect: (prospectId: string, companyWebsite?: string) => Promise<EnrichProspectResponse>
-  bulkEnrichProspects: (prospectIds: string[], companyWebsite?: string) => Promise<EnrichProspectResponse>
+  bulkEnrichProspects: (prospectIds: string[], companyWebsite?: string, onProgress?: (done: number, total: number) => void) => Promise<EnrichProspectResponse>
   enrichCompanyProspects: (accountMapId: string, companyId: string) => Promise<void>
   findDuplicateProspects: (prospects: Array<{ id: string; linkedin_url: string | null; linkedin_provider_id: string | null; email: string | null; first_name: string; last_name: string; company: string | null }>) => Promise<{ duplicateIds: Set<string>; duplicatesOfLeads: number; duplicatesAmongProspects: number }>
   // Promote to lead
@@ -453,6 +453,45 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['icp-templates'] }),
   })
 
+  const chunkEnrich = async (
+    prospectIds: string[],
+    companyWebsite: string | undefined,
+    token: string,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<EnrichProspectResponse> => {
+    const CHUNK_SIZE = 3
+    const allResults: EnrichProspectResponse['results'] = []
+    let totalEnriched = 0
+    let totalWithPhone = 0
+
+    for (let i = 0; i < prospectIds.length; i += CHUNK_SIZE) {
+      const chunk = prospectIds.slice(i, i + CHUNK_SIZE)
+      try {
+        const chunkResult = await callEdgeFunction<EnrichProspectResponse>(
+          'enrich-prospect',
+          { prospectIds: chunk, companyWebsite },
+          token,
+          { timeoutMs: 50000 },
+        )
+        allResults.push(...(chunkResult.results || []))
+        totalEnriched += chunkResult.summary?.enriched || 0
+        totalWithPhone += chunkResult.summary?.withPhone || 0
+      } catch (err) {
+        for (const pid of chunk) {
+          allResults.push({ prospectId: pid, success: false, error: err instanceof Error ? err.message : 'Chunk failed' })
+        }
+      }
+      onProgress?.(Math.min(i + CHUNK_SIZE, prospectIds.length), prospectIds.length)
+    }
+
+    queryClient.invalidateQueries({ queryKey: ['account-maps'] })
+    return {
+      success: true,
+      results: allResults,
+      summary: { total: prospectIds.length, enriched: totalEnriched, withEmail: totalEnriched, withPhone: totalWithPhone },
+    }
+  }
+
   return (
     <AccountMappingContext.Provider
       value={{
@@ -646,16 +685,9 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
         },
 
         // Edge function: Bulk enrich prospects
-        bulkEnrichProspects: async (prospectIds, companyWebsite) => {
+        bulkEnrichProspects: async (prospectIds, companyWebsite, onProgress?) => {
           if (!session?.access_token) throw new Error('Not authenticated')
-          const result = await callEdgeFunction<EnrichProspectResponse>(
-            'enrich-prospect',
-            { prospectIds, companyWebsite },
-            session.access_token,
-            { timeoutMs: prospectIds.length * 10000 + 30000 }, // ~10s per prospect + buffer
-          )
-          queryClient.invalidateQueries({ queryKey: ['account-maps'] })
-          return result
+          return chunkEnrich(prospectIds, companyWebsite, session.access_token, onProgress)
         },
 
         // Enrich all un-enriched prospects for a company (used by batch search auto-enrich)
@@ -671,13 +703,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
             .is('email', null)
           if (!prospects || prospects.length === 0) return
           const ids = prospects.map((p: { id: string }) => p.id)
-          await callEdgeFunction<EnrichProspectResponse>(
-            'enrich-prospect',
-            { prospectIds: ids },
-            session.access_token,
-            { timeoutMs: ids.length * 10000 + 30000 },
-          )
-          queryClient.invalidateQueries({ queryKey: ['account-maps'] })
+          await chunkEnrich(ids, undefined, session.access_token)
         },
 
         // Find duplicate prospects among themselves (same person appearing multiple times).
