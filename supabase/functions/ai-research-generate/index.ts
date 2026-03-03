@@ -13,7 +13,7 @@ import type { SignalConfigWithType, DetectedSignal } from '../_shared/signal-typ
 
 interface AIGenerateRequest {
   leadId: string
-  stepType: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email'
+  stepType: 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email' | 'email_reply'
   messageTemplate?: string
   researchPrompt?: string
   tone?: 'professional' | 'casual' | 'friendly'
@@ -156,7 +156,7 @@ function buildUserPromptV2(params: {
     postContext, regenerateHint, detectedSignals,
   } = params
 
-  const isEmail = stepType === 'send_email'
+  const isEmail = stepType === 'send_email' || stepType === 'email_reply'
   const parts: string[] = []
 
   // ── SECTION 1: Sender Context ──
@@ -228,6 +228,7 @@ ${researchSummary}`)
     linkedin_connect: 'LinkedIn Connection Note (STRICT MAX 300 characters)',
     linkedin_comment: 'LinkedIn Comment (max 150 words)',
     send_email: 'Email (max 300 words, first line must be: SUBJECT: [subject line])',
+    email_reply: 'Email Follow-Up Reply (max 250 words, first line must be: SUBJECT: Re: [original subject])',
   }
 
   parts.push(`## MESSAGE INSTRUCTIONS
@@ -472,11 +473,11 @@ serve(async (req: Request) => {
 
     if (!leadId) return errorResponse('leadId is required')
     if (!stepType) return errorResponse('stepType is required')
-    const validStepTypes = ['linkedin_message', 'linkedin_connect', 'linkedin_comment', 'send_email']
+    const validStepTypes = ['linkedin_message', 'linkedin_connect', 'linkedin_comment', 'send_email', 'email_reply']
     if (!validStepTypes.includes(stepType)) {
       return errorResponse(`stepType must be one of: ${validStepTypes.join(', ')}`)
     }
-    const isEmailStep = stepType === 'send_email'
+    const isEmailStep = stepType === 'send_email' || stepType === 'email_reply'
 
     // ── Fetch lead from DB ──
     const supabase = createSupabaseClient()

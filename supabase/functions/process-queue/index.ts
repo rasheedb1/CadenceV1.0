@@ -884,7 +884,7 @@ async function processSchedule(
 
   // ── AI generation for automated steps ──
   const config = cadenceStep.config_json || {}
-  const stepNeedsContent = ['linkedin_message', 'linkedin_comment', 'send_email'].includes(cadenceStep.step_type) ||
+  const stepNeedsContent = ['linkedin_message', 'linkedin_comment', 'send_email', 'email_reply'].includes(cadenceStep.step_type) ||
     (cadenceStep.step_type === 'linkedin_connect' && config.send_note === true)
 
   if (config.ai_prompt_id) {
@@ -926,6 +926,7 @@ async function processSchedule(
         // Last resort: minimal default per step type
         const defaults: Record<string, string> = {
           send_email: 'Hi {{first_name}},\n\nI wanted to reach out about {{company}}.\n\nBest regards',
+          email_reply: 'Hi {{first_name}},\n\nI wanted to follow up on my previous email regarding {{company}}.\n\nLooking forward to hearing from you.\n\nBest regards',
           linkedin_message: 'Hi {{first_name}}, I came across your profile and wanted to connect.',
           linkedin_comment: 'Great post! Thanks for sharing this.',
           linkedin_connect: 'Hi {{first_name}}, I\'d love to connect.',

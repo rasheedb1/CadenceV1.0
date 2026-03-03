@@ -114,8 +114,10 @@ serve(async (req: Request) => {
     if (!subject) {
       return errorResponse('subject is required')
     }
-    if (!emailBody) {
-      return errorResponse('body is required')
+    // Check for truly empty body (including HTML-wrapped empty content like "<p></p>")
+    const strippedBody = emailBody?.replace(/<[^>]*>/g, '').trim()
+    if (!emailBody || !strippedBody) {
+      return errorResponse('body is required (email body is empty)')
     }
 
     // ── Email open tracking: inject pixel + create email_messages record ──
@@ -165,7 +167,11 @@ serve(async (req: Request) => {
     if (bodyType === 'text/plain') emailPayload.body_type = 'text/plain'
 
     // Add reply_to for email threading (follow-up in same thread)
-    if (replyToMessageId) emailPayload.reply_to = replyToMessageId
+    // Unipile expects the Unipile email `id` (e.g. "n_3LLSdEUqWX-InHajCaFA") — stored in email_messages.gmail_message_id
+    if (replyToMessageId) {
+      emailPayload.reply_to = replyToMessageId
+      console.log(`Threading reply onto Unipile email ID: ${replyToMessageId}`)
+    }
 
     const MAX_RETRIES = 2
     let response: Response | null = null
@@ -268,9 +274,46 @@ serve(async (req: Request) => {
     }
 
     const result = await response.json()
-    const emailId = result?.id || result?.message_id || null
+    console.log('Unipile email send response:', JSON.stringify(result))
 
-    console.log('Email sent successfully:', JSON.stringify(result))
+    // Try to get email ID from POST response first
+    let emailId: string | null = result?.id || result?.message_id || result?.email_id || result?.object_id || null
+
+    // If POST didn't return an ID (Unipile sometimes returns just {}), fetch the sent email
+    // from the listing API to get the Unipile email ID needed for reply threading
+    if (!emailId) {
+      console.log('No email ID in POST response — fetching sent email from Unipile listing...')
+      try {
+        // Small wait to allow Unipile to index the sent email
+        await new Promise(r => setTimeout(r, 2000))
+        const listRes = await fetch(
+          `${baseUrl}/api/v1/emails?account_id=${gmailAccountId}&role=SENT&limit=5`,
+          { headers: { 'X-API-KEY': unipileAccessToken } }
+        )
+        if (listRes.ok) {
+          const listData = await listRes.json()
+          const items: Array<Record<string, unknown>> = listData?.items || listData?.data || []
+          // Find the email we just sent by matching recipient + subject
+          const normalizeSubject = (s: string) => s.replace(/^re:\s*/i, '').trim().toLowerCase()
+          const sent = items.find((e) => {
+            const toIds = (e.to_attendees as Array<{identifier: string}> || []).map(a => a.identifier)
+            const subjectMatch = normalizeSubject(e.subject as string || '') === normalizeSubject(subject)
+            const recipientMatch = toIds.some(id => id.toLowerCase() === recipientEmail.toLowerCase())
+            return subjectMatch && recipientMatch
+          }) || items[0] // fallback to most recent
+          if (sent?.id) {
+            emailId = sent.id as string
+            console.log(`Retrieved Unipile email ID from listing: ${emailId}`)
+          }
+        }
+      } catch (err) {
+        console.warn('Could not retrieve email ID from Unipile listing:', err)
+      }
+    }
+
+    if (!emailId) {
+      console.warn('WARNING: Could not obtain Unipile email ID. Reply threading will not work.')
+    }
 
     // Update email_messages status to sent
     await supabase
