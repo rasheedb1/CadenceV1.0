@@ -109,7 +109,8 @@ function sleep(ms: number): Promise<void> {
 async function generateAIMessage(
   schedule: Schedule,
   cadenceStep: CadenceStep,
-  authToken: string
+  authToken: string,
+  postContext?: string
 ): Promise<{ message: string; subject?: string } | null> {
   const config = cadenceStep.config_json || {}
   const aiPromptId = config.ai_prompt_id as string | undefined
@@ -181,6 +182,7 @@ async function generateAIMessage(
           language: aiPrompt.language || 'es',
           exampleMessages,
           useSignals: config.use_signals !== false,
+          ...(postContext ? { postContext } : {}),
         }),
       })
 
@@ -428,7 +430,7 @@ async function fetchLatestPost(
   ownerId: string,
   orgId: string,
   authToken: string
-): Promise<{ postId: string; postUrl: string } | null> {
+): Promise<{ postId: string; postUrl: string; postText?: string } | null> {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
 
   try {
@@ -452,6 +454,7 @@ async function fetchLatestPost(
     return {
       postId: latestPost.id || '',
       postUrl: latestPost.url || '',
+      postText: latestPost.text || latestPost.original_post?.text || undefined,
     }
   } catch (error) {
     console.error(`Error fetching posts for lead ${leadId}:`, error)
@@ -894,9 +897,19 @@ async function processSchedule(
   const stepNeedsContent = ['linkedin_message', 'linkedin_comment', 'send_email', 'email_reply'].includes(cadenceStep.step_type) ||
     (cadenceStep.step_type === 'linkedin_connect' && config.send_note === true)
 
+  // For linkedin_comment: pre-fetch the latest post so AI can generate a contextual comment
+  let prefetchedPostContext: string | undefined
+  if (cadenceStep.step_type === 'linkedin_comment') {
+    const latestPost = await fetchLatestPost(schedule.lead_id, schedule.owner_id, schedule.org_id, authToken)
+    if (latestPost?.postText) {
+      prefetchedPostContext = latestPost.postText
+      console.log(`Pre-fetched post context for linkedin_comment (${latestPost.postText.length} chars)`)
+    }
+  }
+
   if (config.ai_prompt_id) {
     // Has explicit AI prompt → generate with it
-    const aiResult = await generateAIMessage(schedule, cadenceStep, authToken)
+    const aiResult = await generateAIMessage(schedule, cadenceStep, authToken, prefetchedPostContext)
     if (aiResult) {
       schedule.message_rendered_text = aiResult.message
       if (aiResult.subject) {
@@ -961,6 +974,7 @@ async function processSchedule(
           tone: 'professional',
           language: (config.language as string) || undefined,
           useSignals: config.use_signals !== false,
+          ...(prefetchedPostContext ? { postContext: prefetchedPostContext } : {}),
         }),
       })
       const data = await response.json()

@@ -790,6 +790,16 @@ serve(async (req: Request) => {
     })
     const researchSummary = summaryResult.success ? summaryResult.text : null
 
+    // For linkedin_comment: if no explicit postContext was provided, use the most recent fetched post
+    const effectivePostContext = postContext ||
+      (stepType === 'linkedin_comment' && profileSummary.recentPosts.length > 0
+        ? profileSummary.recentPosts[0].text
+        : undefined)
+
+    if (stepType === 'linkedin_comment') {
+      console.log(`linkedin_comment postContext: ${effectivePostContext ? `"${effectivePostContext.substring(0, 100)}..."` : 'none — comment will be generic'}`)
+    }
+
     // ── Build user prompt with language context ──
     const userPrompt = buildUserPromptV2({
       senderPersona,
@@ -807,7 +817,7 @@ serve(async (req: Request) => {
       customInstructions: customInstructions || null,
       exampleMessages,
       exampleNotes,
-      postContext,
+      postContext: effectivePostContext,
       regenerateHint,
       detectedSignals,
     })
