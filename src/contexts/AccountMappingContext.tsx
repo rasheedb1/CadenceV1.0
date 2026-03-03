@@ -89,6 +89,7 @@ export interface EnrichProspectResponse {
     phone?: string | null
     source?: string
     error?: string
+    failReason?: string | null
     emailCreditWarning?: boolean
     phoneCreditWarning?: boolean
   }>
@@ -99,6 +100,7 @@ export interface EnrichProspectResponse {
     withPhone: number
     emailCreditWarning?: boolean
     phoneCreditWarning?: boolean
+    failReasonCounts?: Record<string, number>
   }
 }
 
@@ -467,6 +469,9 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
     const allResults: EnrichProspectResponse['results'] = []
     let totalEnriched = 0
     let totalWithPhone = 0
+    const failReasonCounts: Record<string, number> = {}
+    let anyEmailCreditWarning = false
+    let anyPhoneCreditWarning = false
 
     for (let i = 0; i < prospectIds.length; i += CHUNK_SIZE) {
       const chunk = prospectIds.slice(i, i + CHUNK_SIZE)
@@ -480,9 +485,16 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
         allResults.push(...(chunkResult.results || []))
         totalEnriched += chunkResult.summary?.enriched || 0
         totalWithPhone += chunkResult.summary?.withPhone || 0
+        if (chunkResult.summary?.emailCreditWarning) anyEmailCreditWarning = true
+        if (chunkResult.summary?.phoneCreditWarning) anyPhoneCreditWarning = true
+        // Accumulate fail reason counts
+        for (const [reason, count] of Object.entries(chunkResult.summary?.failReasonCounts || {})) {
+          failReasonCounts[reason] = (failReasonCounts[reason] || 0) + count
+        }
       } catch (err) {
         for (const pid of chunk) {
-          allResults.push({ prospectId: pid, success: false, error: err instanceof Error ? err.message : 'Chunk failed' })
+          allResults.push({ prospectId: pid, success: false, error: err instanceof Error ? err.message : 'Chunk failed', failReason: 'request_error' })
+          failReasonCounts['request_error'] = (failReasonCounts['request_error'] || 0) + 1
         }
       }
       onProgress?.(Math.min(i + CHUNK_SIZE, prospectIds.length), prospectIds.length)
@@ -492,7 +504,15 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
     return {
       success: true,
       results: allResults,
-      summary: { total: prospectIds.length, enriched: totalEnriched, withEmail: totalEnriched, withPhone: totalWithPhone },
+      summary: {
+        total: prospectIds.length,
+        enriched: totalEnriched,
+        withEmail: totalEnriched,
+        withPhone: totalWithPhone,
+        emailCreditWarning: anyEmailCreditWarning,
+        phoneCreditWarning: anyPhoneCreditWarning,
+        failReasonCounts,
+      },
     }
   }
 

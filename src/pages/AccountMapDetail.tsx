@@ -76,6 +76,8 @@ import {
   Copy,
   Phone,
   ListFilter,
+  AlertTriangle,
+  XCircle,
 } from 'lucide-react'
 import {
   PROSPECT_STATUS_CONFIG,
@@ -1254,7 +1256,14 @@ function ProspectsTab({
   const [addToCadenceProspect, setAddToCadenceProspect] = useState<Prospect | null>(null)
   const [selectedCadence, setSelectedCadence] = useState('')
   const [bulkEnriching, setBulkEnriching] = useState(false)
-  const [bulkEnrichResult, setBulkEnrichResult] = useState<{ enriched: number; failed: number } | null>(null)
+  const [bulkEnrichResult, setBulkEnrichResult] = useState<{
+    enriched: number
+    failed: number
+    withPhone: number
+    failReasonCounts: Record<string, number>
+    emailCreditWarning: boolean
+    phoneCreditWarning: boolean
+  } | null>(null)
   const [enrichProgress, setEnrichProgress] = useState<{ done: number; total: number } | null>(null)
   const [findingDuplicates, setFindingDuplicates] = useState(false)
   const [dupResult, setDupResult] = useState<{ duplicatesOfLeads: number; duplicatesAmongProspects: number } | null>(null)
@@ -1387,6 +1396,10 @@ function ProspectsTab({
       setBulkEnrichResult({
         enriched: res.summary?.enriched || 0,
         failed: (res.summary?.total || 0) - (res.summary?.enriched || 0),
+        withPhone: res.summary?.withPhone || 0,
+        failReasonCounts: res.summary?.failReasonCounts || {},
+        emailCreditWarning: res.summary?.emailCreditWarning || false,
+        phoneCreditWarning: res.summary?.phoneCreditWarning || false,
       })
     } catch (err) {
       console.error('Bulk enrichment failed:', err)
@@ -1550,9 +1563,7 @@ function ProspectsTab({
               </>
             )}
             {bulkEnrichResult && (
-              <Badge variant={bulkEnrichResult.enriched > 0 ? 'default' : 'secondary'}>
-                {bulkEnrichResult.enriched} enriched{bulkEnrichResult.failed > 0 ? `, ${bulkEnrichResult.failed} failed` : ''}
-              </Badge>
+              <EnrichSummaryBadge result={bulkEnrichResult} onDismiss={() => setBulkEnrichResult(null)} />
             )}
             {dupResult && dupResult.duplicatesAmongProspects > 0 && (
               <Badge variant="destructive">
@@ -2480,6 +2491,86 @@ function EnrichDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ═══════════════════════════════════════════════════════
+// COMPONENT: Enrich Result Summary Badge
+// ═══════════════════════════════════════════════════════
+
+const FAIL_REASON_LABELS: Record<string, { label: string; color: string; detail: string }> = {
+  not_in_apollo:          { label: 'No encontrado en Apollo',  color: 'text-muted-foreground', detail: 'Apollo no tiene datos de esta persona. Prueba agregar la URL de LinkedIn o el website de la empresa.' },
+  no_contact_data:        { label: 'Sin datos de contacto',    color: 'text-amber-600',        detail: 'Apollo encontró el perfil pero no tiene email ni teléfono en su base de datos.' },
+  no_identifier:          { label: 'Sin identificador',        color: 'text-orange-600',       detail: 'Falta LinkedIn URL y dominio. Agrega al menos uno para poder buscar en Apollo.' },
+  apollo_credit_exhausted:{ label: 'Créditos agotados',        color: 'text-red-600',          detail: 'Se agotaron los créditos de Apollo. Revisa tu plan en apollo.io.' },
+  apollo_rate_limit:      { label: 'Rate limit Apollo',        color: 'text-red-500',          detail: 'Apollo respondió con rate limit. Reintenta en unos minutos.' },
+  apollo_error:           { label: 'Error de Apollo',          color: 'text-red-500',          detail: 'Apollo retornó un error inesperado.' },
+  no_api_key:             { label: 'Sin API key',              color: 'text-red-600',          detail: 'No hay API key de Apollo configurada en las variables de entorno.' },
+  request_error:          { label: 'Error de red',             color: 'text-red-500',          detail: 'Error al llamar al servidor. Reintenta.' },
+}
+
+function EnrichSummaryBadge({
+  result,
+  onDismiss,
+}: {
+  result: {
+    enriched: number
+    failed: number
+    withPhone: number
+    failReasonCounts: Record<string, number>
+    emailCreditWarning: boolean
+    phoneCreditWarning: boolean
+  }
+  onDismiss: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const hasFailures = result.failed > 0
+  const failEntries = Object.entries(result.failReasonCounts).sort((a, b) => b[1] - a[1])
+
+  return (
+    <div className="rounded-md border bg-background shadow-sm text-xs max-w-sm">
+      <div className="flex items-center gap-2 px-3 py-2">
+        {result.enriched > 0 ? (
+          <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+        ) : (
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+        )}
+        <span className="font-medium">
+          {result.enriched} con email
+          {result.withPhone > 0 && `, ${result.withPhone} con teléfono`}
+          {hasFailures && ` · ${result.failed} sin datos`}
+        </span>
+        {hasFailures && (
+          <button
+            onClick={() => setExpanded(v => !v)}
+            className="ml-auto text-muted-foreground hover:text-foreground"
+          >
+            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+        )}
+        <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground ml-1">
+          <XCircle className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {expanded && failEntries.length > 0 && (
+        <div className="border-t px-3 py-2 space-y-1.5">
+          <p className="text-muted-foreground font-medium mb-1">Por qué no se encontró contacto:</p>
+          {failEntries.map(([reason, count]) => {
+            const cfg = FAIL_REASON_LABELS[reason] || { label: reason, color: 'text-muted-foreground', detail: '' }
+            return (
+              <div key={reason} className="space-y-0.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`font-medium ${cfg.color}`}>{cfg.label}</span>
+                  <Badge variant="secondary" className="text-[10px] shrink-0">{count}</Badge>
+                </div>
+                {cfg.detail && <p className="text-muted-foreground leading-snug">{cfg.detail}</p>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -210,6 +210,7 @@ async function enrichSingleProspect(
   phone?: string | null
   source?: string
   error?: string
+  failReason?: string | null
   apolloPersonFound?: boolean
   emailCreditWarning?: boolean
   phoneCreditWarning?: boolean
@@ -229,6 +230,7 @@ async function enrichSingleProspect(
   let bestEmail: string | null = null
   let bestPhone: string | null = null
   let source = 'none'
+  let failReason: string | null = null
   let apolloEmailCreditWarning = false
   let apolloPhoneCreditWarning = false
   const enrichmentDetails: Record<string, unknown> = { enriched_at: new Date().toISOString() }
@@ -245,55 +247,80 @@ async function enrichSingleProspect(
       } catch { /* ignore */ }
     }
 
-    const apolloResult = await enrichWithApollo(apolloApiKey, {
-      linkedinUrl: prospect.linkedin_url || undefined,
-      firstName: prospect.first_name,
-      lastName: prospect.last_name,
-      domain,
-    })
-
-    if (apolloResult.success && apolloResult.person) {
-      const person = apolloResult.person
-      source = 'apollo'
-
-      if (person.email) {
-        bestEmail = person.email
-        enrichmentDetails.apollo_email = person.email
-        enrichmentDetails.apollo_email_status = person.email_status
-      }
-
-      if (person.phone_numbers && person.phone_numbers.length > 0) {
-        bestPhone = person.phone_numbers[0].sanitized_number
-        enrichmentDetails.apollo_phones = person.phone_numbers
-      }
-
-      // Track credit warnings
-      apolloEmailCreditWarning = apolloResult.emailCreditWarning || false
-      apolloPhoneCreditWarning = apolloResult.phoneCreditWarning || false
-
-      // Infer credit warnings: Apollo found the person but returned no data despite reveal flags
-      if (!bestEmail) apolloEmailCreditWarning = true
-      if (!bestPhone) apolloPhoneCreditWarning = true
-
-      if (apolloEmailCreditWarning) enrichmentDetails.apollo_email_credit_warning = true
-      if (apolloPhoneCreditWarning) enrichmentDetails.apollo_phone_credit_warning = true
-
-      // Store extra Apollo data for later use
-      enrichmentDetails.apollo_title = person.title
-      enrichmentDetails.apollo_city = person.city
-      enrichmentDetails.apollo_country = person.country
-      if (person.organization) {
-        enrichmentDetails.apollo_company = person.organization.name
-        enrichmentDetails.apollo_website = person.organization.website_url
-        enrichmentDetails.apollo_industry = person.organization.industry
-        enrichmentDetails.apollo_employees = person.organization.estimated_num_employees
-      }
-
-      console.log(`Apollo enrichment for ${prospect.first_name} ${prospect.last_name}: email=${bestEmail}, phone=${bestPhone}, emailCreditWarning=${apolloEmailCreditWarning}, phoneCreditWarning=${apolloPhoneCreditWarning}`)
+    // Check if we have at least one identifier before calling Apollo
+    const hasIdentifier = !!(prospect.linkedin_url || domain || (prospect.first_name && prospect.last_name))
+    if (!hasIdentifier) {
+      failReason = 'no_identifier'
+      enrichmentDetails.fail_reason = failReason
+      console.log(`Skipping Apollo for ${prospect.first_name} ${prospect.last_name}: no LinkedIn URL or domain`)
     } else {
-      console.log(`Apollo miss for ${prospect.first_name} ${prospect.last_name}: ${apolloResult.error}`)
-      enrichmentDetails.apollo_error = apolloResult.error
+      const apolloResult = await enrichWithApollo(apolloApiKey, {
+        linkedinUrl: prospect.linkedin_url || undefined,
+        firstName: prospect.first_name,
+        lastName: prospect.last_name,
+        domain,
+      })
+
+      if (apolloResult.creditError) {
+        failReason = 'apollo_credit_exhausted'
+        enrichmentDetails.apollo_error = apolloResult.error
+      } else if (apolloResult.success && apolloResult.person) {
+        const person = apolloResult.person
+        source = 'apollo'
+
+        if (person.email) {
+          bestEmail = person.email
+          enrichmentDetails.apollo_email = person.email
+          enrichmentDetails.apollo_email_status = person.email_status
+        }
+
+        if (person.phone_numbers && person.phone_numbers.length > 0) {
+          bestPhone = person.phone_numbers[0].sanitized_number
+          enrichmentDetails.apollo_phones = person.phone_numbers
+        }
+
+        // Track credit warnings
+        apolloEmailCreditWarning = apolloResult.emailCreditWarning || false
+        apolloPhoneCreditWarning = apolloResult.phoneCreditWarning || false
+
+        // Infer credit warnings: Apollo found the person but returned no data despite reveal flags
+        if (!bestEmail) apolloEmailCreditWarning = true
+        if (!bestPhone) apolloPhoneCreditWarning = true
+
+        if (apolloEmailCreditWarning) enrichmentDetails.apollo_email_credit_warning = true
+        if (apolloPhoneCreditWarning) enrichmentDetails.apollo_phone_credit_warning = true
+
+        // If Apollo found the person but has no contact data at all
+        if (!bestEmail && !bestPhone) {
+          failReason = 'no_contact_data'
+        }
+
+        // Store extra Apollo data for later use
+        enrichmentDetails.apollo_title = person.title
+        enrichmentDetails.apollo_city = person.city
+        enrichmentDetails.apollo_country = person.country
+        if (person.organization) {
+          enrichmentDetails.apollo_company = person.organization.name
+          enrichmentDetails.apollo_website = person.organization.website_url
+          enrichmentDetails.apollo_industry = person.organization.industry
+          enrichmentDetails.apollo_employees = person.organization.estimated_num_employees
+        }
+
+        console.log(`Apollo enrichment for ${prospect.first_name} ${prospect.last_name}: email=${bestEmail}, phone=${bestPhone}, emailCreditWarning=${apolloEmailCreditWarning}, phoneCreditWarning=${apolloPhoneCreditWarning}`)
+      } else {
+        // Apollo couldn't find the person at all
+        const errMsg = apolloResult.error || ''
+        if (errMsg.includes('rate') || errMsg.includes('429')) {
+          failReason = 'apollo_rate_limit'
+        } else {
+          failReason = 'not_in_apollo'
+        }
+        console.log(`Apollo miss for ${prospect.first_name} ${prospect.last_name}: ${apolloResult.error} → failReason=${failReason}`)
+        enrichmentDetails.apollo_error = apolloResult.error
+      }
     }
+  } else {
+    failReason = 'no_api_key'
   }
 
   // ── Strategy 2: Firecrawl website scraping (fallback if no email from Apollo) ──
@@ -329,9 +356,14 @@ async function enrichSingleProspect(
   }
 
   // ── Update prospect ──
+  // Clear fail_reason if we got contact data; otherwise store it
+  const finalFailReason = (bestEmail || bestPhone) ? null : failReason
   enrichmentDetails.source = source
+  if (finalFailReason) enrichmentDetails.fail_reason = finalFailReason
+  else delete enrichmentDetails.fail_reason // clear old reason if now enriched
+
   const updateData: Record<string, unknown> = {
-    enrichment_data: { ...(prospect.enrichment_data || {}), ...enrichmentDetails },
+    enrichment_data: { ...(prospect.enrichment_data || {}), ...enrichmentDetails, fail_reason: finalFailReason },
     status: bestEmail ? 'enriched' : prospect.status,
     updated_at: new Date().toISOString(),
   }
@@ -354,6 +386,7 @@ async function enrichSingleProspect(
     email: bestEmail,
     phone: bestPhone,
     source,
+    failReason: finalFailReason,
     apolloPersonFound: !!apolloApiKey,
     emailCreditWarning: apolloEmailCreditWarning && !bestEmail,
     phoneCreditWarning: apolloPhoneCreditWarning && !bestPhone,
@@ -419,7 +452,15 @@ serve(async (req: Request) => {
     const emailCreditWarning = results.some(r => r.emailCreditWarning)
     const phoneCreditWarning = results.some(r => r.phoneCreditWarning)
 
-    console.log(`Enrichment complete: ${enriched.length}/${results.length} got emails, ${results.filter(r => r.phone).length} got phones. emailCreditWarning=${emailCreditWarning}, phoneCreditWarning=${phoneCreditWarning}`)
+    // Count failure reasons for summary
+    const failReasonCounts: Record<string, number> = {}
+    for (const r of results) {
+      if (r.failReason) {
+        failReasonCounts[r.failReason] = (failReasonCounts[r.failReason] || 0) + 1
+      }
+    }
+
+    console.log(`Enrichment complete: ${enriched.length}/${results.length} got emails, ${results.filter(r => r.phone).length} got phones. failReasons=${JSON.stringify(failReasonCounts)}`)
 
     return jsonResponse({
       success: true,
@@ -431,6 +472,7 @@ serve(async (req: Request) => {
         withPhone: results.filter(r => r.phone).length,
         emailCreditWarning,
         phoneCreditWarning,
+        failReasonCounts,
       },
     })
   } catch (error) {
