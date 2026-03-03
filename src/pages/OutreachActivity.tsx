@@ -123,7 +123,7 @@ export function OutreachActivity() {
         `)
         .eq('org_id', orgId!)
         .in('status', ['scheduled', 'failed'])
-        .order('scheduled_at', { ascending: true })
+        .order('scheduled_at', { ascending: false })
         .limit(500)
       if (error) throw error
       return (data || []) as unknown as ScheduleRow[]
