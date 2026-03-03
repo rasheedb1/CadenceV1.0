@@ -465,7 +465,7 @@ async function executeLinkedInAction(
   schedule: Schedule,
   cadenceStep: CadenceStep,
   authToken: string
-): Promise<{ success: boolean; error?: string; data?: unknown }> {
+): Promise<{ success: boolean; error?: string; rateLimited?: boolean; data?: unknown }> {
   const endpoint = STEP_TYPE_TO_ENDPOINT[cadenceStep.step_type]
 
   if (!endpoint) {
@@ -648,9 +648,24 @@ async function executeLinkedInAction(
     const data = await response.json()
 
     if (!response.ok) {
+      // Detect LinkedIn rate limiting
+      const errorMsg = typeof data?.error === 'string' ? data.error : ''
+      const isRateLimit =
+        response.status === 429 ||
+        errorMsg.includes('429') ||
+        errorMsg.toLowerCase().includes('rate limit') ||
+        errorMsg.toLowerCase().includes('too many') ||
+        errorMsg.toLowerCase().includes('quota exceeded') ||
+        errorMsg.toLowerCase().includes('action blocked') ||
+        errorMsg.toLowerCase().includes('restricted') ||
+        errorMsg.toLowerCase().includes('weekly limit')
+
       return {
         success: false,
-        error: data.error || `HTTP ${response.status}: ${response.statusText}`,
+        error: isRateLimit
+          ? `LinkedIn rate limit detectado. Retry manual necesario. (${errorMsg || response.status})`
+          : errorMsg || `HTTP ${response.status}: ${response.statusText}`,
+        rateLimited: isRateLimit,
         data,
       }
     }
@@ -998,6 +1013,7 @@ async function processSchedule(
       details: {
         scheduleId: schedule.id,
         error: result.error,
+        rateLimited: result.rateLimited || false,
         advancedToNextStep: advanceResult.advanced,
         nextStepId: advanceResult.nextStepId,
       },

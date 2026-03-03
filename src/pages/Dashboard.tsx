@@ -37,6 +37,7 @@ import {
   ClipboardList,
   Activity,
 } from 'lucide-react'
+import { LinkedInUsageWidget } from '@/components/dashboard/LinkedInUsageWidget'
 import type { Cadence, ActivityLogEntry, StepType } from '@/types'
 import { STEP_TYPE_CONFIG, CADENCE_LEAD_STATUS_CONFIG } from '@/types'
 
@@ -333,6 +334,11 @@ export function Dashboard() {
         ))}
       </div>
 
+      {/* LinkedIn Usage Widget */}
+      <div className="mt-6">
+        <LinkedInUsageWidget />
+      </div>
+
       {/* Quick Links */}
       <div className="mt-6 flex gap-4">
         <Button variant="link" className="p-0" onClick={() => navigate('/cadences')}>
@@ -345,6 +351,10 @@ export function Dashboard() {
         </Button>
         <Button variant="link" className="p-0" onClick={() => navigate('/inbox')}>
           LinkedIn Inbox
+          <ChevronRight className="ml-1 h-4 w-4" />
+        </Button>
+        <Button variant="link" className="p-0" onClick={() => navigate('/outreach')}>
+          Outreach Activity
           <ChevronRight className="ml-1 h-4 w-4" />
         </Button>
       </div>
