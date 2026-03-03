@@ -52,6 +52,7 @@ import {
   UserPlus,
   MessageCircle,
   Mail,
+  Reply,
   Star,
   Search,
   BookOpen,
@@ -72,6 +73,7 @@ const STEP_TYPES = [
   { value: 'linkedin_connect', label: 'LinkedIn Connect', icon: UserPlus, color: 'bg-cyan-100 text-cyan-700' },
   { value: 'linkedin_comment', label: 'LinkedIn Comment', icon: MessageCircle, color: 'bg-emerald-100 text-emerald-700' },
   { value: 'send_email', label: 'Send Email', icon: Mail, color: 'bg-violet-100 text-violet-700' },
+  { value: 'email_reply', label: 'Email Reply (Follow-up)', icon: Reply, color: 'bg-violet-100 text-violet-700' },
 ] as const
 
 const TONES = [
@@ -96,7 +98,7 @@ const COMMUNICATION_STYLES = [
 ] as const
 
 type PromptTabType = 'persona' | 'message' | 'research' | 'examples' | 'signals' | 'test'
-type StepType = 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email'
+type StepType = 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email' | 'email_reply'
 type Tone = 'professional' | 'casual' | 'friendly'
 
 const TEMPLATE_VARIABLES = [
