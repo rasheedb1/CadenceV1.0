@@ -45,6 +45,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
 import {
   ArrowLeft,
@@ -1456,12 +1457,16 @@ function ProspectsTab({
     }
   }
 
-  const handleSelectByContact = (mode: 'no_email' | 'no_phone' | 'no_both') => {
+  const handleSelectByContact = (mode: 'no_email' | 'no_phone' | 'no_both' | 'has_email' | 'has_phone' | 'has_both') => {
     const activeProspects = prospects.filter(p => !p.skipped)
     const matching = activeProspects.filter(p => {
       if (mode === 'no_email') return !p.email
       if (mode === 'no_phone') return !p.phone
-      return !p.email && !p.phone // no_both
+      if (mode === 'no_both') return !p.email && !p.phone
+      if (mode === 'has_email') return !!p.email
+      if (mode === 'has_phone') return !!p.phone
+      if (mode === 'has_both') return !!p.email && !!p.phone
+      return false
     })
     // Toggle on all matching, toggle off those that don't match
     for (const p of activeProspects) {
@@ -1497,10 +1502,11 @@ function ProspectsTab({
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button size="sm" variant="outline" className="h-7 text-xs">
-                    <ListFilter className="mr-1 h-3.5 w-3.5" /> Select Missing
+                    <ListFilter className="mr-1 h-3.5 w-3.5" /> Select by Contact
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
+                <DropdownMenuContent align="start" className="w-52">
+                  <DropdownMenuLabel className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide py-1">Sin contacto</DropdownMenuLabel>
                   <DropdownMenuItem onClick={() => handleSelectByContact('no_email')}>
                     <Mail className="mr-2 h-4 w-4 text-muted-foreground" /> Without Email
                     <Badge variant="secondary" className="ml-auto text-xs">{prospects.filter(p => !p.skipped && !p.email).length}</Badge>
@@ -1509,10 +1515,23 @@ function ProspectsTab({
                     <Phone className="mr-2 h-4 w-4 text-muted-foreground" /> Without Phone
                     <Badge variant="secondary" className="ml-auto text-xs">{prospects.filter(p => !p.skipped && !p.phone).length}</Badge>
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => handleSelectByContact('no_both')}>
                     <ListFilter className="mr-2 h-4 w-4 text-muted-foreground" /> Without Email & Phone
                     <Badge variant="secondary" className="ml-auto text-xs">{prospects.filter(p => !p.skipped && !p.email && !p.phone).length}</Badge>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide py-1">Con contacto</DropdownMenuLabel>
+                  <DropdownMenuItem onClick={() => handleSelectByContact('has_email')}>
+                    <Mail className="mr-2 h-4 w-4 text-green-500" /> With Email
+                    <Badge variant="secondary" className="ml-auto text-xs">{prospects.filter(p => !p.skipped && !!p.email).length}</Badge>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleSelectByContact('has_phone')}>
+                    <Phone className="mr-2 h-4 w-4 text-green-500" /> With Phone
+                    <Badge variant="secondary" className="ml-auto text-xs">{prospects.filter(p => !p.skipped && !!p.phone).length}</Badge>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleSelectByContact('has_both')}>
+                    <ListFilter className="mr-2 h-4 w-4 text-green-500" /> With Email & Phone
+                    <Badge variant="secondary" className="ml-auto text-xs">{prospects.filter(p => !p.skipped && !!p.email && !!p.phone).length}</Badge>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
