@@ -285,26 +285,37 @@ serve(async (req: Request) => {
       console.log('No email ID in POST response — fetching sent email from Unipile listing...')
       try {
         // Small wait to allow Unipile to index the sent email
-        await new Promise(r => setTimeout(r, 2000))
+        await new Promise(r => setTimeout(r, 3000))
+        // NOTE: role=SENT is NOT a valid Unipile filter — omit it and filter client-side
         const listRes = await fetch(
-          `${baseUrl}/api/v1/emails?account_id=${gmailAccountId}&role=SENT&limit=5`,
+          `${baseUrl}/api/v1/emails?account_id=${gmailAccountId}&limit=10`,
           { headers: { 'X-API-KEY': unipileAccessToken } }
         )
         if (listRes.ok) {
           const listData = await listRes.json()
-          const items: Array<Record<string, unknown>> = listData?.items || listData?.data || []
+          console.log('Unipile listing response keys:', Object.keys(listData))
+          const items: Array<Record<string, unknown>> = listData?.items || listData?.data || listData?.emails || []
+          console.log(`Unipile listing returned ${items.length} emails`)
+          if (items.length > 0) {
+            console.log('First item sample:', JSON.stringify(items[0]).substring(0, 300))
+          }
           // Find the email we just sent by matching recipient + subject
+          // Sent emails: to_attendees contains the recipient; inbox emails: to_attendees contains our address
           const normalizeSubject = (s: string) => s.replace(/^re:\s*/i, '').trim().toLowerCase()
           const sent = items.find((e) => {
-            const toIds = (e.to_attendees as Array<{identifier: string}> || []).map(a => a.identifier)
+            const toIds = (e.to_attendees as Array<{identifier: string}> || []).map(a => a.identifier?.toLowerCase())
             const subjectMatch = normalizeSubject(e.subject as string || '') === normalizeSubject(subject)
-            const recipientMatch = toIds.some(id => id.toLowerCase() === recipientEmail.toLowerCase())
+            const recipientMatch = toIds.some(id => id === recipientEmail.toLowerCase())
             return subjectMatch && recipientMatch
-          }) || items[0] // fallback to most recent
+          })
           if (sent?.id) {
             emailId = sent.id as string
             console.log(`Retrieved Unipile email ID from listing: ${emailId}`)
+          } else if (items.length > 0) {
+            console.log(`No exact match found. Subjects checked: ${items.slice(0,5).map(e => e.subject).join(', ')}`)
           }
+        } else {
+          console.warn(`Unipile listing API returned ${listRes.status}: ${await listRes.text()}`)
         }
       } catch (err) {
         console.warn('Could not retrieve email ID from Unipile listing:', err)
