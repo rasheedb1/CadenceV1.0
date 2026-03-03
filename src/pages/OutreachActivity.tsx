@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import {
   MessageSquare, UserPlus, ThumbsUp, MessageCircle, Mail, Phone, PhoneCall,
   ClipboardList, Clock, CheckCircle, XCircle, RefreshCw, Filter, Send,
-  AlertTriangle, Search, ChevronDown, X,
+  AlertTriangle, Search, ChevronDown, X, Reply,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -27,6 +27,7 @@ const STEP_ICONS: Record<StepType, React.ComponentType<{ className?: string }>> 
   linkedin_like: ThumbsUp,
   linkedin_comment: MessageCircle,
   send_email: Mail,
+  email_reply: Reply,
   whatsapp: Phone,
   cold_call: PhoneCall,
   task: ClipboardList,
@@ -38,6 +39,7 @@ const STEP_LABELS: Record<StepType, string> = {
   linkedin_like: 'LinkedIn Like',
   linkedin_comment: 'LinkedIn Comment',
   send_email: 'Email',
+  email_reply: 'Email Reply',
   whatsapp: 'WhatsApp',
   cold_call: 'Cold Call',
   task: 'Task',

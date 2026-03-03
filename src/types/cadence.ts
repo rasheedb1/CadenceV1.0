@@ -7,6 +7,7 @@ export type StepType =
   | 'linkedin_like'
   | 'linkedin_comment'
   | 'send_email'
+  | 'email_reply'
   | 'whatsapp'
   | 'cold_call'
   | 'task'
@@ -303,6 +304,7 @@ export const STEP_TYPE_CONFIG: Record<StepType, { label: string; icon: string; c
   linkedin_like: { label: 'LinkedIn Like', icon: 'ThumbsUp', color: 'teal', channel: 'linkedin', hasTextBox: false, isManual: false },
   linkedin_comment: { label: 'LinkedIn Comment', icon: 'MessageCircle', color: 'emerald', channel: 'linkedin', hasTextBox: true, isManual: false },
   send_email: { label: 'Send Email', icon: 'Mail', color: 'violet', channel: 'email', hasTextBox: true, isManual: false },
+  email_reply: { label: 'Email Reply (Follow-up)', icon: 'Reply', color: 'violet', channel: 'email', hasTextBox: true, isManual: false },
   whatsapp: { label: 'WhatsApp', icon: 'Phone', color: 'green', channel: 'whatsapp', hasTextBox: false, isManual: true },
   cold_call: { label: 'Cold Call', icon: 'PhoneCall', color: 'orange', channel: 'phone', hasTextBox: false, isManual: true },
   task: { label: 'Task', icon: 'ClipboardList', color: 'gray', channel: 'task', hasTextBox: false, isManual: true },

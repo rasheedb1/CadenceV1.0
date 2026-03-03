@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -70,6 +70,7 @@ import {
   Building2,
   ChevronRight,
   ExternalLink,
+  Reply,
 } from 'lucide-react'
 import { STEP_TYPE_CONFIG, type StepType, type CadenceStep, type Lead } from '@/types'
 import type { AIPrompt } from '@/lib/edge-functions'
@@ -99,6 +100,7 @@ const STEP_ICONS: Record<StepType, React.ComponentType<{ className?: string }>> 
   linkedin_like: ThumbsUp,
   linkedin_comment: MessageCircle,
   send_email: Mail,
+  email_reply: Reply,
   whatsapp: Phone,
   cold_call: PhoneCall,
   task: ClipboardList,
@@ -120,6 +122,7 @@ export function CadenceBuilder() {
     executeStepForLead,
     markStepDoneForLead,
     removeLeadFromCadence,
+    assignLeadToCadence,
   } = useCadence()
   const testStepMutation = useTestStep()
 
@@ -263,6 +266,88 @@ export function CadenceBuilder() {
     }
   }
 
+  // ── Lead selection + bulk ops ─────────────────────────────────────────────
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set())
+  const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false)
+  const [moveTargetCadenceId, setMoveTargetCadenceId] = useState('')
+  const [isMoving, setIsMoving] = useState(false)
+  const [showDuplicatesMode, setShowDuplicatesMode] = useState(false)
+
+  // Duplicate detection: group by email OR full name
+  const { duplicateLeadIds, duplicatesToRemoveIds } = useMemo(() => {
+    const emailGroups = new Map<string, string[]>()
+    const nameGroups = new Map<string, string[]>()
+    for (const lead of cadenceLeads) {
+      if (lead.email?.trim()) {
+        const key = lead.email.toLowerCase().trim()
+        emailGroups.set(key, [...(emailGroups.get(key) || []), lead.id])
+      }
+      const name = `${lead.first_name ?? ''} ${lead.last_name ?? ''}`.toLowerCase().trim()
+      if (name) nameGroups.set(name, [...(nameGroups.get(name) || []), lead.id])
+    }
+    const allDupes = new Set<string>()
+    const toRemove = new Set<string>()
+    for (const ids of [...emailGroups.values(), ...nameGroups.values()]) {
+      if (ids.length > 1) {
+        ids.forEach(i => allDupes.add(i))
+        ids.slice(1).forEach(i => toRemove.add(i))
+      }
+    }
+    return { duplicateLeadIds: allDupes, duplicatesToRemoveIds: toRemove }
+  }, [cadenceLeads])
+
+  const toggleLeadSelection = (leadId: string) => {
+    setSelectedLeadIds(prev => {
+      const next = new Set(prev)
+      if (next.has(leadId)) next.delete(leadId); else next.add(leadId)
+      return next
+    })
+  }
+
+  const handleMoveLeads = async () => {
+    if (!moveTargetCadenceId || !id || selectedLeadIds.size === 0) return
+    setIsMoving(true)
+    try {
+      // Cancel pending schedules in current cadence
+      await supabase.from('schedules')
+        .update({ status: 'canceled', updated_at: new Date().toISOString() })
+        .in('lead_id', Array.from(selectedLeadIds))
+        .eq('cadence_id', id).eq('status', 'scheduled')
+      // Remove from current cadence
+      await supabase.from('cadence_leads').delete()
+        .in('lead_id', Array.from(selectedLeadIds)).eq('cadence_id', id)
+      // Add to destination cadence
+      for (const leadId of selectedLeadIds) {
+        await assignLeadToCadence(leadId, moveTargetCadenceId)
+      }
+      const destName = cadences.find(c => c.id === moveTargetCadenceId)?.name
+      toast.success(`${selectedLeadIds.size} lead${selectedLeadIds.size !== 1 ? 's' : ''} movido${selectedLeadIds.size !== 1 ? 's' : ''} a "${destName}"`)
+      setSelectedLeadIds(new Set())
+      setIsMoveDialogOpen(false)
+      setMoveTargetCadenceId('')
+      refetchCadenceLeads()
+    } catch {
+      toast.error('Error al mover leads')
+    } finally {
+      setIsMoving(false)
+    }
+  }
+
+  const handleRemoveDuplicates = async () => {
+    if (!id || duplicatesToRemoveIds.size === 0) return
+    await supabase.from('schedules')
+      .update({ status: 'canceled', updated_at: new Date().toISOString() })
+      .in('lead_id', Array.from(duplicatesToRemoveIds))
+      .eq('cadence_id', id).eq('status', 'scheduled')
+    const { error } = await supabase.from('cadence_leads').delete()
+      .in('lead_id', Array.from(duplicatesToRemoveIds)).eq('cadence_id', id)
+    if (error) { toast.error('Error al eliminar duplicados'); return }
+    toast.success(`${duplicatesToRemoveIds.size} duplicado${duplicatesToRemoveIds.size !== 1 ? 's' : ''} eliminado${duplicatesToRemoveIds.size !== 1 ? 's' : ''}`)
+    setShowDuplicatesMode(false)
+    setSelectedLeadIds(new Set())
+    refetchCadenceLeads()
+  }
+
   // State for Start Automation dialog
   const [isAutomationOpen, setIsAutomationOpen] = useState(false)
 
@@ -277,6 +362,7 @@ export function CadenceBuilder() {
     ai_prompt_id: string
     ai_research_prompt_id: string
     ai_example_section_id: string
+    reply_to_step_id: string
   }>({
     step_type: 'linkedin_message',
     step_label: '',
@@ -286,6 +372,7 @@ export function CadenceBuilder() {
     ai_prompt_id: '',
     ai_research_prompt_id: '',
     ai_example_section_id: '',
+    reply_to_step_id: '',
   })
   const [saving, setSaving] = useState(false)
   const messageTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -334,6 +421,7 @@ export function CadenceBuilder() {
       ai_prompt_id: '',
       ai_research_prompt_id: '',
       ai_example_section_id: '',
+      reply_to_step_id: '',
     }))
   }, [newStep.step_type])
 
@@ -443,6 +531,7 @@ export function CadenceBuilder() {
           ai_prompt_id: newStep.ai_prompt_id && newStep.ai_prompt_id !== 'none' ? newStep.ai_prompt_id : null,
           ai_research_prompt_id: newStep.ai_research_prompt_id && newStep.ai_research_prompt_id !== 'none' ? newStep.ai_research_prompt_id : null,
           ai_example_section_id: newStep.ai_example_section_id && newStep.ai_example_section_id !== 'none' ? newStep.ai_example_section_id : null,
+          reply_to_step_id: newStep.reply_to_step_id && newStep.reply_to_step_id !== 'none' ? newStep.reply_to_step_id : null,
         },
       })
 
@@ -456,6 +545,7 @@ export function CadenceBuilder() {
         ai_prompt_id: '',
         ai_research_prompt_id: '',
         ai_example_section_id: '',
+        reply_to_step_id: '',
       })
       toast.success('Step added successfully')
     } catch (error) {
@@ -1002,14 +1092,75 @@ export function CadenceBuilder() {
 
         <TabsContent value="leads">
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5" />
-                Leads by Step
-              </CardTitle>
-              <CardDescription>
-                Manage leads in this cadence and execute steps
-              </CardDescription>
+            <CardHeader className="flex flex-row items-start justify-between gap-3">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Leads by Step
+                </CardTitle>
+                <CardDescription>
+                  Manage leads in this cadence and execute steps
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap justify-end shrink-0">
+                {/* Select All / Deselect All */}
+                {cadenceLeads.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (selectedLeadIds.size === cadenceLeads.length) {
+                        setSelectedLeadIds(new Set())
+                      } else {
+                        setSelectedLeadIds(new Set(cadenceLeads.map((l) => l.id)))
+                      }
+                    }}
+                  >
+                    {selectedLeadIds.size === cadenceLeads.length && cadenceLeads.length > 0
+                      ? 'Deseleccionar todos'
+                      : `Seleccionar todos (${cadenceLeads.length})`}
+                  </Button>
+                )}
+                {/* Duplicate controls */}
+                {!showDuplicatesMode ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setShowDuplicatesMode(true); setSelectedLeadIds(new Set()) }}
+                    disabled={duplicateLeadIds.size === 0}
+                    title={duplicateLeadIds.size === 0 ? 'No hay duplicados' : `${duplicateLeadIds.size} leads duplicados detectados`}
+                  >
+                    <AlertTriangle className="h-4 w-4 mr-1.5 text-amber-500" />
+                    Duplicados {duplicateLeadIds.size > 0 && <Badge variant="secondary" className="ml-1 text-xs">{duplicateLeadIds.size}</Badge>}
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleRemoveDuplicates}
+                      disabled={duplicatesToRemoveIds.size === 0}
+                    >
+                      <XCircle className="h-4 w-4 mr-1.5" />
+                      Eliminar {duplicatesToRemoveIds.size} duplicado{duplicatesToRemoveIds.size !== 1 ? 's' : ''}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => { setShowDuplicatesMode(false); setSelectedLeadIds(new Set()) }}>
+                      Cancelar
+                    </Button>
+                  </>
+                )}
+                {/* Move controls */}
+                {selectedLeadIds.size > 0 && (
+                  <Button
+                    size="sm"
+                    className="bg-violet-600 hover:bg-violet-700 text-white"
+                    onClick={() => setIsMoveDialogOpen(true)}
+                  >
+                    <ChevronRight className="h-4 w-4 mr-1.5" />
+                    Mover {selectedLeadIds.size} a cadencia
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {cadenceLeads.length === 0 ? (
@@ -1022,25 +1173,34 @@ export function CadenceBuilder() {
               ) : (
                 <div className="space-y-8">
                   {/* Unassigned leads (no current step) */}
-                  {leadsByStep['unassigned']?.length > 0 && (
+                  {leadsByStep['unassigned']?.filter(l => !showDuplicatesMode || duplicateLeadIds.has(l.id)).length > 0 && (
                     <div>
                       <h3 className="mb-4 flex items-center gap-2 font-medium text-muted-foreground">
                         <AlertTriangle className="h-4 w-4" />
-                        Unassigned ({leadsByStep['unassigned'].length})
+                        Unassigned ({leadsByStep['unassigned'].filter(l => !showDuplicatesMode || duplicateLeadIds.has(l.id)).length})
                       </h3>
                       <div className="space-y-2">
-                        {leadsByStep['unassigned'].map((lead) => (
+                        {leadsByStep['unassigned'].filter(l => !showDuplicatesMode || duplicateLeadIds.has(l.id)).map((lead) => (
                           <div
                             key={lead.id}
-                            className="flex items-center justify-between rounded-lg border p-3"
+                            className={`flex items-center justify-between rounded-lg border p-3 ${duplicateLeadIds.has(lead.id) && showDuplicatesMode ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/20' : ''}`}
                           >
-                            <div>
-                              <p className="font-medium">
-                                {lead.first_name} {lead.last_name}
-                              </p>
-                              <p className="text-sm text-muted-foreground">
-                                {lead.company} {lead.title && `- ${lead.title}`}
-                              </p>
+                            <div className="flex items-center gap-2 flex-1">
+                              <input
+                                type="checkbox"
+                                checked={selectedLeadIds.has(lead.id)}
+                                onChange={() => toggleLeadSelection(lead.id)}
+                                className="rounded shrink-0"
+                              />
+                              <div>
+                                <p className="font-medium flex items-center gap-1.5">
+                                  {lead.first_name} {lead.last_name}
+                                  {duplicateLeadIds.has(lead.id) && <Badge className="text-[10px] bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/40 dark:text-amber-300">Duplicado</Badge>}
+                                </p>
+                                <p className="text-sm text-muted-foreground">
+                                  {lead.company} {lead.title && `- ${lead.title}`}
+                                </p>
+                              </div>
                             </div>
                             <div className="flex items-center gap-2">
                               <Select
@@ -1082,7 +1242,8 @@ export function CadenceBuilder() {
                     stepsByDay[day]
                       .sort((a, b) => a.order_in_day - b.order_in_day)
                       .map((step) => {
-                        const leadsAtStep = leadsByStep[step.id] || []
+                        const leadsAtStep = (leadsByStep[step.id] || [])
+                          .filter(l => !showDuplicatesMode || duplicateLeadIds.has(l.id))
                         if (leadsAtStep.length === 0) return null
 
                         const Icon = STEP_ICONS[step.step_type]
@@ -1146,23 +1307,32 @@ export function CadenceBuilder() {
                                 return (
                                   <div
                                     key={lead.id}
-                                    className="rounded-lg border p-4"
+                                    className={`rounded-lg border p-4 ${duplicateLeadIds.has(lead.id) && showDuplicatesMode ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/20' : ''}`}
                                   >
                                     <div className="flex items-start justify-between">
-                                      <div className="flex-1">
-                                        <div className="flex items-center gap-2">
-                                          <p className="font-medium">
-                                            {lead.first_name} {lead.last_name}
-                                          </p>
-                                        </div>
-                                        <p className="text-sm text-muted-foreground">
-                                          {lead.company} {lead.title && `- ${lead.title}`}
-                                        </p>
-                                        {lead.email && (
+                                      <div className="flex-1 flex items-start gap-2">
+                                        <input
+                                          type="checkbox"
+                                          checked={selectedLeadIds.has(lead.id)}
+                                          onChange={() => toggleLeadSelection(lead.id)}
+                                          className="rounded mt-0.5 shrink-0"
+                                        />
+                                        <div>
+                                          <div className="flex items-center gap-2">
+                                            <p className="font-medium">
+                                              {lead.first_name} {lead.last_name}
+                                            </p>
+                                            {duplicateLeadIds.has(lead.id) && <Badge className="text-[10px] bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/40 dark:text-amber-300">Duplicado</Badge>}
+                                          </div>
                                           <p className="text-sm text-muted-foreground">
-                                            {lead.email}
+                                            {lead.company} {lead.title && `- ${lead.title}`}
                                           </p>
-                                        )}
+                                          {lead.email && (
+                                            <p className="text-sm text-muted-foreground">
+                                              {lead.email}
+                                            </p>
+                                          )}
+                                        </div>
                                       </div>
                                       <div className="flex gap-2">
                                         <FeatureGate flag="cadence_manual_execute">
@@ -1541,6 +1711,38 @@ export function CadenceBuilder() {
               />
             </div>
 
+            {/* Reply-to step selector for email_reply */}
+            {newStep.step_type === 'email_reply' && (
+              <div className="space-y-2 rounded-lg border border-violet-200 bg-violet-50/50 dark:bg-violet-950/20 dark:border-violet-800 p-4">
+                <div className="flex items-center gap-2">
+                  <Reply className="h-4 w-4 text-violet-600" />
+                  <Label className="text-sm font-medium">Responder a este step de email</Label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  El follow-up se enviará como respuesta dentro del mismo hilo de Gmail del email seleccionado.
+                </p>
+                <Select
+                  value={newStep.reply_to_step_id || 'none'}
+                  onValueChange={(v) => setNewStep(prev => ({ ...prev, reply_to_step_id: v === 'none' ? '' : v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar el email original..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Email más reciente (automático)</SelectItem>
+                    {steps
+                      .filter(s => s.step_type === 'send_email')
+                      .sort((a, b) => a.day_offset !== b.day_offset ? a.day_offset - b.day_offset : a.order_in_day - b.order_in_day)
+                      .map(s => (
+                        <SelectItem key={s.id} value={s.id}>
+                          Day {s.day_offset}: {s.step_label}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             {/* Template selection for steps with text boxes */}
             {STEP_TYPE_CONFIG[newStep.step_type].hasTextBox && (
               <>
@@ -1850,6 +2052,59 @@ export function CadenceBuilder() {
           aiPrompts={aiPrompts}
         />
       )}
+
+      {/* Move Leads Dialog */}
+      <Dialog open={isMoveDialogOpen} onOpenChange={setIsMoveDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Mover {selectedLeadIds.size} lead{selectedLeadIds.size !== 1 ? 's' : ''} a otra cadencia
+            </DialogTitle>
+            <DialogDescription>
+              Los leads serán eliminados de esta cadencia y añadidos a la cadencia seleccionada. Los envíos programados serán cancelados.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Select value={moveTargetCadenceId} onValueChange={setMoveTargetCadenceId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Seleccionar cadencia destino..." />
+              </SelectTrigger>
+              <SelectContent>
+                {cadences
+                  .filter((c) => c.id !== id)
+                  .map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                      <span className="text-muted-foreground ml-1 text-xs">({c.status})</span>
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setIsMoveDialogOpen(false); setMoveTargetCadenceId('') }}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleMoveLeads}
+              disabled={!moveTargetCadenceId || isMoving}
+              className="bg-violet-600 hover:bg-violet-700 text-white"
+            >
+              {isMoving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Moviendo...
+                </>
+              ) : (
+                <>
+                  <ChevronRight className="mr-2 h-4 w-4" />
+                  Mover leads
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

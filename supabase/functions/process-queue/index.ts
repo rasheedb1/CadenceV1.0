@@ -48,6 +48,7 @@ const STEP_TYPE_TO_ENDPOINT: Record<string, string> = {
   linkedin_like: '/functions/v1/linkedin-like-post',
   linkedin_comment: '/functions/v1/linkedin-comment',
   send_email: '/functions/v1/send-email',
+  email_reply: '/functions/v1/send-email',
 }
 
 // Default delay configuration (in milliseconds)
@@ -625,6 +626,62 @@ async function executeLinkedInAction(
                          'No subject'
       // Convert plain text to HTML for proper email formatting
       baseBody.body = textToHtml(emailBody)
+      break
+    }
+
+    case 'email_reply': {
+      let emailBody = schedule.message_rendered_text ||
+                      schedule.message_template_text ||
+                      (configJson.message_template as string) ||
+                      (configJson.body as string) ||
+                      ''
+      const stripped = stripSubjectPrefix(emailBody)
+      emailBody = stripped.body
+
+      baseBody.to = (configJson.to_email as string) || ''
+      const rawSubject = (configJson.subject as string) || stripped.subject || 'Follow-up'
+      // Ensure subject has Re: prefix for proper threading
+      baseBody.subject = /^re:/i.test(rawSubject) ? rawSubject : `Re: ${rawSubject}`
+      baseBody.body = textToHtml(emailBody)
+
+      // Look up the gmail_message_id from the referenced send_email step for this lead
+      const replyToStepId = configJson.reply_to_step_id as string | undefined
+      let replyToMessageId: string | null = null
+
+      if (replyToStepId) {
+        const { data: prevEmail } = await supabase
+          .from('email_messages')
+          .select('gmail_message_id')
+          .eq('cadence_id', schedule.cadence_id)
+          .eq('cadence_step_id', replyToStepId)
+          .eq('lead_id', schedule.lead_id)
+          .not('gmail_message_id', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        replyToMessageId = prevEmail?.gmail_message_id || null
+      }
+
+      // Fallback: most recent email sent in this cadence to this lead
+      if (!replyToMessageId) {
+        const { data: prevEmail } = await supabase
+          .from('email_messages')
+          .select('gmail_message_id')
+          .eq('cadence_id', schedule.cadence_id)
+          .eq('lead_id', schedule.lead_id)
+          .not('gmail_message_id', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        replyToMessageId = prevEmail?.gmail_message_id || null
+      }
+
+      if (replyToMessageId) {
+        baseBody.replyToMessageId = replyToMessageId
+        console.log(`email_reply: will thread onto message ${replyToMessageId} for lead ${schedule.lead_id}`)
+      } else {
+        console.warn(`email_reply: no previous gmail_message_id found for lead ${schedule.lead_id} in cadence ${schedule.cadence_id}, sending as new email`)
+      }
       break
     }
   }

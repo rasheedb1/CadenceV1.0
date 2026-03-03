@@ -911,108 +911,117 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
           return { leadId: newLead.id, duplicate }
         },
 
-        // Bulk promote
+        // Bulk promote — batched to avoid N×7 sequential queries
         bulkPromoteProspects: async (prospectIds, cadenceId) => {
           if (!user || !orgId) throw new Error('Not authenticated')
-          let promoted = 0
-          let duplicates = 0
+          const CHUNK = 100
 
-          for (const pid of prospectIds) {
-            try {
-              const result = await (async () => {
-                // Inline promote logic for each
-                const { data: prospect } = await supabase
-                  .from('prospects')
-                  .select('*')
-                  .eq('id', pid)
-                  .eq('org_id', orgId)
-                  .single()
-                if (!prospect) return null
+          // 1. Fetch all prospects in one query
+          const { data: allProspects, error: pErr } = await supabase
+            .from('prospects')
+            .select('*')
+            .in('id', prospectIds)
+            .eq('org_id', orgId)
+          if (pErr) throw pErr
 
-                // Skip already promoted
-                if (prospect.status === 'promoted') return null
+          const toPromote = (allProspects || []).filter((p) => p.status !== 'promoted')
+          if (toPromote.length === 0) return { promoted: 0, duplicates: 0 }
 
-                let isDuplicate = false
-                if (prospect.linkedin_url) {
-                  const { data: existing } = await supabase
-                    .from('leads')
-                    .select('id')
-                    .eq('org_id', orgId)
-                    .eq('linkedin_url', prospect.linkedin_url)
-                    .limit(1)
-                  if (existing && existing.length > 0) isDuplicate = true
-                }
-                if (!isDuplicate && prospect.email) {
-                  const { data: existing } = await supabase
-                    .from('leads')
-                    .select('id')
-                    .eq('org_id', orgId)
-                    .eq('email', prospect.email)
-                    .limit(1)
-                  if (existing && existing.length > 0) isDuplicate = true
-                }
+          // 2. Bulk duplicate-check (2 parallel queries)
+          const linkedinUrls = toPromote.map((p) => p.linkedin_url).filter(Boolean) as string[]
+          const emails = toPromote.map((p) => p.email).filter(Boolean) as string[]
 
-                const { data: newLead, error: leadErr } = await supabase
-                  .from('leads')
-                  .insert({
-                    owner_id: user.id,
-                    org_id: orgId,
-                    first_name: prospect.first_name,
-                    last_name: prospect.last_name,
-                    email: prospect.email,
-                    phone: prospect.phone,
-                    title: prospect.title,
-                    company: prospect.company,
-                    linkedin_url: prospect.linkedin_url,
-                  })
-                  .select('id')
-                  .single()
-                if (leadErr) throw leadErr
+          const [{ data: existingByLinkedin }, { data: existingByEmail }] = await Promise.all([
+            linkedinUrls.length > 0
+              ? supabase.from('leads').select('linkedin_url').eq('org_id', orgId).in('linkedin_url', linkedinUrls)
+              : Promise.resolve({ data: [] as { linkedin_url: string | null }[] }),
+            emails.length > 0
+              ? supabase.from('leads').select('email').eq('org_id', orgId).in('email', emails)
+              : Promise.resolve({ data: [] as { email: string | null }[] }),
+          ])
 
-                await supabase
-                  .from('prospects')
-                  .update({ status: 'promoted', promoted_lead_id: newLead.id })
-                  .eq('id', pid)
+          const dupLinkedinSet = new Set((existingByLinkedin || []).map((l) => l.linkedin_url).filter(Boolean) as string[])
+          const dupEmailSet = new Set((existingByEmail || []).map((l) => l.email).filter(Boolean) as string[])
 
-                if (cadenceId) {
-                  const { data: cadence } = await supabase
-                    .from('cadences')
-                    .select('*, cadence_steps(*)')
-                    .eq('id', cadenceId)
-                    .single()
-                  if (cadence) {
-                    const steps = (cadence.cadence_steps || []) as Array<{ id: string; day_offset: number; order_in_day: number }>
-                    const sorted = [...steps].sort((a, b) => {
-                      if (a.day_offset !== b.day_offset) return a.day_offset - b.day_offset
-                      return a.order_in_day - b.order_in_day
-                    })
-                    await supabase.from('cadence_leads').insert({
-                      lead_id: newLead.id,
-                      cadence_id: cadenceId,
-                      owner_id: user.id,
-                      org_id: orgId,
-                      current_step_id: sorted[0]?.id || null,
-                      status: 'active',
-                    })
-                  }
-                }
-
-                return { isDuplicate }
-              })()
-
-              if (result) {
-                promoted++
-                if (result.isDuplicate) duplicates++
-              }
-            } catch (err) {
-              console.error(`Failed to promote prospect ${pid}:`, err)
+          // 3. Fetch cadence + first step once
+          let firstStepId: string | null = null
+          if (cadenceId) {
+            const { data: cadence } = await supabase
+              .from('cadences')
+              .select('*, cadence_steps(*)')
+              .eq('id', cadenceId)
+              .single()
+            if (cadence) {
+              const steps = (cadence.cadence_steps || []) as Array<{ id: string; day_offset: number; order_in_day: number }>
+              const sorted = [...steps].sort((a, b) =>
+                a.day_offset !== b.day_offset ? a.day_offset - b.day_offset : a.order_in_day - b.order_in_day
+              )
+              firstStepId = sorted[0]?.id || null
             }
+          }
+
+          // 4. Batch insert all new leads in chunks
+          const leadsPayload = toPromote.map((p) => ({
+            owner_id: user.id,
+            org_id: orgId,
+            first_name: p.first_name,
+            last_name: p.last_name,
+            email: p.email,
+            phone: p.phone,
+            title: p.title,
+            company: p.company,
+            linkedin_url: p.linkedin_url,
+          }))
+
+          const newLeadIds: string[] = []
+          for (let i = 0; i < leadsPayload.length; i += CHUNK) {
+            const chunk = leadsPayload.slice(i, i + CHUNK)
+            const { data: inserted, error: leadsErr } = await supabase
+              .from('leads')
+              .insert(chunk)
+              .select('id')
+            if (leadsErr) throw leadsErr
+            newLeadIds.push(...(inserted || []).map((l: { id: string }) => l.id))
+          }
+
+          // 5. Batch upsert prospects → promoted (chunks of 100)
+          const prospectUpserts = toPromote.map((p, i) => ({
+            id: p.id,
+            status: 'promoted' as const,
+            promoted_lead_id: newLeadIds[i] || null,
+          }))
+          for (let i = 0; i < prospectUpserts.length; i += CHUNK) {
+            await supabase.from('prospects').upsert(prospectUpserts.slice(i, i + CHUNK))
+          }
+
+          // 6. Batch insert cadence_leads (chunks of 100)
+          if (cadenceId && newLeadIds.length > 0) {
+            const cadenceLeadsPayload = newLeadIds.map((leadId) => ({
+              lead_id: leadId,
+              cadence_id: cadenceId,
+              owner_id: user.id,
+              org_id: orgId,
+              current_step_id: firstStepId,
+              status: 'active',
+            }))
+            for (let i = 0; i < cadenceLeadsPayload.length; i += CHUNK) {
+              await supabase.from('cadence_leads').insert(cadenceLeadsPayload.slice(i, i + CHUNK))
+            }
+          }
+
+          // Count duplicates
+          let duplicates = 0
+          for (const p of toPromote) {
+            if (
+              (p.linkedin_url && dupLinkedinSet.has(p.linkedin_url)) ||
+              (p.email && dupEmailSet.has(p.email))
+            ) duplicates++
           }
 
           queryClient.invalidateQueries({ queryKey: ['account-maps'] })
           queryClient.invalidateQueries({ queryKey: ['leads'] })
 
-          return { promoted, duplicates }
+          return { promoted: toPromote.length, duplicates }
         },
 
         // ICP Templates

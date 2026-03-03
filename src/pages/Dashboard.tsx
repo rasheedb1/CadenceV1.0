@@ -36,6 +36,7 @@ import {
   Phone,
   ClipboardList,
   Activity,
+  Reply,
 } from 'lucide-react'
 import { LinkedInUsageWidget } from '@/components/dashboard/LinkedInUsageWidget'
 import type { Cadence, ActivityLogEntry, StepType } from '@/types'
@@ -48,6 +49,7 @@ const STEP_ICONS: Record<StepType, React.ComponentType<{ className?: string }>> 
   linkedin_like: ThumbsUp,
   linkedin_comment: MessageCircle,
   send_email: Mail,
+  email_reply: Reply,
   whatsapp: Phone,
   cold_call: Phone,
   task: ClipboardList,

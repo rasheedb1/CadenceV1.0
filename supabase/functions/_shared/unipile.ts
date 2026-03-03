@@ -45,6 +45,7 @@ export interface SendEmailParams {
   body: string
   cc?: Array<{ display_name?: string; identifier: string }>
   bcc?: Array<{ display_name?: string; identifier: string }>
+  replyTo?: string  // gmail_message_id of the email to reply to (for threading)
 }
 
 export interface UnipileResponse<T = unknown> {
@@ -186,6 +187,7 @@ export class UnipileClient {
     }
     if (params.cc && params.cc.length > 0) body.cc = params.cc
     if (params.bcc && params.bcc.length > 0) body.bcc = params.bcc
+    if (params.replyTo) body.reply_to = params.replyTo
     return this.request('POST', '/api/v1/emails', body)
   }
 

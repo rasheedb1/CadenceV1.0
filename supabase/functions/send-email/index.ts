@@ -16,6 +16,7 @@ interface SendEmailRequest {
   subject: string
   body: string        // HTML body
   bodyType?: 'text/html' | 'text/plain'  // defaults to text/html
+  replyToMessageId?: string  // gmail_message_id to reply to (for email threading)
   ownerId?: string // For service-role calls from process-queue
   orgId?: string   // For service-role calls from process-queue
 }
@@ -44,6 +45,7 @@ serve(async (req: Request) => {
       subject,
       body: emailBody,
       bodyType,
+      replyToMessageId,
       ownerId,
       orgId,
     } = requestBody
@@ -152,7 +154,7 @@ serve(async (req: Request) => {
     // Send email via Unipile API with retry for transient errors (502/503/504)
     console.log(`Sending email to: ${recipientEmail}, subject: ${subject}, event_id: ${eventId}`)
 
-    const emailPayload = {
+    const emailPayload: Record<string, unknown> = {
       account_id: gmailAccountId,
       to: [{ display_name: leadName || recipientEmail, identifier: recipientEmail }],
       subject: subject,
@@ -160,9 +162,10 @@ serve(async (req: Request) => {
     }
 
     // Add body_type if explicitly set to text/plain (default is text/html)
-    if (bodyType === 'text/plain') {
-      (emailPayload as Record<string, unknown>).body_type = 'text/plain'
-    }
+    if (bodyType === 'text/plain') emailPayload.body_type = 'text/plain'
+
+    // Add reply_to for email threading (follow-up in same thread)
+    if (replyToMessageId) emailPayload.reply_to = replyToMessageId
 
     const MAX_RETRIES = 2
     let response: Response | null = null
