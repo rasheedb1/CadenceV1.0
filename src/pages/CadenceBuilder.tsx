@@ -67,6 +67,9 @@ import {
   Clock,
   RefreshCw,
   Lock,
+  Building2,
+  ChevronRight,
+  ExternalLink,
 } from 'lucide-react'
 import { STEP_TYPE_CONFIG, type StepType, type CadenceStep, type Lead } from '@/types'
 import type { AIPrompt } from '@/lib/edge-functions'
@@ -774,6 +777,10 @@ export function CadenceBuilder() {
           <TabsTrigger value="leads">
             Leads ({cadenceLeads.length})
           </TabsTrigger>
+          <TabsTrigger value="companies">
+            <Building2 className="h-4 w-4 mr-1" />
+            Companies
+          </TabsTrigger>
           <TabsTrigger value="queue">
             <Clock className="h-4 w-4 mr-1" />
             Queue ({schedules.length})
@@ -1460,6 +1467,11 @@ export function CadenceBuilder() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Companies tab */}
+        <TabsContent value="companies">
+          <CompaniesTab leads={cadenceLeads} />
+        </TabsContent>
       </Tabs>
 
       {/* Add Step Dialog */}
@@ -1838,6 +1850,175 @@ export function CadenceBuilder() {
           aiPrompts={aiPrompts}
         />
       )}
+    </div>
+  )
+}
+
+// ─── Companies Tab ─────────────────────────────────────────────────────────────
+const LEAD_STATUS_LABELS: Record<string, { label: string; className: string }> = {
+  active:    { label: 'Active',    className: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' },
+  scheduled: { label: 'Scheduled', className: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' },
+  paused:    { label: 'Paused',    className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300' },
+  generated: { label: 'Generated', className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' },
+  sent:      { label: 'Sent',      className: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300' },
+}
+
+function CompaniesTab({ leads }: { leads: Lead[] }) {
+  const [selectedCompany, setSelectedCompany] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+
+  // Group leads by company
+  const grouped = leads.reduce<Record<string, Lead[]>>((acc, lead) => {
+    const key = lead.company?.trim() || '(Sin empresa)'
+    if (!acc[key]) acc[key] = []
+    acc[key].push(lead)
+    return acc
+  }, {})
+
+  const companies = Object.entries(grouped)
+    .sort((a, b) => b[1].length - a[1].length)
+    .filter(([name]) =>
+      !search || name.toLowerCase().includes(search.toLowerCase())
+    )
+
+  const selectedLeads = selectedCompany ? (grouped[selectedCompany] || []) : []
+
+  if (leads.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center text-muted-foreground text-sm">
+          No hay leads en esta cadencia todavía.
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+      {/* Company list */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium">
+            {companies.length} empresa{companies.length !== 1 ? 's' : ''}
+          </CardTitle>
+          <div className="relative mt-1">
+            <input
+              type="text"
+              placeholder="Buscar empresa..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="divide-y max-h-[560px] overflow-y-auto">
+            {companies.map(([name, compLeads]) => {
+              const isSelected = selectedCompany === name
+              const statusCounts = compLeads.reduce<Record<string, number>>((acc, l) => {
+                const s = l.status ?? 'active'
+                acc[s] = (acc[s] || 0) + 1
+                return acc
+              }, {})
+
+              return (
+                <button
+                  key={name}
+                  onClick={() => setSelectedCompany(isSelected ? null : name)}
+                  className={`w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-muted/50 transition-colors ${
+                    isSelected ? 'bg-muted/70 border-l-2 border-primary' : ''
+                  }`}
+                >
+                  <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{name}</p>
+                    <div className="flex gap-1 mt-0.5 flex-wrap">
+                      {Object.entries(statusCounts).map(([status, count]) => {
+                        const sc = LEAD_STATUS_LABELS[status]
+                        return sc ? (
+                          <span
+                            key={status}
+                            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${sc.className}`}
+                          >
+                            {count} {sc.label}
+                          </span>
+                        ) : null
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Badge variant="secondary" className="text-xs">{compLeads.length}</Badge>
+                    <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${isSelected ? 'rotate-90' : ''}`} />
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Lead detail panel */}
+      <Card>
+        {!selectedCompany ? (
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
+            <Building2 className="h-10 w-10 mb-3 opacity-30" />
+            <p className="text-sm">Selecciona una empresa para ver sus leads</p>
+          </CardContent>
+        ) : (
+          <>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Building2 className="h-5 w-5 text-muted-foreground" />
+                <CardTitle className="text-base">{selectedCompany}</CardTitle>
+                <Badge variant="secondary">{selectedLeads.length} lead{selectedLeads.length !== 1 ? 's' : ''}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="divide-y max-h-[500px] overflow-y-auto">
+                {selectedLeads.map((lead) => {
+                  const sc = LEAD_STATUS_LABELS[lead.status ?? 'active']
+                  return (
+                    <div key={lead.id} className="px-4 py-3 flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm">
+                            {lead.first_name} {lead.last_name}
+                          </span>
+                          {sc && (
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${sc.className}`}>
+                              {sc.label}
+                            </span>
+                          )}
+                        </div>
+                        {lead.title && (
+                          <p className="text-xs text-muted-foreground mt-0.5">{lead.title}</p>
+                        )}
+                        {lead.email && (
+                          <p className="text-xs text-muted-foreground">{lead.email}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {lead.linkedin_url && (
+                          <a
+                            href={lead.linkedin_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center justify-center h-7 w-7 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                            title="Ver LinkedIn"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </CardContent>
+          </>
+        )}
+      </Card>
     </div>
   )
 }
