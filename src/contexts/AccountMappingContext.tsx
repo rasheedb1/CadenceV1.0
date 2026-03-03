@@ -89,12 +89,16 @@ export interface EnrichProspectResponse {
     phone?: string | null
     source?: string
     error?: string
+    emailCreditWarning?: boolean
+    phoneCreditWarning?: boolean
   }>
   summary: {
     total: number
     enriched: number
     withEmail: number
     withPhone: number
+    emailCreditWarning?: boolean
+    phoneCreditWarning?: boolean
   }
 }
 

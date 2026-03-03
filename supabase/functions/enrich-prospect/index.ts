@@ -67,7 +67,7 @@ async function enrichWithApollo(
     domain?: string
     email?: string
   }
-): Promise<{ success: boolean; person?: ApolloPersonMatch; error?: string }> {
+): Promise<{ success: boolean; person?: ApolloPersonMatch; error?: string; creditError?: boolean; emailCreditWarning?: boolean; phoneCreditWarning?: boolean }> {
   try {
     // Build query parameters
     const queryParams = new URLSearchParams()
@@ -77,6 +77,7 @@ async function enrichWithApollo(
     if (params.domain) queryParams.set('domain', params.domain)
     if (params.email) queryParams.set('email', params.email)
     queryParams.set('reveal_personal_emails', 'true')
+    queryParams.set('reveal_phone_number', 'true')
 
     const url = `https://api.apollo.io/api/v1/people/match?${queryParams.toString()}`
 
@@ -96,13 +97,33 @@ async function enrichWithApollo(
     }
 
     const data = await response.json()
+
+    // Detect Apollo account-level errors (credit exhaustion, plan restrictions)
+    if (data?.error || data?.message) {
+      const msg = (data.error || data.message || '').toLowerCase()
+      if (msg.includes('credit') || msg.includes('quota') || msg.includes('limit') || msg.includes('plan')) {
+        console.warn(`Apollo account warning: ${data.error || data.message}`)
+        return { success: false, error: `Apollo: ${data.error || data.message}`, creditError: true }
+      }
+    }
+
     const person = data?.person as ApolloPersonMatch | undefined
 
     if (!person) {
       return { success: false, error: 'No match found in Apollo' }
     }
 
-    return { success: true, person }
+    // Detect when Apollo found the person but withheld data (credit signals)
+    const emailCreditWarning = !person.email && data?.reveal_personal_emails_credit_used === false
+    const phoneCreditWarning = (!person.phone_numbers || person.phone_numbers.length === 0) && data?.reveal_phone_credit_used === false
+
+    // Log credit signals for debugging
+    if (emailCreditWarning) console.warn('Apollo email credit warning: reveal_personal_emails_credit_used=false')
+    if (phoneCreditWarning) console.warn('Apollo phone credit warning: reveal_phone_credit_used=false')
+
+    console.log(`Apollo response for match: email=${person.email || 'null'}, phones=${person.phone_numbers?.length || 0}, email_credit_used=${data?.reveal_personal_emails_credit_used}, phone_credit_used=${data?.reveal_phone_credit_used}`)
+
+    return { success: true, person, emailCreditWarning, phoneCreditWarning }
   } catch (error) {
     console.error('Apollo enrichment error:', error)
     return { success: false, error: error instanceof Error ? error.message : 'Apollo API error' }
@@ -189,6 +210,9 @@ async function enrichSingleProspect(
   phone?: string | null
   source?: string
   error?: string
+  apolloPersonFound?: boolean
+  emailCreditWarning?: boolean
+  phoneCreditWarning?: boolean
 }> {
   // Fetch prospect
   const { data: prospect, error: pErr } = await supabase
@@ -205,6 +229,8 @@ async function enrichSingleProspect(
   let bestEmail: string | null = null
   let bestPhone: string | null = null
   let source = 'none'
+  let apolloEmailCreditWarning = false
+  let apolloPhoneCreditWarning = false
   const enrichmentDetails: Record<string, unknown> = { enriched_at: new Date().toISOString() }
 
   // ── Strategy 1: Apollo.io (primary) ──
@@ -241,6 +267,17 @@ async function enrichSingleProspect(
         enrichmentDetails.apollo_phones = person.phone_numbers
       }
 
+      // Track credit warnings
+      apolloEmailCreditWarning = apolloResult.emailCreditWarning || false
+      apolloPhoneCreditWarning = apolloResult.phoneCreditWarning || false
+
+      // Infer credit warnings: Apollo found the person but returned no data despite reveal flags
+      if (!bestEmail) apolloEmailCreditWarning = true
+      if (!bestPhone) apolloPhoneCreditWarning = true
+
+      if (apolloEmailCreditWarning) enrichmentDetails.apollo_email_credit_warning = true
+      if (apolloPhoneCreditWarning) enrichmentDetails.apollo_phone_credit_warning = true
+
       // Store extra Apollo data for later use
       enrichmentDetails.apollo_title = person.title
       enrichmentDetails.apollo_city = person.city
@@ -252,7 +289,7 @@ async function enrichSingleProspect(
         enrichmentDetails.apollo_employees = person.organization.estimated_num_employees
       }
 
-      console.log(`Apollo enrichment for ${prospect.first_name} ${prospect.last_name}: email=${bestEmail}, phone=${bestPhone}`)
+      console.log(`Apollo enrichment for ${prospect.first_name} ${prospect.last_name}: email=${bestEmail}, phone=${bestPhone}, emailCreditWarning=${apolloEmailCreditWarning}, phoneCreditWarning=${apolloPhoneCreditWarning}`)
     } else {
       console.log(`Apollo miss for ${prospect.first_name} ${prospect.last_name}: ${apolloResult.error}`)
       enrichmentDetails.apollo_error = apolloResult.error
@@ -312,7 +349,15 @@ async function enrichSingleProspect(
     .update(updateData)
     .eq('id', prospectId)
 
-  return { success: true, email: bestEmail, phone: bestPhone, source }
+  return {
+    success: true,
+    email: bestEmail,
+    phone: bestPhone,
+    source,
+    apolloPersonFound: !!apolloApiKey,
+    emailCreditWarning: apolloEmailCreditWarning && !bestEmail,
+    phoneCreditWarning: apolloPhoneCreditWarning && !bestPhone,
+  }
 }
 
 // ─── Main Handler ─────────────────────────────────────────────────
@@ -371,7 +416,10 @@ serve(async (req: Request) => {
     const results = await runWithConcurrency(tasks, CONCURRENCY)
 
     const enriched = results.filter(r => r.email)
-    console.log(`Enrichment complete: ${enriched.length}/${results.length} prospects got emails`)
+    const emailCreditWarning = results.some(r => r.emailCreditWarning)
+    const phoneCreditWarning = results.some(r => r.phoneCreditWarning)
+
+    console.log(`Enrichment complete: ${enriched.length}/${results.length} got emails, ${results.filter(r => r.phone).length} got phones. emailCreditWarning=${emailCreditWarning}, phoneCreditWarning=${phoneCreditWarning}`)
 
     return jsonResponse({
       success: true,
@@ -381,6 +429,8 @@ serve(async (req: Request) => {
         enriched: enriched.length,
         withEmail: enriched.length,
         withPhone: results.filter(r => r.phone).length,
+        emailCreditWarning,
+        phoneCreditWarning,
       },
     })
   } catch (error) {

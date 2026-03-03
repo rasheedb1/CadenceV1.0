@@ -2372,7 +2372,13 @@ function EnrichDialog({
   const linkedCompany = companies.find((c) => c.id === prospect.company_id)
   const [website, setWebsite] = useState(linkedCompany?.website || '')
   const [enriching, setEnriching] = useState(false)
-  const [result, setResult] = useState<{ email: string | null; phone: string | null; source: string } | null>(null)
+  const [result, setResult] = useState<{
+    email: string | null
+    phone: string | null
+    source: string
+    emailCreditWarning: boolean
+    phoneCreditWarning: boolean
+  } | null>(null)
 
   const handleEnrich = async () => {
     setEnriching(true)
@@ -2385,6 +2391,8 @@ function EnrichDialog({
           email: first.email || null,
           phone: first.phone || null,
           source: first.source || 'unknown',
+          emailCreditWarning: first.emailCreditWarning || res.summary?.emailCreditWarning || false,
+          phoneCreditWarning: first.phoneCreditWarning || res.summary?.phoneCreditWarning || false,
         })
       }
     } catch (err) {
@@ -2445,12 +2453,22 @@ function EnrichDialog({
                 <p className={`text-sm ${result.email ? 'text-primary font-medium' : 'text-muted-foreground'}`}>
                   {result.email || 'No encontrado'}
                 </p>
+                {!result.email && result.emailCreditWarning && (
+                  <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                    <span>⚠️</span> Apollo encontró el perfil pero no devolvió email — posiblemente se agotaron los créditos de email reveal. Revisa tu plan en Apollo.io.
+                  </p>
+                )}
               </div>
               <div>
                 <p className="text-sm font-medium">Telefono</p>
                 <p className={`text-sm ${result.phone ? 'text-primary font-medium' : 'text-muted-foreground'}`}>
                   {result.phone || 'No encontrado'}
                 </p>
+                {!result.phone && result.phoneCreditWarning && (
+                  <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                    <span>⚠️</span> Apollo encontró el perfil pero no devolvió teléfono — posiblemente se agotaron los créditos de mobile phone reveal. Revisa tu plan en Apollo.io.
+                  </p>
+                )}
               </div>
             </div>
           )}
