@@ -639,19 +639,17 @@ async function executeLinkedInAction(
       emailBody = stripped.body
 
       baseBody.to = (configJson.to_email as string) || ''
-      const rawSubject = (configJson.subject as string) || stripped.subject || 'Follow-up'
-      // Ensure subject has Re: prefix for proper threading
-      baseBody.subject = /^re:/i.test(rawSubject) ? rawSubject : `Re: ${rawSubject}`
       baseBody.body = textToHtml(emailBody)
 
-      // Look up the gmail_message_id from the referenced send_email step for this lead
+      // Look up original email: get gmail_message_id AND subject (Unipile requires subject to match original)
       const replyToStepId = configJson.reply_to_step_id as string | undefined
       let replyToMessageId: string | null = null
+      let originalSubject: string | null = null
 
       if (replyToStepId) {
         const { data: prevEmail } = await supabase
           .from('email_messages')
-          .select('gmail_message_id')
+          .select('gmail_message_id, subject')
           .eq('cadence_id', schedule.cadence_id)
           .eq('cadence_step_id', replyToStepId)
           .eq('lead_id', schedule.lead_id)
@@ -660,13 +658,14 @@ async function executeLinkedInAction(
           .limit(1)
           .maybeSingle()
         replyToMessageId = prevEmail?.gmail_message_id || null
+        originalSubject = prevEmail?.subject || null
       }
 
-      // Fallback: most recent email sent in this cadence to this lead
+      // Fallback: most recent email in this cadence to this lead
       if (!replyToMessageId) {
         const { data: prevEmail } = await supabase
           .from('email_messages')
-          .select('gmail_message_id')
+          .select('gmail_message_id, subject')
           .eq('cadence_id', schedule.cadence_id)
           .eq('lead_id', schedule.lead_id)
           .not('gmail_message_id', 'is', null)
@@ -674,13 +673,21 @@ async function executeLinkedInAction(
           .limit(1)
           .maybeSingle()
         replyToMessageId = prevEmail?.gmail_message_id || null
+        if (!originalSubject) originalSubject = prevEmail?.subject || null
       }
+
+      // Unipile requires: reply subject = original subject (with optional Re: prefix)
+      // Strip any existing Re: from original to avoid "Re: Re: ..."
+      const cleanOriginal = originalSubject ? originalSubject.replace(/^re:\s*/i, '').trim() : null
+      const fallbackSubject = (configJson.subject as string) || stripped.subject || 'Follow-up'
+      const subjectBase = cleanOriginal || fallbackSubject.replace(/^re:\s*/i, '').trim()
+      baseBody.subject = `Re: ${subjectBase}`
 
       if (replyToMessageId) {
         baseBody.replyToMessageId = replyToMessageId
-        console.log(`email_reply: will thread onto message ${replyToMessageId} for lead ${schedule.lead_id}`)
+        console.log(`email_reply: threading onto ${replyToMessageId}, subject: "${baseBody.subject}" for lead ${schedule.lead_id}`)
       } else {
-        console.warn(`email_reply: no previous gmail_message_id found for lead ${schedule.lead_id} in cadence ${schedule.cadence_id}, sending as new email`)
+        console.warn(`email_reply: no previous gmail_message_id found for lead ${schedule.lead_id}, sending as new email with subject: "${baseBody.subject}"`)
       }
       break
     }
