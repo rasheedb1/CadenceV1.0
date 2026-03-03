@@ -209,6 +209,7 @@ interface AccountMappingContextType {
   getExclusionStats: () => ExclusionStats
   // AI Prospect Validation
   validateProspects: (accountMapId: string, companyId: string, productDescription: string, productCategory: string, icpDescription?: string) => Promise<{ validated: number; total: number }>
+  applyScoreThreshold: (accountMapId: string, companyId: string, minScore: number) => Promise<{ skipped: number }>
   skipProspect: (prospectId: string, reason?: string) => Promise<void>
   unskipProspect: (prospectId: string) => Promise<void>
   // Outreach Strategy
@@ -1075,6 +1076,29 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
           )
           queryClient.invalidateQueries({ queryKey: ['account-maps'] })
           return { validated: result.validated, total: result.total }
+        },
+        applyScoreThreshold: async (accountMapId, companyId, minScore) => {
+          if (!user || !orgId) throw new Error('Not authenticated')
+          const { data: lowScoreProspects, error: fetchErr } = await supabase
+            .from('prospects')
+            .select('id')
+            .eq('account_map_id', accountMapId)
+            .eq('company_id', companyId)
+            .eq('org_id', orgId)
+            .eq('ai_validated', true)
+            .lt('relevance_score', minScore)
+            .neq('skipped', true)
+          if (fetchErr) throw fetchErr
+          if (!lowScoreProspects || lowScoreProspects.length === 0) return { skipped: 0 }
+          const ids = lowScoreProspects.map(p => p.id)
+          const { error: updateErr } = await supabase
+            .from('prospects')
+            .update({ skipped: true, skip_reason: `Score < ${minScore} (AI validation)` })
+            .in('id', ids)
+            .eq('org_id', orgId)
+          if (updateErr) throw updateErr
+          queryClient.invalidateQueries({ queryKey: ['account-maps'] })
+          return { skipped: ids.length }
         },
         skipProspect: async (prospectId, reason) => {
           if (!user || !orgId) throw new Error('Not authenticated')

@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Loader2, CheckCircle2, XCircle, Clock, Pause, Play, UserSearch, AlertTriangle, Sparkles, Mail } from 'lucide-react'
+import { Loader2, CheckCircle2, XCircle, Clock, Pause, Play, UserSearch, AlertTriangle, Sparkles, Mail, Shield, ChevronDown, ChevronUp } from 'lucide-react'
 import type {
   AccountMapCompany,
   BuyerPersona,
@@ -39,6 +39,7 @@ interface BatchSearchDialogProps {
   onSearchCompany: (companyId: string, maxPerRole: number) => Promise<CascadeSearchCompanyResponse>
   onRefresh: () => void
   onValidate?: (companyId: string) => Promise<{ validated: number; total: number }>
+  onApplyScoreThreshold?: (companyId: string, threshold: number) => Promise<{ skipped: number }>
   onEnrich?: (companyId: string) => Promise<void>
 }
 
@@ -64,6 +65,12 @@ interface CompanySearchState {
   error?: string
 }
 
+interface ValidationResult {
+  validated: number
+  total: number
+  skipped: number
+}
+
 export function BatchSearchDialog({
   open,
   onOpenChange,
@@ -73,9 +80,9 @@ export function BatchSearchDialog({
   onSearchCompany,
   onRefresh,
   onValidate,
+  onApplyScoreThreshold,
   onEnrich,
 }: BatchSearchDialogProps) {
-  void _accountMapId // reserved for future use
   // Selection state (pre-search)
   const [selectedCompanyIds, setSelectedCompanyIds] = useState<Set<string>>(
     new Set(companies.map(c => c.id))
@@ -94,6 +101,14 @@ export function BatchSearchDialog({
   const abortRef = useRef(false)
   const pauseRef = useRef(false)
   const consecutiveEmptyRef = useRef(0)
+
+  // Post-search optional validation state
+  const [foundCompanyIds, setFoundCompanyIds] = useState<string[]>([])
+  const [validateCompanyIds, setValidateCompanyIds] = useState<Set<string>>(new Set())
+  const [scoreThreshold, setScoreThreshold] = useState(5)
+  const [isValidating, setIsValidating] = useState(false)
+  const [validationSummary, setValidationSummary] = useState<Record<string, ValidationResult>>({})
+  const [validationExpanded, setValidationExpanded] = useState(true)
 
   const selectedCompanies = companies.filter(c => selectedCompanyIds.has(c.id))
   const sortedPersonas = [...personas].sort((a, b) => {
@@ -138,6 +153,9 @@ export function BatchSearchDialog({
     setTotalProspectsFound(0)
     setCompletedCompanies(0)
     setRateLimitWarning(null)
+    setFoundCompanyIds([])
+    setValidateCompanyIds(new Set())
+    setValidationSummary({})
     consecutiveEmptyRef.current = 0
 
     // Initialize search states
@@ -243,34 +261,51 @@ export function BatchSearchDialog({
       }
     }
 
-    // ── Phase 2: Deferred validation + enrichment ──
-    if (!abortRef.current && companiesWithProspects.length > 0) {
+    // ── Phase 2: Enrichment (still automatic, no validation) ──
+    if (!abortRef.current && companiesWithProspects.length > 0 && onEnrich) {
       for (const companyId of companiesWithProspects) {
         if (abortRef.current) break
-
-        if (onValidate) {
-          updateCompanyState(companyId, { status: 'validating' })
-          try {
-            await onValidate(companyId)
-          } catch (e) {
-            console.warn('Auto-validation failed for', companyId, e)
-          }
+        updateCompanyState(companyId, { status: 'enriching' })
+        try {
+          await onEnrich(companyId)
+        } catch (e) {
+          console.warn('Auto-enrichment failed for', companyId, e)
         }
-
-        if (onEnrich) {
-          updateCompanyState(companyId, { status: 'enriching' })
-          try {
-            await onEnrich(companyId)
-          } catch (e) {
-            console.warn('Auto-enrichment failed for', companyId, e)
-          }
-        }
-
         updateCompanyState(companyId, { status: 'done' })
       }
     }
 
+    // Save companies with prospects for optional validation panel
+    setFoundCompanyIds(companiesWithProspects)
+    setValidateCompanyIds(new Set(companiesWithProspects))
+
     setPhase('done')
+    onRefresh()
+  }
+
+  const handleStartValidation = async () => {
+    if (!onValidate || validateCompanyIds.size === 0 || isValidating) return
+    setIsValidating(true)
+    for (const companyId of Array.from(validateCompanyIds)) {
+      if (abortRef.current) break
+      updateCompanyState(companyId, { status: 'validating' })
+      try {
+        const result = await onValidate(companyId)
+        let skipped = 0
+        if (onApplyScoreThreshold) {
+          const r = await onApplyScoreThreshold(companyId, scoreThreshold)
+          skipped = r.skipped
+        }
+        setValidationSummary(prev => ({
+          ...prev,
+          [companyId]: { validated: result.validated, total: result.total, skipped },
+        }))
+      } catch (e) {
+        console.warn('Validation failed for', companyId, e)
+      }
+      updateCompanyState(companyId, { status: 'done' })
+    }
+    setIsValidating(false)
     onRefresh()
   }
 
@@ -298,12 +333,21 @@ export function BatchSearchDialog({
     setSearchStates([])
     setTotalProspectsFound(0)
     setCompletedCompanies(0)
+    setFoundCompanyIds([])
+    setValidateCompanyIds(new Set())
+    setScoreThreshold(5)
+    setIsValidating(false)
+    setValidationSummary({})
     onOpenChange(false)
   }
 
   const progressPercent = selectedCompanies.length > 0
     ? (completedCompanies / selectedCompanies.length) * 100
     : 0
+
+  const totalValidated = Object.keys(validationSummary).length
+  const totalSkippedByAI = Object.values(validationSummary).reduce((sum, v) => sum + v.skipped, 0)
+  const allValidationDone = foundCompanyIds.length > 0 && totalValidated >= validateCompanyIds.size && validateCompanyIds.size > 0
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
@@ -441,11 +485,155 @@ export function BatchSearchDialog({
             )}
 
             {/* Company list */}
-            <div className="max-h-[400px] overflow-y-auto rounded-md border divide-y">
+            <div className="max-h-[300px] overflow-y-auto rounded-md border divide-y">
               {searchStates.map(state => (
                 <CompanySearchRow key={state.companyId} state={state} />
               ))}
             </div>
+
+            {/* ── Optional AI Validation panel (shown after search completes) ── */}
+            {phase === 'done' && onValidate && foundCompanyIds.length > 0 && (
+              <div className="rounded-md border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20 overflow-hidden">
+                {/* Header */}
+                <button
+                  className="flex items-center gap-2 w-full px-4 py-3 text-left hover:bg-purple-100/50 dark:hover:bg-purple-900/20 transition-colors"
+                  onClick={() => setValidationExpanded(v => !v)}
+                >
+                  <Shield className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                  <span className="text-sm font-medium text-purple-900 dark:text-purple-100 flex-1">
+                    Validación AI
+                  </span>
+                  {totalValidated > 0 && (
+                    <span className="text-xs text-purple-600 dark:text-purple-400">
+                      {totalValidated} validadas · {totalSkippedByAI} eliminadas
+                    </span>
+                  )}
+                  <Badge variant="outline" className="text-[10px] border-purple-300 text-purple-600">opcional</Badge>
+                  {validationExpanded
+                    ? <ChevronUp className="h-4 w-4 text-purple-400" />
+                    : <ChevronDown className="h-4 w-4 text-purple-400" />}
+                </button>
+
+                {validationExpanded && (
+                  <div className="px-4 pb-4 space-y-3 border-t border-purple-200 dark:border-purple-800 pt-3">
+                    <p className="text-xs text-muted-foreground">
+                      La IA evaluará cada prospect y le dará un score del 1 al 10.
+                      Los que estén por debajo del mínimo serán marcados como omitidos automáticamente.
+                    </p>
+
+                    {/* Score threshold */}
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-medium shrink-0">Score mínimo:</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={9}
+                        value={scoreThreshold}
+                        onChange={(e) => setScoreThreshold(Math.max(1, Math.min(9, parseInt(e.target.value) || 5)))}
+                        className="w-16 h-7 text-sm"
+                        disabled={isValidating}
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        prospects con score &lt; {scoreThreshold} serán omitidos
+                      </span>
+                    </div>
+
+                    {/* Company checkboxes */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">
+                          {validateCompanyIds.size} de {foundCompanyIds.length} empresas seleccionadas
+                        </span>
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0 text-xs"
+                          disabled={isValidating}
+                          onClick={() => {
+                            if (validateCompanyIds.size === foundCompanyIds.length) {
+                              setValidateCompanyIds(new Set())
+                            } else {
+                              setValidateCompanyIds(new Set(foundCompanyIds))
+                            }
+                          }}
+                        >
+                          {validateCompanyIds.size === foundCompanyIds.length ? 'Deselect all' : 'Select all'}
+                        </Button>
+                      </div>
+
+                      <div className="max-h-[200px] overflow-y-auto rounded-md border divide-y bg-white dark:bg-background">
+                        {foundCompanyIds.map(companyId => {
+                          const state = searchStates.find(s => s.companyId === companyId)
+                          if (!state) return null
+                          const summary = validationSummary[companyId]
+                          const isSelected = validateCompanyIds.has(companyId)
+                          const recommended = summary ? summary.validated - summary.skipped : null
+
+                          return (
+                            <label
+                              key={companyId}
+                              className="flex items-center gap-3 px-3 py-2 hover:bg-muted/50 cursor-pointer"
+                            >
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() => {
+                                  if (summary) return // already validated, lock
+                                  setValidateCompanyIds(prev => {
+                                    const next = new Set(prev)
+                                    if (next.has(companyId)) next.delete(companyId)
+                                    else next.add(companyId)
+                                    return next
+                                  })
+                                }}
+                                disabled={isValidating || !!summary}
+                              />
+                              <span className="text-sm flex-1">{state.companyName}</span>
+                              {summary ? (
+                                <div className="flex items-center gap-2 text-xs shrink-0">
+                                  <span className="text-green-600 font-medium">{recommended} OK</span>
+                                  {summary.skipped > 0 && (
+                                    <span className="text-red-500">{summary.skipped} eliminados</span>
+                                  )}
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                                </div>
+                              ) : (
+                                <Badge variant="secondary" className="text-[10px] shrink-0">
+                                  {state.totalFound} prospects
+                                </Badge>
+                              )}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Validate button (inside panel) */}
+                    {!allValidationDone && (
+                      <Button
+                        onClick={handleStartValidation}
+                        disabled={isValidating || validateCompanyIds.size === 0}
+                        size="sm"
+                        className="bg-purple-600 hover:bg-purple-700 text-white"
+                      >
+                        {isValidating ? (
+                          <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Validando...</>
+                        ) : (
+                          <><Sparkles className="mr-2 h-3.5 w-3.5" /> Validar {validateCompanyIds.size} empresas</>
+                        )}
+                      </Button>
+                    )}
+
+                    {allValidationDone && (
+                      <div className="flex items-center gap-2 text-xs text-green-600 font-medium">
+                        <CheckCircle2 className="h-4 w-4" />
+                        Validación completa — {Object.values(validationSummary).reduce((s, v) => s + (v.validated - v.skipped), 0)} recomendados,{' '}
+                        {totalSkippedByAI} eliminados por score bajo
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -481,7 +669,7 @@ export function BatchSearchDialog({
             </>
           )}
           {phase === 'done' && (
-            <Button onClick={handleClose}>
+            <Button onClick={handleClose} className="ml-auto">
               Close ({totalProspectsFound} prospects saved)
             </Button>
           )}

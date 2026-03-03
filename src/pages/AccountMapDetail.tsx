@@ -140,6 +140,7 @@ export function AccountMapDetail() {
     companyRegistry,
     refreshAccountMaps,
     validateProspects,
+    applyScoreThreshold,
   } = useAccountMapping()
   const { cadences } = useCadence()
 
@@ -424,6 +425,7 @@ export function AccountMapDetail() {
           map.filters_json?.icp_builder_data?.productCategory || '',
           map.icp_description || ''
         )}
+        onApplyScoreThreshold={(companyId, threshold) => applyScoreThreshold(map.id, companyId, threshold)}
         onEnrich={(companyId) => enrichCompanyProspects(map.id, companyId)}
       />
 
