@@ -167,10 +167,10 @@ serve(async (req: Request) => {
     if (bodyType === 'text/plain') emailPayload.body_type = 'text/plain'
 
     // Add reply_to for email threading (follow-up in same thread)
-    // Unipile expects the Unipile email `id` (e.g. "n_3LLSdEUqWX-InHajCaFA") — stored in email_messages.gmail_message_id
+    // Unipile expects the provider_id (Gmail's native hex message ID) — stored in email_messages.gmail_message_id
     if (replyToMessageId) {
       emailPayload.reply_to = replyToMessageId
-      console.log(`Threading reply onto Unipile email ID: ${replyToMessageId}`)
+      console.log(`Threading reply using provider_id: ${replyToMessageId}`)
     }
 
     const MAX_RETRIES = 2
@@ -308,9 +308,10 @@ serve(async (req: Request) => {
             const recipientMatch = toIds.some(id => id === recipientEmail.toLowerCase())
             return subjectMatch && recipientMatch
           })
-          if (sent?.id) {
-            emailId = sent.id as string
-            console.log(`Retrieved Unipile email ID from listing: ${emailId}`)
+          if (sent) {
+            // Unipile reply_to expects provider_id (Gmail's native message hex ID), not the Unipile internal id
+            emailId = (sent.provider_id || sent.id) as string
+            console.log(`Retrieved Unipile email provider_id from listing: ${emailId} (id: ${sent.id})`)
           } else if (items.length > 0) {
             console.log(`No exact match found. Subjects checked: ${items.slice(0,5).map(e => e.subject).join(', ')}`)
           }
