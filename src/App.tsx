@@ -39,6 +39,7 @@ import { OrgMembers } from '@/pages/OrgMembers'
 import { SuperAdminOrgs } from '@/pages/SuperAdminOrgs'
 import { FeatureRoute } from '@/components/FeatureRoute'
 import { SalesforceCallback } from '@/pages/SalesforceCallback'
+import { OutreachActivity } from '@/pages/OutreachActivity'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -81,6 +82,7 @@ function App() {
                   <Route path="/templates" element={<FeatureRoute flag="section_templates"><Templates /></FeatureRoute>} />
                   <Route path="/ai-prompts" element={<FeatureRoute flag="section_ai_prompts"><AIPrompts /></FeatureRoute>} />
                   <Route path="/notifications" element={<FeatureRoute flag="section_notifications"><Notifications /></FeatureRoute>} />
+                  <Route path="/outreach" element={<OutreachActivity />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/settings/organization" element={<OrgSettings />} />
                   <Route path="/settings/members" element={<OrgMembers />} />

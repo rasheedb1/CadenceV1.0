@@ -15,6 +15,7 @@ import {
   Bell,
   Target,
   Crown,
+  Activity,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrg } from '@/contexts/OrgContext'
@@ -28,6 +29,7 @@ import type { FeatureFlagKey } from '@/types/feature-flags'
 const navigation: { name: string; href: string; icon: typeof LayoutDashboard; featureFlag?: FeatureFlagKey }[] = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Cadences', href: '/cadences', icon: Workflow, featureFlag: 'section_cadences' },
+  { name: 'Outreach Activity', href: '/outreach', icon: Activity, featureFlag: 'section_cadences' },
   { name: 'Workflows', href: '/workflows', icon: GitBranch, featureFlag: 'section_workflows' },
   { name: 'Account Mapping', href: '/account-mapping', icon: Target, featureFlag: 'section_account_mapping' },
   { name: 'Company Registry', href: '/company-registry', icon: ShieldCheck, featureFlag: 'section_company_registry' },
