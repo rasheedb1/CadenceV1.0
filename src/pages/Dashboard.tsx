@@ -37,6 +37,7 @@ import {
   ClipboardList,
   Activity,
   Reply,
+  Eye,
 } from 'lucide-react'
 import { LinkedInUsageWidget } from '@/components/dashboard/LinkedInUsageWidget'
 import type { Cadence, ActivityLogEntry, StepType } from '@/types'
@@ -53,6 +54,7 @@ const STEP_ICONS: Record<StepType, React.ComponentType<{ className?: string }>> 
   whatsapp: Phone,
   cold_call: Phone,
   task: ClipboardList,
+  linkedin_profile_view: Eye,
 }
 
 // Action icons mapping

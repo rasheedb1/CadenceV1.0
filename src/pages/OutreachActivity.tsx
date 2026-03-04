@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import {
   MessageSquare, UserPlus, ThumbsUp, MessageCircle, Mail, Phone, PhoneCall,
   ClipboardList, Clock, CheckCircle, XCircle, RefreshCw, Filter, Send,
-  AlertTriangle, Search, ChevronDown, X, Reply,
+  AlertTriangle, Search, ChevronDown, X, Reply, Eye,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -31,6 +31,7 @@ const STEP_ICONS: Record<StepType, React.ComponentType<{ className?: string }>> 
   whatsapp: Phone,
   cold_call: PhoneCall,
   task: ClipboardList,
+  linkedin_profile_view: Eye,
 }
 
 const STEP_LABELS: Record<StepType, string> = {
@@ -43,6 +44,7 @@ const STEP_LABELS: Record<StepType, string> = {
   whatsapp: 'WhatsApp',
   cold_call: 'Cold Call',
   task: 'Task',
+  linkedin_profile_view: 'LinkedIn Profile View',
 }
 
 // ─── Status config ─────────────────────────────────────────────────────────────

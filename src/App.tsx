@@ -32,6 +32,8 @@ import { AccountMapping } from '@/pages/AccountMapping'
 import { AccountMapDetail } from '@/pages/AccountMapDetail'
 import { CompanyRegistry } from '@/pages/CompanyRegistry'
 import { AccountMappingProvider } from '@/contexts/AccountMappingContext'
+import { CompanyResearchProvider } from '@/contexts/CompanyResearchContext'
+import { PageErrorBoundary } from '@/components/PageErrorBoundary'
 import { OrgSelect } from '@/pages/OrgSelect'
 import { AcceptInvite } from '@/pages/AcceptInvite'
 import { OrgSettings } from '@/pages/OrgSettings'
@@ -40,6 +42,8 @@ import { SuperAdminOrgs } from '@/pages/SuperAdminOrgs'
 import { FeatureRoute } from '@/components/FeatureRoute'
 import { SalesforceCallback } from '@/pages/SalesforceCallback'
 import { OutreachActivity } from '@/pages/OutreachActivity'
+import { CompanyResearch } from '@/pages/CompanyResearch'
+import { ResearchProjectDetail } from '@/pages/ResearchProjectDetail'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -61,6 +65,7 @@ function App() {
             <CadenceProvider>
             <WorkflowProvider>
             <AccountMappingProvider>
+            <CompanyResearchProvider>
               <Routes>
                 <Route path="/auth" element={<Auth />} />
                 <Route path="/onboarding" element={<Onboarding />} />
@@ -77,6 +82,8 @@ function App() {
                   <Route path="/account-mapping" element={<FeatureRoute flag="section_account_mapping"><AccountMapping /></FeatureRoute>} />
                   <Route path="/account-mapping/:id" element={<FeatureRoute flag="section_account_mapping"><AccountMapDetail /></FeatureRoute>} />
                   <Route path="/company-registry" element={<FeatureRoute flag="section_company_registry"><CompanyRegistry /></FeatureRoute>} />
+                  <Route path="/company-research" element={<FeatureRoute flag="section_company_research"><PageErrorBoundary><CompanyResearch /></PageErrorBoundary></FeatureRoute>} />
+                  <Route path="/company-research/:id" element={<FeatureRoute flag="section_company_research"><PageErrorBoundary><ResearchProjectDetail /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/leads" element={<FeatureRoute flag="section_leads"><Leads /></FeatureRoute>} />
                   <Route path="/inbox" element={<FeatureRoute flag="section_linkedin_inbox"><LinkedInInbox /></FeatureRoute>} />
                   <Route path="/templates" element={<FeatureRoute flag="section_templates"><Templates /></FeatureRoute>} />
@@ -94,6 +101,7 @@ function App() {
                 </Route>
               </Routes>
               <Toaster position="bottom-right" />
+            </CompanyResearchProvider>
             </AccountMappingProvider>
             </WorkflowProvider>
             </CadenceProvider>

@@ -23,6 +23,7 @@ import type { FirecrawlClient } from '../_shared/firecrawl.ts'
 
 interface CompanyResearchRequest {
   researchProjectCompanyId: string
+  llm_model?: string  // Optional: override Claude model for synthesis
 }
 
 interface ResearchSource {
@@ -43,7 +44,7 @@ interface GatherResult {
 const FC_TIMEOUT = 10_000        // Per-Firecrawl-call timeout
 const GATHER_BUDGET_MS = 70_000  // Max time for gather before saving for continuation
 const OVERALL_TIMEOUT_MS = 145_000
-const SYNTHESIS_TIMEOUT_MS = 120_000  // Synthesis timeout (Sonnet 4.6: ~40-90s for 6000 tokens)
+const SYNTHESIS_TIMEOUT_MS = 130_000  // Synthesis timeout (Opus 4.6 with 4000 tokens: ~90-120s, Sonnet: ~40-80s)
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -377,11 +378,13 @@ ${researchPrompt}
 ## GATHERED DATA
 ${dossier || '(No web data gathered — produce a report based on your existing knowledge, clearly noting real-time data was unavailable.)'}`
 
+  // Opus 4.6 ~30-50 tok/s — cap at 4000 to fit within 130s synthesis budget
+  const maxTokens = llm.model.includes('opus') ? 4000 : 6000
   const result = await withTimeout(
     llm.createMessage({
       system: systemPrompt,
       messages: [{ role: 'user', content: userContent }],
-      maxTokens: 6000,
+      maxTokens,
       temperature: 0.3,
     }),
     timeoutMs,
@@ -421,7 +424,7 @@ serve(async (req: Request) => {
     return errorResponse('Invalid JSON body', 400)
   }
 
-  const { researchProjectCompanyId } = body
+  const { researchProjectCompanyId, llm_model: requestedModel } = body
   if (!researchProjectCompanyId) {
     return errorResponse('researchProjectCompanyId is required', 400)
   }
@@ -491,10 +494,12 @@ serve(async (req: Request) => {
 
   // ── Execute ───────────────────────────────────────────────────
   try {
-    // Always use Anthropic/Claude for synthesis — always use Anthropic regardless of user's provider
-    const synthModel = llm.provider === 'anthropic' ? llm.model : 'claude-haiku-4-5-20251001'
+    // Always use Anthropic/Claude for synthesis
+    // Priority: requestedModel from UI > user's saved model (if Anthropic) > haiku fallback
+    const userSynthModel = llm.provider === 'anthropic' ? llm.model : 'claude-haiku-4-5-20251001'
+    const synthModel = requestedModel || userSynthModel
     const synthLLM = createLLMClient('anthropic', synthModel)
-    console.log(`[Research] synth=anthropic/${synthModel}`)
+    console.log(`[Research] synth=anthropic/${synthModel}${requestedModel ? ' (user-selected)' : ''}`)
     let dossier: string
     let sources: ResearchSource[]
 

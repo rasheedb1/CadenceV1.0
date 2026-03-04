@@ -11,36 +11,102 @@ interface ResearchReportViewProps {
   isRerunning?: boolean
 }
 
+// ─── Section parser ────────────────────────────────────────────────────────────
+
+interface Section {
+  title: string   // empty string = preamble (content before first ## header)
+  content: string
+}
+
+function parseSections(text: string): Section[] {
+  const lines = text.split('\n')
+  const sections: Section[] = []
+  let currentTitle = ''
+  let currentLines: string[] = []
+
+  for (const line of lines) {
+    if (line.startsWith('## ') && !line.startsWith('### ')) {
+      if (currentLines.some(l => l.trim()) || currentTitle) {
+        sections.push({ title: currentTitle, content: currentLines.join('\n') })
+      }
+      currentTitle = line.slice(3).trim()
+      currentLines = []
+    } else {
+      currentLines.push(line)
+    }
+  }
+
+  if (currentLines.some(l => l.trim()) || currentTitle) {
+    sections.push({ title: currentTitle, content: currentLines.join('\n') })
+  }
+
+  return sections
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export function ResearchReportView({ company, onRerun, isRerunning }: ResearchReportViewProps) {
+  const [openSections, setOpenSections] = useState<Set<number>>(new Set([0]))
   const [showSources, setShowSources] = useState(false)
   const metadata = company.research_metadata || {}
 
+  const sections = company.research_content ? parseSections(company.research_content) : []
+  const namedSections = sections.filter(s => s.title !== '')
+
+  const toggleSection = (idx: number) => {
+    setOpenSections(prev => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
+  }
+
+  const expandAll = () => setOpenSections(new Set(sections.map((_, i) => i)))
+  const collapseAll = () => setOpenSections(new Set())
+
   return (
-    <div className="space-y-4">
-      {/* Full Report */}
+    <div className="space-y-3">
+      {/* Header bar */}
       {company.research_content && (
-        <div>
-          {/* Header bar */}
-          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              {company.quality_score && (
-                <Badge variant={company.quality_score >= 7 ? 'default' : 'secondary'} className="gap-1">
-                  <Star className="h-3 w-3" />
-                  {company.quality_score}/10
-                </Badge>
-              )}
-              {typeof metadata.total_time_ms === 'number' && (
-                <Badge variant="outline" className="gap-1">
-                  <Clock className="h-3 w-3" />
-                  {`${Math.round(metadata.total_time_ms / 1000)}s`}
-                </Badge>
-              )}
-              {typeof metadata.llm_model === 'string' && (
-                <Badge variant="outline" className="text-xs hidden sm:flex">
-                  {metadata.llm_model}
-                </Badge>
-              )}
-            </div>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {company.quality_score && (
+              <Badge variant={company.quality_score >= 7 ? 'default' : 'secondary'} className="gap-1">
+                <Star className="h-3 w-3" />
+                {company.quality_score}/10
+              </Badge>
+            )}
+            {typeof metadata.total_time_ms === 'number' && (
+              <Badge variant="outline" className="gap-1">
+                <Clock className="h-3 w-3" />
+                {`${Math.round(metadata.total_time_ms / 1000)}s`}
+              </Badge>
+            )}
+            {typeof metadata.llm_model === 'string' && (
+              <Badge variant="outline" className="text-xs hidden sm:flex">
+                {metadata.llm_model}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {namedSections.length > 0 && (
+              <>
+                <button
+                  className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                  onClick={expandAll}
+                >
+                  Expand all
+                </button>
+                <span className="text-muted-foreground text-xs">·</span>
+                <button
+                  className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                  onClick={collapseAll}
+                >
+                  Collapse all
+                </button>
+              </>
+            )}
             {onRerun && (
               <Button size="sm" variant="outline" onClick={onRerun} disabled={isRerunning}>
                 {isRerunning ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-1 h-3 w-3" />}
@@ -48,18 +114,55 @@ export function ResearchReportView({ company, onRerun, isRerunning }: ResearchRe
               </Button>
             )}
           </div>
+        </div>
+      )}
 
-          {/* Report content */}
-          <div
-            className="research-report text-sm leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: renderMarkdown(company.research_content) }}
-          />
+      {/* Report sections */}
+      {sections.length > 0 && (
+        <div className="space-y-2">
+          {sections.map((section, idx) => {
+            const isPreamble = section.title === ''
+            const isOpen = openSections.has(idx)
+
+            if (isPreamble) {
+              return (
+                <div
+                  key={idx}
+                  className="research-report text-sm leading-relaxed px-1"
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(section.content) }}
+                />
+              )
+            }
+
+            return (
+              <div key={idx} className="border rounded-lg overflow-hidden bg-background">
+                <button
+                  className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/40 transition-colors"
+                  onClick={() => toggleSection(idx)}
+                >
+                  <span className="font-semibold text-sm">{section.title}</span>
+                  {isOpen
+                    ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
+                    : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                  }
+                </button>
+                {isOpen && (
+                  <div className="border-t px-4 py-3 bg-muted/10">
+                    <div
+                      className="research-report text-sm leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(section.content) }}
+                    />
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
 
       {/* Sources */}
       {company.research_sources && company.research_sources.length > 0 && (
-        <Card className="mt-4">
+        <Card className="mt-2">
           <CardHeader className="pb-2 cursor-pointer" onClick={() => setShowSources(!showSources)}>
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -165,7 +268,7 @@ function renderMarkdown(text: string): string {
     // ── Table ─────────────────────────────────────────────────
     if (line.startsWith('|') && i + 1 < lines.length && isSeparatorRow(lines[i + 1])) {
       const headerCells = parseTableRow(line)
-      i += 2 // skip header + separator
+      i += 2
       const bodyRows: string[][] = []
       while (i < lines.length && lines[i].startsWith('|')) {
         bodyRows.push(parseTableRow(lines[i]))
@@ -185,20 +288,8 @@ function renderMarkdown(text: string): string {
       continue
     }
 
-    // ── H1 ────────────────────────────────────────────────────
-    if (line.startsWith('# ') && !line.startsWith('## ')) {
-      out.push(`<h1 class="text-xl font-bold mt-6 mb-3 pb-2 border-b">${inline(esc(line.slice(2)))}</h1>`)
-      i++; continue
-    }
-
-    // ── H2 ────────────────────────────────────────────────────
-    if (line.startsWith('## ') && !line.startsWith('### ')) {
-      out.push(`<h2 class="text-base font-bold mt-5 mb-2 pt-1 text-foreground">${inline(esc(line.slice(3)))}</h2>`)
-      i++; continue
-    }
-
     // ── H3 ────────────────────────────────────────────────────
-    if (line.startsWith('### ')) {
+    if (line.startsWith('### ') && !line.startsWith('#### ')) {
       out.push(`<h3 class="text-sm font-semibold mt-4 mb-1.5 text-foreground">${inline(esc(line.slice(4)))}</h3>`)
       i++; continue
     }
@@ -206,12 +297,6 @@ function renderMarkdown(text: string): string {
     // ── H4 ────────────────────────────────────────────────────
     if (line.startsWith('#### ')) {
       out.push(`<h4 class="text-sm font-medium mt-3 mb-1 text-muted-foreground uppercase tracking-wide">${inline(esc(line.slice(5)))}</h4>`)
-      i++; continue
-    }
-
-    // ── SECTION heading (e.g. "SECTION 1 —" all-caps lines) ─
-    if (/^[A-Z][A-Z\s0-9—–-]{8,}$/.test(line.trim()) && line.trim().length > 0) {
-      out.push(`<h2 class="text-base font-bold mt-5 mb-2 pt-1 text-foreground">${inline(esc(line))}</h2>`)
       i++; continue
     }
 

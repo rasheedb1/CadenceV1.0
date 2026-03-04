@@ -64,8 +64,8 @@ interface CompanyResearchContextType {
   removeCompanyFromProject: (companyResearchId: string) => Promise<void>
 
   // Research execution (fire-and-forget — returns quickly, polling tracks progress)
-  runResearch: (researchProjectCompanyId: string) => Promise<void>
-  runAllPending: (projectId: string) => Promise<void>
+  runResearch: (researchProjectCompanyId: string, llmModel?: string) => Promise<void>
+  runAllPending: (projectId: string, llmModel?: string) => Promise<void>
   resetStuckResearch: (researchProjectCompanyId: string) => Promise<void>
 }
 
@@ -206,7 +206,7 @@ export function CompanyResearchProvider({ children }: { children: ReactNode }) {
   })
 
   // ── Run research (fire-and-forget — function runs in background) ──
-  const runResearch = async (researchProjectCompanyId: string): Promise<void> => {
+  const runResearch = async (researchProjectCompanyId: string, llmModel?: string): Promise<void> => {
     if (!session?.access_token) throw new Error('Not authenticated')
 
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
@@ -220,7 +220,7 @@ export function CompanyResearchProvider({ children }: { children: ReactNode }) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ researchProjectCompanyId }),
+      body: JSON.stringify({ researchProjectCompanyId, ...(llmModel ? { llm_model: llmModel } : {}) }),
     })
 
     const invalidateAll = () => {
@@ -251,7 +251,7 @@ export function CompanyResearchProvider({ children }: { children: ReactNode }) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${session!.access_token}`,
               },
-              body: JSON.stringify({ researchProjectCompanyId }),
+              body: JSON.stringify({ researchProjectCompanyId, ...(llmModel ? { llm_model: llmModel } : {}) }),
             })
               .then(async (resp2) => {
                 if (!resp2.ok) {
@@ -307,7 +307,7 @@ export function CompanyResearchProvider({ children }: { children: ReactNode }) {
   }
 
   // ── Run all pending ──
-  const runAllPending = async (projectId: string) => {
+  const runAllPending = async (projectId: string, llmModel?: string) => {
     if (!session?.access_token) throw new Error('Not authenticated')
     const { data: pending } = await supabase
       .from('research_project_companies')
@@ -322,7 +322,7 @@ export function CompanyResearchProvider({ children }: { children: ReactNode }) {
     // Fire all research requests (they return immediately now)
     for (const item of pending) {
       try {
-        await runResearch(item.id)
+        await runResearch(item.id, llmModel)
       } catch (err) {
         console.error(`Research start failed for ${item.id}:`, err)
       }

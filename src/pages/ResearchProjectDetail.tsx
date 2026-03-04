@@ -7,8 +7,15 @@ import { Badge } from '@/components/ui/badge'
 import {
   ArrowLeft, Plus, Search, Play, Loader2, Trash2,
   ChevronDown, ChevronRight, Globe, MapPin, Factory,
-  PlayCircle, Settings2, RotateCcw,
+  PlayCircle, Settings2, RotateCcw, Brain,
 } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -37,6 +44,7 @@ export function ResearchProjectDetail() {
   const [showAddCompany, setShowAddCompany] = useState(false)
   const [showEditProject, setShowEditProject] = useState(false)
   const [showPrompt, setShowPrompt] = useState(false)
+  const [selectedModel, setSelectedModel] = useState<string>('claude-sonnet-4-6')
 
   // Add company form state
   const [newCompanyName, setNewCompanyName] = useState('')
@@ -68,7 +76,7 @@ export function ResearchProjectDetail() {
     const name = company?.company_name || 'Company'
     const mins = company?.company_website ? 2 : 1
     try {
-      await runResearch(companyResearchId)
+      await runResearch(companyResearchId, selectedModel)
       toast.success(`Research started for ${name}. Estimated time: ~${mins} min`, { duration: 8000 })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to start research')
@@ -78,7 +86,7 @@ export function ResearchProjectDetail() {
   const handleRunAll = async () => {
     setIsRunningAll(true)
     try {
-      await runAllPending(projectId!)
+      await runAllPending(projectId!, selectedModel)
       toast.success(`${pendingCount} research tasks started. They will complete in the background.`, { duration: 8000 })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to start batch research')
@@ -146,6 +154,19 @@ export function ResearchProjectDetail() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <Brain className="h-3.5 w-3.5 text-muted-foreground" />
+              <Select value={selectedModel} onValueChange={setSelectedModel}>
+                <SelectTrigger className="h-8 text-xs w-[180px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="claude-sonnet-4-6">Sonnet 4.6 (Fast)</SelectItem>
+                  <SelectItem value="claude-opus-4-6">Opus 4.6 (Best Quality)</SelectItem>
+                  <SelectItem value="claude-haiku-4-5-20251001">Haiku 4.5 (Fastest)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <Button size="sm" variant="outline" onClick={() => setShowEditProject(true)}>
               <Settings2 className="mr-2 h-4 w-4" />
               Edit
