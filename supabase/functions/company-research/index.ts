@@ -44,7 +44,7 @@ interface GatherResult {
 const FC_TIMEOUT = 10_000        // Per-Firecrawl-call timeout
 const GATHER_BUDGET_MS = 0       // Always save dossier and synthesize in a fresh invocation (fresh 150s budget)
 const OVERALL_TIMEOUT_MS = 145_000
-const SYNTHESIS_TIMEOUT_MS = 120_000  // 30s headroom vs Supabase 150s wall clock (synthesis always runs in continuation)
+const SYNTHESIS_TIMEOUT_MS = 130_000  // 20s headroom; 20K dossier → faster processing, fits in fresh 150s budget
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -125,9 +125,9 @@ function buildDossier(
 ): { dossier: string; sources: ResearchSource[] } {
   const sections: string[] = []
   const sources: ResearchSource[] = []
-  const maxPer = 5000
+  const maxPer = 3000
   let total = 0
-  const maxTotal = 35000 // More context for complete reports
+  const maxTotal = 20000 // Balanced: enough info without slowing LLM
 
   function add(title: string, content: string) {
     if (total >= maxTotal) return
@@ -355,7 +355,9 @@ RULES:
 - Write in a professional, analytical tone.
 - If information for a section is not available, state that briefly.
 - Start with a concise Executive Summary (3-5 sentences).
-- Cover all required sections completely, even if sources are limited.`
+- Cover ALL required sections. Each section: 3-6 bullet points or 2-3 focused paragraphs (~600-900 words max).
+- Do NOT spend too many words on any single section — it is more important to cover all sections.
+- Prioritize breadth over depth: a brief, accurate section is better than a detailed but incomplete report.`
 
   const userContent = `## RESEARCH TASK
 Company: ${companyName}
@@ -379,9 +381,9 @@ ${researchPrompt}
 ## GATHERED DATA
 ${dossier || '(No web data gathered — produce a report based on your existing knowledge, clearly noting real-time data was unavailable.)'}`
 
-  // Synthesis always runs in continuation (fresh 150s budget, ~120s for LLM after overhead).
-  // Opus 4.6 ~85 tok/s: 9000 tok ≈ 106s  |  Sonnet ~110 tok/s: 12000 tok ≈ 109s  |  Haiku ~200 tok/s: 18000 tok ≈ 90s
-  const maxTokens = llm.model.includes('opus') ? 9000 : llm.model.includes('haiku') ? 18000 : 12000
+  // Synthesis always runs in continuation (fresh 150s budget, ~130s for LLM after overhead).
+  // With 20K dossier (~5K input tok): Opus ~85 tok/s: 9000 out ≈ 106s | Sonnet ~95 tok/s: 10500 out ≈ 110s | Haiku ~180 tok/s: 16000 out ≈ 89s
+  const maxTokens = llm.model.includes('opus') ? 9000 : llm.model.includes('haiku') ? 16000 : 10500
   const result = await withTimeout(
     llm.createMessage({
       system: systemPrompt,
