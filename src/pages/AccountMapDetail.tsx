@@ -79,6 +79,7 @@ import {
   ListFilter,
   AlertTriangle,
   XCircle,
+  Pencil,
 } from 'lucide-react'
 import {
   PROSPECT_STATUS_CONFIG,
@@ -118,6 +119,7 @@ export function AccountMapDetail() {
     addCompany,
     deleteCompany,
     addPersona,
+    updatePersona,
     deletePersona,
     saveProspects,
     deleteProspect,
@@ -152,6 +154,7 @@ export function AccountMapDetail() {
   // Dialog states
   const [showAddCompany, setShowAddCompany] = useState(false)
   const [showAddPersona, setShowAddPersona] = useState(false)
+  const [editingPersona, setEditingPersona] = useState<BuyerPersona | null>(null)
   const [showSearch, setShowSearch] = useState(false)
   const [showEnrich, setShowEnrich] = useState<Prospect | null>(null)
   const [showPromote, setShowPromote] = useState(false)
@@ -304,6 +307,7 @@ export function AccountMapDetail() {
             setShowDiscover(true)
           }}
           onAddPersona={() => setShowAddPersona(true)}
+          onEditPersona={(p) => { setEditingPersona(p); setShowAddPersona(true) }}
           onDeletePersona={deletePersona}
           templates={icpTemplates}
           onSaveTemplate={saveTemplate}
@@ -370,10 +374,15 @@ export function AccountMapDetail() {
       {/* Add Persona Dialog */}
       <AddPersonaDialog
         open={showAddPersona}
-        onOpenChange={setShowAddPersona}
+        onOpenChange={(o) => {
+          setShowAddPersona(o)
+          if (!o) setEditingPersona(null)
+        }}
         accountMapId={map.id}
         ownerId={map.owner_id}
         onAdd={addPersona}
+        onUpdate={updatePersona}
+        persona={editingPersona}
         onSuggestTitles={suggestPersonaTitles}
         icpContext={{
           productCategory: map.filters_json?.icp_builder_data?.productCategory || '',
@@ -488,6 +497,7 @@ function ICPTab({
   onPolishICP,
   onDiscoverCompanies,
   onAddPersona,
+  onEditPersona,
   onDeletePersona,
   templates,
   onSaveTemplate,
@@ -510,6 +520,7 @@ function ICPTab({
   onPolishICP: (description: string) => Promise<string>
   onDiscoverCompanies: (description: string, min: number, max: number) => Promise<void>
   onAddPersona: () => void
+  onEditPersona: (persona: BuyerPersona) => void
   onDeletePersona: (id: string) => void
   templates: import('@/types/account-mapping').ICPTemplate[]
   onSaveTemplate: (name: string, description: string | null, data: ICPBuilderData) => Promise<import('@/types/account-mapping').ICPTemplate | null>
@@ -874,7 +885,7 @@ function ICPTab({
                       <TableHead>Name</TableHead>
                       <TableHead>Keywords by Tier</TableHead>
                       <TableHead className="w-24 text-center">Max</TableHead>
-                      <TableHead className="w-12" />
+                      <TableHead className="w-20" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -929,14 +940,26 @@ function ICPTab({
                           </TableCell>
                           <TableCell className="text-center">{persona.max_per_company}</TableCell>
                           <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                              onClick={() => onDeletePersona(persona.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                onClick={() => onEditPersona(persona)}
+                                title="Edit persona"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                onClick={() => onDeletePersona(persona.id)}
+                                title="Delete persona"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       )

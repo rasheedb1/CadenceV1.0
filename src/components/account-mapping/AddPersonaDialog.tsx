@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -40,6 +40,8 @@ interface AddPersonaDialogProps {
   accountMapId: string
   ownerId: string
   onAdd: (persona: Omit<BuyerPersona, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<BuyerPersona | null>
+  onUpdate?: (id: string, data: Partial<BuyerPersona>) => Promise<void>
+  persona?: BuyerPersona | null
   onSuggestTitles?: (params: {
     productCategory: string
     companyDescription: string
@@ -55,9 +57,12 @@ export function AddPersonaDialog({
   accountMapId,
   ownerId,
   onAdd,
+  onUpdate,
+  persona,
   onSuggestTitles,
   icpContext,
 }: AddPersonaDialogProps) {
+  const isEditing = !!persona
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [role, setRole] = useState<BuyingCommitteeRole | ''>('')
@@ -88,6 +93,40 @@ export function AddPersonaDialog({
     setDepartments([]); setDeptInput('')
     setExpandedTiers(new Set(['enterprise', 'mid_market', 'startup_smb']))
   }
+
+  // When opening in edit mode, populate fields from existing persona
+  useEffect(() => {
+    if (open && persona) {
+      setName(persona.name)
+      setDescription(persona.description || '')
+      setRole(persona.role_in_buying_committee || '')
+      setPriority(persona.priority)
+      setIsRequired(persona.is_required)
+      setMaxPerCompany(persona.max_per_company)
+      setDepartments(persona.departments || [])
+      setTierKeywords(
+        persona.title_keywords_by_tier && (
+          persona.title_keywords_by_tier.enterprise?.length ||
+          persona.title_keywords_by_tier.mid_market?.length ||
+          persona.title_keywords_by_tier.startup_smb?.length
+        )
+          ? persona.title_keywords_by_tier
+          : { enterprise: [], mid_market: persona.title_keywords || [], startup_smb: [] }
+      )
+      setTierSeniority(
+        persona.seniority_by_tier && (
+          persona.seniority_by_tier.enterprise?.length ||
+          persona.seniority_by_tier.mid_market?.length ||
+          persona.seniority_by_tier.startup_smb?.length
+        )
+          ? persona.seniority_by_tier
+          : { enterprise: [], mid_market: persona.seniority ? [persona.seniority] : [], startup_smb: [] }
+      )
+    } else if (!open) {
+      reset()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, persona?.id])
 
   const addKeywordToTier = (tier: CompanySizeTier) => {
     const input = tierInputs[tier].trim()
@@ -179,26 +218,42 @@ export function AddPersonaDialog({
             ? tierSeniority.startup_smb[0]
             : null
 
-      await onAdd({
-        account_map_id: accountMapId,
-        owner_id: ownerId,
-        name: name.trim(),
-        title_keywords: flatKeywords,
-        seniority: flatSeniority,
-        department: departments[0] || null,
-        max_per_company: maxPerCompany,
-        description: description.trim() || null,
-        role_in_buying_committee: role || null,
-        priority,
-        is_required: isRequired,
-        departments,
-        title_keywords_by_tier: tierKeywords,
-        seniority_by_tier: tierSeniority,
-      })
-      reset()
+      if (isEditing && persona && onUpdate) {
+        await onUpdate(persona.id, {
+          name: name.trim(),
+          title_keywords: flatKeywords,
+          seniority: flatSeniority,
+          department: departments[0] || null,
+          max_per_company: maxPerCompany,
+          description: description.trim() || null,
+          role_in_buying_committee: role || null,
+          priority,
+          is_required: isRequired,
+          departments,
+          title_keywords_by_tier: tierKeywords,
+          seniority_by_tier: tierSeniority,
+        })
+      } else {
+        await onAdd({
+          account_map_id: accountMapId,
+          owner_id: ownerId,
+          name: name.trim(),
+          title_keywords: flatKeywords,
+          seniority: flatSeniority,
+          department: departments[0] || null,
+          max_per_company: maxPerCompany,
+          description: description.trim() || null,
+          role_in_buying_committee: role || null,
+          priority,
+          is_required: isRequired,
+          departments,
+          title_keywords_by_tier: tierKeywords,
+          seniority_by_tier: tierSeniority,
+        })
+      }
       onOpenChange(false)
     } catch (err) {
-      console.error('Failed to add persona:', err)
+      console.error('Failed to save persona:', err)
     } finally {
       setSaving(false)
     }
@@ -207,10 +262,10 @@ export function AddPersonaDialog({
   const totalKeywords = tierKeywords.enterprise.length + tierKeywords.mid_market.length + tierKeywords.startup_smb.length
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o) }}>
+    <Dialog open={open} onOpenChange={(o) => { onOpenChange(o) }}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add Buyer Persona</DialogTitle>
+          <DialogTitle>{isEditing ? 'Edit Buyer Persona' : 'Add Buyer Persona'}</DialogTitle>
           <DialogDescription>
             Define a role to search for in target companies with adaptive title keywords by company size.
           </DialogDescription>
@@ -431,7 +486,7 @@ export function AddPersonaDialog({
           </div>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving || !name.trim()}>
-            {saving ? 'Saving...' : 'Add Persona'}
+            {saving ? 'Saving...' : isEditing ? 'Save Changes' : 'Add Persona'}
           </Button>
         </DialogFooter>
       </DialogContent>

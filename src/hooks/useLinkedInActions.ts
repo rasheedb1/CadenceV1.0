@@ -224,6 +224,13 @@ export function useTestStep() {
             session.access_token
           )
 
+        case 'linkedin_profile_view':
+          return callEdgeFunction<{ success: boolean }>(
+            'linkedin-view-profile',
+            { leadId },
+            session.access_token
+          )
+
         case 'linkedin_like':
           if (!postUrl) throw new EdgeFunctionError('Post URL is required for LinkedIn like')
           return callEdgeFunction<LikePostResponse>(

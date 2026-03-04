@@ -8,6 +8,7 @@ export interface OrgFeatureFlags {
   section_workflows: boolean
   section_account_mapping: boolean
   section_company_registry: boolean
+  section_company_research: boolean
   section_leads: boolean
   section_templates: boolean
   section_ai_prompts: boolean
@@ -34,6 +35,7 @@ export const DEFAULT_FEATURE_FLAGS: OrgFeatureFlags = {
   section_workflows: true,
   section_account_mapping: true,
   section_company_registry: true,
+  section_company_research: true,
   section_leads: true,
   section_templates: true,
   section_ai_prompts: true,
@@ -56,6 +58,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   section_workflows: 'Workflows',
   section_account_mapping: 'Account Mapping',
   section_company_registry: 'Company Registry',
+  section_company_research: 'Company Research',
   section_leads: 'Leads',
   section_templates: 'Templates',
   section_ai_prompts: 'AI Prompts',
@@ -81,6 +84,7 @@ export const FEATURE_FLAG_GROUPS: { label: string; flags: FeatureFlagKey[]; pare
       'section_workflows',
       'section_account_mapping',
       'section_company_registry',
+      'section_company_research',
       'section_leads',
       'section_templates',
       'section_ai_prompts',

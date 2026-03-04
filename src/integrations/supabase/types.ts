@@ -65,7 +65,7 @@ export interface Database {
         Row: {
           id: string
           cadence_id: string
-          type: 'send_email' | 'send_email_business_case' | 'linkedin_message' | 'linkedin_connect' | 'linkedin_like' | 'linkedin_comment' | 'whatsapp_message' | 'call_manual'
+          type: 'send_email' | 'send_email_business_case' | 'linkedin_message' | 'linkedin_connect' | 'linkedin_like' | 'linkedin_comment' | 'linkedin_profile_view' | 'whatsapp_message' | 'call_manual'
           label: string
           day_offset: number
           order_in_day: number
@@ -77,7 +77,7 @@ export interface Database {
         Insert: {
           id?: string
           cadence_id: string
-          type: 'send_email' | 'send_email_business_case' | 'linkedin_message' | 'linkedin_connect' | 'linkedin_like' | 'linkedin_comment' | 'whatsapp_message' | 'call_manual'
+          type: 'send_email' | 'send_email_business_case' | 'linkedin_message' | 'linkedin_connect' | 'linkedin_like' | 'linkedin_comment' | 'linkedin_profile_view' | 'whatsapp_message' | 'call_manual'
           label: string
           day_offset: number
           order_in_day: number
@@ -89,7 +89,7 @@ export interface Database {
         Update: {
           id?: string
           cadence_id?: string
-          type?: 'send_email' | 'send_email_business_case' | 'linkedin_message' | 'linkedin_connect' | 'linkedin_like' | 'linkedin_comment' | 'whatsapp_message' | 'call_manual'
+          type?: 'send_email' | 'send_email_business_case' | 'linkedin_message' | 'linkedin_connect' | 'linkedin_like' | 'linkedin_comment' | 'linkedin_profile_view' | 'whatsapp_message' | 'call_manual'
           label?: string
           day_offset?: number
           order_in_day?: number
@@ -189,7 +189,7 @@ export interface Database {
           id: string
           user_id: string
           name: string
-          type: 'send_email' | 'send_email_business_case' | 'linkedin_message' | 'linkedin_connect' | 'linkedin_like' | 'linkedin_comment' | 'whatsapp_message' | 'call_manual'
+          type: 'send_email' | 'send_email_business_case' | 'linkedin_message' | 'linkedin_connect' | 'linkedin_like' | 'linkedin_comment' | 'linkedin_profile_view' | 'whatsapp_message' | 'call_manual'
           subject: string | null
           body: string
           created_at: string
@@ -199,7 +199,7 @@ export interface Database {
           id?: string
           user_id: string
           name: string
-          type: 'send_email' | 'send_email_business_case' | 'linkedin_message' | 'linkedin_connect' | 'linkedin_like' | 'linkedin_comment' | 'whatsapp_message' | 'call_manual'
+          type: 'send_email' | 'send_email_business_case' | 'linkedin_message' | 'linkedin_connect' | 'linkedin_like' | 'linkedin_comment' | 'linkedin_profile_view' | 'whatsapp_message' | 'call_manual'
           subject?: string | null
           body: string
           created_at?: string
@@ -209,7 +209,7 @@ export interface Database {
           id?: string
           user_id?: string
           name?: string
-          type?: 'send_email' | 'send_email_business_case' | 'linkedin_message' | 'linkedin_connect' | 'linkedin_like' | 'linkedin_comment' | 'whatsapp_message' | 'call_manual'
+          type?: 'send_email' | 'send_email_business_case' | 'linkedin_message' | 'linkedin_connect' | 'linkedin_like' | 'linkedin_comment' | 'linkedin_profile_view' | 'whatsapp_message' | 'call_manual'
           subject?: string | null
           body?: string
           created_at?: string

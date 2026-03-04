@@ -1,19 +1,16 @@
 // Edge Function: Enrich Prospect
 // POST /functions/v1/enrich-prospect
-// Primary: Apollo.io People Enrichment API (by linkedin_url)
+// Primary: Apollo.io People Enrichment API (single + bulk match)
 // Fallback: Firecrawl website scraping for email pattern detection
-// Also supports bulk enrichment via prospectIds array
+// API keys: per-org from org_integrations table, env var fallback
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createSupabaseClient, getAuthContext } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface EnrichRequest {
-  // Single prospect
   prospectId?: string
-  // Bulk prospects
   prospectIds?: string[]
-  // Optional: company website for Firecrawl fallback
   companyWebsite?: string
 }
 
@@ -38,25 +35,29 @@ interface ApolloPersonMatch {
   }
 }
 
-// ─── Concurrency helper ───────────────────────────────────────────
+// ─── Get API keys: per-org first, then env var fallback ─────────
 
-async function runWithConcurrency<T>(
-  tasks: Array<() => Promise<T>>,
-  concurrency: number,
-): Promise<T[]> {
-  const results: T[] = new Array(tasks.length)
-  let nextIndex = 0
-  async function worker() {
-    while (nextIndex < tasks.length) {
-      const index = nextIndex++
-      results[index] = await tasks[index]()
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, worker))
-  return results
+async function getApiKeys(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  orgId: string,
+): Promise<{ apolloApiKey: string | null; firecrawlApiKey: string | null }> {
+  // Try per-org keys first
+  const { data } = await supabase
+    .from('org_integrations')
+    .select('apollo_api_key, firecrawl_api_key')
+    .eq('org_id', orgId)
+    .single()
+
+  const apolloApiKey = data?.apollo_api_key || Deno.env.get('APOLLO_API_KEY') || null
+  const firecrawlApiKey = data?.firecrawl_api_key || Deno.env.get('FIRECRAWL_API_KEY') || null
+
+  if (data?.apollo_api_key) console.log('Using per-org Apollo API key')
+  else if (apolloApiKey) console.log('Using global Apollo API key (env var fallback)')
+
+  return { apolloApiKey, firecrawlApiKey }
 }
 
-// ─── Apollo.io People Enrichment ─────────────────────────────────
+// ─── Apollo.io Single People Enrichment ──────────────────────────
 
 async function enrichWithApollo(
   apiKey: string,
@@ -67,63 +68,50 @@ async function enrichWithApollo(
     domain?: string
     email?: string
   }
-): Promise<{ success: boolean; person?: ApolloPersonMatch; error?: string; creditError?: boolean; emailCreditWarning?: boolean; phoneCreditWarning?: boolean }> {
+): Promise<{ success: boolean; person?: ApolloPersonMatch; error?: string; creditError?: boolean }> {
   try {
-    // Build query parameters
-    const queryParams = new URLSearchParams()
-    if (params.linkedinUrl) queryParams.set('linkedin_url', params.linkedinUrl)
-    if (params.firstName) queryParams.set('first_name', params.firstName)
-    if (params.lastName) queryParams.set('last_name', params.lastName)
-    if (params.domain) queryParams.set('domain', params.domain)
-    if (params.email) queryParams.set('email', params.email)
-    queryParams.set('reveal_personal_emails', 'true')
-    queryParams.set('reveal_phone_number', 'true')
+    const requestBody: Record<string, string | boolean> = {}
+    if (params.linkedinUrl) requestBody.linkedin_url = params.linkedinUrl
+    if (params.firstName) requestBody.first_name = params.firstName
+    if (params.lastName) requestBody.last_name = params.lastName
+    if (params.domain) requestBody.domain = params.domain
+    if (params.email) requestBody.email = params.email
+    requestBody.reveal_personal_emails = true
+    // reveal_phone_number requires webhook_url (async delivery) — omitted.
+    // Phone numbers are still returned if Apollo already has them.
 
-    const url = `https://api.apollo.io/api/v1/people/match?${queryParams.toString()}`
-
-    const response = await fetch(url, {
+    const response = await fetch('https://api.apollo.io/api/v1/people/match', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
       },
+      body: JSON.stringify(requestBody),
     })
 
     if (!response.ok) {
       const text = await response.text()
-      console.warn(`Apollo API error ${response.status}: ${text}`)
+      console.warn(`Apollo API error ${response.status}: ${text.slice(0, 300)}`)
       if (response.status === 429) return { success: false, error: 'Apollo rate limit exceeded' }
-      return { success: false, error: `Apollo API ${response.status}` }
+      if (response.status === 401 || response.status === 403) return { success: false, error: `Apollo auth error: ${text.slice(0, 200)}`, creditError: true }
+      return { success: false, error: `Apollo API ${response.status}: ${text.slice(0, 200)}` }
     }
 
     const data = await response.json()
 
-    // Detect Apollo account-level errors (credit exhaustion, plan restrictions)
     if (data?.error || data?.message) {
       const msg = (data.error || data.message || '').toLowerCase()
       if (msg.includes('credit') || msg.includes('quota') || msg.includes('limit') || msg.includes('plan')) {
-        console.warn(`Apollo account warning: ${data.error || data.message}`)
         return { success: false, error: `Apollo: ${data.error || data.message}`, creditError: true }
       }
     }
 
     const person = data?.person as ApolloPersonMatch | undefined
-
     if (!person) {
       return { success: false, error: 'No match found in Apollo' }
     }
 
-    // Detect when Apollo found the person but withheld data (credit signals)
-    const emailCreditWarning = !person.email && data?.reveal_personal_emails_credit_used === false
-    const phoneCreditWarning = (!person.phone_numbers || person.phone_numbers.length === 0) && data?.reveal_phone_credit_used === false
-
-    // Log credit signals for debugging
-    if (emailCreditWarning) console.warn('Apollo email credit warning: reveal_personal_emails_credit_used=false')
-    if (phoneCreditWarning) console.warn('Apollo phone credit warning: reveal_phone_credit_used=false')
-
-    console.log(`Apollo response for match: email=${person.email || 'null'}, phones=${person.phone_numbers?.length || 0}, email_credit_used=${data?.reveal_personal_emails_credit_used}, phone_credit_used=${data?.reveal_phone_credit_used}`)
-
-    return { success: true, person, emailCreditWarning, phoneCreditWarning }
+    return { success: true, person }
   } catch (error) {
     console.error('Apollo enrichment error:', error)
     return { success: false, error: error instanceof Error ? error.message : 'Apollo API error' }
@@ -195,7 +183,49 @@ function matchEmailToName(emails: string[], firstName: string, lastName: string)
   return partialMatch || null
 }
 
-// ─── Enrich a single prospect ────────────────────────────────────
+// ─── Process Apollo result for a single prospect ─────────────────
+
+function processApolloMatch(
+  person: ApolloPersonMatch | null | undefined,
+): {
+  email: string | null
+  phone: string | null
+  enrichmentDetails: Record<string, unknown>
+  failReason: string | null
+} {
+  const enrichmentDetails: Record<string, unknown> = {}
+
+  if (!person) {
+    return { email: null, phone: null, enrichmentDetails, failReason: 'not_in_apollo' }
+  }
+
+  const email = person.email || null
+  const phone = person.phone_numbers?.[0]?.sanitized_number || null
+
+  if (person.email) {
+    enrichmentDetails.apollo_email = person.email
+    enrichmentDetails.apollo_email_status = person.email_status
+  }
+  if (person.phone_numbers && person.phone_numbers.length > 0) {
+    enrichmentDetails.apollo_phones = person.phone_numbers
+  }
+
+  enrichmentDetails.apollo_title = person.title
+  enrichmentDetails.apollo_city = person.city
+  enrichmentDetails.apollo_country = person.country
+  if (person.organization) {
+    enrichmentDetails.apollo_company = person.organization.name
+    enrichmentDetails.apollo_website = person.organization.website_url
+    enrichmentDetails.apollo_industry = person.organization.industry
+    enrichmentDetails.apollo_employees = person.organization.estimated_num_employees
+  }
+
+  const failReason = (!email && !phone) ? 'no_contact_data' : null
+
+  return { email, phone, enrichmentDetails, failReason }
+}
+
+// ─── Enrich a single prospect (full pipeline) ───────────────────
 
 async function enrichSingleProspect(
   supabase: ReturnType<typeof createSupabaseClient>,
@@ -211,11 +241,7 @@ async function enrichSingleProspect(
   source?: string
   error?: string
   failReason?: string | null
-  apolloPersonFound?: boolean
-  emailCreditWarning?: boolean
-  phoneCreditWarning?: boolean
 }> {
-  // Fetch prospect
   const { data: prospect, error: pErr } = await supabase
     .from('prospects')
     .select('*')
@@ -231,13 +257,10 @@ async function enrichSingleProspect(
   let bestPhone: string | null = null
   let source = 'none'
   let failReason: string | null = null
-  let apolloEmailCreditWarning = false
-  let apolloPhoneCreditWarning = false
   const enrichmentDetails: Record<string, unknown> = { enriched_at: new Date().toISOString() }
 
   // ── Strategy 1: Apollo.io (primary) ──
   if (apolloApiKey) {
-    // Extract domain from company website or company name
     let domain: string | undefined
     const website = companyWebsite || prospect.enrichment_data?.company_website as string | undefined
     if (website) {
@@ -247,13 +270,12 @@ async function enrichSingleProspect(
       } catch { /* ignore */ }
     }
 
-    // Check if we have at least one identifier before calling Apollo
     const hasIdentifier = !!(prospect.linkedin_url || domain || (prospect.first_name && prospect.last_name))
     if (!hasIdentifier) {
       failReason = 'no_identifier'
       enrichmentDetails.fail_reason = failReason
-      console.log(`Skipping Apollo for ${prospect.first_name} ${prospect.last_name}: no LinkedIn URL or domain`)
     } else {
+      // Single match call
       const apolloResult = await enrichWithApollo(apolloApiKey, {
         linkedinUrl: prospect.linkedin_url || undefined,
         firstName: prospect.first_name,
@@ -265,57 +287,15 @@ async function enrichSingleProspect(
         failReason = 'apollo_credit_exhausted'
         enrichmentDetails.apollo_error = apolloResult.error
       } else if (apolloResult.success && apolloResult.person) {
-        const person = apolloResult.person
-        source = 'apollo'
-
-        if (person.email) {
-          bestEmail = person.email
-          enrichmentDetails.apollo_email = person.email
-          enrichmentDetails.apollo_email_status = person.email_status
-        }
-
-        if (person.phone_numbers && person.phone_numbers.length > 0) {
-          bestPhone = person.phone_numbers[0].sanitized_number
-          enrichmentDetails.apollo_phones = person.phone_numbers
-        }
-
-        // Track credit warnings
-        apolloEmailCreditWarning = apolloResult.emailCreditWarning || false
-        apolloPhoneCreditWarning = apolloResult.phoneCreditWarning || false
-
-        // Infer credit warnings: Apollo found the person but returned no data despite reveal flags
-        if (!bestEmail) apolloEmailCreditWarning = true
-        if (!bestPhone) apolloPhoneCreditWarning = true
-
-        if (apolloEmailCreditWarning) enrichmentDetails.apollo_email_credit_warning = true
-        if (apolloPhoneCreditWarning) enrichmentDetails.apollo_phone_credit_warning = true
-
-        // If Apollo found the person but has no contact data at all
-        if (!bestEmail && !bestPhone) {
-          failReason = 'no_contact_data'
-        }
-
-        // Store extra Apollo data for later use
-        enrichmentDetails.apollo_title = person.title
-        enrichmentDetails.apollo_city = person.city
-        enrichmentDetails.apollo_country = person.country
-        if (person.organization) {
-          enrichmentDetails.apollo_company = person.organization.name
-          enrichmentDetails.apollo_website = person.organization.website_url
-          enrichmentDetails.apollo_industry = person.organization.industry
-          enrichmentDetails.apollo_employees = person.organization.estimated_num_employees
-        }
-
-        console.log(`Apollo enrichment for ${prospect.first_name} ${prospect.last_name}: email=${bestEmail}, phone=${bestPhone}, emailCreditWarning=${apolloEmailCreditWarning}, phoneCreditWarning=${apolloPhoneCreditWarning}`)
+        const result = processApolloMatch(apolloResult.person)
+        bestEmail = result.email
+        bestPhone = result.phone
+        Object.assign(enrichmentDetails, result.enrichmentDetails)
+        failReason = result.failReason
+        if (bestEmail || bestPhone) source = 'apollo'
       } else {
-        // Apollo couldn't find the person at all
         const errMsg = apolloResult.error || ''
-        if (errMsg.includes('rate') || errMsg.includes('429')) {
-          failReason = 'apollo_rate_limit'
-        } else {
-          failReason = 'not_in_apollo'
-        }
-        console.log(`Apollo miss for ${prospect.first_name} ${prospect.last_name}: ${apolloResult.error} → failReason=${failReason}`)
+        failReason = errMsg.includes('rate') || errMsg.includes('429') ? 'apollo_rate_limit' : 'not_in_apollo'
         enrichmentDetails.apollo_error = apolloResult.error
       }
     }
@@ -323,7 +303,7 @@ async function enrichSingleProspect(
     failReason = 'no_api_key'
   }
 
-  // ── Strategy 2: Firecrawl website scraping (fallback if no email from Apollo) ──
+  // ── Strategy 2: Firecrawl website scraping (fallback) ──
   if (!bestEmail && firecrawlApiKey && companyWebsite) {
     let baseUrl = companyWebsite.trim()
     if (!baseUrl.startsWith('http')) baseUrl = `https://${baseUrl}`
@@ -356,11 +336,10 @@ async function enrichSingleProspect(
   }
 
   // ── Update prospect ──
-  // Clear fail_reason if we got contact data; otherwise store it
   const finalFailReason = (bestEmail || bestPhone) ? null : failReason
   enrichmentDetails.source = source
   if (finalFailReason) enrichmentDetails.fail_reason = finalFailReason
-  else delete enrichmentDetails.fail_reason // clear old reason if now enriched
+  else delete enrichmentDetails.fail_reason
 
   const updateData: Record<string, unknown> = {
     enrichment_data: { ...(prospect.enrichment_data || {}), ...enrichmentDetails, fail_reason: finalFailReason },
@@ -370,7 +349,6 @@ async function enrichSingleProspect(
   if (bestEmail) updateData.email = bestEmail
   if (bestPhone) updateData.phone = bestPhone
 
-  // Also update location from Apollo if we have it and prospect doesn't
   if (!prospect.location && enrichmentDetails.apollo_city) {
     const parts = [enrichmentDetails.apollo_city, enrichmentDetails.apollo_country].filter(Boolean)
     if (parts.length > 0) updateData.location = parts.join(', ')
@@ -387,9 +365,6 @@ async function enrichSingleProspect(
     phone: bestPhone,
     source,
     failReason: finalFailReason,
-    apolloPersonFound: !!apolloApiKey,
-    emailCreditWarning: apolloEmailCreditWarning && !bestEmail,
-    phoneCreditWarning: apolloPhoneCreditWarning && !bestPhone,
   }
 }
 
@@ -407,35 +382,35 @@ serve(async (req: Request) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return errorResponse('Missing authorization header', 401)
 
-    const ctx = await getAuthContext(authHeader)
+    const body = await req.json() as EnrichRequest & { ownerId?: string; orgId?: string }
+
+    const ctx = await getAuthContext(authHeader, { ownerId: body.ownerId, orgId: body.orgId })
     if (!ctx) return errorResponse('Unauthorized', 401)
 
-    const body: EnrichRequest = await req.json()
-
-    // Resolve prospect IDs (single or bulk)
     const prospectIds = body.prospectIds || (body.prospectId ? [body.prospectId] : [])
     if (prospectIds.length === 0) {
       return errorResponse('prospectId or prospectIds is required')
     }
 
-    const apolloApiKey = Deno.env.get('APOLLO_API_KEY') || null
-    const firecrawlApiKey = Deno.env.get('FIRECRAWL_API_KEY') || null
-
-    if (!apolloApiKey && !firecrawlApiKey) {
-      return errorResponse('No enrichment API keys configured (APOLLO_API_KEY or FIRECRAWL_API_KEY)', 500)
-    }
-
     const supabase = createSupabaseClient()
 
-    // Cap batch size to prevent Supabase 60s timeout
-    const MAX_BATCH = 4
+    // Get API keys: per-org first, env var fallback
+    const { apolloApiKey, firecrawlApiKey } = await getApiKeys(supabase, ctx.orgId)
+
+    if (!apolloApiKey && !firecrawlApiKey) {
+      return errorResponse('No enrichment API keys configured. Go to Settings > Organization > Integrations to add your Apollo API key.', 400)
+    }
+
+    // Cap batch size for edge function timeout safety (each call ~2-3s)
+    const MAX_BATCH = 10
     const cappedIds = prospectIds.slice(0, MAX_BATCH)
     if (cappedIds.length < prospectIds.length) {
       console.warn(`enrich-prospect: received ${prospectIds.length} IDs, capping at ${MAX_BATCH}`)
     }
 
-    const CONCURRENCY = 3
-    const tasks = cappedIds.map((pid) => async () => {
+    // Enrich each prospect sequentially via single match (most reliable)
+    const results = []
+    for (const pid of cappedIds) {
       const result = await enrichSingleProspect(
         supabase,
         pid,
@@ -444,23 +419,16 @@ serve(async (req: Request) => {
         firecrawlApiKey,
         body.companyWebsite,
       )
-      return { prospectId: pid, ...result }
-    })
-    const results = await runWithConcurrency(tasks, CONCURRENCY)
-
-    const enriched = results.filter(r => r.email)
-    const emailCreditWarning = results.some(r => r.emailCreditWarning)
-    const phoneCreditWarning = results.some(r => r.phoneCreditWarning)
-
-    // Count failure reasons for summary
-    const failReasonCounts: Record<string, number> = {}
-    for (const r of results) {
-      if (r.failReason) {
-        failReasonCounts[r.failReason] = (failReasonCounts[r.failReason] || 0) + 1
-      }
+      results.push({ prospectId: pid, ...result })
     }
 
-    console.log(`Enrichment complete: ${enriched.length}/${results.length} got emails, ${results.filter(r => r.phone).length} got phones. failReasons=${JSON.stringify(failReasonCounts)}`)
+    const enriched = results.filter(r => r.email)
+    const failReasonCounts: Record<string, number> = {}
+    for (const r of results) {
+      if (r.failReason) failReasonCounts[r.failReason] = (failReasonCounts[r.failReason] || 0) + 1
+    }
+
+    console.log(`Enrichment complete: ${enriched.length}/${results.length} got emails. failReasons=${JSON.stringify(failReasonCounts)}`)
 
     return jsonResponse({
       success: true,
@@ -470,8 +438,6 @@ serve(async (req: Request) => {
         enriched: enriched.length,
         withEmail: enriched.length,
         withPhone: results.filter(r => r.phone).length,
-        emailCreditWarning,
-        phoneCreditWarning,
         failReasonCounts,
       },
     })

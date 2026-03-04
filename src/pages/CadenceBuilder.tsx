@@ -71,7 +71,15 @@ import {
   ChevronRight,
   ExternalLink,
   Reply,
+  Eye,
 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { STEP_TYPE_CONFIG, type StepType, type CadenceStep, type Lead } from '@/types'
 import type { AIPrompt } from '@/lib/edge-functions'
 import { CreateLeadDialog } from '@/components/CreateLeadDialog'
@@ -99,6 +107,7 @@ const STEP_ICONS: Record<StepType, React.ComponentType<{ className?: string }>> 
   linkedin_connect: UserPlus,
   linkedin_like: ThumbsUp,
   linkedin_comment: MessageCircle,
+  linkedin_profile_view: Eye,
   send_email: Mail,
   email_reply: Reply,
   whatsapp: Phone,
@@ -205,6 +214,7 @@ export function CadenceBuilder() {
         `)
         .eq('cadence_id', id)
         .order('scheduled_at', { ascending: true })
+        .limit(10000)
       if (error) throw error
       return data || []
     },
@@ -243,10 +253,18 @@ export function CadenceBuilder() {
     }
   }
 
-  // Retry all failed schedules for this cadence
-  const retryFailed = async () => {
+  // Retry failed schedules, optionally filtered by step type
+  const retryFailed = async (stepType?: StepType) => {
     if (!id) return
-    const { data, error } = await supabase
+
+    // If filtering by step type, find the cadence_step_ids that match
+    let stepIds: string[] | undefined
+    if (stepType) {
+      stepIds = steps.filter(s => s.step_type === stepType).map(s => s.id)
+      if (stepIds.length === 0) return
+    }
+
+    let query = supabase
       .from('schedules')
       .update({
         status: 'scheduled',
@@ -256,15 +274,35 @@ export function CadenceBuilder() {
       })
       .eq('cadence_id', id)
       .eq('status', 'failed')
-      .select('id')
+
+    if (stepIds) {
+      query = query.in('cadence_step_id', stepIds)
+    }
+
+    const { data, error } = await query.select('id')
     if (error) {
-      toast.error('Failed to retry schedules')
+      toast.error('Error al reintentar')
     } else {
       const count = data?.length || 0
-      toast.success(`${count} failed step${count !== 1 ? 's' : ''} will be retried in ~1 minute`)
+      const label = stepType
+        ? STEP_TYPE_CONFIG[stepType]?.label || stepType
+        : 'todos'
+      toast.success(`${count} fallido${count !== 1 ? 's' : ''} (${label}) se reintentarán en ~1 minuto`)
       refetchSchedules()
     }
   }
+
+  // Compute failed counts per step type for the retry dropdown
+  const failedByStepType = useMemo(() => {
+    const counts = new Map<StepType, number>()
+    for (const schedule of schedules) {
+      if (schedule.status !== 'failed') continue
+      const step = steps.find(s => s.id === schedule.cadence_step_id)
+      if (!step) continue
+      counts.set(step.step_type, (counts.get(step.step_type) || 0) + 1)
+    }
+    return counts
+  }, [schedules, steps])
 
   // ── Lead selection + bulk ops ─────────────────────────────────────────────
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set())
@@ -1437,15 +1475,40 @@ export function CadenceBuilder() {
               </div>
               <div className="flex gap-2">
                 {schedules.some((s) => s.status === 'failed') && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={retryFailed}
-                    className="text-orange-600 border-orange-200 hover:bg-orange-50 dark:text-orange-400 dark:border-orange-800 dark:hover:bg-orange-950/30"
-                  >
-                    <RefreshCw className="h-4 w-4 mr-1" />
-                    Retry Failed
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-orange-600 border-orange-200 hover:bg-orange-50 dark:text-orange-400 dark:border-orange-800 dark:hover:bg-orange-950/30"
+                      >
+                        <RefreshCw className="h-4 w-4 mr-1" />
+                        Retry Failed
+                        <ChevronDown className="h-3 w-3 ml-1" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-64">
+                      <DropdownMenuItem onClick={() => retryFailed()} className="font-medium">
+                        <RefreshCw className="h-4 w-4 mr-2 text-orange-600" />
+                        Reintentar todos ({schedules.filter(s => s.status === 'failed').length})
+                      </DropdownMenuItem>
+                      {failedByStepType.size > 1 && (
+                        <>
+                          <DropdownMenuSeparator />
+                          {Array.from(failedByStepType.entries()).map(([type, count]) => {
+                            const Icon = STEP_ICONS[type] || Clock
+                            const config = STEP_TYPE_CONFIG[type]
+                            return (
+                              <DropdownMenuItem key={type} onClick={() => retryFailed(type)}>
+                                <Icon className="h-4 w-4 mr-2 text-muted-foreground" />
+                                {config?.label || type} ({count})
+                              </DropdownMenuItem>
+                            )
+                          })}
+                        </>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
                 {schedules.some((s) => s.status === 'scheduled') && (
                   <Button variant="destructive" size="sm" onClick={cancelAllScheduled}>

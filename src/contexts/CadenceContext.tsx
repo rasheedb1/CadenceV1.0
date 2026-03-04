@@ -398,6 +398,13 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
               }
               break
             }
+            case 'linkedin_profile_view':
+              await callEdgeFunction(
+                'linkedin-view-profile',
+                { leadId },
+                session.access_token
+              )
+              break
             case 'linkedin_like':
               await callEdgeFunction(
                 'linkedin-like-post',

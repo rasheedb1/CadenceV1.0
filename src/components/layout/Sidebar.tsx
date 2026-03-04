@@ -16,6 +16,7 @@ import {
   Target,
   Crown,
   Activity,
+  Building2,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrg } from '@/contexts/OrgContext'
@@ -33,6 +34,7 @@ const navigation: { name: string; href: string; icon: typeof LayoutDashboard; fe
   { name: 'Workflows', href: '/workflows', icon: GitBranch, featureFlag: 'section_workflows' },
   { name: 'Account Mapping', href: '/account-mapping', icon: Target, featureFlag: 'section_account_mapping' },
   { name: 'Company Registry', href: '/company-registry', icon: ShieldCheck, featureFlag: 'section_company_registry' },
+  { name: 'Company Research', href: '/company-research', icon: Building2, featureFlag: 'section_company_research' },
   { name: 'Leads', href: '/leads', icon: Users, featureFlag: 'section_leads' },
   { name: 'Templates', href: '/templates', icon: FileText, featureFlag: 'section_templates' },
   { name: 'AI Prompts', href: '/ai-prompts', icon: Brain, featureFlag: 'section_ai_prompts' },

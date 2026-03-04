@@ -50,6 +50,7 @@ const ACTION_TO_ENDPOINT: Record<string, string> = {
   action_linkedin_connect: '/functions/v1/linkedin-send-connection',
   action_linkedin_like: '/functions/v1/linkedin-like-post',
   action_linkedin_comment: '/functions/v1/linkedin-comment',
+  action_linkedin_profile_view: '/functions/v1/linkedin-view-profile',
 }
 
 function sleep(ms: number): Promise<void> {
@@ -112,6 +113,9 @@ async function executeAction(
       break
     case 'action_linkedin_comment':
       body.comment = (nodeData.commentText as string) || ''
+      break
+    case 'action_linkedin_profile_view':
+      // No additional body fields needed
       break
   }
 

@@ -47,6 +47,7 @@ const STEP_TYPE_TO_ENDPOINT: Record<string, string> = {
   linkedin_connect: '/functions/v1/linkedin-send-connection',
   linkedin_like: '/functions/v1/linkedin-like-post',
   linkedin_comment: '/functions/v1/linkedin-comment',
+  linkedin_profile_view: '/functions/v1/linkedin-view-profile',
   send_email: '/functions/v1/send-email',
   email_reply: '/functions/v1/send-email',
 }
@@ -393,18 +394,31 @@ async function advanceLeadToNextStep(
         }
       }
 
-      await supabase.from('schedules').insert({
-        cadence_id,
-        cadence_step_id: nextStep.id,
-        lead_id,
-        owner_id,
-        org_id: schedule.org_id,
-        scheduled_at: scheduleAt.toISOString(),
-        timezone: 'UTC',
-        status: 'scheduled',
-      })
+      // Re-check right before insert to prevent race condition with concurrent workers
+      const { data: lastMinuteCheck } = await supabase
+        .from('schedules')
+        .select('id')
+        .eq('cadence_step_id', nextStep.id)
+        .eq('lead_id', lead_id)
+        .in('status', ['scheduled', 'processing', 'executed'])
+        .limit(1)
 
-      console.log(`Auto-scheduled next step ${nextStep.id} for lead ${lead_id} at ${scheduleAt.toISOString()}`)
+      if (lastMinuteCheck && lastMinuteCheck.length > 0) {
+        console.log(`Schedule already exists for lead ${lead_id} step ${nextStep.id} (found in last-minute check), skipping auto-schedule`)
+      } else {
+        await supabase.from('schedules').insert({
+          cadence_id,
+          cadence_step_id: nextStep.id,
+          lead_id,
+          owner_id,
+          org_id: schedule.org_id,
+          scheduled_at: scheduleAt.toISOString(),
+          timezone: 'UTC',
+          status: 'scheduled',
+        })
+
+        console.log(`Auto-scheduled next step ${nextStep.id} for lead ${lead_id} at ${scheduleAt.toISOString()}`)
+      }
     }
 
     // Update cadence_lead to 'scheduled'
@@ -526,6 +540,11 @@ async function executeLinkedInAction(
         connMsg = stripped.body
       }
       baseBody.message = connMsg
+      break
+    }
+
+    case 'linkedin_profile_view': {
+      // No additional fields — edge function looks up lead's LinkedIn URL
       break
     }
 
@@ -782,23 +801,25 @@ async function processSchedule(
   }
 
   // === DEDUPLICATION CHECK ===
-  // Prevent duplicate sends: check if this step was already executed for this lead
-  const { data: alreadyExecuted } = await supabase
+  // Prevent duplicate sends: check if this step was already executed OR is being processed
+  // by another worker for this lead. Must check both 'executed' and 'processing' to catch
+  // concurrent workers that claimed duplicate schedule rows.
+  const { data: alreadyHandled } = await supabase
     .from('schedules')
-    .select('id')
+    .select('id, status')
     .eq('cadence_step_id', schedule.cadence_step_id)
     .eq('lead_id', schedule.lead_id)
-    .eq('status', 'executed')
+    .in('status', ['executed', 'processing'])
     .neq('id', schedule.id)
     .limit(1)
 
-  if (alreadyExecuted && alreadyExecuted.length > 0) {
-    console.log(`Step ${schedule.cadence_step_id} already executed for lead ${schedule.lead_id}, skipping duplicate`)
+  if (alreadyHandled && alreadyHandled.length > 0) {
+    console.log(`Step ${schedule.cadence_step_id} already ${alreadyHandled[0].status} for lead ${schedule.lead_id}, skipping duplicate (schedule ${schedule.id})`)
     await supabase
       .from('schedules')
       .update({
         status: 'skipped_due_to_state_change',
-        last_error: 'Duplicate: step already executed for this lead',
+        last_error: `Duplicate: step already ${alreadyHandled[0].status} for this lead (${alreadyHandled[0].id})`,
         updated_at: new Date().toISOString(),
       })
       .eq('id', schedule.id)
@@ -1194,6 +1215,26 @@ serve(async (req: Request) => {
     }
 
     const supabase = createSupabaseClient()
+    const startTime = Date.now()
+
+    // ── STALE RECOVERY: Handle zombie "processing" items ──
+    // If process-queue timed out or crashed, items stay in "processing" forever.
+    // Mark as failed (not re-scheduled!) to avoid duplicate sends. User can manually retry.
+    const STALE_THRESHOLD_MS = 5 * 60 * 1000 // 5 minutes
+    const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_MS).toISOString()
+    const { data: staleItems } = await supabase
+      .from('schedules')
+      .update({
+        status: 'failed',
+        last_error: 'Timed out in processing state (function crash/timeout). Marked failed to prevent duplicate sends.',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('status', 'processing')
+      .lt('updated_at', staleThreshold)
+      .select('id')
+    if (staleItems && staleItems.length > 0) {
+      console.log(`STALE RECOVERY: Reset ${staleItems.length} zombie "processing" items back to "scheduled"`)
+    }
 
     // Query schedules that are due to be processed
     const now = new Date().toISOString()
@@ -1247,8 +1288,20 @@ serve(async (req: Request) => {
     // Track processed lead+step combos within this batch to prevent duplicates
     const processedLeadSteps = new Set<string>()
 
+    // ── EXECUTION TIME GUARD ──
+    // Supabase Edge Functions timeout after ~150s. Stop processing well before that
+    // to avoid claiming items we can't finish (which creates zombies).
+    const MAX_EXECUTION_MS = 120_000 // Stop after 2 minutes (leaves 30s safety margin)
+
     for (let i = 0; i < schedules.length; i++) {
       const schedule = schedules[i]
+
+      // Check if we're running out of time BEFORE claiming the next item
+      const elapsed = Date.now() - startTime
+      if (elapsed > MAX_EXECUTION_MS) {
+        console.log(`TIME GUARD: Stopping after ${results.length} items (${Math.round(elapsed / 1000)}s elapsed). ${schedules.length - i} items deferred to next invocation.`)
+        break
+      }
 
       // In-batch deduplication: skip if we already processed this lead+step
       const dedupeKey = `${schedule.lead_id}:${schedule.cadence_step_id}`
@@ -1267,7 +1320,29 @@ serve(async (req: Request) => {
       processedLeadSteps.add(dedupeKey)
 
       // Process this schedule (use subFunctionAuth — service role key — not the forwarded cron token)
-      const result = await processSchedule(schedule, subFunctionAuth)
+      // Wrap in try/catch so one item crash doesn't kill the entire batch
+      let result: ProcessResult
+      try {
+        result = await processSchedule(schedule, subFunctionAuth)
+      } catch (err) {
+        console.error(`UNCAUGHT ERROR processing schedule ${schedule.id}:`, err)
+        // Mark as failed so it doesn't stay as "processing" zombie
+        await supabase
+          .from('schedules')
+          .update({
+            status: 'failed',
+            last_error: `Uncaught error: ${err instanceof Error ? err.message : String(err)}`,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', schedule.id)
+        result = {
+          scheduleId: schedule.id,
+          leadId: schedule.lead_id,
+          stepType: 'unknown' as string,
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        }
+      }
       results.push(result)
 
       // Add random delay before next item (except for the last one)

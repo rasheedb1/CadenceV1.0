@@ -41,7 +41,7 @@ import { PermissionGate } from '@/components/PermissionGate'
 interface Template {
   id: string
   name: string
-  step_type: 'send_email' | 'send_email_business_case' | 'linkedin_message' | 'linkedin_connect' | 'linkedin_like' | 'linkedin_comment' | 'whatsapp_message' | 'call_manual'
+  step_type: 'send_email' | 'send_email_business_case' | 'linkedin_message' | 'linkedin_connect' | 'linkedin_like' | 'linkedin_comment' | 'linkedin_profile_view' | 'whatsapp_message' | 'call_manual'
   subject_template: string | null
   body_template: string
   owner_id: string
@@ -57,6 +57,7 @@ const STEP_TYPE_TO_CHANNEL: Record<string, 'linkedin' | 'email' | 'whatsapp' | '
   linkedin_connect: 'linkedin',
   linkedin_like: 'linkedin',
   linkedin_comment: 'linkedin',
+  linkedin_profile_view: 'linkedin',
   whatsapp_message: 'whatsapp',
   call_manual: 'phone',
 }

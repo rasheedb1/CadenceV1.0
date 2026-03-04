@@ -145,6 +145,7 @@ export function StartAutomationDialog({
         .eq('org_id', orgId!)
         .eq('owner_id', user.id)
         .order('first_name', { ascending: true })
+        .limit(10000)
       if (error) throw error
       return (data || []) as Lead[]
     },
@@ -160,6 +161,7 @@ export function StartAutomationDialog({
         .select('lead_id')
         .eq('cadence_id', cadence.id)
         .in('status', ['active', 'scheduled', 'pending', 'generated'])
+        .limit(10000)
       if (error) throw error
       return (data || []).map((cl: { lead_id: string }) => cl.lead_id)
     },
@@ -284,10 +286,15 @@ export function StartAutomationDialog({
         status: 'scheduled',
       }))
 
-      const { error: clError } = await supabase.from('cadence_leads').upsert(cadenceLeadInserts, {
-        onConflict: 'cadence_id,lead_id',
-      })
-      if (clError) throw clError
+      // Chunk cadence_leads upsert for large lead lists
+      const UPSERT_CHUNK = 500
+      for (let i = 0; i < cadenceLeadInserts.length; i += UPSERT_CHUNK) {
+        const chunk = cadenceLeadInserts.slice(i, i + UPSERT_CHUNK)
+        const { error: clError } = await supabase.from('cadence_leads').upsert(chunk, {
+          onConflict: 'cadence_id,lead_id',
+        })
+        if (clError) throw clError
+      }
 
       // 2. Create lead_step_instances for ALL steps (not just first)
       const lsiInserts = sortedSteps.flatMap((step) =>
@@ -301,10 +308,14 @@ export function StartAutomationDialog({
         }))
       )
 
-      const { error: lsiError } = await supabase.from('lead_step_instances').upsert(lsiInserts, {
-        onConflict: 'cadence_step_id,lead_id',
-      })
-      if (lsiError) throw lsiError
+      // Chunk lead_step_instances upsert (531 leads × 8 steps = 4248 rows)
+      for (let i = 0; i < lsiInserts.length; i += UPSERT_CHUNK) {
+        const chunk = lsiInserts.slice(i, i + UPSERT_CHUNK)
+        const { error: lsiError } = await supabase.from('lead_step_instances').upsert(chunk, {
+          onConflict: 'cadence_step_id,lead_id',
+        })
+        if (lsiError) throw lsiError
+      }
 
       // 3. Create schedules for ALL steps at their configured times
       const now = new Date()
@@ -377,16 +388,29 @@ export function StartAutomationDialog({
         }))
       })
 
-      // Cancel any existing scheduled items for these leads in this cadence (prevent duplicates)
-      await supabase
-        .from('schedules')
-        .update({ status: 'canceled', last_error: 'Replaced by new automation run', updated_at: new Date().toISOString() })
-        .eq('cadence_id', cadence.id)
-        .eq('status', 'scheduled')
-        .in('lead_id', leadIds)
+      // Cancel ALL non-terminal schedules for these leads in this cadence (prevent duplicates)
+      // Must include 'processing' too — otherwise re-starting automation while process-queue
+      // is actively running leaves processing items alive alongside new inserts → duplicate sends.
+      // Chunk the cancel by lead IDs to avoid PostgREST URL length limits with large lead lists.
+      const CANCEL_CHUNK = 100
+      for (let i = 0; i < leadIds.length; i += CANCEL_CHUNK) {
+        const chunk = leadIds.slice(i, i + CANCEL_CHUNK)
+        await supabase
+          .from('schedules')
+          .update({ status: 'canceled', last_error: 'Replaced by new automation run', updated_at: new Date().toISOString() })
+          .eq('cadence_id', cadence.id)
+          .eq('org_id', orgId!)
+          .in('status', ['scheduled', 'processing'])
+          .in('lead_id', chunk)
+      }
 
-      const { error: schedError } = await supabase.from('schedules').insert(scheduleInserts)
-      if (schedError) throw schedError
+      // Insert schedules in chunks to handle large cadences (e.g. 500+ leads × 8 steps = 4000+ rows)
+      const INSERT_CHUNK = 500
+      for (let i = 0; i < scheduleInserts.length; i += INSERT_CHUNK) {
+        const chunk = scheduleInserts.slice(i, i + INSERT_CHUNK)
+        const { error: schedError } = await supabase.from('schedules').insert(chunk)
+        if (schedError) throw schedError
+      }
 
       // 4. Update cadence to automated + active with timezone
       const { error: cadError } = await supabase

@@ -162,6 +162,10 @@ export class FirecrawlClient {
         body.formats = ['markdown']
       }
 
+      if (options?.maxCharacters) {
+        body.onlyMainContent = true
+      }
+
       console.log(`Firecrawl scrape: ${url}`)
 
       const response = await this.fetchWithRetry(

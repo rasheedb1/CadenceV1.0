@@ -55,10 +55,11 @@ import {
   Bot,
   Save,
   WandSparkles,
+  Reply,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-type StepType = 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email'
+type StepType = 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email' | 'email_reply'
 type Tone = 'professional' | 'casual' | 'friendly'
 type Phase = 'idle' | 'generating' | 'done' | 'error'
 
@@ -88,6 +89,7 @@ const STEP_TYPES: Array<{ value: StepType; label: string; icon: React.ElementTyp
   { value: 'linkedin_connect', label: 'LinkedIn Connect', icon: UserPlus, color: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
   { value: 'linkedin_comment', label: 'LinkedIn Comment', icon: MessageCircle, color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
   { value: 'send_email', label: 'Email', icon: Mail, color: 'bg-violet-100 text-violet-700 border-violet-200' },
+  { value: 'email_reply', label: 'Email Follow-up', icon: Reply, color: 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200' },
 ]
 
 const TONE_OPTIONS: Array<{ value: Tone; label: string }> = [

@@ -44,6 +44,7 @@ import {
   Repeat2,
   AlertCircle,
   ThumbsUp,
+  Eye,
 } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import {
@@ -341,6 +342,8 @@ export function LeadStepExecution() {
           ? `Connection request sent to ${currentLead.first_name}!`
           : step.step_type === 'linkedin_like'
           ? `Liked ${currentLead.first_name}'s post!`
+          : step.step_type === 'linkedin_profile_view'
+          ? `Viewed ${currentLead.first_name}'s profile!`
           : step.step_type === 'linkedin_comment'
           ? `Comment sent to ${currentLead.first_name}!`
           : `Message sent to ${currentLead.first_name}!`
@@ -802,8 +805,8 @@ export function LeadStepExecution() {
               </div>
             )}
 
-            {/* Hide message editor for linkedin_like - it doesn't need a message */}
-            {step.step_type !== 'linkedin_like' && (
+            {/* Hide message editor for linkedin_like and linkedin_profile_view - they don't need a message */}
+            {step.step_type !== 'linkedin_like' && step.step_type !== 'linkedin_profile_view' && (
               <div>
                 <h3 className="mb-2 font-medium">
                   {step.step_type === 'linkedin_connect'
@@ -856,7 +859,8 @@ export function LeadStepExecution() {
                     sending ||
                     sendingAll ||
                     !currentLead ||
-                    step?.step_type === 'linkedin_like'
+                    step?.step_type === 'linkedin_like' ||
+                    step?.step_type === 'linkedin_profile_view'
                   }
                 >
                   <Sparkles className="mr-1 h-3.5 w-3.5" />
@@ -872,7 +876,8 @@ export function LeadStepExecution() {
                     sending ||
                     sendingAll ||
                     totalLeads === 0 ||
-                    step?.step_type === 'linkedin_like'
+                    step?.step_type === 'linkedin_like' ||
+                    step?.step_type === 'linkedin_profile_view'
                   }
                 >
                   <Sparkles className="mr-1 h-3.5 w-3.5" />
@@ -892,7 +897,7 @@ export function LeadStepExecution() {
                   disabled={
                     sending ||
                     sendingAll ||
-                    (step.step_type !== 'linkedin_connect' && step.step_type !== 'linkedin_like' && !message.trim()) ||
+                    (step.step_type !== 'linkedin_connect' && step.step_type !== 'linkedin_like' && step.step_type !== 'linkedin_profile_view' && !message.trim()) ||
                     (step.step_type === 'linkedin_like' && !latestPost?.url) ||
                     (isEmailStep && !emailSubject.trim())
                   }
@@ -904,6 +909,8 @@ export function LeadStepExecution() {
                         ? 'Connecting...'
                         : step.step_type === 'linkedin_like'
                         ? 'Liking...'
+                        : step.step_type === 'linkedin_profile_view'
+                        ? 'Viewing...'
                         : isEmailStep
                         ? 'Sending...'
                         : 'Sending...'}
@@ -912,6 +919,11 @@ export function LeadStepExecution() {
                     <>
                       <UserPlus className="mr-1 h-3.5 w-3.5" />
                       Connect
+                    </>
+                  ) : step.step_type === 'linkedin_profile_view' ? (
+                    <>
+                      <Eye className="mr-1 h-3.5 w-3.5" />
+                      View Profile
                     </>
                   ) : step.step_type === 'linkedin_like' ? (
                     <>
@@ -1058,6 +1070,8 @@ export function LeadStepExecution() {
                         ? 'Connecting...'
                         : step.step_type === 'linkedin_like'
                         ? 'Liking posts...'
+                        : step.step_type === 'linkedin_profile_view'
+                        ? 'Viewing profiles...'
                         : 'Sending...'}
                     </span>
                     <span className="text-muted-foreground">
@@ -1081,7 +1095,7 @@ export function LeadStepExecution() {
                         <span className="text-sm font-medium text-green-600">{progress.sent}</span>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {step.step_type === 'linkedin_like' ? 'Liked' : 'Sent'}
+                        {step.step_type === 'linkedin_like' ? 'Liked' : step.step_type === 'linkedin_profile_view' ? 'Viewed' : 'Sent'}
                       </p>
                     </div>
                     {step.step_type === 'linkedin_connect' && (
@@ -1124,7 +1138,7 @@ export function LeadStepExecution() {
               disabled={
                 sending ||
                 sendingAll ||
-                (step.step_type !== 'linkedin_connect' && step.step_type !== 'linkedin_like' && !message.trim()) ||
+                (step.step_type !== 'linkedin_connect' && step.step_type !== 'linkedin_like' && step.step_type !== 'linkedin_profile_view' && !message.trim()) ||
                 (isEmailStep && !emailSubject.trim()) ||
                 totalLeads === 0
               }
@@ -1138,6 +1152,8 @@ export function LeadStepExecution() {
                     ? 'Commenting on all...'
                     : step.step_type === 'linkedin_like'
                     ? 'Liking all posts...'
+                    : step.step_type === 'linkedin_profile_view'
+                    ? 'Viewing all profiles...'
                     : isEmailStep
                     ? 'Sending emails...'
                     : 'Sending to all...'}
@@ -1151,6 +1167,11 @@ export function LeadStepExecution() {
                 <>
                   <MessageSquare className="mr-2 h-4 w-4" />
                   Comment All ({totalLeads})
+                </>
+              ) : step.step_type === 'linkedin_profile_view' ? (
+                <>
+                  <Eye className="mr-2 h-4 w-4" />
+                  View All ({totalLeads})
                 </>
               ) : step.step_type === 'linkedin_like' ? (
                 <>
@@ -1185,6 +1206,8 @@ export function LeadStepExecution() {
                 ? 'Comment Results'
                 : step?.step_type === 'linkedin_like'
                 ? 'Like Results'
+                : step?.step_type === 'linkedin_profile_view'
+                ? 'Profile View Results'
                 : 'Send Results'}
             </DialogTitle>
           </DialogHeader>
@@ -1200,6 +1223,8 @@ export function LeadStepExecution() {
                   ? 'Commented'
                   : step?.step_type === 'linkedin_like'
                   ? 'Liked'
+                  : step?.step_type === 'linkedin_profile_view'
+                  ? 'Viewed'
                   : 'Sent'}
               </p>
             </div>
@@ -1261,6 +1286,8 @@ export function LeadStepExecution() {
                         ? 'Commented'
                         : step?.step_type === 'linkedin_like'
                         ? 'Liked'
+                        : step?.step_type === 'linkedin_profile_view'
+                        ? 'Viewed'
                         : 'Sent'
                     )}
                     {result.status === 'alreadyConnected' && 'Connected'}
@@ -1282,7 +1309,7 @@ export function LeadStepExecution() {
       </Dialog>
 
       {/* AI Generate Dialog */}
-      {currentLead && step && step.step_type !== 'linkedin_like' && (
+      {currentLead && step && step.step_type !== 'linkedin_like' && step.step_type !== 'linkedin_profile_view' && (
         <AIGenerateDialog
           open={showAIDialog}
           onOpenChange={setShowAIDialog}
@@ -1322,7 +1349,7 @@ export function LeadStepExecution() {
       </AlertDialog>
 
       {/* Bulk AI Generate Dialog */}
-      {step && step.step_type !== 'linkedin_like' && cadence && (
+      {step && step.step_type !== 'linkedin_like' && step.step_type !== 'linkedin_profile_view' && cadence && (
         <BulkAIGenerateDialog
           open={showBulkAIDialog}
           onOpenChange={setShowBulkAIDialog}
