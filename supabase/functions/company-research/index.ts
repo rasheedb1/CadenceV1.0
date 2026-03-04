@@ -351,13 +351,22 @@ RULES:
 - Use ONLY information from the provided sources. Do NOT invent facts.
 - Cite sources by including [Source: URL] inline when making specific claims.
 - Structure the report into clear sections with markdown headers (## level).
-- Write a thorough, complete report — do not truncate any section.
 - Write in a professional, analytical tone.
-- If information for a section is not available, state that briefly.
-- Start with a concise Executive Summary (3-5 sentences).
-- Cover ALL required sections. Each section: 3-6 bullet points or 2-3 focused paragraphs (~600-900 words max).
-- Do NOT spend too many words on any single section — it is more important to cover all sections.
-- Prioritize breadth over depth: a brief, accurate section is better than a detailed but incomplete report.`
+- If information for a section is not available, write "No public information found."
+- Each section: 3-6 bullet points or 2-3 focused paragraphs. Be concise but complete.
+- Cover ALL defined sections. Do NOT add extra sections beyond what is requested.
+- Prioritize breadth over depth: covering all sections briefly beats leaving sections out.`
+
+  // Truncate research prompt to 5000 chars max to limit input tokens
+  const promptForLLM = researchPrompt.length > 5000
+    ? researchPrompt.substring(0, 5000) + '\n\n[Research instructions truncated — follow the sections defined above]'
+    : researchPrompt
+
+  // Only inject default sections when no custom research prompt is provided.
+  // When user has a custom prompt, they already defined their sections — don't add 9 more on top!
+  const structureBlock = promptForLLM.trim().length > 200
+    ? '## STRUCTURE\nFollow ONLY the sections defined in the Custom Research Instructions. Do NOT add extra default sections.'
+    : '## REQUIRED SECTIONS\n1. Executive Summary\n2. Company Overview\n3. Products & Services\n4. Leadership & Key People\n5. Recent News & Developments\n6. Financial Overview\n7. Competitive Landscape\n8. Industry Position & Market Analysis\n9. Key Takeaways & Strategic Implications'
 
   const userContent = `## RESEARCH TASK
 Company: ${companyName}
@@ -365,18 +374,9 @@ Website: ${website || 'N/A'}
 Industry: ${industry || 'N/A'}
 
 ## CUSTOM RESEARCH INSTRUCTIONS
-${researchPrompt}
+${promptForLLM}
 
-## REQUIRED SECTIONS
-1. Executive Summary
-2. Company Overview
-3. Products & Services
-4. Leadership & Key People
-5. Recent News & Developments
-6. Financial Overview
-7. Competitive Landscape
-8. Industry Position & Market Analysis
-9. Key Takeaways & Strategic Implications
+${structureBlock}
 
 ## GATHERED DATA
 ${dossier || '(No web data gathered — produce a report based on your existing knowledge, clearly noting real-time data was unavailable.)'}`
