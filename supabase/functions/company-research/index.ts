@@ -44,7 +44,7 @@ interface GatherResult {
 const FC_TIMEOUT = 10_000        // Per-Firecrawl-call timeout
 const GATHER_BUDGET_MS = 0       // Always save dossier and synthesize in a fresh invocation (fresh 150s budget)
 const OVERALL_TIMEOUT_MS = 145_000
-const SYNTHESIS_TIMEOUT_MS = 143_000  // Synthesis always runs in continuation (fresh 150s budget — ~143s available)
+const SYNTHESIS_TIMEOUT_MS = 110_000  // ~40s headroom for cold start (15s) + DB writes (5s) + buffer
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -85,6 +85,7 @@ async function markFailed(
     status: 'failed',
     error_message: errorMessage,
     retry_count: (retryCount || 0) + 1,
+    research_metadata: null,  // clear saved dossier so next retry starts fresh
   }).eq('id', id).eq('org_id', orgId)
 }
 
@@ -378,9 +379,9 @@ ${researchPrompt}
 ## GATHERED DATA
 ${dossier || '(No web data gathered — produce a report based on your existing knowledge, clearly noting real-time data was unavailable.)'}`
 
-  // Synthesis always runs in continuation (fresh 150s budget).
-  // Opus 4.6 ~85 tok/s: 10000 tok ≈ 118s  |  Sonnet ~110 tok/s: 14000 tok ≈ 127s  |  Haiku ~200 tok/s: 20000 tok ≈ 100s
-  const maxTokens = llm.model.includes('opus') ? 10000 : llm.model.includes('haiku') ? 20000 : 14000
+  // Synthesis always runs in continuation (~110s budget after cold start overhead).
+  // Opus 4.6 ~85 tok/s: 8000 tok ≈ 94s  |  Sonnet ~110 tok/s: 10000 tok ≈ 91s  |  Haiku ~200 tok/s: 16000 tok ≈ 80s
+  const maxTokens = llm.model.includes('opus') ? 8000 : llm.model.includes('haiku') ? 16000 : 10000
   const result = await withTimeout(
     llm.createMessage({
       system: systemPrompt,
