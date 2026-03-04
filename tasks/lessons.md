@@ -38,19 +38,24 @@ Los datos no desaparecen — solo quedan filtrados por la nueva política. Los r
 - **CadenceContext.tsx**: añadido `.eq('owner_id', user.id)` → cada usuario ve SOLO sus propias cadencias
 - **Cadences.tsx**: confirmación de borrado muestra nombre de la cadencia + mensaje informativo
 
-## Lesson 002 — Managers ven todas las cadencias del org (mezcla de usuarios)
+## Lesson 002 — Un usuario no debe poder modificar/borrar datos de otro usuario del mismo org
 **Fecha:** 2026-03-04
 
-### Qué pasó
-La política RLS "Managers can view all org cadences" hacía que Magdalena (manager) viera las cadencias de Alejandro y viceversa. Esto causó que alguien borrara cadencias del otro usuario sin saberlo.
+### Qué pasó (doble problema)
+1. **SELECT mezclado**: La política "Managers can view all org cadences" + la query sin `owner_id` hacía que managers vieran las cadencias de todos los usuarios del org.
+2. **DELETE cruzado**: La política "Owner or manager can delete" permitía a cualquier manager borrar datos de cualquier otro usuario. Esto causó la pérdida de las cadencias de Magdalena.
 
-### Regla
-**La query de cadencias en CadenceContext SIEMPRE debe filtrar por `owner_id = user.id`.**
-El RLS de manager es un permiso de acceso (permite la query), pero el frontend debe explícitamente limitar la vista a los datos del propio usuario.
+### Reglas
 
-Aplica igual a: leads, templates, schedules, workflows — cualquier tabla donde cada usuario tenga su propio mundo.
+**Regla A — Frontend**: SIEMPRE filtrar por `owner_id = user.id` en queries de datos propios del usuario.
+El RLS de manager da permiso de acceso técnico, pero el frontend debe limitar lo que el usuario ve.
+
+**Regla B — RLS DELETE/UPDATE**: Las políticas de DELETE y UPDATE NUNCA deben incluir una excepción para managers sobre datos de otros usuarios. Solo el `owner_id` puede modificar o borrar sus propios datos.
+
+Aplica a TODAS las tablas de datos del usuario: cadences, cadence_steps, cadence_leads, lead_step_instances, leads, templates, schedules, ai_prompts, example_sections, example_messages, workflows.
 
 ### Patrón correcto
+
 ```javascript
 // ✅ CORRECTO: cada usuario ve solo sus datos
 supabase.from('cadences')
@@ -61,3 +66,20 @@ supabase.from('cadences')
 supabase.from('cadences')
   .eq('org_id', orgId)  // ← managers ven todo el org
 ```
+
+```sql
+-- ✅ CORRECTO: solo el dueño puede borrar
+CREATE POLICY "Owner only can delete cadences" ON public.cadences
+  FOR DELETE USING (user_is_org_member(org_id) AND auth.uid() = owner_id);
+
+-- ❌ INCORRECTO: managers pueden borrar datos ajenos
+CREATE POLICY "Owner or manager can delete cadences" ON public.cadences
+  FOR DELETE USING (
+    user_is_org_member(org_id)
+    AND (auth.uid() = owner_id OR user_has_org_role(org_id, 'manager'))  -- ← esto es peligroso
+  );
+```
+
+### Fix aplicado (Migration 050)
+- Todas las políticas DELETE de 11 tablas: `"Owner or manager can delete"` → `"Owner only can delete"`
+- Todas las políticas UPDATE de 11 tablas: confirmadas como owner-only
