@@ -12,7 +12,7 @@ import type { FirecrawlClient } from '../_shared/firecrawl.ts'
  * Phase 1 (Gather): Parallel Firecrawl searches + scrapes + LLM query gen (~20-35s)
  * Phase 2 (Synthesize): LLM report generation (~30-50s)
  *
- * If gather takes too long (>90s), saves intermediate data and returns
+ * Always saves gathered data after gather phase and returns
  * { needsContinuation: true }. The frontend auto-retries, and the next
  * invocation detects the saved dossier and skips straight to synthesis.
  *
@@ -42,9 +42,9 @@ interface GatherResult {
 // ─── Constants ───────────────────────────────────────────────────
 
 const FC_TIMEOUT = 10_000        // Per-Firecrawl-call timeout
-const GATHER_BUDGET_MS = 70_000  // Max time for gather before saving for continuation
+const GATHER_BUDGET_MS = 0       // Always save dossier and synthesize in a fresh invocation (fresh 150s budget)
 const OVERALL_TIMEOUT_MS = 145_000
-const SYNTHESIS_TIMEOUT_MS = 130_000  // Synthesis timeout (Opus 4.6 with 4000 tokens: ~90-120s, Sonnet: ~40-80s)
+const SYNTHESIS_TIMEOUT_MS = 143_000  // Synthesis always runs in continuation (fresh 150s budget — ~143s available)
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -378,8 +378,9 @@ ${researchPrompt}
 ## GATHERED DATA
 ${dossier || '(No web data gathered — produce a report based on your existing knowledge, clearly noting real-time data was unavailable.)'}`
 
-  // Opus 4.6 ~30-50 tok/s — cap at 4000 to fit within 130s synthesis budget
-  const maxTokens = llm.model.includes('opus') ? 4000 : 6000
+  // Synthesis always runs in continuation (fresh 150s budget).
+  // Opus 4.6 ~85 tok/s: 10000 tok ≈ 118s  |  Sonnet ~110 tok/s: 14000 tok ≈ 127s  |  Haiku ~200 tok/s: 20000 tok ≈ 100s
+  const maxTokens = llm.model.includes('opus') ? 10000 : llm.model.includes('haiku') ? 20000 : 14000
   const result = await withTimeout(
     llm.createMessage({
       system: systemPrompt,
@@ -538,7 +539,7 @@ serve(async (req: Request) => {
       }
     }
 
-    // Phase 2: Synthesize — fixed timeout so LLM generates at 4000 tokens (~15-30s)
+    // Phase 2: Synthesize — always in continuation; fresh 150s budget allows 10k-20k tokens
     const synthesisTimeout = SYNTHESIS_TIMEOUT_MS
     console.log(`[Research] Phase: Synthesize (budget: ${Math.round(synthesisTimeout / 1000)}s)`)
 

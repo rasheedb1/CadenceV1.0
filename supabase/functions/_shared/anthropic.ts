@@ -56,7 +56,7 @@ export class AnthropicClient {
 
       // AbortController ensures the underlying fetch is cancelled if synthesis times out
       const controller = new AbortController()
-      const abortTimer = setTimeout(() => controller.abort(), 135_000) // 135s — allows Opus 4.6 to finish
+      const abortTimer = setTimeout(() => controller.abort(), 145_000) // 145s — allows synthesis to finish within fresh 150s budget
 
       let response: Response
       try {
