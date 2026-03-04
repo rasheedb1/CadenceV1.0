@@ -43,7 +43,7 @@ interface GatherResult {
 const FC_TIMEOUT = 10_000        // Per-Firecrawl-call timeout
 const GATHER_BUDGET_MS = 70_000  // Max time for gather before saving for continuation
 const OVERALL_TIMEOUT_MS = 145_000
-const SYNTHESIS_TIMEOUT_MS = 90_000  // Synthesis timeout (Sonnet 4.6: ~20-50s for 2000 tokens)
+const SYNTHESIS_TIMEOUT_MS = 120_000  // Synthesis timeout (Sonnet 4.6: ~40-90s for 6000 tokens)
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -125,7 +125,7 @@ function buildDossier(
   const sources: ResearchSource[] = []
   const maxPer = 5000
   let total = 0
-  const maxTotal = 25000 // Smaller dossier for faster synthesis
+  const maxTotal = 35000 // More context for complete reports
 
   function add(title: string, content: string) {
     if (total >= maxTotal) return
@@ -349,11 +349,11 @@ RULES:
 - Use ONLY information from the provided sources. Do NOT invent facts.
 - Cite sources by including [Source: URL] inline when making specific claims.
 - Structure the report into clear sections with markdown headers (## level).
-- Write concisely but insightfully — 600-900 words total is ideal.
+- Write a thorough, complete report — do not truncate any section.
 - Write in a professional, analytical tone.
 - If information for a section is not available, state that briefly.
-- Start with a 2-3 sentence Executive Summary.
-- Be focused: prioritize key insights over exhaustive detail.`
+- Start with a concise Executive Summary (3-5 sentences).
+- Cover all required sections completely, even if sources are limited.`
 
   const userContent = `## RESEARCH TASK
 Company: ${companyName}
@@ -381,7 +381,7 @@ ${dossier || '(No web data gathered — produce a report based on your existing 
     llm.createMessage({
       system: systemPrompt,
       messages: [{ role: 'user', content: userContent }],
-      maxTokens: 2000,
+      maxTokens: 6000,
       temperature: 0.3,
     }),
     timeoutMs,
