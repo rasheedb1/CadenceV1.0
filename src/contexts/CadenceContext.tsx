@@ -83,11 +83,12 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
     queryKey: ['cadences', orgId, user?.id],
     queryFn: async () => {
       if (!user || !orgId) return []
-      // RLS handles visibility: owners see own, managers see all org cadences
+      // Each user sees ONLY their own cadences — never mixed with other users in the same org
       const { data, error } = await supabase
         .from('cadences')
         .select('*, cadence_steps(*)')
         .eq('org_id', orgId)
+        .eq('owner_id', user.id)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []).map((c: Record<string, unknown>) => ({
@@ -175,7 +176,11 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
 
   const deleteCadenceMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('cadences').delete().eq('id', id)
+      // Soft delete: set deleted_at instead of hard deleting — allows recovery
+      const { error } = await supabase
+        .from('cadences')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', id)
       if (error) throw error
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['cadences'] }),

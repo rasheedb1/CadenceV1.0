@@ -51,8 +51,8 @@ export function Cadences() {
     }
   }
 
-  const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this cadence?')) {
+  const handleDelete = async (id: string, name: string) => {
+    if (confirm(`¿Eliminar la cadencia "${name}"?\n\nEsta acción puede revertirse contactando al soporte.`)) {
       await deleteCadence(id)
     }
   }
@@ -171,7 +171,7 @@ export function Cadences() {
                       className="text-destructive"
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleDelete(cadence.id)
+                        handleDelete(cadence.id, cadence.name)
                       }}
                     >
                       <Trash2 className="mr-2 h-4 w-4" />

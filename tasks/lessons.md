@@ -32,9 +32,32 @@ Los datos no desaparecen — solo quedan filtrados por la nueva política. Los r
    - Agregar un trigger de validación que impida insertar datos con `owner_id` que no
      sea miembro del org (ver función `validate_cadence_owner_is_org_member` en mig 048)
 
-### Fix inmediato para Magdalena
-Ver [supabase/migrations/048_fix_cadence_owner_visibility.sql](../supabase/migrations/048_fix_cadence_owner_visibility.sql):
-- STEP 1: SQL diagnóstico para identificar las cadencias afectadas
-- STEP 2: UPDATE para corregir `owner_id` en cadences, cadence_steps, cadence_leads, etc.
-- STEP 3: Trigger preventivo para futuros inserts
-- STEP 4: Vista `orphaned_cadences` para monitoreo continuo
+### Fix aplicado (2026-03-04)
+- **Migración 048**: trigger `trg_validate_cadence_owner` + view `orphaned_cadences` → desplegado
+- **Migración 049**: soft delete (`deleted_at`) + RLS actualizado + restauración de cadencias de Magdalena (2 cadencias, 432 leads asignados) → desplegado
+- **CadenceContext.tsx**: añadido `.eq('owner_id', user.id)` → cada usuario ve SOLO sus propias cadencias
+- **Cadences.tsx**: confirmación de borrado muestra nombre de la cadencia + mensaje informativo
+
+## Lesson 002 — Managers ven todas las cadencias del org (mezcla de usuarios)
+**Fecha:** 2026-03-04
+
+### Qué pasó
+La política RLS "Managers can view all org cadences" hacía que Magdalena (manager) viera las cadencias de Alejandro y viceversa. Esto causó que alguien borrara cadencias del otro usuario sin saberlo.
+
+### Regla
+**La query de cadencias en CadenceContext SIEMPRE debe filtrar por `owner_id = user.id`.**
+El RLS de manager es un permiso de acceso (permite la query), pero el frontend debe explícitamente limitar la vista a los datos del propio usuario.
+
+Aplica igual a: leads, templates, schedules, workflows — cualquier tabla donde cada usuario tenga su propio mundo.
+
+### Patrón correcto
+```javascript
+// ✅ CORRECTO: cada usuario ve solo sus datos
+supabase.from('cadences')
+  .eq('org_id', orgId)
+  .eq('owner_id', user.id)  // ← siempre incluir esto
+
+// ❌ INCORRECTO: depender solo del RLS para filtrar
+supabase.from('cadences')
+  .eq('org_id', orgId)  // ← managers ven todo el org
+```
