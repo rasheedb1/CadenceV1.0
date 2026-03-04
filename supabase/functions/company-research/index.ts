@@ -2,7 +2,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { createSupabaseClient, getAuthContext } from '../_shared/supabase.ts'
 import { createFirecrawlClient } from '../_shared/firecrawl.ts'
-import { createLLMClientForUser } from '../_shared/llm.ts'
+import { createLLMClientForUser, createLLMClient } from '../_shared/llm.ts'
 import type { LLMClient } from '../_shared/llm.ts'
 import type { FirecrawlClient } from '../_shared/firecrawl.ts'
 
@@ -470,6 +470,7 @@ serve(async (req: Request) => {
   // ── Init clients ──────────────────────────────────────────────
   let firecrawl: FirecrawlClient
   let llm: LLMClient
+  let synthLLM: LLMClient
 
   try {
     firecrawl = createFirecrawlClient()
@@ -487,7 +488,10 @@ serve(async (req: Request) => {
     return errorResponse('LLM not configured', 500)
   }
 
-  console.log(`[Research] ${isContinuation ? 'CONTINUATION' : 'START'} for "${companyName}" with ${llm.provider}/${llm.model}`)
+  // Always use fast model for synthesis — user model may be too slow (Opus can take 100s+)
+  const fastModel = llm.provider === 'anthropic' ? 'claude-haiku-4-5-20251001' : 'gpt-4o-mini'
+  const synthLLM = createLLMClient(llm.provider, fastModel)
+  console.log(`[Research] ${isContinuation ? 'CONTINUATION' : 'START'} for "${companyName}" with query=${llm.provider}/${llm.model} synth=${synthLLM.provider}/${synthLLM.model}`)
 
   // ── Execute ───────────────────────────────────────────────────
   try {
@@ -534,7 +538,7 @@ serve(async (req: Request) => {
     console.log(`[Research] Phase: Synthesize (budget: ${Math.round(synthesisTimeout / 1000)}s)`)
 
     const finalReport = await phaseSynthesize(
-      llm, companyName, website, industry, researchPrompt, dossier, synthesisTimeout
+      synthLLM, companyName, website, industry, researchPrompt, dossier, synthesisTimeout
     )
     console.log(`[Research] Report: ${finalReport.length} chars`)
 
@@ -550,8 +554,8 @@ serve(async (req: Request) => {
         research_summary: summary,
         research_sources: sources,
         research_metadata: {
-          llm_provider: llm.provider,
-          llm_model: llm.model,
+          llm_provider: synthLLM.provider,
+          llm_model: synthLLM.model,
           total_time_ms: totalTimeMs,
           total_sources: sources.length,
           was_continuation: isContinuation,
