@@ -25,6 +25,7 @@ export interface AccountMapCompanyMinimal {
   industry: string | null
   website: string | null
   location: string | null
+  linkedin_url?: string | null
 }
 
 export interface BuyerPersonaMinimal {

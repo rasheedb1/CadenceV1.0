@@ -2109,7 +2109,7 @@ function AddCompanyDialog({
               <Input value={industry} onChange={(e) => setIndustry(e.target.value)} placeholder="e.g., E-commerce" />
             </div>
             <div className="space-y-2">
-              <Label>Company Size</Label>
+              <Label>Company Size *</Label>
               <Select value={size} onValueChange={setSize}>
                 <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
                 <SelectContent>
@@ -2118,6 +2118,14 @@ function AddCompanyDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {size && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Tier: <strong>
+                    {['1001-5000', '5001-10000', '10001+'].includes(size) ? 'Enterprise' :
+                     ['1-10', '11-50'].includes(size) ? 'Startup/SMB' : 'Mid-Market'}
+                  </strong> — se usarán las keywords de esa tier al buscar prospects.
+                </p>
+              )}
             </div>
           </div>
           <div className="space-y-2">
@@ -2135,7 +2143,7 @@ function AddCompanyDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving || !name.trim()}>
+          <Button onClick={handleSave} disabled={saving || !name.trim() || !size}>
             {saving ? 'Saving...' : 'Add Company'}
           </Button>
         </DialogFooter>

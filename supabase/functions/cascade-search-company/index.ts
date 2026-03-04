@@ -66,7 +66,7 @@ serve(async (req: Request) => {
     // Load company
     const { data: company, error: cErr } = await supabase
       .from('account_map_companies')
-      .select('id, company_name, company_size, industry, website, location')
+      .select('id, company_name, company_size, industry, website, location, linkedin_url')
       .eq('id', companyId)
       .eq('org_id', ctx.orgId)
       .single()
@@ -96,7 +96,13 @@ serve(async (req: Request) => {
     for (let i = 0; i < personas.length; i++) {
       const persona = personas[i]
 
-      if (!persona.title_keywords || persona.title_keywords.length === 0) {
+      const hasAnyKeywords =
+        (persona.title_keywords?.length > 0) ||
+        (persona.title_keywords_by_tier?.enterprise?.length > 0) ||
+        (persona.title_keywords_by_tier?.mid_market?.length > 0) ||
+        (persona.title_keywords_by_tier?.startup_smb?.length > 0)
+
+      if (!hasAnyKeywords) {
         personaResults.push({
           personaId: persona.id,
           personaName: persona.name,

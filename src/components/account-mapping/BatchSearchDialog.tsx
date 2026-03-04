@@ -429,6 +429,16 @@ export function BatchSearchDialog({
                   {selectedCompanyIds.size === companies.length ? 'Deselect all' : 'Select all'}
                 </Button>
               </div>
+              {/* Warning for companies without size */}
+              {companies.filter(c => selectedCompanyIds.has(c.id) && !c.company_size).length > 0 && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-3 text-sm text-amber-800 dark:text-amber-200 mb-3">
+                  <span className="text-amber-500 mt-0.5">⚠️</span>
+                  <span>
+                    <strong>{companies.filter(c => selectedCompanyIds.has(c.id) && !c.company_size).length}</strong> empresa(s) seleccionada(s) no tienen tamaño definido.
+                    Se usará tier <strong>Mid-Market</strong> por defecto — puede resultar en 0 prospects si las keywords están configuradas para otra tier.
+                  </span>
+                </div>
+              )}
               <div className="max-h-[300px] overflow-y-auto rounded-md border divide-y">
                 {companies.map(company => {
                   const tier = getCompanySizeTier(company)

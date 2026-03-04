@@ -151,6 +151,7 @@ async function searchWithRetry(
     title_keywords?: string[]
     seniority?: string[]
     limit?: number
+    linkedin_url?: string
   },
   maxRetries = 3,
 ): Promise<SalesNavResult[]> {
@@ -214,6 +215,7 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
         title_keywords: searchKeywords,
         seniority: seniority.length > 0 ? seniority : BROAD_SENIORITY,
         limit: maxResults * 3,
+        linkedin_url: company.linkedin_url || undefined,
       })
 
       const unique = deduplicateProfiles(results, excludeProviderIds)
@@ -252,6 +254,7 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
         keywords: domainTerms.join(' OR '),
         seniority: BROAD_SENIORITY,
         limit: maxResults * 3,
+        linkedin_url: company.linkedin_url || undefined,
       })
 
       const seniorResults = results.filter(p => isSeniorTitle(p.title || p.headline || ''))
@@ -290,6 +293,7 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
       company_names: [company.company_name],
       seniority: ALL_SENIOR,
       limit: 15,
+      linkedin_url: company.linkedin_url || undefined,
     })
 
     const seniorResults = results.filter(p => isSeniorTitle(p.title || p.headline || ''))

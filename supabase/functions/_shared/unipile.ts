@@ -54,6 +54,12 @@ export interface UnipileResponse<T = unknown> {
   error?: string
 }
 
+function extractLinkedInCompanySlug(url: string | null | undefined): string | null {
+  if (!url) return null
+  const match = url.match(/linkedin\.com\/company\/([^\/\?#]+)/i)
+  return match ? match[1] : null
+}
+
 export class UnipileClient {
   private baseUrl: string
   private accessToken: string
@@ -400,6 +406,7 @@ export class UnipileClient {
     seniority?: string[]
     limit?: number
     cursor?: string
+    linkedin_url?: string
   }): Promise<UnipileResponse> {
     const body: Record<string, unknown> = {
       api: 'sales_navigator',
@@ -427,8 +434,32 @@ export class UnipileClient {
               companyIds.push(stringId)
               console.log(`✓ Resolved company "${name}" → ID "${stringId}"`)
             } else {
-              console.warn(`✗ No lookup results for company "${name}"`)
-              companyLookupFailed = true
+              // Retry with LinkedIn company URL slug if available
+              const slug = extractLinkedInCompanySlug(params.linkedin_url)
+              if (slug && slug.toLowerCase() !== name.toLowerCase()) {
+                console.log(`✗ No results for "${name}", retrying with LinkedIn slug "${slug}"`)
+                try {
+                  const slugLookup = await this.lookupSearchParameters(accountId, 'COMPANY', slug, 3)
+                  if (slugLookup.success && slugLookup.data) {
+                    const slugItems = ((slugLookup.data as Record<string, unknown>)?.items || []) as Array<Record<string, unknown>>
+                    if (slugItems.length > 0 && slugItems[0].id != null) {
+                      const stringId = String(slugItems[0].id)
+                      companyIds.push(stringId)
+                      console.log(`✓ Resolved company via LinkedIn slug "${slug}" → ID "${stringId}"`)
+                    } else {
+                      console.warn(`✗ No lookup results for LinkedIn slug "${slug}"`)
+                      companyLookupFailed = true
+                    }
+                  } else {
+                    companyLookupFailed = true
+                  }
+                } catch {
+                  companyLookupFailed = true
+                }
+              } else {
+                console.warn(`✗ No lookup results for company "${name}"`)
+                companyLookupFailed = true
+              }
             }
           } else {
             console.warn(`✗ Lookup failed for company "${name}": ${lookup.error}`)
