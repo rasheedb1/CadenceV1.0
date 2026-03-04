@@ -43,7 +43,7 @@ interface GatherResult {
 const FC_TIMEOUT = 10_000        // Per-Firecrawl-call timeout
 const GATHER_BUDGET_MS = 70_000  // Max time for gather before saving for continuation
 const OVERALL_TIMEOUT_MS = 145_000
-const SYNTHESIS_TIMEOUT_MS = 60_000  // Fixed synthesis timeout (LLM ~15-30s at 4000 tokens)
+const SYNTHESIS_TIMEOUT_MS = 90_000  // Synthesis timeout (Sonnet 4.6: ~20-50s for 2000 tokens)
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -381,7 +381,7 @@ ${dossier || '(No web data gathered — produce a report based on your existing 
     llm.createMessage({
       system: systemPrompt,
       messages: [{ role: 'user', content: userContent }],
-      maxTokens: 4000,
+      maxTokens: 2000,
       temperature: 0.3,
     }),
     timeoutMs,
@@ -487,14 +487,14 @@ serve(async (req: Request) => {
     return errorResponse('LLM not configured', 500)
   }
 
-  // Always use Anthropic/Claude for synthesis — OpenAI keys may be unavailable
-  // Use the user's configured Claude model if they have Anthropic, otherwise default to haiku
-  const synthModel = llm.provider === 'anthropic' ? llm.model : 'claude-haiku-4-5-20251001'
-  const synthLLM = createLLMClient('anthropic', synthModel)
-  console.log(`[Research] ${isContinuation ? 'CONTINUATION' : 'START'} for "${companyName}" with synth=anthropic/${synthModel}`)
+  console.log(`[Research] ${isContinuation ? 'CONTINUATION' : 'START'} for "${companyName}"`)
 
   // ── Execute ───────────────────────────────────────────────────
   try {
+    // Always use Anthropic/Claude for synthesis — always use Anthropic regardless of user's provider
+    const synthModel = llm.provider === 'anthropic' ? llm.model : 'claude-haiku-4-5-20251001'
+    const synthLLM = createLLMClient('anthropic', synthModel)
+    console.log(`[Research] synth=anthropic/${synthModel}`)
     let dossier: string
     let sources: ResearchSource[]
 

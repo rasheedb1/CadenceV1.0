@@ -54,15 +54,25 @@ export class AnthropicClient {
 
       console.log(`Anthropic createMessage: model=${body.model}, max_tokens=${body.max_tokens}`)
 
-      const response = await fetch(`${this.baseUrl}/v1/messages`, {
-        method: 'POST',
-        headers: {
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      })
+      // AbortController ensures the underlying fetch is cancelled if synthesis times out
+      const controller = new AbortController()
+      const abortTimer = setTimeout(() => controller.abort(), 55_000) // 55s internal limit
+
+      let response: Response
+      try {
+        response = await fetch(`${this.baseUrl}/v1/messages`, {
+          method: 'POST',
+          headers: {
+            'x-api-key': this.apiKey,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        })
+      } finally {
+        clearTimeout(abortTimer)
+      }
 
       const responseText = await response.text()
 
