@@ -44,7 +44,7 @@ interface GatherResult {
 const FC_TIMEOUT = 10_000        // Per-Firecrawl-call timeout
 const GATHER_BUDGET_MS = 0       // Always save dossier and synthesize in a fresh invocation (fresh 150s budget)
 const OVERALL_TIMEOUT_MS = 145_000
-const SYNTHESIS_TIMEOUT_MS = 110_000  // ~40s headroom for cold start (15s) + DB writes (5s) + buffer
+const SYNTHESIS_TIMEOUT_MS = 120_000  // 30s headroom vs Supabase 150s wall clock (synthesis always runs in continuation)
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -379,9 +379,9 @@ ${researchPrompt}
 ## GATHERED DATA
 ${dossier || '(No web data gathered — produce a report based on your existing knowledge, clearly noting real-time data was unavailable.)'}`
 
-  // Synthesis always runs in continuation (~110s budget after cold start overhead).
-  // Opus 4.6 ~85 tok/s: 8000 tok ≈ 94s  |  Sonnet ~110 tok/s: 10000 tok ≈ 91s  |  Haiku ~200 tok/s: 16000 tok ≈ 80s
-  const maxTokens = llm.model.includes('opus') ? 8000 : llm.model.includes('haiku') ? 16000 : 10000
+  // Synthesis always runs in continuation (fresh 150s budget, ~120s for LLM after overhead).
+  // Opus 4.6 ~85 tok/s: 9000 tok ≈ 106s  |  Sonnet ~110 tok/s: 12000 tok ≈ 109s  |  Haiku ~200 tok/s: 18000 tok ≈ 90s
+  const maxTokens = llm.model.includes('opus') ? 9000 : llm.model.includes('haiku') ? 18000 : 12000
   const result = await withTimeout(
     llm.createMessage({
       system: systemPrompt,
