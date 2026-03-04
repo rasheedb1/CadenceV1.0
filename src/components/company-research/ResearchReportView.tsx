@@ -288,6 +288,24 @@ function renderMarkdown(text: string): string {
       continue
     }
 
+    // ── H1 ────────────────────────────────────────────────────
+    if (line.startsWith('# ') && !line.startsWith('## ')) {
+      out.push(`<h1 class="text-xl font-bold mt-6 mb-3 pb-2 border-b">${inline(esc(line.slice(2)))}</h1>`)
+      i++; continue
+    }
+
+    // ── H2 (inside section content or preamble) ────────────────
+    if (line.startsWith('## ') && !line.startsWith('### ')) {
+      out.push(`<h2 class="text-base font-bold mt-5 mb-2 pt-1 text-foreground">${inline(esc(line.slice(3)))}</h2>`)
+      i++; continue
+    }
+
+    // ── SECTION heading (all-caps lines like "SECTION 1 — ...") ─
+    if (/^[A-Z][A-Z\s0-9\u2014\u2013-]{8,}$/.test(line.trim()) && line.trim().length > 0) {
+      out.push(`<h2 class="text-base font-bold mt-5 mb-2 pt-1 text-foreground">${inline(esc(line))}</h2>`)
+      i++; continue
+    }
+
     // ── H3 ────────────────────────────────────────────────────
     if (line.startsWith('### ') && !line.startsWith('#### ')) {
       out.push(`<h3 class="text-sm font-semibold mt-4 mb-1.5 text-foreground">${inline(esc(line.slice(4)))}</h3>`)
@@ -366,6 +384,9 @@ function renderMarkdown(text: string): string {
     }
     if (paraLines.length > 0) {
       out.push(`<p class="my-2 leading-relaxed">${paraLines.join('<br />')}</p>`)
+    } else {
+      // Safety net: if nothing matched and paraLines is empty, advance i to prevent infinite loop
+      i++
     }
   }
 
