@@ -13,30 +13,12 @@ import { useLinkedInConnection } from '@/hooks/useLinkedInConnection'
 import { useGmailConnection } from '@/hooks/useGmailConnection'
 import { SalesforceConnection } from '@/components/salesforce/SalesforceConnection'
 
-const LLM_MODELS: Record<string, { label: string; models: { value: string; label: string }[] }> = {
-  openai: {
-    label: 'OpenAI',
-    models: [
-      { value: 'gpt-5.2', label: 'GPT-5.2 Thinking' },
-      { value: 'gpt-5.1', label: 'GPT-5.1' },
-      { value: 'gpt-5', label: 'GPT-5' },
-      { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
-      { value: 'gpt-5-nano', label: 'GPT-5 Nano' },
-      { value: 'gpt-4o', label: 'GPT-4o' },
-      { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-      { value: 'o3-mini', label: 'o3 Mini' },
-    ],
-  },
-  anthropic: {
-    label: 'Anthropic (Claude)',
-    models: [
-      { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
-      { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
-      { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
-      { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5 (Legacy)' },
-    ],
-  },
-}
+const CLAUDE_MODELS = [
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Recommended)' },
+  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 (Most Capable)' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (Fastest)' },
+  { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
+]
 
 export function Settings() {
   const { user } = useAuth()
@@ -47,8 +29,7 @@ export function Settings() {
   const gmail = useGmailConnection()
 
   // LLM settings
-  const [llmProvider, setLlmProvider] = useState('openai')
-  const [llmModel, setLlmModel] = useState('gpt-4o')
+  const [llmModel, setLlmModel] = useState('claude-sonnet-4-6')
   const [llmLoading, setLlmLoading] = useState(false)
   const [llmSaved, setLlmSaved] = useState(false)
   const [llmMessage, setLlmMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -63,8 +44,15 @@ export function Settings() {
       .single()
       .then(({ data }) => {
         if (data) {
-          setLlmProvider(data.llm_provider || 'openai')
-          setLlmModel(data.llm_model || 'gpt-4o')
+          // Normalize: if user had OpenAI configured, reset to Claude defaults
+          const provider = data.llm_provider
+          const model = data.llm_model
+          if (provider === 'anthropic' && model) {
+            setLlmModel(CLAUDE_MODELS.some(m => m.value === model) ? model : 'claude-sonnet-4-6')
+          } else {
+            // Legacy OpenAI or unset — default to Claude Sonnet
+            setLlmModel('claude-sonnet-4-6')
+          }
         }
       })
   }, [user?.id])
@@ -75,7 +63,7 @@ export function Settings() {
     setLlmMessage(null)
     const { error } = await supabase
       .from('profiles')
-      .update({ llm_provider: llmProvider, llm_model: llmModel })
+      .update({ llm_provider: 'anthropic', llm_model: llmModel })
       .eq('user_id', user.id)
 
     if (error) {
@@ -86,13 +74,6 @@ export function Settings() {
       setTimeout(() => setLlmSaved(false), 2000)
     }
     setLlmLoading(false)
-  }
-
-  const handleProviderChange = (provider: string) => {
-    setLlmProvider(provider)
-    // Reset model to provider's first model
-    const firstModel = LLM_MODELS[provider]?.models[0]?.value
-    if (firstModel) setLlmModel(firstModel)
   }
 
   const handleUpdatePassword = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -221,28 +202,17 @@ export function Settings() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Provider</Label>
-              <select
-                value={llmProvider}
-                onChange={(e) => handleProviderChange(e.target.value)}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                {Object.entries(LLM_MODELS).map(([key, { label }]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label>Model</Label>
+              <Label>Claude Model</Label>
               <select
                 value={llmModel}
                 onChange={(e) => setLlmModel(e.target.value)}
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
-                {LLM_MODELS[llmProvider]?.models.map((m) => (
+                {CLAUDE_MODELS.map((m) => (
                   <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>
+              <p className="text-xs text-muted-foreground">Powered by Anthropic. Sonnet 4.6 is the best balance of speed and quality.</p>
             </div>
             {llmMessage && (
               <p className={`text-sm ${llmMessage.type === 'success' ? 'text-green-600' : 'text-destructive'}`}>

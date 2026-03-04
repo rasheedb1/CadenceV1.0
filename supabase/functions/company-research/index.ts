@@ -470,7 +470,6 @@ serve(async (req: Request) => {
   // ── Init clients ──────────────────────────────────────────────
   let firecrawl: FirecrawlClient
   let llm: LLMClient
-  let synthLLM: LLMClient
 
   try {
     firecrawl = createFirecrawlClient()
@@ -488,10 +487,11 @@ serve(async (req: Request) => {
     return errorResponse('LLM not configured', 500)
   }
 
-  // Always use fast model for synthesis — user model may be too slow (Opus can take 100s+)
-  const fastModel = llm.provider === 'anthropic' ? 'claude-haiku-4-5-20251001' : 'gpt-4o-mini'
-  const synthLLM = createLLMClient(llm.provider, fastModel)
-  console.log(`[Research] ${isContinuation ? 'CONTINUATION' : 'START'} for "${companyName}" with query=${llm.provider}/${llm.model} synth=${synthLLM.provider}/${synthLLM.model}`)
+  // Always use Anthropic/Claude for synthesis — OpenAI keys may be unavailable
+  // Use the user's configured Claude model if they have Anthropic, otherwise default to haiku
+  const synthModel = llm.provider === 'anthropic' ? llm.model : 'claude-haiku-4-5-20251001'
+  const synthLLM = createLLMClient('anthropic', synthModel)
+  console.log(`[Research] ${isContinuation ? 'CONTINUATION' : 'START'} for "${companyName}" with synth=anthropic/${synthModel}`)
 
   // ── Execute ───────────────────────────────────────────────────
   try {
