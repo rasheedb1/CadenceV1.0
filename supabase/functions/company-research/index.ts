@@ -454,9 +454,11 @@ serve(async (req: Request) => {
   if (projErr || !project) return errorResponse('Research project not found', 404)
 
   // ── Check if this is a CONTINUATION (gathered data already saved) ──
-  const savedDossier = (rpc.research_metadata as Record<string, unknown>)?._dossier as string | undefined
-  const savedSources = (rpc.research_metadata as Record<string, unknown>)?._sources as ResearchSource[] | undefined
-  const isContinuation = !!savedDossier
+  // Use explicit _gathered flag — empty dossier ("") is falsy so !!dossier would always be false!
+  const savedMeta = rpc.research_metadata as Record<string, unknown> | null
+  const savedDossier = savedMeta?._dossier as string | undefined
+  const savedSources = savedMeta?._sources as ResearchSource[] | undefined
+  const isContinuation = !!savedMeta?._gathered
 
   if (!isContinuation) {
     // Fresh start — mark as researching
@@ -523,12 +525,14 @@ serve(async (req: Request) => {
       sources = assembled.sources
       console.log(`[Research] Dossier: ${dossier.length} chars, ${sources.length} sources`)
 
-      // Check time budget — if gather took too long, save for continuation
+      // Only use continuation (fresh 150s budget) if we have real data to synthesize.
+      // If dossier is empty (Firecrawl failed), synthesize in this same call — it is fast.
       const elapsed = Date.now() - startTime
-      if (elapsed > GATHER_BUDGET_MS) {
+      if (elapsed > GATHER_BUDGET_MS && dossier.length > 200) {
         console.log(`[Research] Gather took ${elapsed}ms — saving for continuation`)
         await supabase.from('research_project_companies').update({
           research_metadata: {
+            _gathered: true,        // explicit flag — avoids isContinuation = \!\!"" bug
             _dossier: dossier,
             _sources: sources,
             phase: 'gathered',
