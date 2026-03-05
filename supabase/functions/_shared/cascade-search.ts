@@ -8,7 +8,7 @@
 import type { UnipileClient } from './unipile.ts'
 import { getAdaptiveKeywords } from './adaptive-keywords.ts'
 import type { AccountMapCompanyMinimal, BuyerPersonaMinimal } from './adaptive-keywords.ts'
-import { generateTitleVariations, isSeniorTitle } from './clean-keywords.ts'
+import { generateTitleVariations, isSeniorTitle, extractFunctionWords, titleContainsFunctionWord } from './clean-keywords.ts'
 
 // ── Types ──
 
@@ -219,15 +219,24 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
       })
 
       const unique = deduplicateProfiles(results, excludeProviderIds)
+
+      // Post-filter: only keep prospects whose current title contains a function word
+      const functionWords = extractFunctionWords(titleKeywords)
+      const titleFiltered = functionWords.length > 0
+        ? unique.filter(p => titleContainsFunctionWord(p.title || p.headline || '', functionWords))
+        : unique
+      // Fallback: if filter removed everything, use unfiltered (better than 0 results)
+      const l1Results = titleFiltered.length > 0 ? titleFiltered : unique
+
       levelDetails.push({
         level: 1, label: 'Title match',
         keywords: searchKeywords.slice(0, 8),
-        resultsCount: unique.length,
+        resultsCount: l1Results.length,
       })
 
-      if (unique.length > 0) {
+      if (l1Results.length > 0) {
         return {
-          prospects: unique.slice(0, maxResults),
+          prospects: l1Results.slice(0, maxResults),
           level: 1,
           queryUsed: searchKeywords.slice(0, 4).join(', '),
           levelDetails,
@@ -257,8 +266,16 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
         linkedin_url: company.linkedin_url || undefined,
       })
 
+      // Filter by seniority first
       const seniorResults = results.filter(p => isSeniorTitle(p.title || p.headline || ''))
-      const filtered = seniorResults.length > 0 ? seniorResults : results
+      const seniorFiltered = seniorResults.length > 0 ? seniorResults : results
+
+      // Also post-filter by domain term in title (e.g. "payments" must appear in title)
+      const domainFiltered = seniorFiltered.filter(p =>
+        domainTerms.some(t => (p.title || p.headline || '').toLowerCase().includes(t.toLowerCase()))
+      )
+      // Fallback: if domain filter removed everything, use senior-only filter
+      const filtered = domainFiltered.length > 0 ? domainFiltered : seniorFiltered
       const unique = deduplicateProfiles(filtered, excludeProviderIds)
 
       levelDetails.push({
@@ -297,10 +314,19 @@ export async function cascadeSearch(config: CascadeConfig): Promise<CascadeResul
     })
 
     const seniorResults = results.filter(p => isSeniorTitle(p.title || p.headline || ''))
-    const unique = deduplicateProfiles(
-      seniorResults.length > 0 ? seniorResults : results.slice(0, 5),
-      excludeProviderIds
-    )
+    const l3Pool = seniorResults.length > 0 ? seniorResults : results.slice(0, 5)
+
+    // Soft preference: sort function-word matches to the top (L3 always returns something)
+    const functionWords = extractFunctionWords(titleKeywords)
+    const l3Sorted = functionWords.length > 0
+      ? [...l3Pool].sort((a, b) => {
+          const aMatch = titleContainsFunctionWord(a.title || a.headline || '', functionWords) ? 0 : 1
+          const bMatch = titleContainsFunctionWord(b.title || b.headline || '', functionWords) ? 0 : 1
+          return aMatch - bMatch
+        })
+      : l3Pool
+
+    const unique = deduplicateProfiles(l3Sorted, excludeProviderIds)
 
     levelDetails.push({
       level: 3, label: 'Broad',

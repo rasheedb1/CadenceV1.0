@@ -111,3 +111,42 @@ export function isSeniorTitle(title: string): boolean {
   const lower = title.toLowerCase()
   return indicators.some(i => lower.includes(i))
 }
+
+/**
+ * Extracts functional/domain words from title keywords by stripping seniority prefixes.
+ * Used to post-filter Sales Navigator results by checking actual job title content.
+ *
+ * Example: ["VP Payments", "Head of Payments", "CFO"] → ["payments"]
+ * Example: ["Finance Director", "Head of Finance"] → ["finance"]
+ */
+export function extractFunctionWords(keywords: string[]): string[] {
+  const words: string[] = []
+  for (const kw of keywords) {
+    const core = extractFunctionalCore(kw)
+    // C-level acronyms → map to domain word
+    if (C_LEVEL.has(core.toLowerCase())) {
+      // e.g. CFO → "finance", CTO → "technology", CMO → "marketing"
+      const cLevelMap: Record<string, string> = {
+        cfo: 'finance', cto: 'technology', cmo: 'marketing', coo: 'operations',
+        ceo: 'executive', cro: 'revenue', cpo: 'product', cio: 'information',
+        ciso: 'security', cdo: 'data', clo: 'legal', cso: 'security',
+      }
+      const mapped = cLevelMap[core.toLowerCase()]
+      if (mapped) words.push(mapped)
+      continue
+    }
+    const parts = core.split(/\s+/).filter(w => w.length > 3 && !isGenericWord(w))
+    words.push(...parts.map(w => w.toLowerCase()))
+  }
+  return [...new Set(words)]
+}
+
+/**
+ * Returns true if the given job title contains at least one function word
+ * derived from the buyer persona's title_keywords.
+ */
+export function titleContainsFunctionWord(title: string, functionWords: string[]): boolean {
+  if (functionWords.length === 0) return true // no filter if no function words
+  const lower = title.toLowerCase()
+  return functionWords.some(fw => lower.includes(fw))
+}
