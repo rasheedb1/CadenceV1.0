@@ -211,75 +211,56 @@ export function CompanyResearchProvider({ children }: { children: ReactNode }) {
 
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 
-    // Fire the edge function — DON'T await the full response.
-    // The function marks status as 'researching' immediately, then does heavy work (60-90s).
-    // The browser keeps the HTTP connection alive; the edge function runs to completion.
-    const fetchPromise = fetch(`${supabaseUrl}/functions/v1/company-research`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({ researchProjectCompanyId, ...(llmModel ? { llm_model: llmModel } : {}) }),
-    })
-
     const invalidateAll = () => {
       queryClient.invalidateQueries({ queryKey: ['research-project-companies'] })
       queryClient.invalidateQueries({ queryKey: ['all-researched-companies'] })
       queryClient.invalidateQueries({ queryKey: ['research-projects'] })
     }
 
-    // Handle the response in the background (for error logging, continuation, and cache invalidation)
-    fetchPromise
-      .then(async (resp) => {
-        if (!resp.ok) {
-          const text = await resp.text().catch(() => '')
-          console.error('[Research] Edge function error:', resp.status, text)
-          invalidateAll()
-          return
-        }
+    // Recursive continuation — handles N phases (gather → synth-part1 → synth-part2)
+    // Each edge function invocation gets a fresh 150s Supabase budget.
+    const callEdgeFunction = (depth: number): Promise<void> => {
+      if (depth > 5) {
+        console.error('[Research] Max continuation depth reached')
+        invalidateAll()
+        return Promise.resolve()
+      }
 
-        try {
-          const data = await resp.json()
-
-          // AUTO-CONTINUATION: if gather completed but synthesis needs a second invocation
-          if (data.needsContinuation) {
-            console.log('[Research] Gather done, auto-continuing to synthesis phase...')
-            fetch(`${supabaseUrl}/functions/v1/company-research`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${session!.access_token}`,
-              },
-              body: JSON.stringify({ researchProjectCompanyId, ...(llmModel ? { llm_model: llmModel } : {}) }),
-            })
-              .then(async (resp2) => {
-                if (!resp2.ok) {
-                  const text = await resp2.text().catch(() => '')
-                  console.error('[Research] Continuation error:', resp2.status, text)
-                } else {
-                  console.log('[Research] Research completed after continuation')
-                }
-                invalidateAll()
-              })
-              .catch((err) => {
-                console.error('[Research] Continuation fetch error:', err)
-                invalidateAll()
-              })
-            return // Don't invalidate yet — continuation is running
+      return fetch(`${supabaseUrl}/functions/v1/company-research`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session!.access_token}`,
+        },
+        body: JSON.stringify({ researchProjectCompanyId, ...(llmModel ? { llm_model: llmModel } : {}) }),
+      })
+        .then(async (resp) => {
+          if (!resp.ok) {
+            const text = await resp.text().catch(() => '')
+            console.error(`[Research] Phase ${depth} error: ${resp.status}`, text)
+            invalidateAll()
+            return
           }
+          try {
+            const data = await resp.json()
+            if (data.needsContinuation) {
+              console.log(`[Research] Phase ${depth} done (needsContinuation), starting phase ${depth + 1}...`)
+              return callEdgeFunction(depth + 1)
+            }
+            console.log(`[Research] Complete after ${depth + 1} phase(s)`)
+          } catch {
+            console.log(`[Research] Phase ${depth} completed (no JSON body)`)
+          }
+          invalidateAll()
+        })
+        .catch((err) => {
+          console.error(`[Research] Phase ${depth} fetch error:`, err)
+          invalidateAll()
+        })
+    }
 
-          console.log('[Research] Edge function completed successfully')
-        } catch {
-          // JSON parse failed — still completed
-          console.log('[Research] Edge function completed (no JSON body)')
-        }
-        invalidateAll()
-      })
-      .catch((err) => {
-        console.error('[Research] Fetch error:', err)
-        invalidateAll()
-      })
+    // Fire first call (gather phase) — runs in background
+    callEdgeFunction(0)
 
     // Wait briefly for the function to mark status as 'researching' in DB
     await new Promise(resolve => setTimeout(resolve, 2000))

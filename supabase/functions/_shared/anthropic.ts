@@ -56,7 +56,7 @@ export class AnthropicClient {
 
       // AbortController ensures the underlying fetch is cancelled if synthesis times out
       const controller = new AbortController()
-      const abortTimer = setTimeout(() => controller.abort(), 132_000) // 132s — abort 2s after synthesis timeout to ensure clean failure
+      const abortTimer = setTimeout(() => controller.abort(), 93_000) // 93s — abort 3s after SYNTHESIS_PART_TIMEOUT_MS (90s per part)
 
       let response: Response
       try {

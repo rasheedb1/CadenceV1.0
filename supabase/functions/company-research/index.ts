@@ -44,7 +44,8 @@ interface GatherResult {
 const FC_TIMEOUT = 10_000        // Per-Firecrawl-call timeout
 const GATHER_BUDGET_MS = 0       // Always save dossier and synthesize in a fresh invocation (fresh 150s budget)
 const OVERALL_TIMEOUT_MS = 145_000
-const SYNTHESIS_TIMEOUT_MS = 130_000  // 20s headroom; 20K dossier → faster processing, fits in fresh 150s budget
+// Each synthesis PART generates ~5000 tokens → ~55s at 90 tok/s → safely fits in 150s invocation
+const SYNTHESIS_PART_TIMEOUT_MS = 90_000  // 90s budget per synthesis part (5000 tokens @ 90 tok/s ≈ 55s + headroom)
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -334,18 +335,14 @@ async function phaseGather(
   return { websiteResults, searchResults, secondaryScrapes }
 }
 
-// ─── Phase: Synthesize ────────────────────────────────────────────
+// ─── Phase: Synthesize (2-part split, each ~5000 tokens ≈ 55s, safe within 90s budget) ──
+//
+// Phase 2a: write first half of sections  → saved to DB → needsContinuation: true
+// Phase 2b: write remaining sections       → concatenated with part1 → final report saved
+//
+// Total: ~10000 tokens per research (vs ~10500 that kept timing out in a single call).
 
-async function phaseSynthesize(
-  llm: LLMClient,
-  companyName: string,
-  website: string,
-  industry: string,
-  researchPrompt: string,
-  dossier: string,
-  timeoutMs: number,
-): Promise<string> {
-  const systemPrompt = `You are an expert business research analyst producing focused company research reports.
+const SYSTEM_PROMPT_SYNTH = `You are an expert business research analyst producing focused company research reports.
 
 RULES:
 - Use ONLY information from the provided sources. Do NOT invent facts.
@@ -357,16 +354,30 @@ RULES:
 - Cover ALL defined sections. Do NOT add extra sections beyond what is requested.
 - Prioritize breadth over depth: covering all sections briefly beats leaving sections out.`
 
-  // Truncate research prompt to 5000 chars max to limit input tokens
+function buildPromptBase(
+  companyName: string, website: string, industry: string, researchPrompt: string,
+): { promptForLLM: string; structureBlock: string } {
   const promptForLLM = researchPrompt.length > 5000
     ? researchPrompt.substring(0, 5000) + '\n\n[Research instructions truncated — follow the sections defined above]'
     : researchPrompt
 
-  // Only inject default sections when no custom research prompt is provided.
-  // When user has a custom prompt, they already defined their sections — don't add 9 more on top!
   const structureBlock = promptForLLM.trim().length > 200
     ? '## STRUCTURE\nFollow ONLY the sections defined in the Custom Research Instructions. Do NOT add extra default sections.'
     : '## REQUIRED SECTIONS\n1. Executive Summary\n2. Company Overview\n3. Products & Services\n4. Leadership & Key People\n5. Recent News & Developments\n6. Financial Overview\n7. Competitive Landscape\n8. Industry Position & Market Analysis\n9. Key Takeaways & Strategic Implications'
+
+  return { promptForLLM, structureBlock }
+}
+
+/** Part 1: write first half of sections (~5000 tokens, ~55s) */
+async function phaseSynthesizePart1(
+  llm: LLMClient,
+  companyName: string, website: string, industry: string, researchPrompt: string, dossier: string,
+): Promise<string> {
+  const { promptForLLM, structureBlock } = buildPromptBase(companyName, website, industry, researchPrompt)
+  const hasCustom = promptForLLM.trim().length > 200
+  const splitInstruction = hasCustom
+    ? 'Write ONLY the FIRST HALF of the sections defined in the research instructions. Stop after completing approximately half the total sections. End your response with [PART1_COMPLETE] on its own line.'
+    : 'Write ONLY sections 1-5: Executive Summary, Company Overview, Products & Services, Leadership & Key People, Recent News & Developments. End with [PART1_COMPLETE] on its own line.'
 
   const userContent = `## RESEARCH TASK
 Company: ${companyName}
@@ -378,27 +389,58 @@ ${promptForLLM}
 
 ${structureBlock}
 
+## INSTRUCTION — FIRST HALF ONLY
+${splitInstruction}
+
 ## GATHERED DATA
 ${dossier || '(No web data gathered — produce a report based on your existing knowledge, clearly noting real-time data was unavailable.)'}`
 
-  // Synthesis always runs in continuation (fresh 150s budget, ~130s for LLM after overhead).
-  // With 20K dossier (~5K input tok): Opus ~85 tok/s: 9000 out ≈ 106s | Sonnet ~95 tok/s: 10500 out ≈ 110s | Haiku ~180 tok/s: 16000 out ≈ 89s
-  const maxTokens = llm.model.includes('opus') ? 9000 : llm.model.includes('haiku') ? 16000 : 10500
+  const maxTokens = llm.model.includes('opus') ? 4500 : llm.model.includes('haiku') ? 6000 : 5000
   const result = await withTimeout(
-    llm.createMessage({
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userContent }],
-      maxTokens,
-      temperature: 0.3,
-    }),
-    timeoutMs,
-    'LLM synthesis'
+    llm.createMessage({ system: SYSTEM_PROMPT_SYNTH, messages: [{ role: 'user', content: userContent }], maxTokens, temperature: 0.3 }),
+    SYNTHESIS_PART_TIMEOUT_MS, 'LLM synthesis part 1'
   )
+  if (!result.success) throw new Error(`LLM synthesis part 1 failed: ${result.error}`)
+  return result.text
+}
 
-  if (!result.success) {
-    throw new Error(`LLM synthesis failed: ${result.error}`)
-  }
+/** Part 2: write remaining sections with part1 as context (~5000 tokens, ~55s) */
+async function phaseSynthesizePart2(
+  llm: LLMClient,
+  companyName: string, website: string, industry: string, researchPrompt: string, dossier: string,
+  part1Report: string,
+): Promise<string> {
+  const { promptForLLM, structureBlock } = buildPromptBase(companyName, website, industry, researchPrompt)
+  const hasCustom = promptForLLM.trim().length > 200
+  const remainInstruction = hasCustom
+    ? 'The FIRST HALF of this report has already been written (see below). Write ONLY the REMAINING sections — do NOT repeat what is already written. Continue until all required sections are complete.'
+    : 'Sections 1-5 have already been written (see below). Write ONLY the remaining 4 sections: 6. Financial Overview, 7. Competitive Landscape, 8. Industry Position & Market Analysis, 9. Key Takeaways & Strategic Implications. Do NOT repeat sections already written.'
 
+  const userContent = `## RESEARCH TASK
+Company: ${companyName}
+Website: ${website || 'N/A'}
+Industry: ${industry || 'N/A'}
+
+## CUSTOM RESEARCH INSTRUCTIONS
+${promptForLLM}
+
+${structureBlock}
+
+## INSTRUCTION — REMAINING SECTIONS ONLY
+${remainInstruction}
+
+## ALREADY WRITTEN (do NOT repeat these sections):
+${part1Report.replace('[PART1_COMPLETE]', '').trim()}
+
+## GATHERED DATA
+${dossier || '(No web data gathered — produce a report based on your existing knowledge, clearly noting real-time data was unavailable.)'}`
+
+  const maxTokens = llm.model.includes('opus') ? 4500 : llm.model.includes('haiku') ? 6000 : 5000
+  const result = await withTimeout(
+    llm.createMessage({ system: SYSTEM_PROMPT_SYNTH, messages: [{ role: 'user', content: userContent }], maxTokens, temperature: 0.3 }),
+    SYNTHESIS_PART_TIMEOUT_MS, 'LLM synthesis part 2'
+  )
+  if (!result.success) throw new Error(`LLM synthesis part 2 failed: ${result.error}`)
   return result.text
 }
 
@@ -455,15 +497,21 @@ serve(async (req: Request) => {
 
   if (projErr || !project) return errorResponse('Research project not found', 404)
 
-  // ── Check if this is a CONTINUATION (gathered data already saved) ──
-  // Use explicit _gathered flag — empty dossier ("") is falsy so !!dossier would always be false!
+
+  // ── Determine current phase from saved metadata ───────────────────────────────
+  // Phase states:
+  //   (none)            → fresh start: gather
+  //   _gathered: true   → synthesis part 1
+  //   _part1_done: true → synthesis part 2
   const savedMeta = rpc.research_metadata as Record<string, unknown> | null
   const savedDossier = savedMeta?._dossier as string | undefined
   const savedSources = savedMeta?._sources as ResearchSource[] | undefined
-  const isContinuation = !!savedMeta?._gathered
+  const savedPart1 = savedMeta?._part1_report as string | undefined
+  const isGathered = !!savedMeta?._gathered
+  const isPart1Done = !!savedMeta?._part1_done
 
-  if (!isContinuation) {
-    // Fresh start — mark as researching
+  // Mark as researching on fresh start only
+  if (!isGathered) {
     await supabase.from('research_project_companies').update({
       status: 'researching',
       started_at: new Date().toISOString(),
@@ -476,7 +524,7 @@ serve(async (req: Request) => {
   const industry = rpc.company_industry || ''
   const researchPrompt = project.research_prompt || ''
 
-  // ── Init clients ──────────────────────────────────────────────
+  // ── Init clients ─────────────────────────────────────────────────────────────
   let firecrawl: FirecrawlClient
   let llm: LLMClient
 
@@ -496,66 +544,87 @@ serve(async (req: Request) => {
     return errorResponse('LLM not configured', 500)
   }
 
-  console.log(`[Research] ${isContinuation ? 'CONTINUATION' : 'START'} for "${companyName}"`)
+  const userSynthModel = llm.provider === 'anthropic' ? llm.model : 'claude-haiku-4-5-20251001'
+  const synthModel = requestedModel || userSynthModel
+  const synthLLM = createLLMClient('anthropic', synthModel)
+  console.log(`[Research] Phase=${isGathered ? (isPart1Done ? 'synth-part2' : 'synth-part1') : 'gather'} company="${companyName}" synth=anthropic/${synthModel}`)
 
-  // ── Execute ───────────────────────────────────────────────────
+  // ── Execute ───────────────────────────────────────────────────────────────────
   try {
-    // Always use Anthropic/Claude for synthesis
-    // Priority: requestedModel from UI > user's saved model (if Anthropic) > haiku fallback
-    const userSynthModel = llm.provider === 'anthropic' ? llm.model : 'claude-haiku-4-5-20251001'
-    const synthModel = requestedModel || userSynthModel
-    const synthLLM = createLLMClient('anthropic', synthModel)
-    console.log(`[Research] synth=anthropic/${synthModel}${requestedModel ? ' (user-selected)' : ''}`)
-    let dossier: string
-    let sources: ResearchSource[]
 
-    if (isContinuation) {
-      // Skip gather — use saved data
-      console.log('[Research] Using saved dossier from previous gather phase')
-      dossier = savedDossier!
-      sources = savedSources || []
-    } else {
-      // Phase 1: Gather
-      console.log('[Research] Phase: Gather')
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PHASE 1 — GATHER (only when no metadata yet)
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (!isGathered) {
+      console.log('[Research] Phase 1: Gather')
       const { websiteResults, searchResults, secondaryScrapes } = await phaseGather(
         firecrawl, llm, companyName, website, industry, researchPrompt
       )
-
-      console.log('[Research] Phase: Assemble')
       const assembled = buildDossier(websiteResults, searchResults, secondaryScrapes, companyName)
-      dossier = assembled.dossier
-      sources = assembled.sources
+      const dossier = assembled.dossier
+      const sources = assembled.sources
       console.log(`[Research] Dossier: ${dossier.length} chars, ${sources.length} sources`)
 
-      // Only use continuation (fresh 150s budget) if we have real data to synthesize.
-      // If dossier is empty (Firecrawl failed), synthesize in this same call — it is fast.
       const elapsed = Date.now() - startTime
       if (elapsed > GATHER_BUDGET_MS && dossier.length > 200) {
-        console.log(`[Research] Gather took ${elapsed}ms — saving for continuation`)
+        // Save and request continuation for synthesis
         await supabase.from('research_project_companies').update({
           research_metadata: {
-            _gathered: true,        // explicit flag — avoids isContinuation = \!\!"" bug
+            _gathered: true,
             _dossier: dossier,
             _sources: sources,
             phase: 'gathered',
             gather_time_ms: elapsed,
           },
         }).eq('id', researchProjectCompanyId).eq('org_id', authCtx.orgId)
-
+        console.log(`[Research] Gather done in ${elapsed}ms → requesting continuation`)
         return jsonResponse({ success: true, needsContinuation: true, phase: 'gathered' })
       }
+
+      // Dossier empty or gather very fast — fall through to synthesis inline
+      // (rare: only if Firecrawl returns nothing)
     }
 
-    // Phase 2: Synthesize — always in continuation; fresh 150s budget allows 10k-20k tokens
-    const synthesisTimeout = SYNTHESIS_TIMEOUT_MS
-    console.log(`[Research] Phase: Synthesize (budget: ${Math.round(synthesisTimeout / 1000)}s)`)
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PHASE 2a — SYNTHESIS PART 1 (first half of sections, ~5000 tokens)
+    // ═══════════════════════════════════════════════════════════════════════════
+    const dossier = (isGathered ? savedDossier : '') || ''
+    const sources: ResearchSource[] = (isGathered ? savedSources : []) || []
 
-    const finalReport = await phaseSynthesize(
-      synthLLM, companyName, website, industry, researchPrompt, dossier, synthesisTimeout
+    if (!isPart1Done) {
+      console.log('[Research] Phase 2a: Synthesize part 1')
+      const part1Report = await phaseSynthesizePart1(
+        synthLLM, companyName, website, industry, researchPrompt, dossier
+      )
+      console.log(`[Research] Part 1 done: ${part1Report.length} chars`)
+
+      // Save part1 and request continuation for part2
+      await supabase.from('research_project_companies').update({
+        research_metadata: {
+          _gathered: true,
+          _dossier: dossier,
+          _sources: sources,
+          _part1_report: part1Report,
+          _part1_done: true,
+          phase: 'synthesis_part1',
+        },
+      }).eq('id', researchProjectCompanyId).eq('org_id', authCtx.orgId)
+
+      return jsonResponse({ success: true, needsContinuation: true, phase: 'synthesis_part1' })
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PHASE 2b — SYNTHESIS PART 2 (remaining sections, ~5000 tokens)
+    // ═══════════════════════════════════════════════════════════════════════════
+    console.log('[Research] Phase 2b: Synthesize part 2')
+    const part1Report = savedPart1 || ''
+    const part2Report = await phaseSynthesizePart2(
+      synthLLM, companyName, website, industry, researchPrompt, dossier, part1Report
     )
-    console.log(`[Research] Report: ${finalReport.length} chars`)
+    console.log(`[Research] Part 2 done: ${part2Report.length} chars`)
 
-    // Save
+    // Concatenate and save final report
+    const finalReport = part1Report.replace('[PART1_COMPLETE]', '').trim() + '\n\n' + part2Report.trim()
     const totalTimeMs = Date.now() - startTime
     const summary = extractSummary(finalReport)
 
@@ -571,7 +640,7 @@ serve(async (req: Request) => {
           llm_model: synthLLM.model,
           total_time_ms: totalTimeMs,
           total_sources: sources.length,
-          was_continuation: isContinuation,
+          phases: 3,
         },
         quality_score: 7,
         completed_at: new Date().toISOString(),
@@ -581,7 +650,7 @@ serve(async (req: Request) => {
 
     if (saveErr) throw new Error(`Save failed: ${saveErr.message}`)
 
-    console.log(`[Research] DONE: "${companyName}" in ${totalTimeMs}ms`)
+    console.log(`[Research] DONE: "${companyName}" in ${totalTimeMs}ms, ${finalReport.length} chars`)
     return jsonResponse({ success: true, totalTimeMs, reportLength: finalReport.length })
 
   } catch (error) {
