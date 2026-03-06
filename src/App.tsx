@@ -30,6 +30,7 @@ import { WorkflowRuns } from '@/pages/WorkflowRuns'
 import { Notifications } from '@/pages/Notifications'
 import { AccountMapping } from '@/pages/AccountMapping'
 import { AccountMapDetail } from '@/pages/AccountMapDetail'
+import { ICPProfileDetail } from '@/pages/ICPProfileDetail'
 import { CompanyRegistry } from '@/pages/CompanyRegistry'
 import { AccountMappingProvider } from '@/contexts/AccountMappingContext'
 import { CompanyResearchProvider } from '@/contexts/CompanyResearchContext'
@@ -80,6 +81,7 @@ function App() {
                   <Route path="/workflows/:id" element={<FeatureRoute flag="section_workflows"><WorkflowBuilder /></FeatureRoute>} />
                   <Route path="/workflows/:id/runs" element={<FeatureRoute flag="section_workflows"><WorkflowRuns /></FeatureRoute>} />
                   <Route path="/account-mapping" element={<FeatureRoute flag="section_account_mapping"><AccountMapping /></FeatureRoute>} />
+                  <Route path="/account-mapping/icp-profiles/:id" element={<FeatureRoute flag="section_account_mapping"><PageErrorBoundary><ICPProfileDetail /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/account-mapping/:id" element={<FeatureRoute flag="section_account_mapping"><AccountMapDetail /></FeatureRoute>} />
                   <Route path="/company-registry" element={<FeatureRoute flag="section_company_registry"><CompanyRegistry /></FeatureRoute>} />
                   <Route path="/company-research" element={<FeatureRoute flag="section_company_research"><PageErrorBoundary><CompanyResearch /></PageErrorBoundary></FeatureRoute>} />
