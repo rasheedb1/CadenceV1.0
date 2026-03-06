@@ -44,8 +44,8 @@ interface GatherResult {
 const FC_TIMEOUT = 10_000        // Per-Firecrawl-call timeout
 const GATHER_BUDGET_MS = 0       // Always save dossier and synthesize in a fresh invocation (fresh 150s budget)
 const OVERALL_TIMEOUT_MS = 145_000
-// Each synthesis PART generates ~5000 tokens → ~55s at 90 tok/s → safely fits in 150s invocation
-const SYNTHESIS_PART_TIMEOUT_MS = 90_000  // 90s budget per synthesis part (5000 tokens @ 90 tok/s ≈ 55s + headroom)
+// Each synthesis PART: ~4000 tokens output @ 60 tok/s (load) ≈ 67s → safely fits in 120s budget
+const SYNTHESIS_PART_TIMEOUT_MS = 120_000  // 120s budget per synthesis part
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -404,7 +404,23 @@ ${dossier || '(No web data gathered — produce a report based on your existing 
   return result.text
 }
 
-/** Part 2: write remaining sections with part1 as context (~5000 tokens, ~55s) */
+/** Part 2: write remaining sections (~4000 tokens max, ~67s @ 60 tok/s).
+ *
+ * Key optimization: instead of passing the full part1 report (~5000 tokens),
+ * we only extract the section HEADINGS from part1 (~50 tokens). The LLM
+ * does NOT need to re-read all of part1 — it just needs to know which sections
+ * are done so it doesn't repeat them.
+ *
+ * Also: dossier is truncated to 8000 chars (~2000 tokens) since part2 only
+ * writes Financial/Competitive/Industry sections which need less raw data.
+ *
+ * Total input: ~3500 tokens (vs ~11000 before) → output fits in 120s budget.
+ */
+function extractSectionHeadings(report: string): string {
+  const headings = report.split('\n').filter(l => l.startsWith('##')).map(l => l.trim())
+  return headings.length > 0 ? headings.join('\n') : '(first half complete)'
+}
+
 async function phaseSynthesizePart2(
   llm: LLMClient,
   companyName: string, website: string, industry: string, researchPrompt: string, dossier: string,
@@ -413,8 +429,13 @@ async function phaseSynthesizePart2(
   const { promptForLLM, structureBlock } = buildPromptBase(companyName, website, industry, researchPrompt)
   const hasCustom = promptForLLM.trim().length > 200
   const remainInstruction = hasCustom
-    ? 'The FIRST HALF of this report has already been written (see below). Write ONLY the REMAINING sections — do NOT repeat what is already written. Continue until all required sections are complete.'
-    : 'Sections 1-5 have already been written (see below). Write ONLY the remaining 4 sections: 6. Financial Overview, 7. Competitive Landscape, 8. Industry Position & Market Analysis, 9. Key Takeaways & Strategic Implications. Do NOT repeat sections already written.'
+    ? 'The FIRST HALF of this report has already been written (sections listed below). Write ONLY the REMAINING sections — do NOT repeat what is already written. Continue until all required sections are complete.'
+    : 'The first 5 sections have already been written (headings listed below). Write ONLY the remaining 4 sections: 6. Financial Overview, 7. Competitive Landscape, 8. Industry Position & Market Analysis, 9. Key Takeaways & Strategic Implications. Do NOT repeat sections already written.'
+
+  // Only pass section headings (not full text) to save ~4500 input tokens
+  const completedSections = extractSectionHeadings(part1Report.replace('[PART1_COMPLETE]', ''))
+  // Truncate dossier: part2 sections need less raw data (~2000 tokens vs 5000)
+  const dossierForPart2 = truncate(dossier, 8000)
 
   const userContent = `## RESEARCH TASK
 Company: ${companyName}
@@ -429,13 +450,14 @@ ${structureBlock}
 ## INSTRUCTION — REMAINING SECTIONS ONLY
 ${remainInstruction}
 
-## ALREADY WRITTEN (do NOT repeat these sections):
-${part1Report.replace('[PART1_COMPLETE]', '').trim()}
+## SECTIONS ALREADY WRITTEN (do NOT repeat, just headings shown):
+${completedSections}
 
 ## GATHERED DATA
-${dossier || '(No web data gathered — produce a report based on your existing knowledge, clearly noting real-time data was unavailable.)'}`
+${dossierForPart2 || '(No web data gathered — produce a report based on your existing knowledge, clearly noting real-time data was unavailable.)'}`
 
-  const maxTokens = llm.model.includes('opus') ? 4500 : llm.model.includes('haiku') ? 6000 : 5000
+  // Reduced maxTokens: 4000 @ 60 tok/s = 67s → safely within 120s budget
+  const maxTokens = llm.model.includes('opus') ? 4000 : llm.model.includes('haiku') ? 4500 : 4000
   const result = await withTimeout(
     llm.createMessage({ system: SYSTEM_PROMPT_SYNTH, messages: [{ role: 'user', content: userContent }], maxTokens, temperature: 0.3 }),
     SYNTHESIS_PART_TIMEOUT_MS, 'LLM synthesis part 2'
