@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { useCadence } from '@/contexts/CadenceContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -41,10 +42,15 @@ import {
   X,
   ExternalLink,
   AlertTriangle,
+  Cloud,
 } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ImportLeadsDialog } from '@/components/ImportLeadsDialog'
 import { PermissionGate } from '@/components/PermissionGate'
 import { LEAD_STATUS_CONFIG, type LeadStatus, type Lead } from '@/types'
+import { useSalesforceConnection } from '@/hooks/useSalesforceConnection'
+import { callEdgeFunction } from '@/lib/edge-functions'
+import { toast } from 'sonner'
 
 interface LeadFormData {
   first_name: string
@@ -67,7 +73,7 @@ const initialFormData: LeadFormData = {
 }
 
 export function Leads() {
-  const { user } = useAuth()
+  const { user, session } = useAuth()
   const {
     leads,
     cadences,
@@ -78,6 +84,11 @@ export function Leads() {
     assignLeadToCadence,
     removeLeadFromCadence,
   } = useCadence()
+  const queryClient = useQueryClient()
+  const { status: sfStatus } = useSalesforceConnection()
+  const [pushingLeadId, setPushingLeadId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkPushing, setBulkPushing] = useState(false)
 
   const [searchParams, setSearchParams] = useSearchParams()
   const [searchQuery, setSearchQuery] = useState(searchParams.get('company') || '')
@@ -312,6 +323,92 @@ export function Leads() {
     await removeLeadFromCadence(leadId)
   }
 
+  const handlePushToSalesforce = async (lead: Lead) => {
+    if (!session?.access_token) return
+    setPushingLeadId(lead.id)
+    try {
+      const result = await callEdgeFunction<{
+        success: boolean
+        duplicate?: boolean
+        salesforceLeadId?: string
+        salesforceName?: string
+        message?: string
+      }>('salesforce-push-lead', { leadId: lead.id }, session.access_token)
+
+      if (result.duplicate) {
+        toast.warning(result.message || 'Lead already exists in Salesforce')
+      } else if (result.success) {
+        toast.success(`${lead.first_name} ${lead.last_name} pushed to Salesforce`)
+        queryClient.invalidateQueries({ queryKey: ['leads'] })
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to push lead to Salesforce')
+    } finally {
+      setPushingLeadId(null)
+    }
+  }
+
+  // Selection helpers
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredLeads.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filteredLeads.map((l) => l.id)))
+    }
+  }
+
+  // Leads eligible for SF push among selected
+  const selectedPushable = useMemo(
+    () => filteredLeads.filter((l) => selectedIds.has(l.id) && l.email && !l.salesforce_lead_id),
+    [filteredLeads, selectedIds]
+  )
+
+  const handleBulkPushToSalesforce = async () => {
+    if (!session?.access_token || selectedPushable.length === 0) return
+    setBulkPushing(true)
+    try {
+      const result = await callEdgeFunction<{
+        success: boolean
+        total: number
+        pushed: number
+        duplicates: number
+        failed: number
+      }>(
+        'salesforce-push-lead',
+        { leadIds: selectedPushable.map((l) => l.id) },
+        session.access_token,
+        { timeoutMs: 120000 }
+      )
+
+      const parts: string[] = []
+      if (result.pushed > 0) parts.push(`${result.pushed} pushed`)
+      if (result.duplicates > 0) parts.push(`${result.duplicates} duplicates`)
+      if (result.failed > 0) parts.push(`${result.failed} failed`)
+
+      if (result.pushed > 0) {
+        toast.success(`Salesforce: ${parts.join(', ')}`)
+      } else {
+        toast.warning(`Salesforce: ${parts.join(', ')}`)
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['leads'] })
+      setSelectedIds(new Set())
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to push leads to Salesforce')
+    } finally {
+      setBulkPushing(false)
+    }
+  }
+
   const getStatusBadgeVariant = (status: LeadStatus) => {
     switch (status) {
       case 'active':
@@ -415,10 +512,45 @@ export function Leads() {
               )}
             </div>
           ) : (
+            <>
+              {/* Bulk action bar */}
+              {selectedIds.size > 0 && (
+                <div className="mb-4 flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-2">
+                  <span className="text-sm font-medium">
+                    {selectedIds.size} selected
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => setSelectedIds(new Set())}
+                  >
+                    Clear
+                  </Button>
+                  {sfStatus.isConnected && selectedPushable.length > 0 && (
+                    <Button
+                      size="sm"
+                      onClick={handleBulkPushToSalesforce}
+                      disabled={bulkPushing}
+                    >
+                      <Cloud className="mr-2 h-4 w-4" />
+                      {bulkPushing
+                        ? 'Pushing...'
+                        : `Push to Salesforce (${selectedPushable.length})`}
+                    </Button>
+                  )}
+                </div>
+              )}
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b text-left text-sm text-muted-foreground">
+                    <th className="pb-3 pr-2 w-10">
+                      <Checkbox
+                        checked={filteredLeads.length > 0 && selectedIds.size === filteredLeads.length}
+                        onCheckedChange={toggleSelectAll}
+                      />
+                    </th>
                     <th className="pb-3 font-medium">Name</th>
                     <th className="pb-3 font-medium">Email</th>
                     <th className="pb-3 font-medium">Company</th>
@@ -435,9 +567,20 @@ export function Leads() {
                     const cadence = cadences.find((c) => c.id === lead.cadence_id)
                     return (
                       <tr key={lead.id} className="text-sm">
+                        <td className="py-3 pr-2 w-10">
+                          <Checkbox
+                            checked={selectedIds.has(lead.id)}
+                            onCheckedChange={() => toggleSelect(lead.id)}
+                          />
+                        </td>
                         <td className="py-3">
-                          <p className="font-medium">
+                          <p className="font-medium flex items-center gap-1.5">
                             {lead.first_name} {lead.last_name}
+                            {lead.salesforce_lead_id && (
+                              <span title="Pushed to Salesforce">
+                                <Cloud className="h-3.5 w-3.5 text-blue-500" />
+                              </span>
+                            )}
                           </p>
                         </td>
                         <td className="py-3">{lead.email || '-'}</td>
@@ -514,6 +657,15 @@ export function Leads() {
                                   Resume
                                 </DropdownMenuItem>
                               )}
+                              {sfStatus.isConnected && lead.email && !lead.salesforce_lead_id && (
+                                <DropdownMenuItem
+                                  onClick={() => handlePushToSalesforce(lead)}
+                                  disabled={pushingLeadId === lead.id}
+                                >
+                                  <Cloud className="mr-2 h-4 w-4" />
+                                  {pushingLeadId === lead.id ? 'Pushing...' : 'Push to Salesforce'}
+                                </DropdownMenuItem>
+                              )}
                               <PermissionGate permission="leads_delete">
                                 <DropdownMenuItem
                                   className="text-destructive"
@@ -532,6 +684,7 @@ export function Leads() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </CardContent>
       </Card>

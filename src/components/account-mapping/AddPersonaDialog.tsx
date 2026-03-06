@@ -38,6 +38,7 @@ interface AddPersonaDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   accountMapId: string
+  icpProfileId?: string
   ownerId: string
   onAdd: (persona: Omit<BuyerPersona, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<BuyerPersona | null>
   onUpdate?: (id: string, data: Partial<BuyerPersona>) => Promise<void>
@@ -55,6 +56,7 @@ export function AddPersonaDialog({
   open,
   onOpenChange,
   accountMapId,
+  icpProfileId,
   ownerId,
   onAdd,
   onUpdate,
@@ -235,7 +237,8 @@ export function AddPersonaDialog({
         })
       } else {
         await onAdd({
-          account_map_id: accountMapId,
+          account_map_id: icpProfileId ? null : accountMapId,
+          icp_profile_id: icpProfileId || null,
           owner_id: ownerId,
           name: name.trim(),
           title_keywords: flatKeywords,

@@ -80,7 +80,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { STEP_TYPE_CONFIG, type StepType, type CadenceStep, type Lead } from '@/types'
+import { STEP_TYPE_CONFIG, type StepType, type CadenceStep, type Lead, type Schedule } from '@/types'
 import type { AIPrompt } from '@/lib/edge-functions'
 import { CreateLeadDialog } from '@/components/CreateLeadDialog'
 import { ImportLeadsDialog } from '@/components/ImportLeadsDialog'
@@ -200,23 +200,33 @@ export function CadenceBuilder() {
     enabled: !!user && !!orgId,
   })
 
-  // Query schedules (queue) for this cadence
+  // Query schedules (queue) for this cadence — paginated to bypass Supabase max_rows=1000
   const { data: schedules = [], refetch: refetchSchedules } = useQuery({
     queryKey: ['cadence-schedules', id],
     queryFn: async () => {
       if (!id) return []
-      const { data, error } = await supabase
-        .from('schedules')
-        .select(`
-          id, cadence_id, cadence_step_id, lead_id, owner_id,
-          scheduled_at, timezone, status, message_template_text,
-          message_rendered_text, last_error, created_at, updated_at
-        `)
-        .eq('cadence_id', id)
-        .order('scheduled_at', { ascending: true })
-        .limit(10000)
-      if (error) throw error
-      return data || []
+      const PAGE_SIZE = 1000
+      const MAX_ROWS = 10000
+      const allData: Schedule[] = []
+      let from = 0
+      while (allData.length < MAX_ROWS) {
+        const { data, error } = await supabase
+          .from('schedules')
+          .select(`
+            id, cadence_id, cadence_step_id, lead_id, owner_id, org_id,
+            scheduled_at, timezone, status, message_template_text,
+            message_rendered_text, last_error, created_at, updated_at
+          `)
+          .eq('cadence_id', id)
+          .order('scheduled_at', { ascending: true })
+          .range(from, from + PAGE_SIZE - 1)
+        if (error) throw error
+        if (!data || data.length === 0) break
+        allData.push(...data)
+        if (data.length < PAGE_SIZE) break
+        from += PAGE_SIZE
+      }
+      return allData
     },
     enabled: !!id,
     refetchInterval: 30000, // Auto-refresh every 30s
@@ -1510,12 +1520,10 @@ export function CadenceBuilder() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )}
-                {schedules.some((s) => s.status === 'scheduled') && (
-                  <Button variant="destructive" size="sm" onClick={cancelAllScheduled}>
-                    <XCircle className="h-4 w-4 mr-1" />
-                    Cancelar todos
-                  </Button>
-                )}
+                <Button variant="destructive" size="sm" onClick={cancelAllScheduled}>
+                  <XCircle className="h-4 w-4 mr-1" />
+                  Cancelar programados
+                </Button>
                 <Button variant="outline" size="sm" onClick={() => refetchSchedules()}>
                   <RefreshCw className="h-4 w-4 mr-1" />
                   Refresh

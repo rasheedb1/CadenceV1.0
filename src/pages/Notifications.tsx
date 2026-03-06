@@ -113,7 +113,7 @@ export function Notifications() {
   const queryClient = useQueryClient()
   const [actionTakenIds, setActionTakenIds] = useState<Set<string>>(new Set())
   const [processingId, setProcessingId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'tareas' | 'actividad'>('tareas')
+  const [activeTab, setActiveTab] = useState<'tareas' | 'respuestas' | 'actividad'>('tareas')
 
   // ── Notifications query ──
 
@@ -127,6 +127,27 @@ export function Notifications() {
         .eq('org_id', orgId!)
         .order('created_at', { ascending: false })
         .limit(50)
+      if (error) throw error
+      return (data || []) as AppNotification[]
+    },
+    enabled: !!user?.id && !!orgId,
+    refetchInterval: 30000,
+  })
+
+  // ── Pending reply notifications query (for "Respuestas" tab) ──
+
+  const { data: pendingReplies = [] } = useQuery({
+    queryKey: ['pending-replies', orgId],
+    queryFn: async () => {
+      if (!user?.id || !orgId) return []
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*, lead:leads(first_name, last_name, company, title), cadence:cadences(name)')
+        .eq('org_id', orgId)
+        .eq('owner_id', user.id)
+        .eq('type', 'reply_detected')
+        .eq('is_read', false)
+        .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []) as AppNotification[]
     },
@@ -227,6 +248,7 @@ export function Notifications() {
 
       setActionTakenIds((prev) => new Set(prev).add(notification.id))
       queryClient.invalidateQueries({ queryKey: ['notifications'] })
+      queryClient.invalidateQueries({ queryKey: ['pending-replies'] })
       queryClient.invalidateQueries({ queryKey: ['notifications-unread-count'] })
       queryClient.invalidateQueries({ queryKey: ['cadences'] })
       toast.success('Lead removido de la cadencia')
@@ -284,6 +306,7 @@ export function Notifications() {
 
       setActionTakenIds((prev) => new Set(prev).add(notification.id))
       queryClient.invalidateQueries({ queryKey: ['notifications'] })
+      queryClient.invalidateQueries({ queryKey: ['pending-replies'] })
       queryClient.invalidateQueries({ queryKey: ['notifications-unread-count'] })
       queryClient.invalidateQueries({ queryKey: ['cadences'] })
       toast.success('Lead reactivado en la cadencia')
@@ -307,6 +330,7 @@ export function Notifications() {
 
       setActionTakenIds((prev) => new Set(prev).add(notification.id))
       queryClient.invalidateQueries({ queryKey: ['notifications'] })
+      queryClient.invalidateQueries({ queryKey: ['pending-replies'] })
       queryClient.invalidateQueries({ queryKey: ['notifications-unread-count'] })
       toast.success('Lead se mantiene pausado')
     } catch {
@@ -389,9 +413,13 @@ export function Notifications() {
               ? todayTasks.length > 0
                 ? `${todayTasks.length} tarea${todayTasks.length !== 1 ? 's' : ''} pendiente${todayTasks.length !== 1 ? 's' : ''}${overdueTasks.length > 0 ? ` (${overdueTasks.length} atrasada${overdueTasks.length !== 1 ? 's' : ''})` : ''}`
                 : 'No hay tareas pendientes'
-              : unreadCount > 0
-                ? `${unreadCount} notificacion${unreadCount !== 1 ? 'es' : ''} sin leer`
-                : 'No hay notificaciones sin leer'}
+              : activeTab === 'respuestas'
+                ? pendingReplies.filter(n => !actionTakenIds.has(n.id)).length > 0
+                  ? `${pendingReplies.filter(n => !actionTakenIds.has(n.id)).length} respuesta${pendingReplies.filter(n => !actionTakenIds.has(n.id)).length !== 1 ? 's' : ''} esperando decision`
+                  : 'No hay respuestas pendientes'
+                : unreadCount > 0
+                  ? `${unreadCount} notificacion${unreadCount !== 1 ? 'es' : ''} sin leer`
+                  : 'No hay notificaciones sin leer'}
           </p>
         </div>
         {activeTab === 'actividad' && unreadCount > 0 && (
@@ -417,11 +445,20 @@ export function Notifications() {
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="respuestas" className="gap-1.5">
+            <MessageSquare className="h-4 w-4" />
+            Respuestas
+            {pendingReplies.filter(n => !actionTakenIds.has(n.id)).length > 0 && (
+              <Badge variant="destructive" className="text-xs ml-1 h-5 px-1.5">
+                {pendingReplies.filter(n => !actionTakenIds.has(n.id)).length}
+              </Badge>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="actividad" className="gap-1.5">
             <Bell className="h-4 w-4" />
             Actividad
             {unreadCount > 0 && (
-              <Badge variant="destructive" className="text-xs ml-1 h-5 px-1.5">
+              <Badge variant="secondary" className="text-xs ml-1 h-5 px-1.5">
                 {unreadCount}
               </Badge>
             )}
@@ -512,6 +549,130 @@ export function Notifications() {
                   </Card>
                 ))
               })()}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ── Respuestas Tab ── */}
+        <TabsContent value="respuestas" className="mt-4">
+          {pendingReplies.filter(n => !actionTakenIds.has(n.id)).length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <MessageSquare className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+                <h3 className="text-lg font-medium mb-2">No hay respuestas pendientes</h3>
+                <p className="text-muted-foreground text-sm max-w-sm mx-auto">
+                  Cuando un lead responda a tu mensaje por LinkedIn o correo, aparecera aqui pausado esperando tu decision.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {pendingReplies.filter(n => !actionTakenIds.has(n.id)).map((notification) => {
+                const metadata = notification.metadata as Record<string, unknown>
+                const replyPreview = metadata?.reply_preview as string | undefined
+                const isLinkedIn = notification.channel === 'linkedin'
+
+                return (
+                  <Card key={notification.id} className="border-green-200 dark:border-green-900/40">
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-3">
+                        {/* Channel icon */}
+                        <div className={`flex h-10 w-10 items-center justify-center rounded-lg shrink-0 ${
+                          isLinkedIn
+                            ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400'
+                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                        }`}>
+                          {isLinkedIn ? <MessageSquare className="h-5 w-5" /> : <Mail className="h-5 w-5" />}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          {/* Lead name + channel */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-semibold">
+                              {notification.lead
+                                ? `${(notification.lead as { first_name: string; last_name: string }).first_name} ${(notification.lead as { first_name: string; last_name: string }).last_name}`
+                                : 'Lead desconocido'}
+                            </p>
+                            <Badge variant="outline" className={`text-xs ${
+                              isLinkedIn
+                                ? 'border-sky-300 text-sky-600'
+                                : 'border-emerald-300 text-emerald-600'
+                            }`}>
+                              {isLinkedIn ? 'LinkedIn' : 'Email'}
+                            </Badge>
+                            {notification.cadence && (
+                              <Badge variant="secondary" className="text-xs">
+                                {(notification.cadence as { name: string }).name}
+                              </Badge>
+                            )}
+                          </div>
+
+                          {/* Company + title */}
+                          {(notification.lead as { company?: string; title?: string } | null)?.company && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {(notification.lead as { company?: string; title?: string }).company}
+                              {(notification.lead as { company?: string; title?: string }).title && (
+                                <> · {(notification.lead as { company?: string; title?: string }).title}</>
+                              )}
+                            </p>
+                          )}
+
+                          {/* Reply preview */}
+                          {replyPreview && (
+                            <div className="mt-2 rounded-md bg-muted p-2.5 border-l-2 border-green-400">
+                              <p className="text-xs text-muted-foreground italic leading-relaxed">
+                                "{replyPreview}"
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Time ago */}
+                          <p className="text-xs text-muted-foreground mt-2">
+                            {timeAgo(notification.created_at)}
+                          </p>
+
+                          {/* Action buttons */}
+                          <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              className="text-xs h-7"
+                              disabled={processingId === notification.id}
+                              onClick={() => handleRemoveFromCadence(notification)}
+                            >
+                              <UserMinus className="mr-1 h-3 w-3" />
+                              Sacar de cadencia
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-xs h-7 border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-900/20"
+                              disabled={processingId === notification.id}
+                              onClick={() => handleResumeInCadence(notification)}
+                            >
+                              <Play className="mr-1 h-3 w-3" />
+                              Continuar en cadencia
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="text-xs h-7"
+                              disabled={processingId === notification.id}
+                              onClick={() => handleKeepPaused(notification)}
+                            >
+                              <Pause className="mr-1 h-3 w-3" />
+                              Mantener pausado
+                            </Button>
+                            {processingId === notification.id && (
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
             </div>
           )}
         </TabsContent>

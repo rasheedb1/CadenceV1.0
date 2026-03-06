@@ -40,6 +40,24 @@ import {
 import { STEP_TYPE_CONFIG, type Cadence, type CadenceStep, type Lead } from '@/types'
 import type { AIPrompt, ExampleSection } from '@/lib/edge-functions'
 
+// Returns 'YYYY-MM-DD' for a given dayOffset in a timezone (skips weekends)
+function getDefaultDate(dayOffset: number, tz: string, fromDate: Date): string {
+  const dateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
+  const todayStr = dateFmt.format(fromDate)
+  if (dayOffset === 0) return todayStr
+  const [y, m, d] = todayStr.split('-').map(Number)
+  const target = new Date(y, m - 1, d)
+  let remaining = dayOffset
+  while (remaining > 0) {
+    target.setDate(target.getDate() + 1)
+    if (target.getDay() !== 0 && target.getDay() !== 6) remaining--
+  }
+  const y2 = target.getFullYear()
+  const m2 = String(target.getMonth() + 1).padStart(2, '0')
+  const d2 = String(target.getDate()).padStart(2, '0')
+  return `${y2}-${m2}-${d2}`
+}
+
 interface StartAutomationDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -97,6 +115,8 @@ export function StartAutomationDialog({
     })
     return times
   })
+  // Per-step scheduled dates (YYYY-MM-DD) — default: today + day_offset business days
+  const [stepScheduledDates, setStepScheduledDates] = useState<Record<string, string>>({})
   const [useSignals, setUseSignals] = useState(true)
   const [timezone, setTimezone] = useState(cadence.timezone || 'America/New_York')
 
@@ -317,30 +337,14 @@ export function StartAutomationDialog({
         if (lsiError) throw lsiError
       }
 
-      // 3. Create schedules for ALL steps at their configured times
+      // 3. Create schedules for ALL steps at their configured dates + times
       const now = new Date()
 
-      // Helper: add business days (skip weekends) to a base date
-      const addBusinessDays = (year: number, month: number, day: number, bizDays: number): Date => {
-        const d = new Date(year, month, day)
-        let remaining = bizDays
-        while (remaining > 0) {
-          d.setDate(d.getDate() + 1)
-          if (d.getDay() !== 0 && d.getDay() !== 6) remaining--
-        }
-        return d
-      }
-
-      // Helper: convert local time (HH:MM) in a timezone to UTC
-      const toUTC = (dayOffset: number, timeStr: string, tz: string): Date => {
-        const dateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
-        const todayStr = dateFmt.format(now)
-        const [y, m, d] = todayStr.split('-').map(Number)
-        const target = dayOffset === 0
-          ? new Date(y, m - 1, d)
-          : addBusinessDays(y, m - 1, d, dayOffset)
+      // Helper: convert explicit date (YYYY-MM-DD) + time (HH:MM) in a timezone to UTC
+      const toUTCFromDateStr = (dateStr: string, timeStr: string, tz: string): Date => {
+        const [year, month, day] = dateStr.split('-').map(Number)
         const [hours, minutes] = timeStr.split(':').map(Number)
-        const guessUTC = Date.UTC(target.getFullYear(), target.getMonth(), target.getDate(), hours, minutes, 0)
+        const guessUTC = Date.UTC(year, month - 1, day, hours, minutes, 0)
         const guess = new Date(guessUTC)
         const timeFmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23' })
         const parts = timeFmt.formatToParts(guess)
@@ -348,32 +352,34 @@ export function StartAutomationDialog({
         const lM = parseInt(parts.find((p) => p.type === 'minute')?.value || '0')
         const lD = parseInt(parts.find((p) => p.type === 'day')?.value || '0')
         let diffMin = (hours * 60 + minutes) - (lH * 60 + lM)
-        if (lD !== target.getDate()) diffMin += (target.getDate() > lD ? 1 : -1) * 1440
+        if (lD !== day) diffMin += (day > lD ? 1 : -1) * 1440
         return new Date(guessUTC + diffMin * 60 * 1000)
       }
 
-      // Group steps by day_offset and compute a uniform shift per day:
-      // If the first step of a day has already passed, shift ALL steps in that day
-      // forward by (now + 60s − firstStepTime), preserving the user's configured intervals.
-      const dayStepGroups: Record<number, typeof sortedSteps> = {}
+      // Group steps by their scheduled date and compute a uniform shift per date-group:
+      // If the first step of a date has already passed, shift ALL steps that day forward
+      // by (now + 60s − firstStepTime), preserving the user's configured intervals.
+      const dateStepGroups: Record<string, typeof sortedSteps> = {}
       for (const step of sortedSteps) {
-        if (!dayStepGroups[step.day_offset]) dayStepGroups[step.day_offset] = []
-        dayStepGroups[step.day_offset].push(step) // sortedSteps is already ordered
+        const dateKey = stepScheduledDates[step.id] || getDefaultDate(step.day_offset, timezone, now)
+        if (!dateStepGroups[dateKey]) dateStepGroups[dateKey] = []
+        dateStepGroups[dateKey].push(step)
       }
 
-      const dayShiftMs: Record<number, number> = {}
-      for (const [dayOffsetStr, daySteps] of Object.entries(dayStepGroups)) {
-        const dayOffset = parseInt(dayOffsetStr)
-        const firstStepUTC = toUTC(dayOffset, stepScheduledTimes[daySteps[0].id] || '09:00', timezone)
-        dayShiftMs[dayOffset] = firstStepUTC <= now
-          ? (now.getTime() + 60_000) - firstStepUTC.getTime() // shift so first step = now+60s
-          : 0                                                   // future — no shift needed
+      const dateShiftMs: Record<string, number> = {}
+      for (const [dateStr, dateSteps] of Object.entries(dateStepGroups)) {
+        const firstTime = stepScheduledTimes[dateSteps[0].id] || '09:00'
+        const firstStepUTC = toUTCFromDateStr(dateStr, firstTime, timezone)
+        dateShiftMs[dateStr] = firstStepUTC <= now
+          ? (now.getTime() + 60_000) - firstStepUTC.getTime()
+          : 0
       }
 
       const scheduleInserts = sortedSteps.flatMap((step) => {
         const stepTime = stepScheduledTimes[step.id] || '09:00'
-        const stepUTC = toUTC(step.day_offset, stepTime, timezone)
-        const shift = dayShiftMs[step.day_offset] ?? 0
+        const stepDate = stepScheduledDates[step.id] || getDefaultDate(step.day_offset, timezone, now)
+        const stepUTC = toUTCFromDateStr(stepDate, stepTime, timezone)
+        const shift = dateShiftMs[stepDate] ?? 0
 
         return leadIds.map((leadId, index) => ({
           cadence_id: cadence.id,
@@ -381,7 +387,7 @@ export function StartAutomationDialog({
           lead_id: leadId,
           owner_id: user.id,
           org_id: orgId!,
-          // Apply day-level shift + 10s per-lead stagger for API rate-limiting safety
+          // Apply date-group shift + 10s per-lead stagger for API rate-limiting safety
           scheduled_at: new Date(stepUTC.getTime() + shift + index * 10_000).toISOString(),
           timezone: 'UTC',
           status: 'scheduled',
@@ -465,6 +471,7 @@ export function StartAutomationDialog({
       setStepSendNote({})
       setUseSignals(true)
       setStepScheduledTimes({})
+      setStepScheduledDates({})
     } catch (error) {
       console.error('Error starting automation:', error)
       toast.error(error instanceof Error ? error.message : 'Error al iniciar la automatizacion')
@@ -566,6 +573,12 @@ export function StartAutomationDialog({
                       <span className="flex-1 truncate">{step.step_label}</span>
                       <div className="flex items-center gap-2 shrink-0">
                         <Input
+                          type="date"
+                          value={stepScheduledDates[step.id] || getDefaultDate(step.day_offset, timezone, new Date())}
+                          onChange={(e) => setStepScheduledDates((prev) => ({ ...prev, [step.id]: e.target.value }))}
+                          className="w-36 h-7 text-xs"
+                        />
+                        <Input
                           type="time"
                           value={stepScheduledTimes[step.id] || '09:00'}
                           onChange={(e) => setStepScheduledTimes((prev) => ({ ...prev, [step.id]: e.target.value }))}
@@ -603,6 +616,12 @@ export function StartAutomationDialog({
                       </Badge>
                       <span className="font-medium flex-1 truncate">{step.step_label}</span>
                       <div className="flex items-center gap-2 shrink-0">
+                        <Input
+                          type="date"
+                          value={stepScheduledDates[step.id] || getDefaultDate(step.day_offset, timezone, new Date())}
+                          onChange={(e) => setStepScheduledDates((prev) => ({ ...prev, [step.id]: e.target.value }))}
+                          className="w-36 h-7 text-xs"
+                        />
                         <Input
                           type="time"
                           value={stepScheduledTimes[step.id] || '09:00'}

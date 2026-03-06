@@ -87,6 +87,9 @@ export interface Lead {
   department: string | null
   corporate_phone: string | null
   personal_phone: string | null
+  // Salesforce push tracking
+  salesforce_lead_id?: string | null
+  salesforce_pushed_at?: string | null
   // Fields for UI compatibility (stored in cadence_leads in DB)
   cadence_id?: string | null
   current_step_id?: string | null

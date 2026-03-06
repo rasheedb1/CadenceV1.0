@@ -61,6 +61,7 @@ export function Sidebar() {
         .select('*', { count: 'exact', head: true })
         .eq('org_id', orgId!)
         .eq('is_read', false)
+        .eq('type', 'reply_detected')
       if (error) return 0
       return count || 0
     },

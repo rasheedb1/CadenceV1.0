@@ -237,11 +237,22 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
       if (!user || !orgId) return []
       const { data, error } = await supabase
         .from('account_maps')
-        .select('*, account_map_companies(*), buyer_personas(*), prospects(*)')
+        .select('*, account_map_companies(*), buyer_personas(*), prospects(*), icp_profiles(*, buyer_personas(*))')
         .eq('org_id', orgId)
         .order('created_at', { ascending: false })
       if (error) throw error
-      return (data || []) as AccountMap[]
+      // Normalize: if map has a linked ICP profile, expose its personas as map.buyer_personas for backward compat
+      return (data || []).map((m: Record<string, unknown>) => {
+        const profilePersonas = (m.icp_profiles as Record<string, unknown> | null)?.buyer_personas
+        return {
+          ...m,
+          icp_profile: m.icp_profiles || null,
+          // If profile is linked and has personas, use those; otherwise keep inline personas
+          buyer_personas: (m.icp_profile_id && Array.isArray(profilePersonas) && profilePersonas.length > 0)
+            ? profilePersonas
+            : m.buyer_personas || [],
+        }
+      }) as AccountMap[]
     },
     enabled: !!user && !!orgId,
   })

@@ -38,12 +38,14 @@ export interface AccountMap {
   discover_min_companies: number
   discover_max_companies: number
   filters_json: AccountMapFilters
+  icp_profile_id: string | null
   created_at: string
   updated_at: string
   // Relations (populated via select)
   account_map_companies?: AccountMapCompany[]
   buyer_personas?: BuyerPersona[]
   prospects?: Prospect[]
+  icp_profile?: ICPProfile | null
 }
 
 export interface AccountMapCompany {
@@ -109,7 +111,8 @@ export const BUYING_ROLE_CONFIG: Record<BuyingCommitteeRole, { label: string; co
 
 export interface BuyerPersona {
   id: string
-  account_map_id: string
+  account_map_id: string | null
+  icp_profile_id: string | null
   owner_id: string
   org_id: string
   name: string
@@ -239,6 +242,23 @@ export interface ICPTemplate {
   builder_data: ICPBuilderData
   created_at: string
   updated_at: string
+}
+
+// ── ICP Profiles (org-level reusable) ──
+
+export interface ICPProfile {
+  id: string
+  owner_id: string
+  org_id: string
+  name: string
+  description: string | null
+  builder_data: ICPBuilderData
+  discover_min_companies: number
+  discover_max_companies: number
+  created_at: string
+  updated_at: string
+  // Relations
+  buyer_personas?: BuyerPersona[]
 }
 
 // ── ICP Discovery Feedback ──

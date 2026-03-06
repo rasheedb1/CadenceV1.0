@@ -65,8 +65,20 @@ export function OrgMembers() {
     ])
 
     if (membersRes.data) {
-      // Fetch emails from auth.users via edge function or profile
-      setMembers(membersRes.data as unknown as MemberRow[])
+      const rows = membersRes.data as unknown as MemberRow[]
+
+      // Fetch emails from auth.users via RPC (restricted to same-org members)
+      const { data: emailRows } = await supabase.rpc('get_org_member_emails', {
+        p_org_id: orgId,
+      })
+      if (emailRows) {
+        const emailMap = new Map(
+          (emailRows as { user_id: string; email: string }[]).map(r => [r.user_id, r.email])
+        )
+        rows.forEach(m => { m.email = emailMap.get(m.user_id) || undefined })
+      }
+
+      setMembers(rows)
     }
     if (invitesRes.data) {
       setInvitations(invitesRes.data as InvitationRow[])
@@ -230,15 +242,18 @@ export function OrgMembers() {
                 <div key={member.id} className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-sm font-medium">
-                      {(member.profiles?.full_name || '?')[0].toUpperCase()}
+                      {(member.profiles?.full_name || member.email || '?')[0].toUpperCase()}
                     </div>
                     <div>
                       <p className="text-sm font-medium">
-                        {member.profiles?.full_name || 'Unknown'}
+                        {member.profiles?.full_name || member.email || 'Unknown'}
                         {member.user_id === user?.id && (
                           <span className="text-muted-foreground ml-1">(you)</span>
                         )}
                       </p>
+                      {member.email && (
+                        <p className="text-xs text-muted-foreground">{member.email}</p>
+                      )}
                       <p className="text-xs text-muted-foreground">
                         Joined {new Date(member.joined_at).toLocaleDateString()}
                       </p>

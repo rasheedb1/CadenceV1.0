@@ -54,29 +54,34 @@ serve(async (req: Request) => {
 
     const supabase = createSupabaseClient(authHeader)
 
-    // Fetch account map with builder data
+    // Fetch account map with builder data + linked ICP profile
     const { data: accountMap, error: amErr } = await supabase
       .from('account_maps')
-      .select('filters_json, icp_description')
+      .select('filters_json, icp_description, icp_profile_id, icp_profiles(description, builder_data)')
       .eq('id', accountMapId)
       .eq('org_id', ctx.orgId)
       .single()
 
     if (amErr) return errorResponse(`Failed to fetch account map: ${amErr.message}`, 500)
 
-    const builderData = accountMap?.filters_json?.icp_builder_data || null
-    const icpDescription = accountMap?.icp_description || ''
+    // Use ICP profile data if linked, otherwise fall back to inline data
+    const linkedProfile = accountMap?.icp_profiles as { description: string | null; builder_data: Record<string, unknown> | null } | null
+    const builderData = linkedProfile?.builder_data || accountMap?.filters_json?.icp_builder_data || null
+    const icpDescription = linkedProfile?.description || accountMap?.icp_description || ''
 
     if (!builderData && !icpDescription) {
       return errorResponse('No ICP data available. Fill in the ICP builder or custom prompt first.')
     }
 
-    // Fetch existing personas to avoid duplicates
-    const { data: existingPersonas, error: pErr } = await supabase
+    // Fetch existing personas from ICP profile if linked, otherwise from account map (legacy)
+    const personaQuery = supabase
       .from('buyer_personas')
       .select('name, title_keywords, seniority, department')
-      .eq('account_map_id', accountMapId)
       .eq('org_id', ctx.orgId)
+
+    const { data: existingPersonas, error: pErr } = accountMap?.icp_profile_id
+      ? await personaQuery.eq('icp_profile_id', accountMap.icp_profile_id)
+      : await personaQuery.eq('account_map_id', accountMapId)
 
     if (pErr) return errorResponse(`Failed to fetch personas: ${pErr.message}`, 500)
 

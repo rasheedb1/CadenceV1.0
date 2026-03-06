@@ -73,14 +73,27 @@ serve(async (req: Request) => {
 
     if (cErr || !company) return errorResponse('Company not found', 404)
 
-    // Load personas for this account map (ordered by priority)
-    const { data: personas, error: pErr } = await supabase
+    // Load account map to check for linked ICP profile
+    const { data: accountMap, error: amErr } = await supabase
+      .from('account_maps')
+      .select('icp_profile_id')
+      .eq('id', accountMapId)
+      .eq('org_id', ctx.orgId)
+      .single()
+
+    if (amErr || !accountMap) return errorResponse('Account map not found', 404)
+
+    // Load personas from ICP profile if linked, otherwise from account map (legacy)
+    const personaQuery = supabase
       .from('buyer_personas')
       .select('id, name, title_keywords, seniority, description, role_in_buying_committee, priority, is_required, max_per_company, departments, title_keywords_by_tier, seniority_by_tier')
-      .eq('account_map_id', accountMapId)
       .eq('org_id', ctx.orgId)
       .order('is_required', { ascending: false })
       .order('priority', { ascending: true })
+
+    const { data: personas, error: pErr } = accountMap.icp_profile_id
+      ? await personaQuery.eq('icp_profile_id', accountMap.icp_profile_id)
+      : await personaQuery.eq('account_map_id', accountMapId)
 
     if (pErr || !personas || personas.length === 0) {
       return errorResponse('No buyer personas found for this account map', 404)
