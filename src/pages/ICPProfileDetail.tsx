@@ -93,7 +93,7 @@ export function ICPProfileDetail() {
 
   // Initialize local state from profile data
   const effectiveDescription = description ?? profile?.description ?? ''
-  const effectiveBuilderData = builderData ?? (profile?.builder_data as ICPBuilderData) ?? EMPTY_ICP_BUILDER_DATA
+  const effectiveBuilderData = builderData ?? { ...EMPTY_ICP_BUILDER_DATA, ...(profile?.builder_data as Partial<ICPBuilderData> ?? {}) }
   const effectiveMin = profile ? (localMin !== 5 || !saved ? localMin : profile.discover_min_companies) : localMin
   const effectiveMax = profile ? (localMax !== 15 || !saved ? localMax : profile.discover_max_companies) : localMax
 
