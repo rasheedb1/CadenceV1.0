@@ -53,6 +53,7 @@ import { BusinessCaseGenerate } from '@/pages/BusinessCaseGenerate'
 import { AccountExecutive } from '@/pages/AccountExecutive'
 import { AccountExecutiveDetail } from '@/pages/AccountExecutiveDetail'
 import { AccountExecutiveProvider } from '@/contexts/AccountExecutiveContext'
+import { ModeProvider } from '@/contexts/ModeContext'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -68,6 +69,7 @@ function App() {
     <ThemeProvider>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
+        <ModeProvider>
         <BrowserRouter>
           <AuthProvider>
             <OrgProvider>
@@ -128,6 +130,7 @@ function App() {
             </OrgProvider>
           </AuthProvider>
         </BrowserRouter>
+        </ModeProvider>
       </TooltipProvider>
     </QueryClientProvider>
     </ThemeProvider>

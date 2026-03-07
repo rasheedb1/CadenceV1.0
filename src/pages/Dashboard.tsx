@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useCadence } from '@/contexts/CadenceContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrg } from '@/contexts/OrgContext'
+import { useMode } from '@/contexts/ModeContext'
 import { supabase } from '@/integrations/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -38,6 +39,8 @@ import {
   Activity,
   Reply,
   Eye,
+  Star,
+  Target,
 } from 'lucide-react'
 import { LinkedInUsageWidget } from '@/components/dashboard/LinkedInUsageWidget'
 import type { Cadence, ActivityLogEntry, StepType } from '@/types'
@@ -77,6 +80,7 @@ export function Dashboard() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { orgId } = useOrg()
+  const { setMode } = useMode()
   const { cadences, leads, isLoading } = useCadence()
 
   const [selectedCadence, setSelectedCadence] = useState<Cadence | null>(null)
@@ -287,6 +291,38 @@ export function Dashboard() {
 
   return (
     <div className="p-8">
+      {/* ── World Switcher ─────────────────────────────────────────────── */}
+      <div className="mb-8 grid grid-cols-2 gap-4">
+        {/* SDR / Prospecting — active world */}
+        <div className="flex items-center gap-4 rounded-xl border-2 border-primary/25 bg-primary/5 p-5">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+            <Target className="h-6 w-6 text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="font-semibold text-sm">SDR / Prospecting</p>
+              <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">Active</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">Cadences, leads, account mapping, outreach</p>
+          </div>
+        </div>
+
+        {/* Account Executive — switch to AE mode */}
+        <div
+          className="flex cursor-pointer items-center gap-4 rounded-xl border-2 border-border hover:border-amber-400/60 hover:bg-amber-50/40 dark:hover:bg-amber-900/10 p-5 transition-all group"
+          onClick={() => { setMode('ae'); navigate('/account-executive') }}
+        >
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-muted group-hover:bg-amber-100/60 dark:group-hover:bg-amber-900/20 transition-colors">
+            <Star className="h-6 w-6 text-muted-foreground group-hover:text-amber-500 transition-colors" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-sm group-hover:text-amber-600 transition-colors">Account Executive</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Gong calls, calendar, email follow-ups</p>
+          </div>
+          <ArrowRight className="h-5 w-5 text-muted-foreground group-hover:text-amber-500 shrink-0 transition-colors" />
+        </div>
+      </div>
+
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight font-heading">Dashboard</h1>
