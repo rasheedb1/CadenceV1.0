@@ -548,6 +548,26 @@ export class UnipileClient {
 
     return result
   }
+
+  // ── Calendar API ─────────────────────────────────────────────────────────
+
+  /** List calendars for a connected Google/Microsoft account */
+  async getCalendars(accountId: string, limit = 20): Promise<UnipileResponse> {
+    return this.request('GET', `/api/v1/calendars?account_id=${accountId}&limit=${limit}`)
+  }
+
+  /** Get events for a specific calendar with optional time range */
+  async getCalendarEvents(calendarId: string, accountId: string, options?: {
+    limit?: number
+    from?: string
+    to?: string
+  }): Promise<UnipileResponse> {
+    const params = new URLSearchParams({ account_id: accountId })
+    if (options?.limit) params.set('limit', String(options.limit))
+    if (options?.from) params.set('from', options.from)
+    if (options?.to) params.set('to', options.to)
+    return this.request('GET', `/api/v1/calendars/${calendarId}/events?${params}`)
+  }
 }
 
 // Factory function to create client from environment

@@ -22,6 +22,8 @@ import { supabase } from '@/integrations/supabase/client'
 import { toast } from 'sonner'
 import { downloadBusinessCasePptx } from '@/lib/pptx-generator'
 import { substitutePptx } from '@/lib/pptx-substitutor'
+import { parsePptxSlides } from '@/lib/pptx-slide-parser'
+import { downloadSlidesAsPdf } from '@/lib/pptx-to-pdf'
 import type { BusinessCase, BusinessCaseTemplate } from '@/types/business-cases'
 
 // ── Lead picker (unchanged from before) ──────────────────────────────────────
@@ -233,7 +235,9 @@ function ReviewPanelPptx({
   content,
   signals,
   onDownload,
+  onDownloadPdf,
   downloading,
+  downloadingPdf,
 }: {
   companyName: string
   contactName?: string | null
@@ -241,7 +245,9 @@ function ReviewPanelPptx({
   content: Record<string, string>
   signals: Array<{ name: string; summary: string; sourceUrl?: string }>
   onDownload: () => void
+  onDownloadPdf: () => void
   downloading: boolean
+  downloadingPdf: boolean
 }) {
   const entries = Object.entries(content)
   return (
@@ -258,10 +264,16 @@ function ReviewPanelPptx({
             {entries.length} variables filled &bull; {templateName}
           </p>
         </div>
-        <Button onClick={onDownload} disabled={downloading}>
-          {downloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-          {downloading ? 'Generating PPTX…' : 'Download PPTX'}
-        </Button>
+        <div className="flex gap-2 shrink-0">
+          <Button variant="outline" onClick={onDownloadPdf} disabled={downloadingPdf || downloading}>
+            {downloadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            {downloadingPdf ? 'Generating PDF…' : 'Download PDF'}
+          </Button>
+          <Button onClick={onDownload} disabled={downloading || downloadingPdf}>
+            {downloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            {downloading ? 'Generating PPTX…' : 'Download PPTX'}
+          </Button>
+        </div>
       </div>
       {signals.length > 0 && (
         <Card>
@@ -312,6 +324,7 @@ export function BusinessCaseGenerate() {
   const [leadName, setLeadName] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
 
   // AI-structured result
   const [generatedCase, setGeneratedCase] = useState<BusinessCase | null>(null)
@@ -399,6 +412,27 @@ export function BusinessCaseGenerate() {
       toast.error(err instanceof Error ? err.message : 'Failed to generate PPTX')
     } finally {
       setDownloading(false)
+    }
+  }
+
+  // PDF download for PPTX template
+  const handleDownloadPdf = async () => {
+    if (!pptxResult?.template.pptx_storage_path) {
+      toast.error('Template file not available')
+      return
+    }
+    setDownloadingPdf(true)
+    try {
+      const templateBlob = await downloadPptxTemplate(pptxResult.template.pptx_storage_path)
+      const substitutedBlob = await substitutePptx(templateBlob, pptxResult.content)
+      const slides = await parsePptxSlides(substitutedBlob)
+      const safeName = pptxResult.companyName.replace(/[^a-zA-Z0-9 _-]/g, '') || 'BusinessCase'
+      await downloadSlidesAsPdf(slides, `${safeName}_BusinessCase`)
+      toast.success('PDF downloaded')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to generate PDF')
+    } finally {
+      setDownloadingPdf(false)
     }
   }
 
@@ -535,7 +569,9 @@ export function BusinessCaseGenerate() {
               content={pptxResult.content}
               signals={pptxResult.signals}
               onDownload={handleDownloadPptx}
+              onDownloadPdf={handleDownloadPdf}
               downloading={downloading}
+              downloadingPdf={downloadingPdf}
             />
           )}
         </div>

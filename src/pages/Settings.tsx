@@ -29,14 +29,13 @@ export function Settings() {
   const linkedin = useLinkedInConnection()
   const gmail = useGmailConnection()
 
-  const { integrations, saveGongCredentials, disconnectIntegration, isSyncingGong, syncGong, getGoogleCalendarAuthUrl } = useAccountExecutive()
+  const { integrations, saveGongCredentials, disconnectIntegration, isSyncingGong, syncGong, syncCalendar, isSyncingCalendar } = useAccountExecutive()
 
   const [gongKey, setGongKey] = useState('')
   const [gongSecret, setGongSecret] = useState('')
   const [gongSaving, setGongSaving] = useState(false)
 
   const gongIntegration = integrations.find(i => i.provider === 'gong')
-  const calendarIntegration = integrations.find(i => i.provider === 'google_calendar')
 
   const handleSaveGong = async () => {
     if (!gongKey.trim() || !gongSecret.trim()) return
@@ -48,11 +47,6 @@ export function Settings() {
     } finally {
       setGongSaving(false)
     }
-  }
-
-  const handleConnectCalendar = async () => {
-    const url = await getGoogleCalendarAuthUrl()
-    if (url) window.location.href = url
   }
 
   // LLM settings
@@ -443,7 +437,7 @@ export function Settings() {
         <Card>
           <CardHeader>
             <CardTitle>Account Executive</CardTitle>
-            <CardDescription>Connect Gong and Google Calendar to power your AE workspace</CardDescription>
+            <CardDescription>Connect Gong and sync your calendar to power your AE workspace</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Gong */}
@@ -510,31 +504,26 @@ export function Settings() {
 
             <Separator />
 
-            {/* Google Calendar */}
+            {/* Calendar via Unipile */}
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium flex items-center gap-2">
                   <Calendar className="h-4 w-4 text-blue-500" />
-                  Google Calendar
+                  Calendar (Google / Microsoft)
                 </p>
-                <p className="text-sm text-muted-foreground">View meetings and prepare pre-meeting briefs</p>
+                <p className="text-sm text-muted-foreground">
+                  Synced via your Unipile-connected email account — no extra login needed
+                </p>
               </div>
               <div className="flex items-center gap-2">
-                {calendarIntegration ? (
-                  <>
-                    <Badge className="bg-green-100 text-green-800 border-0 text-xs">
-                      <CheckCircle2 className="h-3 w-3 mr-1" />Connected
-                    </Badge>
-                    <Button size="sm" variant="outline" onClick={() => disconnectIntegration('google_calendar')}>
-                      Disconnect
-                    </Button>
-                  </>
-                ) : (
-                  <Button size="sm" variant="outline" onClick={handleConnectCalendar}>
-                    <Calendar className="h-3.5 w-3.5 mr-1.5" />
-                    Connect Google Calendar
-                  </Button>
-                )}
+                <Badge className="bg-blue-50 text-blue-700 border-0 text-xs">
+                  Via Unipile
+                </Badge>
+                <Button size="sm" variant="outline" onClick={() => syncCalendar()} disabled={isSyncingCalendar}>
+                  {isSyncingCalendar
+                    ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />Syncing...</>
+                    : <><RefreshCw className="h-3.5 w-3.5 mr-1" />Sync Calendar</>}
+                </Button>
               </div>
             </div>
           </CardContent>

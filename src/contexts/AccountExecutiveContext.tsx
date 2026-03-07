@@ -22,7 +22,6 @@ interface AccountExecutiveContextType {
   // Integration management
   saveGongCredentials: (accessKey: string, secretKey: string) => Promise<void>
   disconnectIntegration: (provider: 'gong' | 'google_calendar') => Promise<void>
-  getGoogleCalendarAuthUrl: () => Promise<string | null>
 }
 
 const AccountExecutiveContext = createContext<AccountExecutiveContextType | undefined>(undefined)
@@ -149,17 +148,6 @@ export function AccountExecutiveProvider({ children }: { children: ReactNode }) 
     toast.success(`${provider === 'gong' ? 'Gong' : 'Google Calendar'} disconnected`)
   }
 
-  // ── Get Google Calendar OAuth URL ──────────────────────────
-  const getGoogleCalendarAuthUrl = async (): Promise<string | null> => {
-    if (!session) return null
-    try {
-      const result = await callEdge('ae-google-oauth', {})
-      return result.url || null
-    } catch (e) {
-      toast.error('Failed to get Google Calendar auth URL')
-      return null
-    }
-  }
 
   return (
     <AccountExecutiveContext.Provider value={{
@@ -173,7 +161,6 @@ export function AccountExecutiveProvider({ children }: { children: ReactNode }) 
       isAnalyzingEmails,
       saveGongCredentials,
       disconnectIntegration,
-      getGoogleCalendarAuthUrl,
     }}>
       {children}
     </AccountExecutiveContext.Provider>
