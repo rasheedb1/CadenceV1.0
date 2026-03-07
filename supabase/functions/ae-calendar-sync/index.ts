@@ -1,28 +1,22 @@
 // ae-calendar-sync — Fetch calendar events via Unipile (Google / Microsoft)
-// Uses the user's already-connected Unipile account — no extra OAuth needed.
 //
-// Unipile docs: https://developer.unipile.com/docs/calendars-and-events
+// Looks up the user's connected email account from the local `unipile_accounts`
+// table (provider='EMAIL', status='active'), then calls:
 //   GET /api/v1/calendars?account_id=...
-//   GET /api/v1/calendars/{calendarId}/events?account_id=...&from=...&to=...
+//   GET /api/v1/calendars/{id}/events?account_id=...&from=...&to=...
+//
+// ⚠ Calendar scopes must be enabled in your Unipile dashboard → Settings
+//   before events are accessible. After enabling, the user may need to
+//   reconnect their Gmail account.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { createSupabaseClient, getAuthContext } from '../_shared/supabase.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
 
-// Types for Unipile calendar responses
-interface UnipileAccount {
-  id: string
-  type: string
-  name?: string
-  username?: string
-}
-
 interface UnipileCalendar {
   id: string
   name?: string
-  description?: string
-  color?: string
 }
 
 interface UnipileEventAttendee {
@@ -37,17 +31,14 @@ interface UnipileEvent {
   title?: string
   summary?: string
   description?: string
-  // Unipile may return start/end as ISO string or as object
   start_time?: string
   end_time?: string
+  // Google-style nested objects
   start?: string | { dateTime?: string; date?: string }
   end?: string | { dateTime?: string; date?: string }
   attendees?: UnipileEventAttendee[]
   location?: string
 }
-
-// Calendar-capable account types in Unipile
-const CALENDAR_ACCOUNT_TYPES = ['GOOGLE', 'GMAIL', 'MICROSOFT', 'OUTLOOK', 'OFFICE365', 'EXCHANGE']
 
 function normalizeTime(v: UnipileEvent['start_time'] | UnipileEvent['start']): string | null {
   if (!v) return null
@@ -73,106 +64,118 @@ serve(async (req: Request) => {
   if (!authCtx) return errorResponse('Unauthorized', 401)
 
   const supabase = createSupabaseClient()
-  const unipile = createUnipileClient()
 
-  // ── 1. Get all Unipile connected accounts ─────────────────────────────────
-  const accountsResp = await unipile.getAccounts()
-  if (!accountsResp.success || !accountsResp.data) {
-    return errorResponse('Failed to reach Unipile. Check UNIPILE_DSN and UNIPILE_ACCESS_TOKEN.', 502)
-  }
+  // ── 1. Look up the user's connected Gmail/Outlook account ─────────────────
+  // This account was saved in unipile_accounts when the user connected Gmail
+  // in Settings → Gmail using the Unipile hosted auth flow.
+  const { data: emailAccount, error: emailErr } = await supabase
+    .from('unipile_accounts')
+    .select('account_id')
+    .eq('user_id', authCtx.userId)
+    .eq('provider', 'EMAIL')
+    .eq('status', 'active')
+    .single()
 
-  const accountsData = accountsResp.data as { items?: UnipileAccount[] } | UnipileAccount[]
-  const allAccounts: UnipileAccount[] = Array.isArray(accountsData)
-    ? accountsData
-    : (accountsData as { items?: UnipileAccount[] }).items || []
-
-  // Filter to calendar-capable accounts (Google / Microsoft)
-  const calendarAccounts = allAccounts.filter((a) =>
-    CALENDAR_ACCOUNT_TYPES.includes((a.type || '').toUpperCase())
-  )
-
-  if (calendarAccounts.length === 0) {
+  if (emailErr || !emailAccount?.account_id) {
+    console.warn(`[ae-calendar-sync] No active EMAIL account found for user ${authCtx.userId}:`, emailErr?.message)
     return errorResponse(
-      'No Google or Microsoft account connected via Unipile. ' +
-      'Connect your email account in Settings → Gmail, then enable calendar scopes in your Unipile dashboard.',
+      'No Gmail or Outlook account connected. ' +
+      'Go to Settings → Gmail, connect your email account first, ' +
+      'then make sure calendar scopes are enabled in your Unipile dashboard.',
       400
     )
   }
 
-  console.log(`[ae-calendar-sync] Found ${calendarAccounts.length} calendar-capable accounts`)
+  const unipileAccountId = emailAccount.account_id
+  console.log(`[ae-calendar-sync] Using Unipile account: ${unipileAccountId}`)
 
-  // Time window: past 7 days + next 48h
+  const unipile = createUnipileClient()
+
+  // ── 2. Get calendars for this account ─────────────────────────────────────
+  const calendarsResp = await unipile.getCalendars(unipileAccountId, 10)
+
+  if (!calendarsResp.success || !calendarsResp.data) {
+    console.error(`[ae-calendar-sync] Calendar API failed:`, calendarsResp.error)
+    return errorResponse(
+      'Could not access calendar data. ' +
+      'Calendar scopes may not be enabled in your Unipile dashboard. ' +
+      'Enable them at: https://app.unipile.com → Settings → Scopes → Calendar, ' +
+      'then reconnect your Gmail account.',
+      400
+    )
+  }
+
+  const calendarsData = calendarsResp.data as { items?: UnipileCalendar[] }
+  const calendars: UnipileCalendar[] = calendarsData.items || []
+  console.log(`[ae-calendar-sync] Found ${calendars.length} calendar(s)`)
+
+  if (calendars.length === 0) {
+    return errorResponse(
+      'No calendars found. ' +
+      'Calendar scopes may not be enabled in Unipile dashboard → Settings → Scopes → Calendar.',
+      400
+    )
+  }
+
+  // ── 3. Fetch events for each calendar ─────────────────────────────────────
+  // Time window: last 7 days + next 48h
   const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
   const to   = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
 
   let totalSynced = 0
 
-  // ── 2. For each calendar account, fetch calendars then events ─────────────
-  for (const account of calendarAccounts.slice(0, 2)) {
-    const calendarsResp = await unipile.getCalendars(account.id, 10)
-    if (!calendarsResp.success || !calendarsResp.data) {
-      console.warn(`[ae-calendar-sync] No calendars for account ${account.id}: ${calendarsResp.error}`)
-      console.warn('Calendar scopes may not be enabled. Enable them in your Unipile dashboard → Settings → Calendar.')
+  for (const calendar of calendars.slice(0, 5)) {
+    const eventsResp = await unipile.getCalendarEvents(calendar.id, unipileAccountId, {
+      limit: 50,
+      from,
+      to,
+    })
+
+    if (!eventsResp.success || !eventsResp.data) {
+      console.warn(`[ae-calendar-sync] Events failed for calendar ${calendar.id}:`, eventsResp.error)
       continue
     }
 
-    const calendarsData = calendarsResp.data as { items?: UnipileCalendar[] }
-    const calendars: UnipileCalendar[] = calendarsData.items || []
-    console.log(`[ae-calendar-sync] Account ${account.id} has ${calendars.length} calendar(s)`)
+    const eventsData = eventsResp.data as { items?: UnipileEvent[] }
+    const events: UnipileEvent[] = eventsData.items || []
+    console.log(`[ae-calendar-sync] Calendar "${calendar.name || calendar.id}" → ${events.length} events`)
 
-    for (const calendar of calendars.slice(0, 5)) {
-      const eventsResp = await unipile.getCalendarEvents(calendar.id, account.id, {
-        limit: 50,
-        from,
-        to,
-      })
+    for (const event of events) {
+      const title = event.title || event.summary
+      if (!title) continue
 
-      if (!eventsResp.success || !eventsResp.data) {
-        console.warn(`[ae-calendar-sync] Failed to get events for calendar ${calendar.id}: ${eventsResp.error}`)
-        continue
-      }
+      const startTime = normalizeTime(event.start_time ?? event.start)
+      if (!startTime) continue
+      const endTime = normalizeTime(event.end_time ?? event.end)
 
-      const eventsData = eventsResp.data as { items?: UnipileEvent[] }
-      const events: UnipileEvent[] = eventsData.items || []
-      console.log(`[ae-calendar-sync] Calendar "${calendar.name || calendar.id}" → ${events.length} events`)
+      const durationSeconds = endTime
+        ? Math.round((new Date(endTime).getTime() - new Date(startTime).getTime()) / 1000)
+        : null
 
-      for (const event of events) {
-        const title = event.title || event.summary
-        if (!title) continue
+      const participants = (event.attendees || []).map((a) => ({
+        name: a.name || a.display_name || a.email || a.identifier || 'Unknown',
+        email: a.email || a.identifier || null,
+      }))
 
-        const startTime = normalizeTime(event.start_time ?? event.start)
-        if (!startTime) continue
-        const endTime = normalizeTime(event.end_time ?? event.end)
+      const { error } = await supabase
+        .from('ae_activities')
+        .upsert({
+          org_id: authCtx.orgId,
+          user_id: authCtx.userId,
+          ae_account_id: null,
+          type: 'meeting',
+          source: 'google_calendar',
+          external_id: `${unipileAccountId}::${event.id}`,
+          title,
+          summary: event.description || null,
+          occurred_at: new Date(startTime).toISOString(),
+          duration_seconds: durationSeconds,
+          participants,
+          action_items: [],
+          raw_data: { location: event.location, calendar_id: calendar.id },
+        }, { onConflict: 'org_id,source,external_id', ignoreDuplicates: true })
 
-        const durationSeconds = endTime
-          ? Math.round((new Date(endTime).getTime() - new Date(startTime).getTime()) / 1000)
-          : null
-
-        const participants = (event.attendees || []).map((a) => ({
-          name: a.name || a.display_name || a.email || a.identifier || 'Unknown',
-          email: a.email || a.identifier || null,
-        }))
-
-        const { error } = await supabase
-          .from('ae_activities')
-          .upsert({
-            org_id: authCtx.orgId,
-            user_id: authCtx.userId,
-            ae_account_id: null,
-            type: 'meeting',
-            source: 'google_calendar',
-            external_id: `${account.id}::${event.id}`,  // prefix with account ID to avoid collisions
-            title,
-            summary: event.description || null,
-            occurred_at: new Date(startTime).toISOString(),
-            duration_seconds: durationSeconds,
-            participants,
-            action_items: [],
-            raw_data: { location: event.location, calendar_id: calendar.id, unipile_account_id: account.id },
-          }, { onConflict: 'org_id,source,external_id', ignoreDuplicates: true })
-
-        if (!error) totalSynced++
-      }
+      if (!error) totalSynced++
     }
   }
 
