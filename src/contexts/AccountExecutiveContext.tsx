@@ -15,6 +15,8 @@ interface AccountExecutiveContextType {
   // Sync actions
   syncGong: (accountId?: string) => Promise<void>
   syncCalendar: () => Promise<void>
+  debugCalendarSync: () => Promise<Record<string, unknown>>
+  connectGoogleCalendar: () => Promise<void>
   analyzeEmails: (accountId: string, domain: string) => Promise<void>
   isSyncingGong: boolean
   isSyncingCalendar: boolean
@@ -100,6 +102,35 @@ export function AccountExecutiveProvider({ children }: { children: ReactNode }) 
     }
   }
 
+  // ── Connect Google Calendar (OAuth) ──────────────────────
+  const connectGoogleCalendar = async () => {
+    if (!session) return
+    try {
+      const result = await callEdge('ae-google-oauth', {})
+      if (result.url) {
+        window.location.href = result.url
+      } else {
+        toast.error('Could not generate Google auth URL')
+      }
+    } catch (e) {
+      toast.error('Failed to start Google Calendar connection: ' + (e instanceof Error ? e.message : 'Unknown error'))
+    }
+  }
+
+  const debugCalendarSync = async (): Promise<Record<string, unknown>> => {
+    if (!session) return {}
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ae-calendar-sync?debug=true`
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({}),
+    })
+    return await resp.json()
+  }
+
   // ── Analyze Emails ─────────────────────────────────────────
   const analyzeEmails = async (accountId: string, domain: string) => {
     if (!session) return
@@ -155,6 +186,8 @@ export function AccountExecutiveProvider({ children }: { children: ReactNode }) 
       isLoadingIntegrations,
       syncGong,
       syncCalendar,
+      debugCalendarSync,
+      connectGoogleCalendar,
       analyzeEmails,
       isSyncingGong,
       isSyncingCalendar,

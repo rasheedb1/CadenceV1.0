@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -17,7 +17,10 @@ import { useAEAccounts, useAEAccountMutations } from '@/hooks/useAEAccounts'
 import { useAERecentActivities } from '@/hooks/useAEActivities'
 import { useAEReminders, useAEReminderMutations } from '@/hooks/useAEReminders'
 import { useAccountExecutive } from '@/contexts/AccountExecutiveContext'
+import { useAuth } from '@/contexts/AuthContext'
+import { toast } from 'sonner'
 import type { AEAccountStage } from '@/types/account-executive'
+import { useAECalendarWeek, groupByDay, calcFreeSlots, getWeekDays } from '@/hooks/useAECalendarWeek'
 import { AE_STAGE_LABELS, AE_STAGE_COLORS, healthScoreBg, healthScoreColor } from '@/types/account-executive'
 
 // ── Health Score Ring ──────────────────────────────────────────────
@@ -139,12 +142,45 @@ function NewAccountDialog({ open, onClose }: { open: boolean; onClose: () => voi
 // ── Main Page ───────────────────────────────────────────────────────────────
 export function AccountExecutive() {
   const navigate = useNavigate()
+  const { session } = useAuth()
+  const callbackProcessed = useRef(false)
   const { data: accounts = [], isLoading: loadingAccounts } = useAEAccounts()
   const { data: recentActivities = [], isLoading: loadingActivities } = useAERecentActivities(15)
   const { data: reminders = [] } = useAEReminders()
   const { completeReminder } = useAEReminderMutations()
   const { syncGong, isSyncingGong } = useAccountExecutive()
   const [showNewAccount, setShowNewAccount] = useState(false)
+
+  // ── Handle Google Calendar OAuth callback ──────────────────────────────────
+  useEffect(() => {
+    if (callbackProcessed.current) return
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get('code')
+    const calendarParam = params.get('calendar')
+    const state = params.get('state')
+    if (!code || calendarParam !== 'connected') return
+
+    callbackProcessed.current = true
+    window.history.replaceState({}, '', '/account-executive')
+
+    if (!session?.access_token) return
+    const token = session.access_token
+
+    toast.loading('Connecting Google Calendar...')
+    fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ae-google-callback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ code, state }),
+    })
+      .then(r => r.json())
+      .then(result => {
+        toast.dismiss()
+        if (result.error) toast.error('Google Calendar failed: ' + result.error)
+        else toast.success('Google Calendar connected' + (result.email ? ' as ' + result.email : '') + '!')
+      })
+      .catch(() => { toast.dismiss(); toast.error('Google Calendar connection failed') })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.access_token])
 
   // ── Derived stats ──────────────────────────────────────────────────────────
   const atRisk = accounts.filter(a => a.stage === 'at_risk').length
@@ -172,6 +208,15 @@ export function AccountExecutive() {
     tomorrow.setDate(tomorrow.getDate() + 1)
     return d >= new Date(now.toDateString()) && d < tomorrow
   })
+
+  // Weekly calendar data
+  const today = new Date()
+  const { data: weekEvents = [] } = useAECalendarWeek(today)
+  const weekDays = getWeekDays(today)
+  const weekByDay = groupByDay(weekEvents)
+  const todayStr = today.toISOString().slice(0, 10)
+
+  const DAYS_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
   return (
     <div className="p-8 space-y-6">
@@ -231,6 +276,88 @@ export function AccountExecutive() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Weekly Availability */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-blue-500" />
+              This Week
+              <Badge variant="secondary" className="text-xs ml-1">{weekEvents.length} meetings</Badge>
+            </CardTitle>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs text-muted-foreground gap-1"
+              onClick={() => navigate('/account-executive/calendar')}
+            >
+              Full calendar
+              <ChevronRight className="h-3 w-3" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="grid grid-cols-7 gap-1.5">
+            {weekDays.map((day, i) => {
+              const iso = day.toISOString().slice(0, 10)
+              const isToday = iso === todayStr
+              const dayEvents = weekByDay[iso] || []
+              const freeSlots = calcFreeSlots(dayEvents)
+              const freeMinutes = freeSlots.reduce((sum, s) => sum + (s.end - s.start), 0)
+              const freeHours = Math.round(freeMinutes / 60 * 10) / 10
+
+              return (
+                <div
+                  key={iso}
+                  className={`rounded-lg border p-2 cursor-pointer hover:bg-muted/50 transition-colors ${isToday ? 'border-primary/40 bg-primary/5' : 'border-border'}`}
+                  onClick={() => navigate('/account-executive/calendar')}
+                >
+                  {/* Day header */}
+                  <p className={`text-[10px] font-medium text-center ${isToday ? 'text-primary' : 'text-muted-foreground'}`}>
+                    {DAYS_SHORT[i]}
+                  </p>
+                  <p className={`text-sm font-bold text-center mb-2 ${isToday ? 'text-primary' : ''}`}>
+                    {day.getDate()}
+                  </p>
+
+                  {/* Meeting blocks (mini timeline) */}
+                  <div className="space-y-0.5 min-h-[40px]">
+                    {dayEvents.slice(0, 3).map(event => {
+                      const start = new Date(event.occurred_at)
+                      const hasExternal = (event.participants || []).some(p => !p.is_self && p.status !== 'organizer')
+                      return (
+                        <div
+                          key={event.id}
+                          className={`rounded px-1 py-0.5 text-[9px] font-medium text-white truncate ${hasExternal ? 'bg-blue-500' : 'bg-emerald-500'}`}
+                          title={event.title}
+                        >
+                          {start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} {event.title}
+                        </div>
+                      )
+                    })}
+                    {dayEvents.length > 3 && (
+                      <p className="text-[9px] text-muted-foreground text-center">+{dayEvents.length - 3} more</p>
+                    )}
+                    {dayEvents.length === 0 && (
+                      <p className="text-[9px] text-muted-foreground text-center py-1">Free</p>
+                    )}
+                  </div>
+
+                  {/* Available time badge */}
+                  <div className={`mt-1.5 rounded text-center py-0.5 text-[9px] font-semibold ${
+                    freeHours >= 4 ? 'bg-green-100 text-green-700' :
+                    freeHours >= 2 ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-red-50 text-red-600'
+                  }`}>
+                    {freeHours}h free
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Main 3-column grid */}
       <div className="grid grid-cols-3 gap-6">

@@ -20,6 +20,8 @@ import {
   Briefcase,
   Star,
   ArrowLeft,
+  Calendar,
+  TrendingUp,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrg } from '@/contexts/OrgContext'
@@ -55,6 +57,8 @@ const sdr_navigation: { name: string; href: string; icon: typeof LayoutDashboard
 // ── AE navigation ─────────────────────────────────────────────────────────────
 const ae_navigation: { name: string; href: string; icon: typeof LayoutDashboard }[] = [
   { name: 'Account Executive', href: '/account-executive', icon: Star },
+  { name: 'Pipeline CRM', href: '/account-executive/crm', icon: TrendingUp },
+  { name: 'Calendar', href: '/account-executive/calendar', icon: Calendar },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 

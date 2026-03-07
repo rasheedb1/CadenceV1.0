@@ -29,7 +29,7 @@ export function Settings() {
   const linkedin = useLinkedInConnection()
   const gmail = useGmailConnection()
 
-  const { integrations, saveGongCredentials, disconnectIntegration, isSyncingGong, syncGong, syncCalendar, isSyncingCalendar } = useAccountExecutive()
+  const { integrations, saveGongCredentials, disconnectIntegration, isSyncingGong, syncGong, syncCalendar, isSyncingCalendar, connectGoogleCalendar } = useAccountExecutive()
 
   const [gongKey, setGongKey] = useState('')
   const [gongSecret, setGongSecret] = useState('')
@@ -504,28 +504,46 @@ export function Settings() {
 
             <Separator />
 
-            {/* Calendar via Unipile */}
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-blue-500" />
-                  Calendar (Google / Microsoft)
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Synced via your Unipile-connected email account — no extra login needed
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge className="bg-blue-50 text-blue-700 border-0 text-xs">
-                  Via Unipile
-                </Badge>
-                <Button size="sm" variant="outline" onClick={() => syncCalendar()} disabled={isSyncingCalendar}>
-                  {isSyncingCalendar
-                    ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />Syncing...</>
-                    : <><RefreshCw className="h-3.5 w-3.5 mr-1" />Sync Calendar</>}
-                </Button>
-              </div>
-            </div>
+            {/* Google Calendar — Direct OAuth */}
+            {(() => {
+              const calIntegration = integrations.find(i => i.provider === 'google_calendar')
+              const calEmail = (calIntegration?.config as Record<string, unknown>)?.email as string | null
+              return (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-blue-500" />
+                      Google Calendar
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {calEmail
+                        ? `Connected as ${calEmail}`
+                        : 'Connect Google Calendar to sync meetings in AE workspace'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {calIntegration ? (
+                      <>
+                        <Badge className="bg-green-50 text-green-700 border-0 text-xs">Connected</Badge>
+                        <Button size="sm" variant="outline" onClick={() => syncCalendar()} disabled={isSyncingCalendar}>
+                          {isSyncingCalendar
+                            ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />Syncing...</>
+                            : <><RefreshCw className="h-3.5 w-3.5 mr-1" />Sync</>}
+                        </Button>
+                        <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive text-xs"
+                          onClick={() => disconnectIntegration('google_calendar')}>
+                          Disconnect
+                        </Button>
+                      </>
+                    ) : (
+                      <Button size="sm" onClick={() => connectGoogleCalendar()}>
+                        Connect Google Calendar
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
           </CardContent>
         </Card>
       </div>

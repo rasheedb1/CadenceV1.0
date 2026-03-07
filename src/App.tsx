@@ -51,7 +51,9 @@ import { BusinessCaseNew } from '@/pages/BusinessCaseNew'
 import { BusinessCaseTemplateEditor } from '@/pages/BusinessCaseTemplateEditor'
 import { BusinessCaseGenerate } from '@/pages/BusinessCaseGenerate'
 import { AccountExecutive } from '@/pages/AccountExecutive'
+import { AccountExecutiveCalendar } from '@/pages/AccountExecutiveCalendar'
 import { AccountExecutiveDetail } from '@/pages/AccountExecutiveDetail'
+import { CRMPipeline } from '@/pages/CRMPipeline'
 import { AccountExecutiveProvider } from '@/contexts/AccountExecutiveContext'
 import { ModeProvider } from '@/contexts/ModeContext'
 
@@ -103,7 +105,9 @@ function App() {
                   <Route path="/business-cases/templates/:id" element={<FeatureRoute flag="section_business_cases"><BusinessCaseTemplateEditor /></FeatureRoute>} />
                   <Route path="/business-cases/generate" element={<FeatureRoute flag="section_business_cases"><BusinessCaseGenerate /></FeatureRoute>} />
                   <Route path="/account-executive" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><AccountExecutive /></PageErrorBoundary></FeatureRoute>} />
+                  <Route path="/account-executive/crm" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><CRMPipeline /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/account-executive/:id" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><AccountExecutiveDetail /></PageErrorBoundary></FeatureRoute>} />
+                  <Route path="/account-executive/calendar" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><AccountExecutiveCalendar /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/leads" element={<FeatureRoute flag="section_leads"><Leads /></FeatureRoute>} />
                   <Route path="/inbox" element={<FeatureRoute flag="section_linkedin_inbox"><LinkedInInbox /></FeatureRoute>} />
                   <Route path="/templates" element={<FeatureRoute flag="section_templates"><Templates /></FeatureRoute>} />

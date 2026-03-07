@@ -1,9 +1,14 @@
+// ae-google-oauth — Generate Google OAuth URL for Calendar access
+
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { getAuthContext } from '../_shared/supabase.ts'
 
-const GOOGLE_CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID') || ''
-const REDIRECT_URI = 'https://arupeqczrxmfkcbjwyad.supabase.co/functions/v1/ae-google-callback'
+const REDIRECT_URI = 'https://laiky-cadence.vercel.app/account-executive?calendar=connected'
+const SCOPES = [
+  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/userinfo.email',
+].join(' ')
 
 serve(async (req: Request) => {
   const corsResponse = handleCors(req)
@@ -21,24 +26,24 @@ serve(async (req: Request) => {
   }
   if (!authCtx) return errorResponse('Unauthorized', 401)
 
-  if (!GOOGLE_CLIENT_ID) {
-    return errorResponse('GOOGLE_CLIENT_ID not configured', 500)
-  }
+  const clientId = Deno.env.get('GOOGLE_CLIENT_ID')
+  if (!clientId) return errorResponse('Google OAuth not configured', 500)
 
-  // State encodes userId and orgId for the callback
-  const state = btoa(JSON.stringify({ userId: authCtx.userId, orgId: authCtx.orgId }))
+  // Encode userId:orgId as state for verification on callback
+  const state = btoa(`${authCtx.userId}:${authCtx.orgId}`)
 
   const params = new URLSearchParams({
-    client_id: GOOGLE_CLIENT_ID,
+    client_id: clientId,
     redirect_uri: REDIRECT_URI,
     response_type: 'code',
-    scope: 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.email openid',
+    scope: SCOPES,
     access_type: 'offline',
-    prompt: 'consent',
+    prompt: 'consent',   // Force consent so we always get refresh_token
     state,
   })
 
-  const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`
 
-  return jsonResponse({ url })
+  console.log(`[ae-google-oauth] Generated auth URL for user ${authCtx.userId}`)
+  return jsonResponse({ url: authUrl })
 })

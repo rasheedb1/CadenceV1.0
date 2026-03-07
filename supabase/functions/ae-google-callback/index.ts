@@ -1,92 +1,122 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createSupabaseClient } from '../_shared/supabase.ts'
+// ae-google-callback — Exchange Google OAuth code for tokens, save to ae_integrations
 
-const GOOGLE_CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID') || ''
-const GOOGLE_CLIENT_SECRET = Deno.env.get('GOOGLE_CLIENT_SECRET') || ''
-const REDIRECT_URI = 'https://arupeqczrxmfkcbjwyad.supabase.co/functions/v1/ae-google-callback'
-const FRONTEND_URL = 'https://laiky-cadence.vercel.app'
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
+import { createSupabaseClient, getAuthContext } from '../_shared/supabase.ts'
+
+const REDIRECT_URI = 'https://laiky-cadence.vercel.app/account-executive?calendar=connected'
+
+interface TokenResponse {
+  access_token: string
+  refresh_token?: string
+  expires_in: number
+  token_type: string
+  scope: string
+  error?: string
+  error_description?: string
+}
+
+interface UserInfoResponse {
+  email?: string
+  name?: string
+  sub?: string
+  error?: string
+}
 
 serve(async (req: Request) => {
-  // This is a redirect callback from Google — always GET
-  const url = new URL(req.url)
-  const code = url.searchParams.get('code')
-  const stateParam = url.searchParams.get('state')
-  const error = url.searchParams.get('error')
+  const corsResponse = handleCors(req)
+  if (corsResponse) return corsResponse
+  if (req.method !== 'POST') return errorResponse('Method not allowed', 405)
 
-  if (error) {
-    return Response.redirect(`${FRONTEND_URL}/account-executive?error=calendar_auth_denied`, 302)
-  }
+  const authHeader = req.headers.get('Authorization')
+  if (!authHeader) return errorResponse('Missing authorization', 401)
 
-  if (!code || !stateParam) {
-    return Response.redirect(`${FRONTEND_URL}/account-executive?error=calendar_auth_failed`, 302)
-  }
-
-  let userId: string
-  let orgId: string
+  let authCtx: { userId: string; orgId: string } | null
   try {
-    const decoded = JSON.parse(atob(stateParam))
-    userId = decoded.userId
-    orgId = decoded.orgId
-    if (!userId || !orgId) throw new Error('Invalid state')
+    authCtx = await getAuthContext(authHeader)
   } catch {
-    return Response.redirect(`${FRONTEND_URL}/account-executive?error=calendar_auth_failed`, 302)
+    return errorResponse('Authentication failed', 401)
+  }
+  if (!authCtx) return errorResponse('Unauthorized', 401)
+
+  const body = await req.json().catch(() => ({})) as { code?: string; state?: string }
+  if (!body.code) return errorResponse('Missing code', 400)
+
+  // Verify state
+  if (body.state) {
+    try {
+      const decoded = atob(body.state)
+      const [stateUserId] = decoded.split(':')
+      if (stateUserId !== authCtx.userId) {
+        console.warn(`[ae-google-callback] State mismatch: ${stateUserId} vs ${authCtx.userId}`)
+        return errorResponse('State mismatch — possible CSRF', 400)
+      }
+    } catch {
+      console.warn('[ae-google-callback] Could not decode state')
+    }
   }
 
-  // Exchange code for tokens
+  const clientId = Deno.env.get('GOOGLE_CLIENT_ID')
+  const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET')
+  if (!clientId || !clientSecret) return errorResponse('Google OAuth not configured', 500)
+
+  // ── 1. Exchange code for tokens ───────────────────────────────────────────
+  console.log(`[ae-google-callback] Exchanging code for tokens for user ${authCtx.userId}`)
   const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      code,
-      client_id: GOOGLE_CLIENT_ID,
-      client_secret: GOOGLE_CLIENT_SECRET,
+      code: body.code,
+      client_id: clientId,
+      client_secret: clientSecret,
       redirect_uri: REDIRECT_URI,
       grant_type: 'authorization_code',
     }),
   })
 
-  if (!tokenResp.ok) {
-    console.error('[ae-google-callback] Token exchange failed:', await tokenResp.text())
-    return Response.redirect(`${FRONTEND_URL}/account-executive?error=calendar_auth_failed`, 302)
+  const tokens: TokenResponse = await tokenResp.json()
+  if (tokens.error || !tokens.access_token) {
+    console.error('[ae-google-callback] Token exchange failed:', tokens.error, tokens.error_description)
+    return errorResponse(tokens.error_description || tokens.error || 'Token exchange failed', 400)
   }
 
-  const tokens = await tokenResp.json()
+  // ── 2. Get user email from Google ─────────────────────────────────────────
+  const userInfoResp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+    headers: { Authorization: `Bearer ${tokens.access_token}` },
+  })
+  const userInfo: UserInfoResponse = await userInfoResp.json()
+  const email = userInfo.email || null
+  console.log(`[ae-google-callback] Connected Google account: ${email}`)
 
-  // Get user email from Google
-  let userEmail = ''
-  try {
-    const profileResp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-      headers: { Authorization: `Bearer ${tokens.access_token}` },
-    })
-    if (profileResp.ok) {
-      const profile = await profileResp.json()
-      userEmail = profile.email || ''
-    }
-  } catch { /* non-fatal */ }
-
-  // Save to ae_integrations
+  // ── 3. Save to ae_integrations ────────────────────────────────────────────
+  const expiresAt = new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString()
   const supabase = createSupabaseClient()
-  const expiresAt = tokens.expires_in
-    ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-    : null
 
-  const { error: upsertErr } = await supabase
+  const config = {
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token || null,
+    expires_at: expiresAt,
+    email,
+    scope: tokens.scope,
+  }
+
+  // Upsert: one google_calendar integration per user per org
+  const { error: upsertError } = await supabase
     .from('ae_integrations')
     .upsert({
-      org_id: orgId,
-      user_id: userId,
+      org_id: authCtx.orgId,
+      user_id: authCtx.userId,
       provider: 'google_calendar',
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token || null,
-      token_expires_at: expiresAt,
-      config: { email: userEmail },
+      config,
       connected_at: new Date().toISOString(),
+      token_expires_at: expiresAt,
     }, { onConflict: 'org_id,user_id,provider' })
 
-  if (upsertErr) {
-    console.error('[ae-google-callback] Upsert failed:', upsertErr)
-    return Response.redirect(`${FRONTEND_URL}/account-executive?error=calendar_save_failed`, 302)
+  if (upsertError) {
+    console.error('[ae-google-callback] DB upsert failed:', upsertError.message)
+    return errorResponse('Failed to save calendar connection', 500)
   }
 
-  return Response.redirect(`${FRONTEND_URL}/account-executive?calendar=connected`, 302)
+  console.log(`[ae-google-callback] Saved integration for user ${authCtx.userId}`)
+  return jsonResponse({ success: true, email })
 })

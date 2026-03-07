@@ -1,50 +1,68 @@
-// ae-calendar-sync — Fetch calendar events via Unipile (Google / Microsoft)
-//
-// Looks up the user's connected email account from the local `unipile_accounts`
-// table (provider='EMAIL', status='active'), then calls:
-//   GET /api/v1/calendars?account_id=...
-//   GET /api/v1/calendars/{id}/events?account_id=...&from=...&to=...
-//
-// ⚠ Calendar scopes must be enabled in your Unipile dashboard → Settings
-//   before events are accessible. After enabling, the user may need to
-//   reconnect their Gmail account.
+// ae-calendar-sync — Fetch Google Calendar events using direct Google API
+// Uses OAuth tokens stored in ae_integrations (provider='google_calendar')
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { createSupabaseClient, getAuthContext } from '../_shared/supabase.ts'
-import { createUnipileClient } from '../_shared/unipile.ts'
 
-interface UnipileCalendar {
-  id: string
-  name?: string
+interface GoogleToken {
+  access_token: string
+  refresh_token?: string | null
+  expires_at: string
+  email?: string | null
 }
 
-interface UnipileEventAttendee {
-  name?: string
-  display_name?: string
-  email?: string
-  identifier?: string
+interface GoogleCalendarItem {
+  id: string
+  summary?: string
+  primary?: boolean
+  accessRole?: string
 }
 
-interface UnipileEvent {
+interface GoogleEvent {
   id: string
-  title?: string
   summary?: string
   description?: string
-  start_time?: string
-  end_time?: string
-  // Google-style nested objects
-  start?: string | { dateTime?: string; date?: string }
-  end?: string | { dateTime?: string; date?: string }
-  attendees?: UnipileEventAttendee[]
   location?: string
+  start?: { dateTime?: string; date?: string; timeZone?: string }
+  end?: { dateTime?: string; date?: string; timeZone?: string }
+  attendees?: Array<{ email?: string; displayName?: string; self?: boolean; responseStatus?: string }>
+  organizer?: { email?: string; displayName?: string }
+  status?: string
+  htmlLink?: string
 }
 
-function normalizeTime(v: UnipileEvent['start_time'] | UnipileEvent['start']): string | null {
-  if (!v) return null
-  if (typeof v === 'string') return v
-  if (typeof v === 'object') return v.dateTime || v.date || null
-  return null
+interface GoogleEventsResponse {
+  items?: GoogleEvent[]
+  error?: { code: number; message: string }
+}
+
+interface GoogleCalendarListResponse {
+  items?: GoogleCalendarItem[]
+  error?: { code: number; message: string }
+}
+
+async function refreshAccessToken(refreshToken: string): Promise<{ access_token: string; expires_at: string } | null> {
+  const clientId = Deno.env.get('GOOGLE_CLIENT_ID')
+  const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET')
+  if (!clientId || !clientSecret) return null
+
+  const resp = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      refresh_token: refreshToken,
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'refresh_token',
+    }),
+  })
+  const data = await resp.json()
+  if (!data.access_token) return null
+  return {
+    access_token: data.access_token,
+    expires_at: new Date(Date.now() + (data.expires_in || 3600) * 1000).toISOString(),
+  }
 }
 
 serve(async (req: Request) => {
@@ -65,97 +83,139 @@ serve(async (req: Request) => {
 
   const supabase = createSupabaseClient()
 
-  // ── 1. Look up the user's connected Gmail/Outlook account ─────────────────
-  // This account was saved in unipile_accounts when the user connected Gmail
-  // in Settings → Gmail using the Unipile hosted auth flow.
-  const { data: emailAccount, error: emailErr } = await supabase
-    .from('unipile_accounts')
-    .select('account_id')
+  // ── 1. Load Google OAuth tokens from ae_integrations ─────────────────────
+  const { data: integration, error: intErr } = await supabase
+    .from('ae_integrations')
+    .select('config, token_expires_at')
     .eq('user_id', authCtx.userId)
-    .eq('provider', 'EMAIL')
-    .eq('status', 'active')
+    .eq('org_id', authCtx.orgId)
+    .eq('provider', 'google_calendar')
     .single()
 
-  if (emailErr || !emailAccount?.account_id) {
-    console.warn(`[ae-calendar-sync] No active EMAIL account found for user ${authCtx.userId}:`, emailErr?.message)
+  if (intErr || !integration?.config) {
     return errorResponse(
-      'No Gmail or Outlook account connected. ' +
-      'Go to Settings → Gmail, connect your email account first, ' +
-      'then make sure calendar scopes are enabled in your Unipile dashboard.',
+      'Google Calendar not connected. Go to Settings → Account Executive → Connect Google Calendar.',
       400
     )
   }
 
-  const unipileAccountId = emailAccount.account_id
-  console.log(`[ae-calendar-sync] Using Unipile account: ${unipileAccountId}`)
+  let tokenConfig = integration.config as GoogleToken
+  let accessToken = tokenConfig.access_token
 
-  const unipile = createUnipileClient()
+  // ── 2. Refresh token if expired ───────────────────────────────────────────
+  const expiresAt = new Date(tokenConfig.expires_at || integration.token_expires_at || 0).getTime()
+  const isExpired = Date.now() > expiresAt - 60_000 // 1min buffer
 
-  // ── 2. Get calendars for this account ─────────────────────────────────────
-  const calendarsResp = await unipile.getCalendars(unipileAccountId, 10)
-
-  if (!calendarsResp.success || !calendarsResp.data) {
-    console.error(`[ae-calendar-sync] Calendar API failed:`, calendarsResp.error)
-    return errorResponse(
-      'Could not access calendar data. ' +
-      'Calendar scopes may not be enabled in your Unipile dashboard. ' +
-      'Enable them at: https://app.unipile.com → Settings → Scopes → Calendar, ' +
-      'then reconnect your Gmail account.',
-      400
-    )
+  if (isExpired && tokenConfig.refresh_token) {
+    console.log('[ae-calendar-sync] Token expired, refreshing...')
+    const refreshed = await refreshAccessToken(tokenConfig.refresh_token)
+    if (refreshed) {
+      accessToken = refreshed.access_token
+      tokenConfig = { ...tokenConfig, ...refreshed }
+      // Update tokens in DB
+      await supabase
+        .from('ae_integrations')
+        .update({
+          config: tokenConfig,
+          token_expires_at: refreshed.expires_at,
+        })
+        .eq('user_id', authCtx.userId)
+        .eq('org_id', authCtx.orgId)
+        .eq('provider', 'google_calendar')
+      console.log('[ae-calendar-sync] Token refreshed and saved')
+    } else {
+      return errorResponse(
+        'Google Calendar token expired and could not be refreshed. Please reconnect in Settings → Account Executive.',
+        401
+      )
+    }
   }
 
-  const calendarsData = calendarsResp.data as { items?: UnipileCalendar[] }
-  const calendars: UnipileCalendar[] = calendarsData.items || []
-  console.log(`[ae-calendar-sync] Found ${calendars.length} calendar(s)`)
+  // ── 3. Get calendar list ──────────────────────────────────────────────────
+  const calListResp = await fetch(
+    'https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=10&minAccessRole=reader',
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  )
+  const calListData: GoogleCalendarListResponse = await calListResp.json()
+
+  if (calListData.error) {
+    console.error('[ae-calendar-sync] Calendar list error:', calListData.error)
+    return errorResponse(`Google Calendar API error: ${calListData.error.message}`, 400)
+  }
+
+  const calendars = calListData.items || []
+  console.log(`[ae-calendar-sync] Found ${calendars.length} calendars`)
 
   if (calendars.length === 0) {
-    return errorResponse(
-      'No calendars found. ' +
-      'Calendar scopes may not be enabled in Unipile dashboard → Settings → Scopes → Calendar.',
-      400
-    )
+    return errorResponse('No calendars found in your Google account.', 400)
   }
 
-  // ── 3. Fetch events for each calendar ─────────────────────────────────────
-  // Time window: last 7 days + next 48h
-  const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-  const to   = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
+  // ── 4. Fetch events ───────────────────────────────────────────────────────
+  const timeMin = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const timeMax = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
 
   let totalSynced = 0
 
-  for (const calendar of calendars.slice(0, 5)) {
-    const eventsResp = await unipile.getCalendarEvents(calendar.id, unipileAccountId, {
-      limit: 50,
-      from,
-      to,
-    })
+  // Fetch from primary + up to 2 more calendars
+  const targetCalendars = calendars
+    .filter(c => c.accessRole === 'owner' || c.primary)
+    .slice(0, 3)
 
-    if (!eventsResp.success || !eventsResp.data) {
-      console.warn(`[ae-calendar-sync] Events failed for calendar ${calendar.id}:`, eventsResp.error)
+  if (targetCalendars.length === 0) {
+    targetCalendars.push(...calendars.slice(0, 3))
+  }
+
+  for (const cal of targetCalendars) {
+    const encodedCalId = encodeURIComponent(cal.id)
+    const eventsUrl = `https://www.googleapis.com/calendar/v3/calendars/${encodedCalId}/events?` +
+      new URLSearchParams({
+        timeMin,
+        timeMax,
+        maxResults: '50',
+        singleEvents: 'true',
+        orderBy: 'startTime',
+      })
+
+    const eventsResp = await fetch(eventsUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    const eventsData: GoogleEventsResponse = await eventsResp.json()
+
+    if (eventsData.error) {
+      console.warn(`[ae-calendar-sync] Events error for ${cal.id}:`, eventsData.error.message)
       continue
     }
 
-    const eventsData = eventsResp.data as { items?: UnipileEvent[] }
-    const events: UnipileEvent[] = eventsData.items || []
-    console.log(`[ae-calendar-sync] Calendar "${calendar.name || calendar.id}" → ${events.length} events`)
+    const events = eventsData.items || []
+    console.log(`[ae-calendar-sync] Calendar "${cal.summary || cal.id}" → ${events.length} events`)
 
     for (const event of events) {
-      const title = event.title || event.summary
+      const title = event.summary
       if (!title) continue
 
-      const startTime = normalizeTime(event.start_time ?? event.start)
+      const startTime = event.start?.dateTime || event.start?.date
       if (!startTime) continue
-      const endTime = normalizeTime(event.end_time ?? event.end)
+      const endTime = event.end?.dateTime || event.end?.date
 
       const durationSeconds = endTime
         ? Math.round((new Date(endTime).getTime() - new Date(startTime).getTime()) / 1000)
         : null
 
-      const participants = (event.attendees || []).map((a) => ({
-        name: a.name || a.display_name || a.email || a.identifier || 'Unknown',
-        email: a.email || a.identifier || null,
+      const participants = (event.attendees || []).map(a => ({
+        name: a.displayName || a.email || 'Unknown',
+        email: a.email || null,
+        is_self: a.self || false,
+        status: a.responseStatus || null,
       }))
+
+      if (event.organizer && !participants.some(p => p.email === event.organizer?.email)) {
+        participants.unshift({
+          name: event.organizer.displayName || event.organizer.email || 'Organizer',
+          email: event.organizer.email || null,
+          is_self: false,
+          status: 'organizer',
+        })
+      }
 
       const { error } = await supabase
         .from('ae_activities')
@@ -165,20 +225,31 @@ serve(async (req: Request) => {
           ae_account_id: null,
           type: 'meeting',
           source: 'google_calendar',
-          external_id: `${unipileAccountId}::${event.id}`,
+          external_id: `google::${event.id}`,
           title,
           summary: event.description || null,
           occurred_at: new Date(startTime).toISOString(),
           duration_seconds: durationSeconds,
           participants,
           action_items: [],
-          raw_data: { location: event.location, calendar_id: calendar.id },
-        }, { onConflict: 'org_id,source,external_id', ignoreDuplicates: true })
+          raw_data: {
+            location: event.location || null,
+            calendar_id: cal.id,
+            html_link: event.htmlLink || null,
+            status: event.status || null,
+          },
+        }, { onConflict: 'org_id,source,external_id', ignoreDuplicates: false })
 
       if (!error) totalSynced++
+      else console.warn('[ae-calendar-sync] Upsert error:', error.message)
     }
   }
 
   console.log(`[ae-calendar-sync] Done: synced=${totalSynced}`)
-  return jsonResponse({ success: true, synced: totalSynced })
+  return jsonResponse({
+    success: true,
+    synced: totalSynced,
+    calendars_scanned: targetCalendars.length,
+    email: tokenConfig.email,
+  })
 })
