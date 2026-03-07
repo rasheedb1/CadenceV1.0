@@ -151,8 +151,15 @@ serve(async (req: Request) => {
   }
 
   // ── 4. Fetch events ───────────────────────────────────────────────────────
-  const timeMin = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-  const timeMax = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
+  // Sync from 1 week before start of current week to 5 weeks ahead
+  const now = new Date()
+  const dayOfWeek = now.getDay() // 0=Sun
+  const diffToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+  const startOfThisWeek = new Date(now)
+  startOfThisWeek.setDate(now.getDate() + diffToMon)
+  startOfThisWeek.setHours(0, 0, 0, 0)
+  const timeMin = new Date(startOfThisWeek.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const timeMax = new Date(startOfThisWeek.getTime() + 5 * 7 * 24 * 60 * 60 * 1000).toISOString()
 
   let totalSynced = 0
 

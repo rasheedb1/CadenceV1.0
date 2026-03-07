@@ -175,8 +175,16 @@ export function AccountExecutive() {
       .then(r => r.json())
       .then(result => {
         toast.dismiss()
-        if (result.error) toast.error('Google Calendar failed: ' + result.error)
-        else toast.success('Google Calendar connected' + (result.email ? ' as ' + result.email : '') + '!')
+        if (result.error) {
+          toast.error('Google Calendar failed: ' + result.error)
+        } else {
+          toast.success('Google Calendar connected' + (result.email ? ' as ' + result.email : '') + '!')
+          // Auto-sync calendar events after connecting
+          fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ae-calendar-sync`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch(() => {/* silent - sync can be retried manually */})
+        }
       })
       .catch(() => { toast.dismiss(); toast.error('Google Calendar connection failed') })
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -199,22 +207,15 @@ export function AccountExecutive() {
     return due <= h48
   })
 
-  // Today's calendar events
-  const todayMeetings = recentActivities.filter(a => {
-    if (a.source !== 'google_calendar') return false
-    const d = new Date(a.occurred_at)
-    const now = new Date()
-    const tomorrow = new Date(now)
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    return d >= new Date(now.toDateString()) && d < tomorrow
-  })
-
   // Weekly calendar data
   const today = new Date()
   const { data: weekEvents = [] } = useAECalendarWeek(today)
   const weekDays = getWeekDays(today)
   const weekByDay = groupByDay(weekEvents)
   const todayStr = today.toISOString().slice(0, 10)
+
+  // Today's calendar events — derived from already-fetched weekEvents
+  const todayMeetings = (weekByDay[todayStr] || [])
 
   const DAYS_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
