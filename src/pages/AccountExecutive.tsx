@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog'
 import {
   Plus, RefreshCw, Phone, Mail, Calendar, Bell,
-  Clock, ChevronRight, Building2, Star, Loader2
+  Clock, ChevronLeft, ChevronRight, Building2, Star, Loader2
 } from 'lucide-react'
 import { useAEAccounts, useAEAccountMutations } from '@/hooks/useAEAccounts'
 import { useAERecentActivities } from '@/hooks/useAEActivities'
@@ -20,7 +20,7 @@ import { useAccountExecutive } from '@/contexts/AccountExecutiveContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from 'sonner'
 import type { AEAccountStage } from '@/types/account-executive'
-import { useAECalendarWeek, groupByDay, calcFreeSlots, getWeekDays } from '@/hooks/useAECalendarWeek'
+import { useAECalendarWeek, groupByDay, calcFreeSlots, getWeekDays, localDateStr } from '@/hooks/useAECalendarWeek'
 import { AE_STAGE_LABELS, AE_STAGE_COLORS, healthScoreBg, healthScoreColor } from '@/types/account-executive'
 
 // ── Health Score Ring ──────────────────────────────────────────────
@@ -148,8 +148,9 @@ export function AccountExecutive() {
   const { data: recentActivities = [], isLoading: loadingActivities } = useAERecentActivities(15)
   const { data: reminders = [] } = useAEReminders()
   const { completeReminder } = useAEReminderMutations()
-  const { syncGong, isSyncingGong } = useAccountExecutive()
+  const { syncGong, isSyncingGong, syncCalendar, isSyncingCalendar } = useAccountExecutive()
   const [showNewAccount, setShowNewAccount] = useState(false)
+  const [calAnchor, setCalAnchor] = useState(new Date())
 
   // ── Handle Google Calendar OAuth callback ──────────────────────────────────
   useEffect(() => {
@@ -209,13 +210,17 @@ export function AccountExecutive() {
 
   // Weekly calendar data
   const today = new Date()
-  const { data: weekEvents = [] } = useAECalendarWeek(today)
-  const weekDays = getWeekDays(today)
+  const { data: weekEvents = [] } = useAECalendarWeek(calAnchor)
+  const weekDays = getWeekDays(calAnchor)
   const weekByDay = groupByDay(weekEvents)
-  const todayStr = today.toISOString().slice(0, 10)
+  const todayStr = localDateStr(today)
 
   // Today's calendar events — derived from already-fetched weekEvents
   const todayMeetings = (weekByDay[todayStr] || [])
+
+  const prevWeek = () => { const d = new Date(calAnchor); d.setDate(d.getDate() - 7); setCalAnchor(d) }
+  const nextWeek = () => { const d = new Date(calAnchor); d.setDate(d.getDate() + 7); setCalAnchor(d) }
+  const goToday = () => setCalAnchor(new Date())
 
   const DAYS_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -282,26 +287,44 @@ export function AccountExecutive() {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-blue-500" />
-              This Week
-              <Badge variant="secondary" className="text-xs ml-1">{weekEvents.length} meetings</Badge>
-            </CardTitle>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs text-muted-foreground gap-1"
-              onClick={() => navigate('/account-executive/calendar')}
-            >
-              Full calendar
-              <ChevronRight className="h-3 w-3" />
-            </Button>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-blue-500" />
+                {weekDays[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – {weekDays[6].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                <Badge variant="secondary" className="text-xs ml-1">{weekEvents.length} meetings</Badge>
+              </CardTitle>
+              <div className="flex items-center gap-0.5">
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={prevWeek}><ChevronLeft className="h-3.5 w-3.5" /></Button>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={goToday} title="Today"><span className="text-[10px] font-semibold">T</span></Button>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={nextWeek}><ChevronRight className="h-3.5 w-3.5" /></Button>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground h-7 px-2"
+                onClick={() => syncCalendar()}
+                disabled={isSyncingCalendar}
+              >
+                {isSyncingCalendar ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground gap-1"
+                onClick={() => navigate('/account-executive/calendar')}
+              >
+                Full calendar
+                <ChevronRight className="h-3 w-3" />
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="pt-0">
           <div className="grid grid-cols-7 gap-1.5">
             {weekDays.map((day, i) => {
-              const iso = day.toISOString().slice(0, 10)
+              const iso = localDateStr(day)
               const isToday = iso === todayStr
               const dayEvents = weekByDay[iso] || []
               const freeSlots = calcFreeSlots(dayEvents)

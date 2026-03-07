@@ -51,15 +51,22 @@ export function useAECalendarWeek(anchorDate: Date) {
   })
 }
 
-/** Group events by ISO date string (YYYY-MM-DD) */
+/** Group events by local date string (YYYY-MM-DD) */
 export function groupByDay(events: CalendarEvent[]): Record<string, CalendarEvent[]> {
   const map: Record<string, CalendarEvent[]> = {}
   for (const e of events) {
-    const key = e.occurred_at.slice(0, 10) // YYYY-MM-DD
+    const d = new Date(e.occurred_at)
+    // Use LOCAL date to avoid UTC-midnight boundary mismatches
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     if (!map[key]) map[key] = []
     map[key].push(e)
   }
   return map
+}
+
+/** Get local YYYY-MM-DD string for a Date (avoids UTC offset issues) */
+export function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 /** Calculate free slots in business hours (9-18) for a list of events on one day */

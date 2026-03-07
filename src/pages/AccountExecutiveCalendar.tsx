@@ -8,6 +8,7 @@ import {
   groupByDay,
   calcFreeSlots,
   getWeekDays,
+  localDateStr,
   type CalendarEvent,
 } from '@/hooks/useAECalendarWeek'
 import { useAccountExecutive } from '@/contexts/AccountExecutiveContext'
@@ -75,7 +76,7 @@ export function AccountExecutiveCalendar() {
   const { data: events = [], isLoading } = useAECalendarWeek(anchorDate)
   const byDay = groupByDay(events)
   const weekDays = getWeekDays(anchorDate)
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = localDateStr(new Date())
 
   const prevWeek = () => {
     const d = new Date(anchorDate)
@@ -117,7 +118,7 @@ export function AccountExecutiveCalendar() {
       <div className="grid border-b shrink-0" style={{ gridTemplateColumns: '48px repeat(7, 1fr)' }}>
         <div className="border-r" /> {/* time gutter */}
         {weekDays.map((day, i) => {
-          const iso = day.toISOString().slice(0, 10)
+          const iso = localDateStr(day)
           const isToday = iso === todayStr
           const dayEvents = byDay[iso] || []
           return (
@@ -159,7 +160,7 @@ export function AccountExecutiveCalendar() {
 
             {/* Day columns */}
             {weekDays.map((day) => {
-              const iso = day.toISOString().slice(0, 10)
+              const iso = localDateStr(day)
               const isToday = iso === todayStr
               const dayEvents = byDay[iso] || []
               const freeSlots = calcFreeSlots(dayEvents)
