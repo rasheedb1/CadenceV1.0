@@ -59,6 +59,8 @@ export interface BusinessCaseTemplate {
   pptx_storage_path: string | null
   /** Variables detected from the uploaded PPTX */
   detected_variables: DetectedVariable[]
+  /** Pre-rendered slide thumbnail paths in Supabase Storage (bc-templates bucket) */
+  thumbnail_paths: string[] | null
   is_active: boolean
   created_by: string | null
   created_at: string

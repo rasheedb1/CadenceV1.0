@@ -43,6 +43,7 @@ import {
   saveShapePositionsToStorage,
   type ParsedSlide,
   type ParsedShape,
+  type SlideParagraph,
 } from '@/lib/pptx-slide-parser'
 import { supabase } from '@/integrations/supabase/client'
 import { useOrg } from '@/contexts/OrgContext'
@@ -93,12 +94,15 @@ function RenderRun({
   variables,
   highlighted,
   onVarClick,
+  overlayMode = false,
 }: {
   run: import('@/lib/pptx-slide-parser').TextRun
   scale: number
   variables: DetectedVariable[]
   highlighted: string | null
   onVarClick: (key: string) => void
+  /** When true (thumbnail mode): suppress plain text, only render variable chips */
+  overlayMode?: boolean
 }) {
   const baseFontPx = run.fontSize
     ? (run.fontSize / 100) * (96 / 72) * scale
@@ -118,7 +122,10 @@ function RenderRun({
     <>
       {parts.map((part, i) => {
         const m = part.match(/^\{\{([^}]+)\}\}$/)
-        if (!m) return <span key={i} style={baseStyle}>{part}</span>
+        if (!m) {
+          if (overlayMode) return null
+          return <span key={i} style={baseStyle}>{part}</span>
+        }
         const key = m[1].trim()
         const v = variables.find((x) => x.key === key)
         const isAI = v?.type === 'ai'
@@ -149,6 +156,46 @@ function RenderRun({
   )
 }
 
+// ── Paragraph renderer (shared by text shapes and table cells) ───────────────
+
+function RenderParagraphs({
+  paragraphs,
+  scale,
+  variables,
+  highlighted,
+  onVarClick,
+  align,
+  overlayMode = false,
+}: {
+  paragraphs: SlideParagraph[]
+  scale: number
+  variables: DetectedVariable[]
+  highlighted: string | null
+  onVarClick: (key: string) => void
+  align?: React.CSSProperties['textAlign']
+  overlayMode?: boolean
+}) {
+  return (
+    <>
+      {paragraphs.map((para, pi) => (
+        <div key={pi} style={{ textAlign: align ?? alignToCSS(para.align) }}>
+          {para.runs.map((run, ri) => (
+            <RenderRun
+              key={ri}
+              run={run}
+              scale={scale}
+              variables={variables}
+              highlighted={highlighted}
+              onVarClick={onVarClick}
+              overlayMode={overlayMode}
+            />
+          ))}
+        </div>
+      ))}
+    </>
+  )
+}
+
 // ── SlideCanvas: renders one slide at a given display width ───────────────────
 
 interface SlideCanvasProps {
@@ -157,12 +204,49 @@ interface SlideCanvasProps {
   variables: DetectedVariable[]
   highlighted: string | null
   onVarClick: (key: string) => void
-  /** Override positions for dragged shapes { shapeId → {xEmu, yEmu} } */
   posOverrides?: Map<string, { xEmu: number; yEmu: number }>
-  /** Whether shapes with variables are draggable */
   draggable?: boolean
   onShapeDragEnd?: (shapeId: string, xEmu: number, yEmu: number) => void
   className?: string
+  /** Pre-rendered thumbnail URL — if provided, used as background; shapes only for variable chips */
+  thumbnailUrl?: string
+}
+
+/** Returns true if any paragraph/cell in this shape has a {{variable}} */
+function shapeHasVariables(shape: ParsedShape): boolean {
+  VAR_RE.lastIndex = 0
+  if (shape.paragraphs.some((p) => p.runs.some((r) => VAR_RE.test(r.text)))) return true
+  if (shape.tableRows) {
+    for (const row of shape.tableRows) {
+      for (const cell of row.cells) {
+        if (cell.paragraphs.some((p) => p.runs.some((r) => VAR_RE.test(r.text)))) return true
+      }
+    }
+  }
+  return false
+}
+
+/** Extract all variable keys found on a given slide */
+function getSlideVariableKeys(slide: ParsedSlide): Set<string> {
+  const keys = new Set<string>()
+  const extract = (paragraphs: SlideParagraph[]) => {
+    for (const para of paragraphs) {
+      for (const run of para.runs) {
+        for (const m of run.text.matchAll(/\{\{([^}]+)\}\}/g)) {
+          keys.add(m[1].trim())
+        }
+      }
+    }
+  }
+  for (const shape of slide.shapes) {
+    extract(shape.paragraphs)
+    if (shape.tableRows) {
+      for (const row of shape.tableRows) {
+        for (const cell of row.cells) extract(cell.paragraphs)
+      }
+    }
+  }
+  return keys
 }
 
 function SlideCanvas({
@@ -175,6 +259,7 @@ function SlideCanvas({
   draggable,
   onShapeDragEnd,
   className = '',
+  thumbnailUrl,
 }: SlideCanvasProps) {
   const { nativeW, nativeH } = getNativeDims(slide)
   const scale = displayWidth / nativeW
@@ -197,12 +282,9 @@ function SlideCanvas({
     return ext ?? { xEmu: shape.xEmu, yEmu: shape.yEmu }
   }
 
-  const hasVars = (shape: ParsedShape) =>
-    shape.paragraphs.some((p) => p.runs.some((r) => VAR_RE.test(r.text)))
-
   const handleMouseDown = useCallback(
     (e: React.MouseEvent, shape: ParsedShape) => {
-      if (!draggable || !hasVars(shape)) return
+      if (!draggable || !shapeHasVariables(shape)) return
       e.preventDefault()
       const { xEmu, yEmu } = getPos(shape)
       dragRef.current = {
@@ -213,6 +295,7 @@ function SlideCanvas({
         origYEmu: yEmu,
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [draggable, posOverrides, localOverrides],
   )
 
@@ -221,7 +304,6 @@ function SlideCanvas({
       if (!dragRef.current) return
       const dx = e.clientX - dragRef.current.startClientX
       const dy = e.clientY - dragRef.current.startClientY
-      // Convert screen pixels → EMU
       const dxEmu = (dx / displayWidth) * slide.slideWEmu
       const dyEmu = (dy / displayH) * slide.slideHEmu
       setLocalOverrides((prev) =>
@@ -234,9 +316,7 @@ function SlideCanvas({
     const handleUp = () => {
       if (dragRef.current) {
         const final = localOverrides.get(dragRef.current.shapeId)
-        if (final && onShapeDragEnd) {
-          onShapeDragEnd(dragRef.current.shapeId, final.xEmu, final.yEmu)
-        }
+        if (final && onShapeDragEnd) onShapeDragEnd(dragRef.current.shapeId, final.xEmu, final.yEmu)
         dragRef.current = null
       }
     }
@@ -250,44 +330,180 @@ function SlideCanvas({
 
   return (
     <div
-      className={`bg-white border border-border shadow-sm rounded overflow-hidden flex-shrink-0 ${className}`}
-      style={{ width: displayWidth, height: displayH, position: 'relative' }}
+      className={`border border-border shadow-sm rounded overflow-hidden flex-shrink-0 ${className}`}
+      style={{
+        width: displayWidth,
+        height: displayH,
+        position: 'relative',
+        backgroundColor: slide.backgroundHex ? `#${slide.backgroundHex}` : '#FFFFFF',
+      }}
     >
-      {slide.shapes.map((shape) => {
+      {/* Pre-rendered thumbnail as background layer — perfect visual fidelity */}
+      {thumbnailUrl && (
+        <img
+          src={thumbnailUrl}
+          alt=""
+          draggable={false}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'fill',
+            pointerEvents: 'none',
+            zIndex: 0,
+          }}
+        />
+      )}
+      {/* When thumbnail is available, only render shapes that have variables (as interactive overlays) */}
+      {slide.shapes.filter((s) => !thumbnailUrl || shapeHasVariables(s)).map((shape) => {
         const { xEmu, yEmu } = getPos(shape)
-        const shapeHasVars = hasVars(shape)
+        const hasVars = shapeHasVariables(shape)
         const isDragging = dragRef.current?.shapeId === shape.id
+
+        const left = (xEmu / slide.slideWEmu) * displayWidth
+        const top = (yEmu / slide.slideHEmu) * displayH
+        const width = (shape.wEmu / slide.slideWEmu) * displayWidth
+        const height = (shape.hEmu / slide.slideHEmu) * displayH
+
+        const sharedStyle: React.CSSProperties = {
+          position: 'absolute',
+          left,
+          top,
+          width,
+          cursor: draggable && hasVars ? (isDragging ? 'grabbing' : 'grab') : 'default',
+          outline: isDragging ? `${Math.max(1, 1.5 * scale)}px dashed #3B82F6` : 'none',
+          overflow: 'hidden',
+          zIndex: thumbnailUrl ? 1 : undefined,
+        }
+
+        // ── Image ──────────────────────────────────────────────────────────
+        if (shape.kind === 'image' && shape.imageDataUrl) {
+          return (
+            <img
+              key={shape.id}
+              src={shape.imageDataUrl}
+              alt=""
+              draggable={false}
+              style={{
+                ...sharedStyle,
+                height,
+                objectFit: 'fill',
+              }}
+              onMouseDown={(e) => handleMouseDown(e, shape)}
+            />
+          )
+        }
+
+        // ── Table ──────────────────────────────────────────────────────────
+        if (shape.kind === 'table' && shape.tableRows) {
+          const totalRowH = shape.tableRows.reduce((s, r) => s + r.heightEmu, 0) || shape.hEmu
+          const colWidths: number[] = shape.colWidthsEmu?.length
+            ? shape.colWidthsEmu.map((w) => (w / shape.wEmu) * width)
+            : Array(shape.tableRows[0]?.cells.length ?? 1).fill(width / (shape.tableRows[0]?.cells.length ?? 1))
+
+          return (
+            <div
+              key={shape.id}
+              style={{ ...sharedStyle, height }}
+              onMouseDown={(e) => handleMouseDown(e, shape)}
+            >
+              <table
+                style={{
+                  borderCollapse: 'collapse',
+                  width: '100%',
+                  height: '100%',
+                  tableLayout: 'fixed',
+                  fontSize: 0,
+                }}
+              >
+                <colgroup>
+                  {colWidths.map((w, ci) => <col key={ci} style={{ width: w }} />)}
+                </colgroup>
+                <tbody>
+                  {shape.tableRows.map((row, ri) => {
+                    const rowH = (row.heightEmu / totalRowH) * height
+                    return (
+                      <tr key={ri} style={{ height: rowH }}>
+                        {row.cells.map((cell, ci) => {
+                          if (cell.vMerge || cell.hMerge) return null
+                          return (
+                            <td
+                              key={ci}
+                              colSpan={cell.gridSpan ?? 1}
+                              rowSpan={cell.rowSpan ?? 1}
+                              style={{
+                                backgroundColor: cell.fillHex ? `#${cell.fillHex}` : 'transparent',
+                                border: `${Math.max(0.5, scale)}px solid #D1D5DB`,
+                                padding: `${Math.max(1, 2 * scale)}px`,
+                                verticalAlign: 'middle',
+                                overflow: 'hidden',
+                              }}
+                            >
+                              <RenderParagraphs
+                                paragraphs={cell.paragraphs}
+                                scale={scale}
+                                variables={variables}
+                                highlighted={highlighted}
+                                onVarClick={onVarClick}
+                                overlayMode={!!thumbnailUrl && shapeHasVariables(shape)}
+                              />
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
+
+        // ── Rect (no text, just fill/stroke) ───────────────────────────────
+        if (shape.kind === 'rect') {
+          const bw = shape.strokeWidthEmu ? Math.max(0.5, (shape.strokeWidthEmu / 12700) * scale) : 0
+          return (
+            <div
+              key={shape.id}
+              style={{
+                ...sharedStyle,
+                height,
+                backgroundColor: shape.fillHex ? `#${shape.fillHex}` : 'transparent',
+                border: bw > 0 && shape.strokeHex
+                  ? `${bw}px solid #${shape.strokeHex}`
+                  : 'none',
+              }}
+              onMouseDown={(e) => handleMouseDown(e, shape)}
+            />
+          )
+        }
+
+        // ── Text (default) ─────────────────────────────────────────────────
+        const bw = shape.strokeWidthEmu ? Math.max(0.5, (shape.strokeWidthEmu / 12700) * scale) : 0
+        // In overlay mode (thumbnail as bg): transparent background so PNG shows through,
+        // but chips are still rendered — effectively hiding the duplicate raw text
+        const isVariableOverlay = !!thumbnailUrl && hasVars
         return (
           <div
             key={shape.id}
             style={{
-              position: 'absolute',
-              left: (xEmu / slide.slideWEmu) * displayWidth,
-              top: (yEmu / slide.slideHEmu) * displayH,
-              width: (shape.wEmu / slide.slideWEmu) * displayWidth,
-              minHeight: (shape.hEmu / slide.slideHEmu) * displayH,
-              backgroundColor: shape.fillHex ? `#${shape.fillHex}` : 'transparent',
-              cursor: draggable && shapeHasVars ? (isDragging ? 'grabbing' : 'grab') : 'default',
-              outline: isDragging ? `${Math.max(1, 1.5 * scale)}px dashed #3B82F6` : 'none',
-              overflow: 'hidden',
+              ...sharedStyle,
+              minHeight: height,
+              backgroundColor: isVariableOverlay ? 'transparent' : (shape.fillHex ? `#${shape.fillHex}` : 'transparent'),
+              border: isVariableOverlay ? 'none' : (bw > 0 && shape.strokeHex ? `${bw}px solid #${shape.strokeHex}` : 'none'),
               padding: `${0.5 * scale}px`,
             }}
             onMouseDown={(e) => handleMouseDown(e, shape)}
           >
-            {shape.paragraphs.map((para, pi) => (
-              <div key={pi} style={{ textAlign: alignToCSS(para.align) }}>
-                {para.runs.map((run, ri) => (
-                  <RenderRun
-                    key={ri}
-                    run={run}
-                    scale={scale}
-                    variables={variables}
-                    highlighted={highlighted}
-                    onVarClick={onVarClick}
-                  />
-                ))}
-              </div>
-            ))}
+            <RenderParagraphs
+              paragraphs={shape.paragraphs}
+              scale={scale}
+              variables={variables}
+              highlighted={highlighted}
+              onVarClick={onVarClick}
+              overlayMode={isVariableOverlay}
+            />
           </div>
         )
       })}
@@ -319,6 +535,8 @@ function FullSlideModal({
   onClose,
   onVarClick,
   highlighted,
+  thumbnailUrls = [],
+  isGeneratingThumbs = false,
 }: {
   slides: ParsedSlide[]
   initialIndex: number
@@ -327,6 +545,8 @@ function FullSlideModal({
   onClose: () => void
   onVarClick: (key: string) => void
   highlighted: string | null
+  thumbnailUrls?: string[]
+  isGeneratingThumbs?: boolean
 }) {
   const [currentIdx, setCurrentIdx] = useState(initialIndex)
   const [zoomIdx, setZoomIdx] = useState(2) // default 1×
@@ -421,6 +641,12 @@ function FullSlideModal({
             <Button variant="ghost" size="icon" className="h-7 w-7" disabled={zoomIdx === ZOOM_LEVELS.length - 1} onClick={() => setZoomIdx((z) => z + 1)}>
               <ZoomIn className="h-4 w-4" />
             </Button>
+            {isGeneratingThumbs && (
+              <div className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1 mr-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Generating HD preview…
+              </div>
+            )}
             <Button variant="ghost" size="icon" className="h-7 w-7 ml-2" onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
@@ -443,6 +669,7 @@ function FullSlideModal({
                   variables={variables}
                   highlighted={null}
                   onVarClick={() => {}}
+                  thumbnailUrl={thumbnailUrls[s.index - 1]}
                 />
                 <div className="text-center text-[10px] text-muted-foreground py-0.5 bg-white">{s.index}</div>
               </button>
@@ -466,6 +693,7 @@ function FullSlideModal({
               posOverrides={posOverridesMap}
               draggable
               onShapeDragEnd={handleShapeDragEnd}
+              thumbnailUrl={thumbnailUrls[slide.index - 1]}
             />
           </div>
         </div>
@@ -485,20 +713,76 @@ function FullSlideModal({
 
 function SlidePanel({
   storagePath,
+  thumbnailPaths,
   variables,
   highlightedVar,
   onVarClick,
+  onSlideVarsChange,
+  templateId,
+  onRefresh,
 }: {
   storagePath: string | null
+  thumbnailPaths: string[] | null
   variables: DetectedVariable[]
   highlightedVar: string | null
   onVarClick: (key: string) => void
+  onSlideVarsChange?: (keys: Set<string>, slideIdx: number) => void
+  templateId: string
+  onRefresh: () => void
 }) {
   const [slides, setSlides] = useState<ParsedSlide[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [thumbnailUrls, setThumbnailUrls] = useState<string[]>([])
+  const [isGeneratingThumbs, setIsGeneratingThumbs] = useState(false)
+  const slideVarsRef = useRef(onSlideVarsChange)
+  slideVarsRef.current = onSlideVarsChange
 
+  // Notify parent when selected slide changes (filters variables to this slide)
+  useEffect(() => {
+    if (selectedIdx === null || !slides) return
+    const slide = slides.find(s => s.index === selectedIdx)
+    if (slide) slideVarsRef.current?.(getSlideVariableKeys(slide), selectedIdx)
+  }, [selectedIdx, slides])
+
+  const handleGenerateThumbnails = useCallback(async () => {
+    setIsGeneratingThumbs(true)
+    try {
+      const { error } = await supabase.functions.invoke('generate-slide-thumbnails', {
+        body: { template_id: templateId },
+      })
+      if (error) throw error
+      toast.success('HD previews generated!')
+      onRefresh()
+    } catch {
+      toast.error('Failed to generate previews. Check that CONVERT_API_SECRET is configured.')
+    } finally {
+      setIsGeneratingThumbs(false)
+    }
+  }, [templateId, onRefresh])
+
+  const handleOpenModal = useCallback(async () => {
+    setModalOpen(true)
+    // Auto-trigger thumbnail generation if not yet done
+    if (thumbnailUrls.length === 0 && storagePath && !isGeneratingThumbs) {
+      await handleGenerateThumbnails()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thumbnailUrls.length, storagePath, isGeneratingThumbs, handleGenerateThumbnails])
+
+  // Load signed URLs for thumbnails
+  useEffect(() => {
+    if (!thumbnailPaths || thumbnailPaths.length === 0) return
+    supabase.storage
+      .from('bc-templates')
+      .createSignedUrls(thumbnailPaths, 3600)
+      .then(({ data }) => {
+        if (data) setThumbnailUrls(data.map((d) => d.signedUrl ?? '').filter(Boolean))
+      })
+  }, [thumbnailPaths])
+
+  // Auto-load slides (for variable position data) when thumbnails exist
   const loadSlides = useCallback(async () => {
     if (!storagePath) return
     setLoading(true)
@@ -515,6 +799,13 @@ function SlidePanel({
     }
   }, [storagePath])
 
+  // Auto-load slide data for preview and variable detection
+  useEffect(() => {
+    if (storagePath && !slides && !loading) {
+      loadSlides()
+    }
+  }, [storagePath, slides, loading, loadSlides])
+
   const selectedSlide = slides?.find((s) => s.index === selectedIdx) ?? null
 
   if (!storagePath) {
@@ -526,88 +817,134 @@ function SlidePanel({
     )
   }
 
+  // Loading slides
   if (!slides) {
     return (
       <div className="space-y-2">
-        <Button variant="outline" className="w-full" onClick={loadSlides} disabled={loading}>
-          {loading
-            ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading preview…</>
-            : <><Eye className="mr-2 h-4 w-4" />Load Slide Preview</>
-          }
-        </Button>
-        <p className="text-xs text-muted-foreground text-center">
-          Downloads the PPTX and renders an interactive preview. Click variables to configure them.
-        </p>
+        {loading ? (
+          <div className="flex flex-col items-center justify-center h-32 gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <p>Loading preview…</p>
+          </div>
+        ) : (
+          <Button variant="outline" className="w-full" onClick={loadSlides}>
+            <Eye className="mr-2 h-4 w-4" />Load Slide Preview
+          </Button>
+        )}
       </div>
     )
   }
 
+  // Loading slides while thumbnails are ready — show thumbnails immediately
+  const slideCount = thumbnailUrls.length > 0 ? thumbnailUrls.length : (slides?.length ?? 0)
+
   return (
     <div className="space-y-3">
       {/* Selected slide preview */}
-      {selectedSlide && (
+      {(selectedSlide || thumbnailUrls.length > 0) && (
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <p className="text-xs font-medium text-muted-foreground">
-              Slide {selectedSlide.index} — click a variable to configure
+              {selectedSlide
+                ? `Slide ${selectedSlide.index} — click a variable to configure`
+                : `Slide ${(selectedIdx ?? 1)}`}
             </p>
             <Button
               variant="ghost"
               size="sm"
               className="h-6 text-xs gap-1"
-              onClick={() => setModalOpen(true)}
+              onClick={() => { void handleOpenModal() }}
             >
-              <ZoomIn className="h-3 w-3" /> Full View
+              <ZoomIn className="h-3 w-3" /> {isGeneratingThumbs ? 'Generating…' : 'Full View'}
             </Button>
           </div>
-          <SlideCanvas
-            slide={selectedSlide}
-            displayWidth={300}
-            variables={variables}
-            highlighted={highlightedVar}
-            onVarClick={onVarClick}
-          />
+          {selectedSlide ? (
+            <SlideCanvas
+              slide={selectedSlide}
+              displayWidth={300}
+              variables={variables}
+              highlighted={highlightedVar}
+              onVarClick={onVarClick}
+              thumbnailUrl={thumbnailUrls[(selectedSlide.index - 1)] ?? undefined}
+            />
+          ) : (
+            // Thumbnails loaded but slide parse still in progress — show thumbnail only
+            <img
+              src={thumbnailUrls[(selectedIdx ?? 1) - 1]}
+              alt=""
+              className="w-full rounded border border-border shadow-sm"
+            />
+          )}
         </div>
       )}
 
-      {/* Slide thumbnail grid */}
+      {/* Slide strip */}
       <div>
-        <p className="text-xs text-muted-foreground mb-1.5">{slides.length} slides total</p>
+        <p className="text-xs text-muted-foreground mb-1.5">{slideCount} slides total</p>
         <div className="grid grid-cols-2 gap-1.5 max-h-[46vh] overflow-y-auto pr-0.5">
-          {slides.map((s) => (
-            <button
-              key={s.index}
-              type="button"
-              className={`rounded border-2 overflow-hidden text-left transition-colors ${s.index === selectedIdx ? 'border-primary' : 'border-transparent hover:border-muted-foreground/30'}`}
-              onClick={() => setSelectedIdx(s.index)}
-              onDoubleClick={() => { setSelectedIdx(s.index); setModalOpen(true) }}
-            >
-              <SlideCanvas
-                slide={s}
-                displayWidth={130}
-                variables={variables}
-                highlighted={highlightedVar}
-                onVarClick={onVarClick}
-              />
-              <div className="text-center text-[10px] text-muted-foreground py-0.5 bg-white border-t">
-                {s.index}
-              </div>
-            </button>
-          ))}
+          {Array.from({ length: slideCount }, (_, i) => i + 1).map((slideNum) => {
+            const slide = slides?.find((s) => s.index === slideNum)
+            const thumbUrl = thumbnailUrls[slideNum - 1]
+            const isSelected = (selectedIdx ?? 1) === slideNum
+            return (
+              <button
+                key={slideNum}
+                type="button"
+                className={`rounded border-2 overflow-hidden text-left transition-colors ${isSelected ? 'border-primary' : 'border-transparent hover:border-muted-foreground/30'}`}
+                onClick={() => setSelectedIdx(slideNum)}
+                onDoubleClick={() => { setSelectedIdx(slideNum); void handleOpenModal() }}
+              >
+                {slide ? (
+                  <SlideCanvas
+                    slide={slide}
+                    displayWidth={130}
+                    variables={variables}
+                    highlighted={highlightedVar}
+                    onVarClick={onVarClick}
+                    thumbnailUrl={thumbUrl}
+                  />
+                ) : thumbUrl ? (
+                  <img src={thumbUrl} alt="" className="w-full" draggable={false} />
+                ) : null}
+                <div className="text-center text-[10px] text-muted-foreground py-0.5 bg-white border-t">
+                  {slideNum}
+                </div>
+              </button>
+            )
+          })}
         </div>
         <p className="text-[10px] text-muted-foreground mt-1.5">Double-click to open full view</p>
       </div>
 
+      {/* Generate HD previews button */}
+      {thumbnailUrls.length === 0 && storagePath && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={handleGenerateThumbnails}
+          disabled={isGeneratingThumbs}
+        >
+          {isGeneratingThumbs ? (
+            <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />Generating HD previews…</>
+          ) : (
+            <><Sparkles className="mr-2 h-3.5 w-3.5" />Generate HD Previews</>
+          )}
+        </Button>
+      )}
+
       {/* Full-screen modal */}
-      {modalOpen && selectedSlide && (
+      {modalOpen && slides && (
         <FullSlideModal
           slides={slides}
-          initialIndex={selectedSlide.index}
+          initialIndex={selectedIdx ?? 1}
           variables={variables}
           storagePath={storagePath}
           highlighted={highlightedVar}
           onVarClick={onVarClick}
           onClose={() => setModalOpen(false)}
+          thumbnailUrls={thumbnailUrls}
+          isGeneratingThumbs={isGeneratingThumbs}
         />
       )}
     </div>
@@ -741,11 +1078,17 @@ function VariableEditor({
   initialVars,
   highlightedVar,
   onSaved,
+  activeSlideVarKeys,
+  activeSlideIdx,
+  onClearSlideFilter,
 }: {
   templateId: string
   initialVars: DetectedVariable[]
   highlightedVar: string | null
   onSaved: (vars: DetectedVariable[]) => void
+  activeSlideVarKeys?: Set<string> | null
+  activeSlideIdx?: number | null
+  onClearSlideFilter?: () => void
 }) {
   const { updateTemplate } = useBusinessCases()
   const [localVars, setLocalVars] = useState<DetectedVariable[]>(initialVars)
@@ -782,6 +1125,7 @@ function VariableEditor({
 
   const filtered = useMemo(() => {
     let result = localVars
+    if (activeSlideVarKeys) result = result.filter((v) => activeSlideVarKeys.has(v.key))
     if (typeFilter !== 'all') result = result.filter((v) => v.type === typeFilter)
     if (search.trim()) {
       const q = search.toLowerCase()
@@ -795,13 +1139,28 @@ function VariableEditor({
       )
     }
     return result
-  }, [localVars, search, typeFilter])
+  }, [localVars, search, typeFilter, activeSlideVarKeys])
 
   const autoCount = localVars.filter((v) => v.type === 'auto').length
   const aiCount = localVars.filter((v) => v.type === 'ai').length
 
   return (
     <div className="flex flex-col gap-3 min-h-0 flex-1">
+      {/* Slide filter indicator */}
+      {activeSlideVarKeys && activeSlideIdx && (
+        <div className="flex items-center justify-between bg-primary/5 border border-primary/20 rounded-lg px-3 py-1.5 shrink-0">
+          <span className="text-xs font-medium text-primary">
+            Slide {activeSlideIdx} — {activeSlideVarKeys.size} variable{activeSlideVarKeys.size !== 1 ? 's' : ''}
+          </span>
+          <button
+            type="button"
+            onClick={onClearSlideFilter}
+            className="text-xs text-primary hover:text-primary/80 font-medium underline"
+          >
+            Show All
+          </button>
+        </div>
+      )}
       {/* Toolbar */}
       <div className="flex items-center gap-2 flex-wrap shrink-0">
         <div className="relative flex-1 min-w-[140px]">
@@ -884,6 +1243,7 @@ function ReuploadSection({
   const [open, setOpen] = useState(false)
   const [isParsing, setIsParsing] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  const [isGeneratingThumbs, setIsGeneratingThumbs] = useState(false)
   const [previewVars, setPreviewVars] = useState<DetectedVariable[] | null>(null)
   const [newFile, setNewFile] = useState<File | null>(null)
 
@@ -912,8 +1272,20 @@ function ReuploadSection({
         .update({ pptx_storage_path: storagePath, detected_variables: previewVars, updated_at: new Date().toISOString() })
         .eq('id', templateId)
       if (updateErr) throw updateErr
-      toast.success(`Template updated — ${previewVars.length} variables detected`)
       setNewFile(null); setPreviewVars(null); setOpen(false)
+      toast.success(`Template updated — ${previewVars.length} variables detected. Generating slide previews…`)
+      // Kick off thumbnail generation in the background (non-blocking)
+      setIsGeneratingThumbs(true)
+      supabase.functions.invoke('generate-slide-thumbnails', {
+        body: { template_id: templateId },
+      }).then(({ error }) => {
+        setIsGeneratingThumbs(false)
+        if (error) {
+          console.error('Thumbnail generation failed:', error)
+        } else {
+          onUpdated() // Refresh template data to get new thumbnail_paths
+        }
+      })
       onUpdated()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to update template')
@@ -951,9 +1323,11 @@ function ReuploadSection({
             )}
           </div>
           {newFile && (
-            <Button className="w-full" onClick={handleReupload} disabled={isUploading || isParsing}>
+            <Button className="w-full" onClick={handleReupload} disabled={isUploading || isParsing || isGeneratingThumbs}>
               {isUploading
                 ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading…</>
+                : isGeneratingThumbs
+                ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Generating previews…</>
                 : <><Upload className="mr-2 h-4 w-4" />Replace Template File</>
               }
             </Button>
@@ -1012,6 +1386,8 @@ export function BusinessCaseTemplateEditor() {
   const { templates, deleteTemplate } = useBusinessCases()
   const [refreshKey, setRefreshKey] = useState(0)
   const [highlightedVar, setHighlightedVar] = useState<string | null>(null)
+  const [activeSlideVarKeys, setActiveSlideVarKeys] = useState<Set<string> | null>(null)
+  const [activeSlideIdx, setActiveSlideIdx] = useState<number | null>(null)
 
   const template = templates.find((t) => t.id === id)
 
@@ -1101,9 +1477,16 @@ export function BusinessCaseTemplateEditor() {
             <SlidePanel
               key={refreshKey}
               storagePath={template.pptx_storage_path}
+              thumbnailPaths={template.thumbnail_paths ?? null}
               variables={detectedVars}
               highlightedVar={highlightedVar}
               onVarClick={(key) => setHighlightedVar(highlightedVar === key ? null : key)}
+              onSlideVarsChange={(keys, idx) => {
+                setActiveSlideVarKeys(keys)
+                setActiveSlideIdx(idx)
+              }}
+              templateId={template.id}
+              onRefresh={() => setRefreshKey((k) => k + 1)}
             />
           </div>
 
@@ -1139,6 +1522,9 @@ export function BusinessCaseTemplateEditor() {
                 initialVars={detectedVars}
                 highlightedVar={highlightedVar}
                 onSaved={() => setRefreshKey((k) => k + 1)}
+                activeSlideVarKeys={activeSlideVarKeys}
+                activeSlideIdx={activeSlideIdx}
+                onClearSlideFilter={() => { setActiveSlideVarKeys(null); setActiveSlideIdx(null) }}
               />
             )}
 
