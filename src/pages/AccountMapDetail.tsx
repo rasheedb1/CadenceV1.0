@@ -1,5 +1,8 @@
 import { useState, useMemo } from 'react'
+import { toast } from 'sonner'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useAuth } from '@/contexts/AuthContext'
+import { callEdgeFunction } from '@/lib/edge-functions'
 import { useAccountMapping, type SalesNavResult } from '@/contexts/AccountMappingContext'
 import { EXCLUSION_TYPES } from '@/types/registry'
 import { AddPersonaDialog } from '@/components/account-mapping/AddPersonaDialog'
@@ -72,6 +75,7 @@ import {
   ListFilter,
   AlertTriangle,
   XCircle,
+  Cloud,
 } from 'lucide-react'
 import {
   PROSPECT_STATUS_CONFIG,
@@ -119,8 +123,10 @@ export function AccountMapDetail() {
   } = useAccountMapping()
   const { cadences } = useCadence()
   const { convertInlineICP: convertInlineICPMutation } = useICPProfileMutations()
+  const { session } = useAuth()
 
   const [activeTab, setActiveTab] = useState<TabId>('icp')
+  const [pushingToSalesforce, setPushingToSalesforce] = useState(false)
 
   // Dialog states
   const [showAddCompany, setShowAddCompany] = useState(false)
@@ -141,6 +147,33 @@ export function AccountMapDetail() {
   // Personas come from the linked ICP profile if available, otherwise from inline (legacy)
   const personas = map?.icp_profile?.buyer_personas || map?.buyer_personas || []
   const prospects = map?.prospects || []
+
+  const handlePushProspectsToSalesforce = async (prospectIds: string[]) => {
+    if (!session?.access_token || prospectIds.length === 0) return
+    setPushingToSalesforce(true)
+    try {
+      const result = await callEdgeFunction<{
+        success: boolean
+        total: number
+        pushed: number
+        duplicates: number
+        failed: number
+      }>('salesforce-push-lead', { prospectIds }, session.access_token, { timeoutMs: 120000 })
+      const parts: string[] = []
+      if (result.pushed > 0) parts.push(`${result.pushed} pushed`)
+      if (result.duplicates > 0) parts.push(`${result.duplicates} duplicates`)
+      if (result.failed > 0) parts.push(`${result.failed} failed`)
+      if (result.pushed > 0) {
+        toast.success(`Salesforce: ${parts.join(', ')}`)
+      } else {
+        toast.warning(`Salesforce: ${parts.join(', ')}`)
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to push to Salesforce')
+    } finally {
+      setPushingToSalesforce(false)
+    }
+  }
 
   const handleConvertInline = async () => {
     if (!map) return
@@ -282,6 +315,8 @@ export function AccountMapDetail() {
           onBulkEnrich={bulkEnrichProspects}
           onPromote={() => setShowPromote(true)}
           onDelete={deleteProspect}
+          onPushToSalesforce={handlePushProspectsToSalesforce}
+          pushingToSalesforce={pushingToSalesforce}
         />
       )}
 
@@ -586,6 +621,8 @@ function ProspectsTab({
   onBulkEnrich,
   onPromote,
   onDelete,
+  onPushToSalesforce,
+  pushingToSalesforce,
 }: {
   prospects: Prospect[]
   companies: AccountMapCompany[]
@@ -603,6 +640,8 @@ function ProspectsTab({
   onBulkEnrich: (prospectIds: string[], companyWebsite?: string, onProgress?: (done: number, total: number) => void) => Promise<any>
   onPromote: () => void
   onDelete: (id: string) => void
+  onPushToSalesforce: (prospectIds: string[]) => Promise<void>
+  pushingToSalesforce: boolean
 }) {
   const { validateProspects, skipProspect, getOutreachStrategy, promoteProspectToLead, findDuplicateProspects, bulkDeleteProspects } = useAccountMapping()
   const [viewMode, setViewMode] = useState<'company' | 'table'>('company')
@@ -629,6 +668,7 @@ function ProspectsTab({
 
   const selectedCount = selectedProspects.size
   const promotableCount = prospects.filter((p) => selectedProspects.has(p.id) && p.status !== 'promoted').length
+  const sfPushableCount = prospects.filter((p) => selectedProspects.has(p.id) && !!p.email).length
 
   // Build persona lookup
   const personaMap = useMemo(() => {
@@ -932,6 +972,21 @@ function ProspectsTab({
                 {promotableCount > 0 && (
                   <Button size="sm" onClick={onPromote}>
                     <ArrowUpRight className="mr-1 h-4 w-4" /> Promote to Leads
+                  </Button>
+                )}
+                {sfPushableCount > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-blue-600 border-blue-200 hover:bg-blue-50 dark:text-blue-400 dark:border-blue-800 dark:hover:bg-blue-950/30"
+                    onClick={() => onPushToSalesforce(prospects.filter(p => selectedProspects.has(p.id) && !!p.email).map(p => p.id))}
+                    disabled={pushingToSalesforce}
+                  >
+                    {pushingToSalesforce ? (
+                      <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Pushing...</>
+                    ) : (
+                      <><Cloud className="mr-1 h-4 w-4" /> Push to Salesforce ({sfPushableCount})</>
+                    )}
                   </Button>
                 )}
                 <Button size="sm" variant="destructive" onClick={handleDeleteSelected}>

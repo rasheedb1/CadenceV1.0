@@ -124,28 +124,50 @@ serve(async (req: Request) => {
     const ctx = await getAuthContext(authHeader)
     if (!ctx) return errorResponse('Unauthorized', 401)
 
-    const body = await req.json() as { leadId?: string; leadIds?: string[] }
-    const ids = body.leadIds || (body.leadId ? [body.leadId] : [])
-    const isBulk = !!body.leadIds
+    const body = await req.json() as { leadId?: string; leadIds?: string[]; prospectIds?: string[] }
+    const isProspectMode = !!body.prospectIds
+    const ids = body.prospectIds || body.leadIds || (body.leadId ? [body.leadId] : [])
+    const isBulk = !!(body.leadIds || body.prospectIds)
 
-    if (ids.length === 0) return errorResponse('leadId or leadIds is required')
+    if (ids.length === 0) return errorResponse('leadId, leadIds, or prospectIds is required')
 
     const supabase = createSupabaseClient(authHeader)
 
-    // Load leads
-    const { data: leads, error: leadsErr } = await supabase
-      .from('leads')
-      .select('id, first_name, last_name, email, company, phone, title, website, industry, salesforce_lead_id')
-      .in('id', ids)
-      .eq('org_id', ctx.orgId)
-
-    if (leadsErr || !leads || leads.length === 0) {
-      return errorResponse('No leads found', 404)
+    // Load records from appropriate table
+    let records: LeadRecord[]
+    if (isProspectMode) {
+      const { data, error } = await supabase
+        .from('prospects')
+        .select('id, first_name, last_name, email, company, phone, title, linkedin_url')
+        .in('id', ids)
+        .eq('org_id', ctx.orgId)
+      if (error || !data || data.length === 0) return errorResponse('No prospects found', 404)
+      // Map prospect fields to LeadRecord (no salesforce_lead_id on prospects — email dedupe handles idempotency)
+      records = data.map(p => ({
+        id: p.id,
+        first_name: p.first_name,
+        last_name: p.last_name,
+        email: p.email,
+        company: p.company,
+        phone: p.phone,
+        title: p.title,
+        website: p.linkedin_url || null,
+        industry: null,
+        salesforce_lead_id: null,
+      }))
+    } else {
+      const { data, error } = await supabase
+        .from('leads')
+        .select('id, first_name, last_name, email, company, phone, title, website, industry, salesforce_lead_id')
+        .in('id', ids)
+        .eq('org_id', ctx.orgId)
+      if (error || !data || data.length === 0) return errorResponse('No leads found', 404)
+      records = data as LeadRecord[]
     }
 
-    // Single lead mode (backward compatible)
-    if (!isBulk && leads.length === 1) {
-      const lead = leads[0] as LeadRecord
+    // Single mode (backward compatible, leads only)
+    if (!isBulk && records.length === 1) {
+      const lead = records[0]
       const result = await pushSingleLead(lead, ctx.orgId, supabase)
 
       if (result.duplicate) {
@@ -169,15 +191,15 @@ serve(async (req: Request) => {
 
     // Bulk mode
     const results: PushResult[] = []
-    for (let i = 0; i < leads.length; i++) {
+    for (let i = 0; i < records.length; i++) {
       try {
-        const result = await pushSingleLead(leads[i] as LeadRecord, ctx.orgId, supabase)
+        const result = await pushSingleLead(records[i], ctx.orgId, supabase)
         results.push(result)
-        console.log(`  [${i + 1}/${leads.length}] ${result.leadName}: ${result.success ? 'OK' : result.error}`)
+        console.log(`  [${i + 1}/${records.length}] ${result.leadName}: ${result.success ? 'OK' : result.error}`)
       } catch (err) {
-        const name = `${leads[i].first_name} ${leads[i].last_name}`
+        const name = `${records[i].first_name} ${records[i].last_name}`
         results.push({
-          leadId: leads[i].id,
+          leadId: records[i].id,
           leadName: name,
           success: false,
           error: err instanceof Error ? err.message : 'Unknown error',
@@ -185,7 +207,7 @@ serve(async (req: Request) => {
       }
 
       // Small delay between leads to avoid SF rate limits
-      if (i < leads.length - 1) {
+      if (i < records.length - 1) {
         await new Promise(r => setTimeout(r, DELAY_BETWEEN_LEADS_MS))
       }
     }

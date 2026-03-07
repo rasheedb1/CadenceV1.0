@@ -17,6 +17,8 @@ import {
   Crown,
   Activity,
   Building2,
+  Briefcase,
+  Star,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrg } from '@/contexts/OrgContext'
@@ -36,6 +38,8 @@ const navigation: { name: string; href: string; icon: typeof LayoutDashboard; fe
   { name: 'Company Registry', href: '/company-registry', icon: ShieldCheck, featureFlag: 'section_company_registry' },
   { name: 'Company Research', href: '/company-research', icon: Building2, featureFlag: 'section_company_research' },
   { name: 'Leads', href: '/leads', icon: Users, featureFlag: 'section_leads' },
+  { name: 'Business Cases', href: '/business-cases', icon: Briefcase, featureFlag: 'section_business_cases' },
+  { name: 'Account Executive', href: '/account-executive', icon: Star, featureFlag: 'section_account_executive' },
   { name: 'Templates', href: '/templates', icon: FileText, featureFlag: 'section_templates' },
   { name: 'AI Prompts', href: '/ai-prompts', icon: Brain, featureFlag: 'section_ai_prompts' },
   { name: 'LinkedIn Inbox', href: '/inbox', icon: MessageSquare, featureFlag: 'section_linkedin_inbox' },
@@ -72,8 +76,8 @@ export function Sidebar() {
   return (
     <div className="flex h-full w-[280px] flex-col sidebar-gradient">
       {/* Logo */}
-      <div className="flex items-center gap-3 px-6 py-6">
-        <div className="flex h-10 w-10 items-center justify-center rounded-[10px] logo-gradient text-white text-base font-bold shrink-0">
+      <div className="flex items-center gap-3 px-6 py-4">
+        <div className="flex h-9 w-9 items-center justify-center rounded-[10px] logo-gradient text-white text-sm font-bold shrink-0">
           C
         </div>
         <div>
@@ -83,12 +87,12 @@ export function Sidebar() {
       </div>
 
       {/* Org Switcher */}
-      <div className="px-4 pb-2">
+      <div className="px-4 pb-1">
         <OrgSwitcher />
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-4 py-2">
+      <nav className="flex-1 space-y-0.5 px-4 py-1">
         {navigation.map((item) => {
           if (item.name === 'Admin' && role !== 'admin') return null
           if (item.name === 'Super Admin' && !isSuperAdmin) return null
@@ -99,14 +103,14 @@ export function Sidebar() {
               to={item.href}
               className={({ isActive }) =>
                 cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all h-11',
+                  'flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium transition-all',
                   isActive
                     ? 'nav-active-gradient text-foreground'
                     : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                 )
               }
             >
-              <item.icon className="h-5 w-5" />
+              <item.icon className="h-[18px] w-[18px]" />
               <span className="flex-1">{item.name}</span>
               {item.name === 'Notifications' && unreadCount > 0 && (
                 <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground">

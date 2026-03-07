@@ -8,10 +8,11 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, CheckCircle2, XCircle, ExternalLink, Mail, Brain } from 'lucide-react'
+import { Loader2, CheckCircle2, XCircle, ExternalLink, Mail, Brain, Calendar, RefreshCw } from 'lucide-react'
 import { useLinkedInConnection } from '@/hooks/useLinkedInConnection'
 import { useGmailConnection } from '@/hooks/useGmailConnection'
 import { SalesforceConnection } from '@/components/salesforce/SalesforceConnection'
+import { useAccountExecutive } from '@/contexts/AccountExecutiveContext'
 
 const CLAUDE_MODELS = [
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Recommended)' },
@@ -27,6 +28,32 @@ export function Settings() {
 
   const linkedin = useLinkedInConnection()
   const gmail = useGmailConnection()
+
+  const { integrations, saveGongCredentials, disconnectIntegration, isSyncingGong, syncGong, getGoogleCalendarAuthUrl } = useAccountExecutive()
+
+  const [gongKey, setGongKey] = useState('')
+  const [gongSecret, setGongSecret] = useState('')
+  const [gongSaving, setGongSaving] = useState(false)
+
+  const gongIntegration = integrations.find(i => i.provider === 'gong')
+  const calendarIntegration = integrations.find(i => i.provider === 'google_calendar')
+
+  const handleSaveGong = async () => {
+    if (!gongKey.trim() || !gongSecret.trim()) return
+    setGongSaving(true)
+    try {
+      await saveGongCredentials(gongKey.trim(), gongSecret.trim())
+      setGongKey('')
+      setGongSecret('')
+    } finally {
+      setGongSaving(false)
+    }
+  }
+
+  const handleConnectCalendar = async () => {
+    const url = await getGoogleCalendarAuthUrl()
+    if (url) window.location.href = url
+  }
 
   // LLM settings
   const [llmModel, setLlmModel] = useState('claude-sonnet-4-6')
@@ -409,6 +436,106 @@ export function Settings() {
               <Button variant="outline" disabled>
                 Coming Soon
               </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Account Executive</CardTitle>
+            <CardDescription>Connect Gong and Google Calendar to power your AE workspace</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Gong */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="font-medium flex items-center gap-2">
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-orange-100 text-orange-600 text-xs font-bold">G</span>
+                    Gong
+                  </p>
+                  <p className="text-sm text-muted-foreground">Sync call recordings and transcripts</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {gongIntegration ? (
+                    <>
+                      <Badge className="bg-green-100 text-green-800 border-0 text-xs">
+                        <CheckCircle2 className="h-3 w-3 mr-1" />Connected
+                      </Badge>
+                      <Button size="sm" variant="outline" onClick={() => syncGong()} disabled={isSyncingGong}>
+                        {isSyncingGong ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+                        Sync now
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => disconnectIntegration('gong')}>Disconnect</Button>
+                    </>
+                  ) : (
+                    <Badge className="bg-gray-100 text-gray-600 border-0 text-xs">
+                      <XCircle className="h-3 w-3 mr-1" />Not connected
+                    </Badge>
+                  )}
+                </div>
+              </div>
+              {!gongIntegration && (
+                <div className="space-y-2 pl-0">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Gong Access Key</Label>
+                      <Input
+                        type="password"
+                        placeholder="Access Key"
+                        value={gongKey}
+                        onChange={e => setGongKey(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Gong Access Key Secret</Label>
+                      <Input
+                        type="password"
+                        placeholder="Secret"
+                        value={gongSecret}
+                        onChange={e => setGongSecret(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <Button size="sm" onClick={handleSaveGong} disabled={!gongKey.trim() || !gongSecret.trim() || gongSaving}>
+                    {gongSaving && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                    Connect Gong
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Find your API credentials in Gong → Company Settings → API.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Google Calendar */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-blue-500" />
+                  Google Calendar
+                </p>
+                <p className="text-sm text-muted-foreground">View meetings and prepare pre-meeting briefs</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {calendarIntegration ? (
+                  <>
+                    <Badge className="bg-green-100 text-green-800 border-0 text-xs">
+                      <CheckCircle2 className="h-3 w-3 mr-1" />Connected
+                    </Badge>
+                    <Button size="sm" variant="outline" onClick={() => disconnectIntegration('google_calendar')}>
+                      Disconnect
+                    </Button>
+                  </>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={handleConnectCalendar}>
+                    <Calendar className="h-3.5 w-3.5 mr-1.5" />
+                    Connect Google Calendar
+                  </Button>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

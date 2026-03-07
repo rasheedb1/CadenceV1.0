@@ -1,45 +1,39 @@
-# Plan: Soft Delete para Cadencias (prevención de pérdida permanente)
+# Plan: Business Cases MVP
 
-## Diagnóstico realizado — 2026-03-04
+## Decisiones de arquitectura
+- PPTX generado en el browser (pptxgenjs) — edge function devuelve JSON, browser construye el archivo
+- Sin Supabase Storage — todo como JSONB en PostgreSQL
+- Templates compartidos por org (no por usuario)
+- Business cases generados: librería buscable para toda la org
+- MVP: solo Path A (crear con AI). Path B (upload PPTX) en V2.
 
-### Qué encontramos
-- Las cadencias de Magdalena Torrealba **NO están en la base de datos**. No es un problema de RLS/visibilidad — fueron **borradas permanentemente** (hard delete).
-- Magdalena es **manager** del org "Alejandro Albarracin Team", así que SÍ tiene visibilidad de todas las cadencias del org. El problema no es permisos.
-- Solo hay UNA cadencia en su org: "Zalando Cadence" (creada hoy por Alejandro).
-- Toda la actividad de Magdalena en `activity_log` tiene `cadence_id: null`, lo que confirma que sus cadencias ya estaban eliminadas antes del 2 de marzo.
-- El actual `handleDelete` hace un `confirm()` de browser + `DELETE FROM cadences WHERE id = ?` sin posibilidad de recuperación.
+## Checklist
 
-### Ya desplegado en producción
-- ✅ Trigger `trg_validate_cadence_owner` — impide crear cadencias con `owner_id` que no sea miembro del org
-- ✅ View `orphaned_cadences` — monitoreo continuo de cadencias con owner desvinculado del org
+### Infra (Agent 1)
+- [ ] Migration 055: tablas business_case_templates, business_case_fields, business_cases + RLS
+- [ ] src/types/business-cases.ts — tipos TypeScript
+- [ ] src/types/feature-flags.ts — agregar section_business_cases
+- [ ] src/components/layout/Sidebar.tsx — agregar nav item "Business Cases"
+- [ ] src/contexts/BusinessCasesContext.tsx — TanStack Query CRUD
+- [ ] src/App.tsx — agregar rutas + BusinessCasesProvider
+- [ ] src/pages/index.ts — agregar exports
+- [ ] npm install pptxgenjs
 
----
+### Edge Functions (Agent 2)
+- [ ] supabase/functions/generate-bc-structure/index.ts — descripción → JSON de slides (Claude)
+- [ ] supabase/functions/generate-business-case/index.ts — template + lead → contenido (Firecrawl + Claude)
 
-## Plan: Implementar Soft Delete en Cadencias
+### Frontend Pages (Agent 3)
+- [ ] src/pages/BusinessCases.tsx — landing: tabs Templates + Biblioteca de casos
+- [ ] src/pages/BusinessCaseNew.tsx — Path A: describe → preview estructura → guardar
+- [ ] src/pages/BusinessCaseTemplateEditor.tsx — editor unificado (slides, campos, instrucciones)
+- [ ] src/pages/BusinessCaseGenerate.tsx — seleccionar lead → generar → review → descargar PPTX
 
-### Por qué
-Un hard delete sin audit trail hace imposible recuperar datos borrados por error.
-Con soft delete, los registros quedan en la DB con `deleted_at` y se pueden restaurar.
+### Deploy
+- [ ] npx supabase functions deploy generate-bc-structure --no-verify-jwt
+- [ ] npx supabase functions deploy generate-business-case --no-verify-jwt
+- [ ] npx vercel --prod
+- [ ] Push migration via Supabase Management API
 
-### Cambios necesarios
-
-- [ ] **Migration 049**: Agregar `deleted_at TIMESTAMPTZ` a `cadences` (y `cadence_steps` por coherencia)
-- [ ] **Migration 049**: Actualizar RLS SELECT policies para filtrar `deleted_at IS NULL`
-- [ ] **Migration 049**: Agregar función `restore_cadence(id)` para admins/managers
-- [ ] **CadenceContext.tsx**: Cambiar query para filtrar `deleted_at IS NULL` (respaldo del RLS)
-- [ ] **CadenceContext.tsx**: Cambiar `deleteCadence` para hacer `UPDATE SET deleted_at = NOW()` en vez de `DELETE`
-- [ ] **Cadences.tsx**: Mejorar UI de confirmación — mostrar nombre de la cadencia en el dialog
-
-### Scope
-- Solo afecta tabla `cadences` y `cadence_steps` (pasos dependen de la cadencia)
-- NO afecta `cadence_leads`, `lead_step_instances`, `schedules` (esos se pueden hard-delete si la cadencia se elimina)
-- Los datos existentes (Zalando Cadence, test) no se ven afectados
-
-### Riesgo
-- Bajo: es additive change (nueva columna nullable)
-- El trigger `ON DELETE CASCADE` en `cadence_steps` sigue funcionando igual para otros contextos
-
----
-
-## Aprobación requerida antes de implementar
-Esperando confirmación del usuario para proceder con los cambios de código y migración.
+## Review
+_(se completa al terminar)_

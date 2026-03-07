@@ -30,6 +30,7 @@ interface CadenceContextType {
   templates: Template[]
   isLoading: boolean
   createCadence: (name: string, description?: string) => Promise<Cadence | null>
+  duplicateCadence: (id: string) => Promise<Cadence | null>
   updateCadence: (id: string, data: Partial<Cadence>) => Promise<void>
   deleteCadence: (id: string) => Promise<void>
   createStep: (step: Omit<CadenceStep, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<CadenceStep | null>
@@ -162,6 +163,65 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
         .single()
       if (error) throw error
       return data as Cadence
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['cadences'] }),
+  })
+
+  const duplicateCadenceMutation = useMutation({
+    mutationFn: async (sourceId: string) => {
+      if (!user || !orgId) throw new Error('Not authenticated')
+
+      // Load the source cadence with its steps
+      const { data: source, error: srcErr } = await supabase
+        .from('cadences')
+        .select('*, cadence_steps(*)')
+        .eq('id', sourceId)
+        .single()
+      if (srcErr || !source) throw new Error('Source cadence not found')
+
+      // Build deduplicated name: strip existing "(N)" suffix then find next available number
+      const baseName = source.name.replace(/\s*\(\d+\)$/, '')
+      const existingNames = new Set(cadences.map((c) => c.name))
+      let n = 1
+      while (existingNames.has(n === 1 ? `${baseName} (1)` : `${baseName} (${n})`)) n++
+      const newName = `${baseName} (${n})`
+
+      // Create the new cadence (draft, no active leads)
+      await ensureProfileExists(user.id)
+      const { data: newCadence, error: cadErr } = await supabase
+        .from('cadences')
+        .insert({
+          name: newName,
+          description: source.description,
+          owner_id: user.id,
+          org_id: orgId,
+          status: 'draft',
+          automation_mode: source.automation_mode,
+          same_day_delay_hours: source.same_day_delay_hours,
+          timezone: source.timezone,
+        })
+        .select()
+        .single()
+      if (cadErr || !newCadence) throw new Error('Failed to create duplicate cadence')
+
+      // Copy all steps
+      const steps: CadenceStep[] = source.cadence_steps || []
+      if (steps.length > 0) {
+        const stepInserts = steps.map((s) => ({
+          cadence_id: newCadence.id,
+          owner_id: user.id,
+          org_id: orgId,
+          step_type: s.step_type,
+          step_label: s.step_label,
+          day_offset: s.day_offset,
+          order_in_day: s.order_in_day,
+          config_json: s.config_json,
+        }))
+        const { error: stepsErr } = await supabase.from('cadence_steps').insert(stepInserts)
+        if (stepsErr) throw new Error('Failed to copy steps')
+      }
+
+      return newCadence as Cadence
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['cadences'] }),
   })
@@ -311,6 +371,7 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
         templates,
         isLoading: cadencesLoading || leadsLoading,
         createCadence: async (name, description) => createCadenceMutation.mutateAsync({ name, description }),
+        duplicateCadence: async (id) => duplicateCadenceMutation.mutateAsync(id),
         updateCadence: async (id, data) => updateCadenceMutation.mutateAsync({ id, data }),
         deleteCadence: async (id) => deleteCadenceMutation.mutateAsync(id),
         createStep: async (step) => createStepMutation.mutateAsync(step),

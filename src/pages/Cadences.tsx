@@ -15,7 +15,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { Plus, Workflow, MoreVertical, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Workflow, MoreVertical, Pencil, Trash2, Copy, Loader2 } from 'lucide-react'
 import { PermissionGate } from '@/components/PermissionGate'
 import {
   DropdownMenu,
@@ -26,11 +26,12 @@ import {
 
 export function Cadences() {
   const navigate = useNavigate()
-  const { cadences, isLoading, createCadence, deleteCadence } = useCadence()
+  const { cadences, isLoading, createCadence, duplicateCadence, deleteCadence } = useCadence()
   const [newCadenceName, setNewCadenceName] = useState('')
   const [newCadenceDescription, setNewCadenceDescription] = useState('')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
 
   const handleCreate = async () => {
     if (!newCadenceName.trim()) return
@@ -54,6 +55,20 @@ export function Cadences() {
   const handleDelete = async (id: string, name: string) => {
     if (confirm(`¿Eliminar la cadencia "${name}"?\n\nEsta acción puede revertirse contactando al soporte.`)) {
       await deleteCadence(id)
+    }
+  }
+
+  const handleDuplicate = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation()
+    setDuplicatingId(id)
+    try {
+      const copy = await duplicateCadence(id)
+      if (copy) navigate(`/cadences/${copy.id}`)
+    } catch (err) {
+      console.error('Failed to duplicate cadence:', err)
+      alert(err instanceof Error ? err.message : 'Failed to duplicate cadence')
+    } finally {
+      setDuplicatingId(null)
     }
   }
 
@@ -166,6 +181,17 @@ export function Cadences() {
                     >
                       <Pencil className="mr-2 h-4 w-4" />
                       Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={(e) => handleDuplicate(e, cadence.id)}
+                      disabled={duplicatingId === cadence.id}
+                    >
+                      {duplicatingId === cadence.id ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Copy className="mr-2 h-4 w-4" />
+                      )}
+                      {duplicatingId === cadence.id ? 'Duplicating...' : 'Duplicate'}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="text-destructive"

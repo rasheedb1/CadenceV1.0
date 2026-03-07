@@ -34,6 +34,7 @@ import { ICPProfileDetail } from '@/pages/ICPProfileDetail'
 import { CompanyRegistry } from '@/pages/CompanyRegistry'
 import { AccountMappingProvider } from '@/contexts/AccountMappingContext'
 import { CompanyResearchProvider } from '@/contexts/CompanyResearchContext'
+import { BusinessCasesProvider } from '@/contexts/BusinessCasesContext'
 import { PageErrorBoundary } from '@/components/PageErrorBoundary'
 import { OrgSelect } from '@/pages/OrgSelect'
 import { AcceptInvite } from '@/pages/AcceptInvite'
@@ -45,6 +46,13 @@ import { SalesforceCallback } from '@/pages/SalesforceCallback'
 import { OutreachActivity } from '@/pages/OutreachActivity'
 import { CompanyResearch } from '@/pages/CompanyResearch'
 import { ResearchProjectDetail } from '@/pages/ResearchProjectDetail'
+import { BusinessCases } from '@/pages/BusinessCases'
+import { BusinessCaseNew } from '@/pages/BusinessCaseNew'
+import { BusinessCaseTemplateEditor } from '@/pages/BusinessCaseTemplateEditor'
+import { BusinessCaseGenerate } from '@/pages/BusinessCaseGenerate'
+import { AccountExecutive } from '@/pages/AccountExecutive'
+import { AccountExecutiveDetail } from '@/pages/AccountExecutiveDetail'
+import { AccountExecutiveProvider } from '@/contexts/AccountExecutiveContext'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -67,6 +75,8 @@ function App() {
             <WorkflowProvider>
             <AccountMappingProvider>
             <CompanyResearchProvider>
+            <BusinessCasesProvider>
+            <AccountExecutiveProvider>
               <Routes>
                 <Route path="/auth" element={<Auth />} />
                 <Route path="/onboarding" element={<Onboarding />} />
@@ -86,6 +96,12 @@ function App() {
                   <Route path="/company-registry" element={<FeatureRoute flag="section_company_registry"><CompanyRegistry /></FeatureRoute>} />
                   <Route path="/company-research" element={<FeatureRoute flag="section_company_research"><PageErrorBoundary><CompanyResearch /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/company-research/:id" element={<FeatureRoute flag="section_company_research"><PageErrorBoundary><ResearchProjectDetail /></PageErrorBoundary></FeatureRoute>} />
+                  <Route path="/business-cases" element={<FeatureRoute flag="section_business_cases"><BusinessCases /></FeatureRoute>} />
+                  <Route path="/business-cases/new" element={<FeatureRoute flag="section_business_cases"><BusinessCaseNew /></FeatureRoute>} />
+                  <Route path="/business-cases/templates/:id" element={<FeatureRoute flag="section_business_cases"><BusinessCaseTemplateEditor /></FeatureRoute>} />
+                  <Route path="/business-cases/generate" element={<FeatureRoute flag="section_business_cases"><BusinessCaseGenerate /></FeatureRoute>} />
+                  <Route path="/account-executive" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><AccountExecutive /></PageErrorBoundary></FeatureRoute>} />
+                  <Route path="/account-executive/:id" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><AccountExecutiveDetail /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/leads" element={<FeatureRoute flag="section_leads"><Leads /></FeatureRoute>} />
                   <Route path="/inbox" element={<FeatureRoute flag="section_linkedin_inbox"><LinkedInInbox /></FeatureRoute>} />
                   <Route path="/templates" element={<FeatureRoute flag="section_templates"><Templates /></FeatureRoute>} />
@@ -103,6 +119,8 @@ function App() {
                 </Route>
               </Routes>
               <Toaster position="bottom-right" />
+            </AccountExecutiveProvider>
+            </BusinessCasesProvider>
             </CompanyResearchProvider>
             </AccountMappingProvider>
             </WorkflowProvider>
