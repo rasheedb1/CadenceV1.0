@@ -61,6 +61,8 @@ export interface BusinessCaseTemplate {
   detected_variables: DetectedVariable[]
   /** Pre-rendered slide thumbnail paths in Supabase Storage (bc-templates bucket) */
   thumbnail_paths: string[] | null
+  /** Manual variable overlays placed on slides (no {{}} in PPTX needed) */
+  variable_overlays: { variables: ManualVariable[]; overlays: ManualOverlay[] }
   is_active: boolean
   created_by: string | null
   created_at: string
@@ -85,4 +87,35 @@ export interface BusinessCase {
   created_at: string
   updated_at: string
   template?: BusinessCaseTemplate
+}
+
+// ── Manual Overlay Design ─────────────────────────────────────────────────────
+
+/** A variable defined manually (no {{}} in PPTX needed) */
+export interface ManualVariable {
+  id: string
+  key: string    // machine-readable, e.g. "company_name"
+  label: string  // human-readable, e.g. "Company Name"
+}
+
+/** A placed variable chip on a specific slide, with full styling */
+export interface ManualOverlay {
+  id: string
+  key: string          // references ManualVariable.key
+  slide_index: number  // 1-based
+  x_pct: number        // left / slideWidth (0-1)
+  y_pct: number        // top / slideHeight (0-1)
+  width_pct: number    // width / slideWidth (0-1)
+  /** Font size in points at reference slide width 960px */
+  fontSize: number
+  color: string        // text color hex, e.g. "#1a56db"
+  fontFamily: string
+  fontWeight: 'normal' | 'bold'
+  fontStyle: 'normal' | 'italic'
+  textAlign: 'left' | 'center' | 'right'
+}
+
+export interface OverlayData {
+  variables: ManualVariable[]
+  overlays: ManualOverlay[]
 }

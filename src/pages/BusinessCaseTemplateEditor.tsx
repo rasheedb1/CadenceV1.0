@@ -48,7 +48,8 @@ import {
 import { supabase } from '@/integrations/supabase/client'
 import { useOrg } from '@/contexts/OrgContext'
 import { toast } from 'sonner'
-import type { BcSlide, DetectedVariable } from '@/types/business-cases'
+import type { BcSlide, DetectedVariable, ManualVariable, ManualOverlay } from '@/types/business-cases'
+import { OverlayDesignSection } from '@/components/business-cases/OverlayDesignSection'
 
 // ── Lead field options ────────────────────────────────────────────────────────
 
@@ -1406,8 +1407,9 @@ function SlideCard({ slide }: { slide: BcSlide }) {
 export function BusinessCaseTemplateEditor() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { templates, deleteTemplate } = useBusinessCases()
+  const { templates, deleteTemplate, updateTemplate } = useBusinessCases()
   const [refreshKey, setRefreshKey] = useState(0)
+  const [activeMode, setActiveMode] = useState<'variables' | 'design'>('variables')
   const [highlightedVar, setHighlightedVar] = useState<string | null>(null)
   const [activeSlideVarKeys, setActiveSlideVarKeys] = useState<Set<string> | null>(null)
   const [activeSlideIdx, setActiveSlideIdx] = useState<number | null>(null)
@@ -1488,8 +1490,56 @@ export function BusinessCaseTemplateEditor() {
         </div>
       </div>
 
-      {/* ── Uploaded PPTX: two-column layout ── */}
+      {/* ── Uploaded PPTX: mode tab bar ── */}
       {isPptx && (
+        <div className="flex items-center gap-2 shrink-0 border-b pb-3">
+          <button
+            type="button"
+            onClick={() => setActiveMode('variables')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeMode === 'variables' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+          >
+            <Zap className="h-3.5 w-3.5" /> Configure Variables
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveMode('design')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeMode === 'design' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+          >
+            <Layers className="h-3.5 w-3.5" /> Design Overlays
+          </button>
+          {activeMode === 'design' && (
+            <span className="text-xs text-muted-foreground ml-2">Place variable chips directly on slides — no {'{{}}'} in PPTX needed</span>
+          )}
+        </div>
+      )}
+
+      {/* ── Overlay Design Mode ── */}
+      {isPptx && activeMode === 'design' && (
+        <div className="flex-1 min-h-0 overflow-hidden rounded-lg border">
+          <OverlayDesignSection
+            key={refreshKey}
+            thumbnailPaths={template.thumbnail_paths ?? null}
+            initialVariables={(template.variable_overlays?.variables ?? []) as ManualVariable[]}
+            initialOverlays={(template.variable_overlays?.overlays ?? []) as ManualOverlay[]}
+            onSave={async (variables, overlays) => {
+              await updateTemplate(template.id, {
+                variable_overlays: { variables, overlays },
+                // Also sync to detected_variables so generation pipeline can use them
+                detected_variables: variables.map(v => ({
+                  key: v.key,
+                  raw: `{{${v.key.toUpperCase()}}}`,
+                  type: 'auto' as const,
+                  display_name: v.label,
+                })),
+              })
+              toast.success('Overlay design saved')
+            }}
+          />
+        </div>
+      )}
+
+      {/* ── Uploaded PPTX: two-column layout ── */}
+      {isPptx && activeMode === 'variables' && (
         <div className="flex gap-5 min-h-0 flex-1 overflow-hidden">
           {/* Left: Slide preview */}
           <div className="w-[330px] shrink-0 flex flex-col gap-2 overflow-y-auto">
