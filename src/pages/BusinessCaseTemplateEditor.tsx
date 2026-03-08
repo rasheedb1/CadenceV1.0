@@ -739,6 +739,7 @@ function SlidePanel({
   const [modalOpen, setModalOpen] = useState(false)
   const [thumbnailUrls, setThumbnailUrls] = useState<string[]>([])
   const [isGeneratingThumbs, setIsGeneratingThumbs] = useState(false)
+  const [hasThumbnailError, setHasThumbnailError] = useState(false)
   const slideVarsRef = useRef(onSlideVarsChange)
   slideVarsRef.current = onSlideVarsChange
 
@@ -760,6 +761,7 @@ function SlidePanel({
       onRefresh()
     } catch {
       toast.error('Failed to generate previews. Check that CONVERT_API_SECRET is configured.')
+      setHasThumbnailError(true)
     } finally {
       setIsGeneratingThumbs(false)
     }
@@ -834,20 +836,29 @@ function SlidePanel({
     )
   }
 
-  // Loading slides
+  // Block the UI while thumbnails are being generated for the first time
+  const noThumbnailsYet = !thumbnailPaths || thumbnailPaths.length === 0
+  if ((noThumbnailsYet || isGeneratingThumbs) && !hasThumbnailError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[280px] gap-5 rounded-xl border-2 border-dashed bg-muted/10 px-4 py-8">
+        <Loader2 className="h-10 w-10 animate-spin text-primary/60" />
+        <div className="text-center">
+          <p className="text-sm font-semibold">Generating HD Previews…</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {slides ? `Processing ${slides.length} slides` : 'Parsing presentation…'}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">This only runs once per upload</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Slides may still be loading in background (thumbnails already exist — fast path)
   if (!slides) {
     return (
-      <div className="space-y-2">
-        {loading ? (
-          <div className="flex flex-col items-center justify-center h-32 gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            <p>Loading preview…</p>
-          </div>
-        ) : (
-          <Button variant="outline" className="w-full" onClick={loadSlides}>
-            <Eye className="mr-2 h-4 w-4" />Load Slide Preview
-          </Button>
-        )}
+      <div className="flex flex-col items-center justify-center h-32 gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        <p>Loading preview…</p>
       </div>
     )
   }
@@ -933,20 +944,15 @@ function SlidePanel({
         <p className="text-[10px] text-muted-foreground mt-1.5">Double-click to open full view</p>
       </div>
 
-      {/* Generate HD previews button */}
-      {thumbnailUrls.length === 0 && storagePath && (
+      {/* Retry button if thumbnail generation failed */}
+      {hasThumbnailError && (
         <Button
           variant="outline"
           size="sm"
-          className="w-full"
-          onClick={handleGenerateThumbnails}
-          disabled={isGeneratingThumbs}
+          className="w-full text-destructive border-destructive/40 hover:bg-destructive/5"
+          onClick={() => { setHasThumbnailError(false); void handleGenerateThumbnails() }}
         >
-          {isGeneratingThumbs ? (
-            <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />Generating HD previews…</>
-          ) : (
-            <><Sparkles className="mr-2 h-3.5 w-3.5" />Generate HD Previews</>
-          )}
+          <RefreshCw className="mr-2 h-3.5 w-3.5" />Retry HD Preview Generation
         </Button>
       )}
 
