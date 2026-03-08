@@ -490,7 +490,10 @@ function SlideCanvas({
             style={{
               ...sharedStyle,
               minHeight: height,
-              backgroundColor: isVariableOverlay ? 'transparent' : (shape.fillHex ? `#${shape.fillHex}` : 'transparent'),
+              // In overlay mode, use opaque fill to mask the raw {{VAR}} text in the PNG background
+              backgroundColor: isVariableOverlay
+                ? (shape.fillHex ? `#${shape.fillHex}` : 'rgba(255,255,255,0.93)')
+                : (shape.fillHex ? `#${shape.fillHex}` : 'transparent'),
               border: isVariableOverlay ? 'none' : (bw > 0 && shape.strokeHex ? `${bw}px solid #${shape.strokeHex}` : 'none'),
               padding: `${0.5 * scale}px`,
             }}
@@ -805,6 +808,20 @@ function SlidePanel({
       loadSlides()
     }
   }, [storagePath, slides, loading, loadSlides])
+
+  // Auto-generate thumbnails as soon as slides are parsed and none exist yet
+  useEffect(() => {
+    if (
+      slides && slides.length > 0 &&
+      (!thumbnailPaths || thumbnailPaths.length === 0) &&
+      storagePath &&
+      !isGeneratingThumbs
+    ) {
+      void handleGenerateThumbnails()
+    }
+  // Run only when slides first become available or thumbnailPaths changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slides, thumbnailPaths])
 
   const selectedSlide = slides?.find((s) => s.index === selectedIdx) ?? null
 

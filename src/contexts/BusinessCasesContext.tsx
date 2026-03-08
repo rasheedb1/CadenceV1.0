@@ -156,6 +156,12 @@ export function BusinessCasesProvider({ children }: { children: ReactNode }) {
         .select()
         .single()
       if (updateErr) throw updateErr
+      // Kick off thumbnail generation non-blocking (best-effort)
+      supabase.functions.invoke('generate-slide-thumbnails', {
+        body: { template_id: template.id },
+      }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ['bc-templates'] })
+      }).catch(() => { /* ignore — SlidePanel will show button as fallback */ })
       return updated as BusinessCaseTemplate
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bc-templates'] }),
