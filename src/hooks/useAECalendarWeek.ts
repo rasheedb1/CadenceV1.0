@@ -40,7 +40,6 @@ export function useAECalendarWeek(anchorDate: Date) {
         .select('id, title, occurred_at, duration_seconds, participants, summary, raw_data')
         .eq('user_id', user.id)
         .eq('type', 'meeting')
-        .eq('source', 'google_calendar')
         .gte('occurred_at', start.toISOString())
         .lte('occurred_at', end.toISOString())
         .order('occurred_at', { ascending: true })
@@ -101,6 +100,77 @@ export function minutesToTime(min: number): string {
   const h = Math.floor(min / 60)
   const m = min % 60
   return `${h}:${m.toString().padStart(2, '0')}`
+}
+
+/** Get YYYY-MM-DD for a Date in the given IANA timezone */
+export function localDateStrTZ(d: Date, tz: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(d)
+}
+
+/** Group events by date in the given IANA timezone */
+export function groupByDayTZ(events: CalendarEvent[], tz: string): Record<string, CalendarEvent[]> {
+  const map: Record<string, CalendarEvent[]> = {}
+  for (const e of events) {
+    const key = localDateStrTZ(new Date(e.occurred_at), tz)
+    if (!map[key]) map[key] = []
+    map[key].push(e)
+  }
+  return map
+}
+
+/** Get hours + minutes of a Date in the given IANA timezone */
+export function getTimeInTZ(d: Date, tz: string): { hours: number; minutes: number } {
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: tz,
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  }).formatToParts(d)
+  return {
+    hours: parseInt(parts.find(p => p.type === 'hour')?.value || '0'),
+    minutes: parseInt(parts.find(p => p.type === 'minute')?.value || '0'),
+  }
+}
+
+/** Format a Date as "10:30 AM" in the given IANA timezone */
+export function formatTimeTZ(d: Date, tz: string): string {
+  return new Intl.DateTimeFormat('en', {
+    timeZone: tz,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(d)
+}
+
+/** Calculate free slots using timezone-aware event times (minutes since midnight in that tz) */
+export function calcFreeSlotsInTZ(
+  events: CalendarEvent[],
+  tz: string,
+  businessStart = 9,
+  businessEnd = 18,
+): Array<{ start: number; end: number }> {
+  if (!events.length) return [{ start: businessStart * 60, end: businessEnd * 60 }]
+
+  const busy = events
+    .map(e => {
+      const s = new Date(e.occurred_at)
+      const { hours, minutes } = getTimeInTZ(s, tz)
+      const startMin = hours * 60 + minutes
+      const durationMin = e.duration_seconds ? Math.round(e.duration_seconds / 60) : 30
+      const endMin = startMin + durationMin
+      return { start: Math.max(startMin, businessStart * 60), end: Math.min(endMin, businessEnd * 60) }
+    })
+    .filter(b => b.start < businessEnd * 60 && b.end > businessStart * 60)
+    .sort((a, b) => a.start - b.start)
+
+  const free: Array<{ start: number; end: number }> = []
+  let cursor = businessStart * 60
+  for (const b of busy) {
+    if (b.start > cursor) free.push({ start: cursor, end: b.start })
+    cursor = Math.max(cursor, b.end)
+  }
+  if (cursor < businessEnd * 60) free.push({ start: cursor, end: businessEnd * 60 })
+  return free.filter(s => s.end - s.start >= 15)
 }
 
 export function getWeekDays(anchorDate: Date): Date[] {

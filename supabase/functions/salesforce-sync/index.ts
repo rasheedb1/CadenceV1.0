@@ -12,6 +12,7 @@ interface SfOpportunity {
   Id: string
   Name: string
   StageName: string
+  Type: string | null
   Amount: number | null
   CloseDate: string | null
   Probability: number | null
@@ -65,7 +66,7 @@ serve(async (req: Request) => {
     // multi-currency is enabled and causes errors on single-currency orgs.
     const soql = `
       SELECT Id, Name, Website, Industry, Owner.Name,
-        (SELECT Id, Name, StageName, Amount, CloseDate,
+        (SELECT Id, Name, StageName, Type, Amount, CloseDate,
                 Probability, IsClosed, IsWon, Owner.Name
          FROM Opportunities
          WHERE IsWon = true OR IsClosed = false),
@@ -148,6 +149,7 @@ serve(async (req: Request) => {
           is_closed: opp.IsClosed,
           is_won: opp.IsWon,
           owner_name: opp.Owner?.Name || null,
+          opportunity_type: opp.Type || null,
           synced_at: now,
         })
       }
@@ -156,7 +158,7 @@ serve(async (req: Request) => {
     // Batch insert (Supabase handles up to ~1000 rows per call)
     // Strip extra fields not in the salesforce_accounts table
     if (accountRows.length > 0) {
-      const dbAccountRows = accountRows.map(({ _contacts, opp_owner_name, won_opportunities_count, total_won_value, ...rest }) => rest)
+      const dbAccountRows = accountRows.map(({ _contacts, won_opportunities_count, total_won_value, ...rest }) => rest)
       const { error: accError } = await supabase.from('salesforce_accounts').insert(dbAccountRows)
       if (accError) console.error('Error inserting SF accounts:', accError)
     }

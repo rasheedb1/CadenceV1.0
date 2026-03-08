@@ -27,6 +27,8 @@ export interface TextRun {
   italic?: boolean
   /** 6-char hex color without #, e.g. "FF0000" */
   color?: string
+  /** Font family name, e.g. "Calibri", "Arial" */
+  fontFamily?: string
 }
 
 export interface SlideParagraph {
@@ -236,6 +238,11 @@ function parseParagraphs(txBodyXml: string, themeColors: Map<string, string>): S
         const iM = rPrAttrs.match(/\bi="([01])"/)
         if (iM) run.italic = iM[1] === '1'
       }
+      // Font family from <a:latin typeface="..."> (can be in attrs or inner)
+      const latinM = (rPrInner || rPrAttrs).match(/<a:latin[^>]+typeface="([^"]+)"/)
+        ?? runXml.match(/<a:latin[^>]+typeface="([^"]+)"/)
+      if (latinM) run.fontFamily = latinM[1]
+
       if (rPrInner) {
         const sfM = rPrInner.match(/<a:solidFill>([\s\S]*?)<\/a:solidFill>/)
         if (sfM) run.color = extractColor(sfM[1], themeColors)

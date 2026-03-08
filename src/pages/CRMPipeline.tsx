@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrg } from '@/contexts/OrgContext'
@@ -27,6 +27,8 @@ import {
   Loader2,
   ChevronUp,
   ChevronDown,
+  X,
+  Users,
 } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -38,6 +40,7 @@ interface SalesforceOpportunity {
   sf_opportunity_id: string
   name: string
   stage_name: string
+  opportunity_type: string | null
   amount: number | null
   currency_code: string | null
   close_date: string | null
@@ -82,6 +85,23 @@ function stageColor(stage: string): string {
   return STAGE_COLORS[stage] || 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
 }
 
+function isNewMerchant(type: string | null, name?: string): boolean {
+  // If type is populated (post-sync), use it directly
+  if (type) {
+    const t = type.toLowerCase()
+    return t.includes('new merchant') || t.includes('nuevo merchant')
+  }
+  // Type not yet populated (pre-sync) — detect upsell/crossell by opp name
+  if (name) {
+    const n = name.toLowerCase()
+    if (
+      n.includes('upsell') || n.includes('crossell') || n.includes('cross-sell') ||
+      n.includes('cross sell') || n.includes('upsale') || n.includes('expansion')
+    ) return false
+  }
+  return true
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(amount: number | null, currency = 'USD'): string {
@@ -114,9 +134,24 @@ export function CRMPipeline() {
 
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState('all')
-  const [ownerFilter, setOwnerFilter] = useState('all')
+  const [ownerInput, setOwnerInput] = useState('')
+  const [selectedOwner, setSelectedOwner] = useState<string | null>(null)
+  const [ownerDropdownOpen, setOwnerDropdownOpen] = useState(false)
+  const [onlyNewMerchants, setOnlyNewMerchants] = useState(true)
   const [sortField, setSortField] = useState<SortField>('close_date')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const ownerRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ownerRef.current && !ownerRef.current.contains(e.target as Node)) {
+        setOwnerDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // ── Queries ──────────────────────────────────────────────────────────────────
 
@@ -176,13 +211,26 @@ export function CRMPipeline() {
     [enriched]
   )
 
-  const owners = useMemo(() =>
-    Array.from(new Set(enriched.map(o => o.account_owner || o.owner_name || '').filter(Boolean))).sort(),
+  const allOwners = useMemo(() =>
+    Array.from(new Set(enriched.map(o => o.owner_name).filter(Boolean) as string[])).sort(),
     [enriched]
   )
 
+  const ownerSuggestions = useMemo(() => {
+    if (!ownerInput) return allOwners
+    const q = ownerInput.toLowerCase()
+    return allOwners.filter(name => name.toLowerCase().includes(q))
+  }, [allOwners, ownerInput])
+
   const filtered = useMemo(() => {
     let rows = enriched
+
+    // 1. Solo New Merchants (uses opportunity_type if populated, falls back to name detection)
+    if (onlyNewMerchants) {
+      rows = rows.filter(o => isNewMerchant(o.opportunity_type, o.name))
+    }
+
+    // 2. General search (account / opp name)
     if (search) {
       const q = search.toLowerCase()
       rows = rows.filter(o =>
@@ -190,16 +238,19 @@ export function CRMPipeline() {
         o.name.toLowerCase().includes(q)
       )
     }
+
+    // 3. Stage
     if (stageFilter !== 'all') {
       rows = rows.filter(o => o.stage_name === stageFilter)
     }
-    if (ownerFilter !== 'all') {
-      rows = rows.filter(o =>
-        o.account_owner === ownerFilter || o.owner_name === ownerFilter
-      )
+
+    // 4. Owner — exact match on opportunity owner_name only
+    if (selectedOwner) {
+      rows = rows.filter(o => o.owner_name === selectedOwner)
     }
+
     return rows
-  }, [enriched, search, stageFilter, ownerFilter])
+  }, [enriched, onlyNewMerchants, search, stageFilter, selectedOwner])
 
   const sorted = useMemo(() => {
     const rows = [...filtered]
@@ -208,7 +259,7 @@ export function CRMPipeline() {
       let vb: string | number | null
       if (sortField === 'account_name') { va = a.account_name; vb = b.account_name }
       else if (sortField === 'stage_name') { va = a.stage_name; vb = b.stage_name }
-      else if (sortField === 'owner_name') { va = a.account_owner || a.owner_name; vb = b.account_owner || b.owner_name }
+      else if (sortField === 'owner_name') { va = a.owner_name; vb = b.owner_name }
       else if (sortField === 'amount') { va = a.amount; vb = b.amount }
       else if (sortField === 'close_date') { va = a.close_date; vb = b.close_date }
       else { va = a.probability; vb = b.probability }
@@ -224,22 +275,35 @@ export function CRMPipeline() {
     return rows
   }, [filtered, sortField, sortDir])
 
-  // ── Stats ─────────────────────────────────────────────────────────────────
+  // ── Stats (computed from filtered) ────────────────────────────────────────
 
   const stats = useMemo(() => {
-    const openOpps = enriched.filter(o => !o.is_closed)
-    const wonOpps = enriched.filter(o => o.is_won)
+    const openOpps = filtered.filter(o => !o.is_closed)
+    const wonOpps  = filtered.filter(o => o.is_won)
     return {
       openPipeline: openOpps.reduce((s, o) => s + (o.amount || 0), 0),
       wonValue:     wonOpps.reduce((s, o) => s + (o.amount || 0), 0),
       openCount:    openOpps.length,
       wonCount:     wonOpps.length,
-      totalCount:   enriched.length,
+      totalCount:   filtered.length,
       avgProb:      openOpps.length
         ? Math.round(openOpps.reduce((s, o) => s + (o.probability || 0), 0) / openOpps.length)
         : 0,
     }
-  }, [enriched])
+  }, [filtered])
+
+  // ── Stage breakdown (from filtered) ──────────────────────────────────────
+
+  const stageBreakdown = useMemo(() => {
+    const map = new Map<string, { count: number; total: number }>()
+    filtered.filter(o => !o.is_closed).forEach(o => {
+      const existing = map.get(o.stage_name) || { count: 0, total: 0 }
+      map.set(o.stage_name, { count: existing.count + 1, total: existing.total + (o.amount || 0) })
+    })
+    return Array.from(map.entries())
+      .map(([stage, v]) => ({ stage, ...v }))
+      .sort((a, b) => b.total - a.total)
+  }, [filtered])
 
   // ── Sort toggle ───────────────────────────────────────────────────────────
 
@@ -302,7 +366,9 @@ export function CRMPipeline() {
           <p className="text-muted-foreground">
             {oppsLoading
               ? 'Cargando oportunidades...'
-              : `${stats.totalCount} oportunidad${stats.totalCount !== 1 ? 'es' : ''} activa${stats.totalCount !== 1 ? 's' : ''} · Salesforce`}
+              : selectedOwner
+                ? `${stats.totalCount} oportunidad${stats.totalCount !== 1 ? 'es' : ''} · ${selectedOwner}`
+                : `${stats.totalCount} oportunidad${stats.totalCount !== 1 ? 'es' : ''} activa${stats.totalCount !== 1 ? 's' : ''} · Salesforce`}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -325,8 +391,8 @@ export function CRMPipeline() {
         </div>
       </div>
 
-      {/* ── Stats cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      {/* ── Stats cards (computed from filtered) ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-1">
@@ -369,8 +435,32 @@ export function CRMPipeline() {
         </Card>
       </div>
 
+      {/* ── Stage breakdown ── */}
+      {stageBreakdown.length > 0 && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {stageBreakdown.map(({ stage, count, total }) => (
+            <button
+              key={stage}
+              onClick={() => setStageFilter(stageFilter === stage ? 'all' : stage)}
+              className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted/50 ${
+                stageFilter === stage
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-card'
+              }`}
+            >
+              <span className={`inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium ${stageColor(stage)}`}>
+                {stage}
+              </span>
+              <span className="tabular-nums text-muted-foreground">{count}</span>
+              {total > 0 && <span className="tabular-nums font-semibold">{fmt(total)}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ── Filters ── */}
       <div className="flex flex-wrap gap-2 mb-4">
+        {/* General search */}
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -380,8 +470,10 @@ export function CRMPipeline() {
             className="pl-9"
           />
         </div>
+
+        {/* Stage filter (only show when breakdown not used to avoid duplication) */}
         <Select value={stageFilter} onValueChange={setStageFilter}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-[160px]">
             <SelectValue placeholder="Etapa" />
           </SelectTrigger>
           <SelectContent>
@@ -391,17 +483,63 @@ export function CRMPipeline() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={ownerFilter} onValueChange={setOwnerFilter}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Owner" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos los owners</SelectItem>
-            {owners.map(o => (
-              <SelectItem key={o} value={o}>{o}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+
+        {/* Owner combobox */}
+        <div ref={ownerRef} className="relative min-w-[200px]">
+          <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none z-10" />
+          <Input
+            placeholder="Buscar owner..."
+            value={ownerInput}
+            onChange={e => {
+              setOwnerInput(e.target.value)
+              setSelectedOwner(null)
+              setOwnerDropdownOpen(true)
+            }}
+            onFocus={() => setOwnerDropdownOpen(true)}
+            className={`pl-9 ${selectedOwner ? 'pr-8 border-primary ring-1 ring-primary' : ownerInput ? 'pr-8' : ''}`}
+          />
+          {(ownerInput || selectedOwner) && (
+            <button
+              onMouseDown={e => { e.preventDefault(); setOwnerInput(''); setSelectedOwner(null); setOwnerDropdownOpen(false) }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground z-10"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {ownerDropdownOpen && ownerSuggestions.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-popover border border-border rounded-md shadow-md max-h-52 overflow-y-auto">
+              {ownerSuggestions.map(name => (
+                <button
+                  key={name}
+                  onMouseDown={e => {
+                    e.preventDefault()
+                    setSelectedOwner(name)
+                    setOwnerInput(name)
+                    setOwnerDropdownOpen(false)
+                  }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors truncate ${
+                    selectedOwner === name ? 'bg-primary/10 text-primary font-medium' : ''
+                  }`}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Solo New Merchants toggle */}
+        <button
+          onClick={() => setOnlyNewMerchants(v => !v)}
+          className={`flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium transition-colors ${
+            onlyNewMerchants
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-border text-muted-foreground hover:bg-muted/50'
+          }`}
+        >
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          Solo New Merchants
+        </button>
       </div>
 
       {/* ── Table ── */}
@@ -427,7 +565,7 @@ export function CRMPipeline() {
           ) : (
             <div className="overflow-x-auto">
               {/* Header */}
-              <div className="grid grid-cols-[1fr_1fr_130px_130px_110px_100px_70px] gap-3 px-4 py-2 border-b bg-muted/30 text-xs font-medium text-muted-foreground">
+              <div className="grid grid-cols-[1fr_1fr_130px_140px_110px_100px_70px] gap-3 px-4 py-2 border-b bg-muted/30 text-xs font-medium text-muted-foreground">
                 <button
                   className="flex items-center gap-1 hover:text-foreground text-left"
                   onClick={() => toggleSort('account_name')}
@@ -472,7 +610,7 @@ export function CRMPipeline() {
                 {sorted.map(opp => (
                   <div
                     key={opp.id}
-                    className="grid grid-cols-[1fr_1fr_130px_130px_110px_100px_70px] gap-3 px-4 py-3 items-center hover:bg-muted/30 transition-colors"
+                    className="grid grid-cols-[1fr_1fr_130px_140px_110px_100px_70px] gap-3 px-4 py-3 items-center hover:bg-muted/30 transition-colors"
                   >
                     {/* Account */}
                     <div className="min-w-0">
@@ -497,9 +635,28 @@ export function CRMPipeline() {
                       </Badge>
                     </div>
 
-                    {/* Owner */}
+                    {/* Owner — clickable to filter */}
                     <div className="min-w-0">
-                      <p className="text-sm truncate">{opp.owner_name || '—'}</p>
+                      <button
+                        onClick={() => {
+                          if (selectedOwner === opp.owner_name) {
+                            setSelectedOwner(null)
+                            setOwnerInput('')
+                          } else {
+                            setSelectedOwner(opp.owner_name || null)
+                            setOwnerInput(opp.owner_name || '')
+                          }
+                          setOwnerDropdownOpen(false)
+                        }}
+                        className={`text-sm truncate text-left w-full transition-colors hover:text-primary ${
+                          selectedOwner === opp.owner_name
+                            ? 'text-primary font-medium'
+                            : ''
+                        }`}
+                        title={`Filtrar por ${opp.owner_name || '—'}`}
+                      >
+                        {opp.owner_name || '—'}
+                      </button>
                     </div>
 
                     {/* Amount */}

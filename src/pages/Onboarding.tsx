@@ -5,6 +5,9 @@ import { useLinkedInConnection } from '@/hooks/useLinkedInConnection'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { supabase } from '@/integrations/supabase/client'
 import {
   Loader2,
   CheckCircle2,
@@ -14,9 +17,10 @@ import {
   Sparkles,
   AlertTriangle,
   ArrowRight,
+  Briefcase,
 } from 'lucide-react'
 
-type Step = 'welcome' | 'linkedin' | 'ready'
+type Step = 'welcome' | 'role' | 'linkedin' | 'ready'
 
 export function Onboarding() {
   const { user, profile, loading, completeOnboarding } = useAuth()
@@ -24,8 +28,25 @@ export function Onboarding() {
   const [step, setStep] = useState<Step>('welcome')
   const [skippedLinkedIn, setSkippedLinkedIn] = useState(false)
   const [finishing, setFinishing] = useState(false)
+  const [jobRole, setJobRole] = useState<'sdr' | 'bdm' | null>(null)
+  const [sfOwnerName, setSfOwnerName] = useState('')
+  const [roleSaving, setRoleSaving] = useState(false)
 
   const linkedin = useLinkedInConnection({ redirectPath: '/onboarding' })
+
+  const handleSaveRole = async () => {
+    if (!user?.id || !jobRole) return
+    setRoleSaving(true)
+    await supabase
+      .from('profiles')
+      .update({
+        job_role: jobRole,
+        sf_owner_name: jobRole === 'bdm' && sfOwnerName.trim() ? sfOwnerName.trim() : null,
+      })
+      .eq('user_id', user.id)
+    setRoleSaving(false)
+    setStep('linkedin')
+  }
 
   if (loading) {
     return (
@@ -56,19 +77,19 @@ export function Onboarding() {
       <div className="w-full max-w-lg">
         {/* Progress indicator */}
         <div className="mb-8 flex items-center justify-center gap-2">
-          {(['welcome', 'linkedin', 'ready'] as const).map((s, i) => (
+          {(['welcome', 'role', 'linkedin', 'ready'] as const).map((s, i) => (
             <div key={s} className="flex items-center gap-2">
               <div
                 className={`h-2.5 w-2.5 rounded-full transition-colors ${
                   s === step
                     ? 'bg-primary'
-                    : (['welcome', 'linkedin', 'ready'].indexOf(s) <
-                      ['welcome', 'linkedin', 'ready'].indexOf(step))
+                    : (['welcome', 'role', 'linkedin', 'ready'].indexOf(s) <
+                      ['welcome', 'role', 'linkedin', 'ready'].indexOf(step))
                     ? 'bg-primary/50'
                     : 'bg-muted'
                 }`}
               />
-              {i < 2 && <div className="h-px w-8 bg-muted" />}
+              {i < 3 && <div className="h-px w-8 bg-muted" />}
             </div>
           ))}
         </div>
@@ -124,7 +145,7 @@ export function Onboarding() {
                 </div>
               </div>
 
-              <Button size="lg" className="w-full" onClick={() => setStep('linkedin')}>
+              <Button size="lg" className="w-full" onClick={() => setStep('role')}>
                 Get Started
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
@@ -132,7 +153,104 @@ export function Onboarding() {
           </Card>
         )}
 
-        {/* Step 2: Connect LinkedIn */}
+        {/* Step 2: Your Role */}
+        {step === 'role' && (
+          <Card>
+            <CardContent className="pt-8 pb-8 space-y-6">
+              <div className="text-center">
+                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 mb-4">
+                  <Briefcase className="h-6 w-6 text-primary" />
+                </div>
+                <h1 className="text-2xl font-semibold tracking-tight">
+                  What's Your Role?
+                </h1>
+                <p className="text-muted-foreground mt-2">
+                  This helps Chief show you the right workspace and features
+                </p>
+              </div>
+
+              <div className="grid gap-3">
+                <button
+                  type="button"
+                  onClick={() => setJobRole('sdr')}
+                  className={`flex items-start gap-3 p-4 rounded-lg border text-left transition-colors ${
+                    jobRole === 'sdr' ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'
+                  }`}
+                >
+                  <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                    jobRole === 'sdr' ? 'border-primary' : 'border-muted-foreground'
+                  }`}>
+                    {jobRole === 'sdr' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                  </div>
+                  <div>
+                    <p className="font-medium text-sm">SDR — Sales Development Representative</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      You focus on outbound prospecting, lead generation, and booking meetings
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setJobRole('bdm')}
+                  className={`flex items-start gap-3 p-4 rounded-lg border text-left transition-colors ${
+                    jobRole === 'bdm' ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'
+                  }`}
+                >
+                  <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                    jobRole === 'bdm' ? 'border-primary' : 'border-muted-foreground'
+                  }`}>
+                    {jobRole === 'bdm' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                  </div>
+                  <div>
+                    <p className="font-medium text-sm">BDM / AE — Business Development Manager / Account Executive</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      You manage active accounts, close deals, and track your pipeline in Salesforce
+                    </p>
+                  </div>
+                </button>
+              </div>
+
+              {jobRole === 'bdm' && (
+                <div className="space-y-2">
+                  <Label>Your Salesforce Name (optional)</Label>
+                  <Input
+                    value={sfOwnerName}
+                    onChange={e => setSfOwnerName(e.target.value)}
+                    placeholder="e.g. Rasheed Bayter"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Enter your name exactly as it appears as "Opportunity Owner" in Salesforce — this lets Chief show you your active accounts automatically. You can set this later in Settings.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2">
+                <Button
+                  size="lg"
+                  className="w-full"
+                  onClick={handleSaveRole}
+                  disabled={!jobRole || roleSaving}
+                >
+                  {roleSaving ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</>
+                  ) : (
+                    <>Continue <ArrowRight className="ml-2 h-4 w-4" /></>
+                  )}
+                </Button>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setStep('linkedin')}
+                >
+                  Skip for now
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Step 3: Connect LinkedIn */}
         {step === 'linkedin' && (
           <Card>
             <CardContent className="pt-8 pb-8 text-center space-y-6">

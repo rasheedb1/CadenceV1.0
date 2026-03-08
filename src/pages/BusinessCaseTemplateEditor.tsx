@@ -211,6 +211,7 @@ interface SlideCanvasProps {
   className?: string
   /** Pre-rendered thumbnail URL — if provided, used as background; shapes only for variable chips */
   thumbnailUrl?: string
+  manualOverlays?: ManualOverlay[]
 }
 
 /** Returns true if any paragraph/cell in this shape has a {{variable}} */
@@ -261,6 +262,7 @@ function SlideCanvas({
   onShapeDragEnd,
   className = '',
   thumbnailUrl,
+  manualOverlays,
 }: SlideCanvasProps) {
   const { nativeW, nativeH } = getNativeDims(slide)
   const scale = displayWidth / nativeW
@@ -516,6 +518,45 @@ function SlideCanvas({
           Slide {slide.index}
         </div>
       )}
+      {/* Manual overlay chips — identical styling to Design Overlays OverlayChip */}
+      {manualOverlays && manualOverlays.map((o) => {
+        const fpx = Math.round(o.fontSize * (displayWidth / 960))
+        return (
+          <div
+            key={o.id}
+            onClick={(e) => { e.stopPropagation(); onVarClick(o.key) }}
+            style={{
+              position: 'absolute',
+              left: `${o.x_pct * 100}%`,
+              top: `${o.y_pct * 100}%`,
+              width: `${o.width_pct * 100}%`,
+              cursor: 'pointer',
+              userSelect: 'none' as const,
+              zIndex: 15,
+            }}
+          >
+            <div style={{
+              fontFamily: o.fontFamily,
+              fontSize: `${fpx}px`,
+              fontWeight: o.fontWeight as 'normal' | 'bold',
+              fontStyle: o.fontStyle as 'normal' | 'italic',
+              textAlign: o.textAlign as 'left' | 'center' | 'right',
+              color: o.color,
+              padding: `${Math.max(2, fpx * 0.1)}px ${Math.max(4, fpx * 0.2)}px`,
+              borderRadius: 4,
+              background: 'transparent',
+              border: 'none',
+              boxShadow: 'none',
+              whiteSpace: 'nowrap' as const,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              lineHeight: 1.2,
+            }}>
+              {`{{${o.key.toUpperCase()}}}`}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -541,6 +582,7 @@ function FullSlideModal({
   highlighted,
   thumbnailUrls = [],
   isGeneratingThumbs = false,
+  manualOverlays = [],
 }: {
   slides: ParsedSlide[]
   initialIndex: number
@@ -551,6 +593,7 @@ function FullSlideModal({
   highlighted: string | null
   thumbnailUrls?: string[]
   isGeneratingThumbs?: boolean
+  manualOverlays?: ManualOverlay[]
 }) {
   const [currentIdx, setCurrentIdx] = useState(initialIndex)
   const [zoomIdx, setZoomIdx] = useState(2) // default 1×
@@ -596,7 +639,7 @@ function FullSlideModal({
 
   return (
     <Dialog open onOpenChange={() => onClose()}>
-      <DialogContent className="max-w-[98vw] w-[1200px] h-[92vh] p-0 flex flex-col gap-0 overflow-hidden">
+      <DialogContent className="max-w-[98vw] w-[1200px] h-[92vh] p-0 flex flex-col gap-0 overflow-hidden [&>button:last-child]:hidden">
         {/* Modal toolbar */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b bg-muted/30 shrink-0">
           <div className="flex items-center gap-2">
@@ -659,25 +702,35 @@ function FullSlideModal({
 
         <div className="flex flex-1 min-h-0">
           {/* Slide thumbnails strip */}
-          <div className="w-[120px] shrink-0 bg-muted/20 border-r overflow-y-auto flex flex-col gap-1.5 p-1.5">
-            {slides.map((s) => (
-              <button
-                key={s.index}
-                type="button"
-                className={`rounded border-2 overflow-hidden transition-colors ${s.index === currentIdx ? 'border-primary' : 'border-transparent hover:border-muted-foreground/30'}`}
-                onClick={() => setCurrentIdx(s.index)}
-              >
-                <SlideCanvas
-                  slide={s}
-                  displayWidth={108}
-                  variables={variables}
-                  highlighted={null}
-                  onVarClick={() => {}}
-                  thumbnailUrl={thumbnailUrls[s.index - 1]}
-                />
-                <div className="text-center text-[10px] text-muted-foreground py-0.5 bg-white">{s.index}</div>
-              </button>
-            ))}
+          <div className="w-[300px] shrink-0 bg-muted/20 border-r overflow-y-auto flex flex-col gap-2 p-2">
+            {slides.map((s) => {
+              const thumbUrl = thumbnailUrls[s.index - 1]
+              return (
+                <button
+                  key={s.index}
+                  type="button"
+                  className={`rounded border-2 overflow-hidden transition-colors ${s.index === currentIdx ? 'border-primary' : 'border-transparent hover:border-muted-foreground/30'}`}
+                  onClick={() => setCurrentIdx(s.index)}
+                >
+                  <div style={{ width: '100%', aspectRatio: '1 / 1', backgroundColor: '#e8eaed', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                    {thumbUrl ? (
+                      <img src={thumbUrl} alt={`Slide ${s.index}`}
+                        style={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain' }}
+                        draggable={false} />
+                    ) : (
+                      <SlideCanvas
+                        slide={s}
+                        displayWidth={280}
+                        variables={variables}
+                        highlighted={null}
+                        onVarClick={() => {}}
+                      />
+                    )}
+                  </div>
+                  <div className="text-center text-[10px] text-muted-foreground py-0.5 bg-white">{s.index}</div>
+                </button>
+              )
+            })}
           </div>
 
           {/* Main slide area */}
@@ -698,6 +751,7 @@ function FullSlideModal({
               draggable
               onShapeDragEnd={handleShapeDragEnd}
               thumbnailUrl={thumbnailUrls[slide.index - 1]}
+              manualOverlays={manualOverlays.filter(o => o.slide_index === slide.index)}
             />
           </div>
         </div>
@@ -724,6 +778,7 @@ function SlidePanel({
   onSlideVarsChange,
   templateId,
   onRefresh,
+  manualOverlays,
 }: {
   storagePath: string | null
   thumbnailPaths: string[] | null
@@ -733,6 +788,7 @@ function SlidePanel({
   onSlideVarsChange?: (keys: Set<string>, slideIdx: number) => void
   templateId: string
   onRefresh: () => void
+  manualOverlays?: ManualOverlay[]
 }) {
   const [slides, setSlides] = useState<ParsedSlide[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -895,6 +951,7 @@ function SlidePanel({
               highlighted={highlightedVar}
               onVarClick={onVarClick}
               thumbnailUrl={thumbnailUrls[(selectedSlide.index - 1)] ?? undefined}
+              manualOverlays={(manualOverlays ?? []).filter(o => o.slide_index === selectedSlide.index)}
             />
           ) : (
             // Thumbnails loaded but slide parse still in progress — show thumbnail only
@@ -910,7 +967,7 @@ function SlidePanel({
       {/* Slide strip */}
       <div>
         <p className="text-xs text-muted-foreground mb-1.5">{slideCount} slides total</p>
-        <div className="grid grid-cols-2 gap-1.5 max-h-[46vh] overflow-y-auto pr-0.5">
+        <div className="flex flex-col gap-2">
           {Array.from({ length: slideCount }, (_, i) => i + 1).map((slideNum) => {
             const slide = slides?.find((s) => s.index === slideNum)
             const thumbUrl = thumbnailUrls[slideNum - 1]
@@ -919,21 +976,23 @@ function SlidePanel({
               <button
                 key={slideNum}
                 type="button"
-                className={`rounded border-2 overflow-hidden text-left transition-colors ${isSelected ? 'border-primary' : 'border-transparent hover:border-muted-foreground/30'}`}
+                className={`rounded border-2 overflow-hidden text-left transition-colors w-full ${isSelected ? 'border-primary' : 'border-transparent hover:border-muted-foreground/30'}`}
                 onClick={() => setSelectedIdx(slideNum)}
                 onDoubleClick={() => { setSelectedIdx(slideNum); void handleOpenModal() }}
               >
                 {slide ? (
                   <SlideCanvas
                     slide={slide}
-                    displayWidth={130}
+                    displayWidth={290}
                     variables={variables}
                     highlighted={highlightedVar}
                     onVarClick={onVarClick}
                     thumbnailUrl={thumbUrl}
                   />
                 ) : thumbUrl ? (
-                  <img src={thumbUrl} alt="" className="w-full" draggable={false} />
+                  <div style={{ aspectRatio: '16/9', width: '100%' }}>
+                    <img src={thumbUrl} alt="" style={{ width: '100%', height: '100%', display: 'block', objectFit: 'fill' }} draggable={false} />
+                  </div>
                 ) : null}
                 <div className="text-center text-[10px] text-muted-foreground py-0.5 bg-white border-t">
                   {slideNum}
@@ -969,6 +1028,7 @@ function SlidePanel({
           onClose={() => setModalOpen(false)}
           thumbnailUrls={thumbnailUrls}
           isGeneratingThumbs={isGeneratingThumbs}
+          manualOverlays={manualOverlays}
         />
       )}
     </div>
@@ -1441,7 +1501,20 @@ export function BusinessCaseTemplateEditor() {
   }
 
   const isPptx = template.template_type === 'uploaded_pptx'
-  const detectedVars = template.detected_variables || []
+  // Merge PPTX-detected vars + overlay-created vars so Configure Variables shows all
+  const pptxVars = template.detected_variables || []
+  const overlayManualVars = (template.variable_overlays?.variables ?? []) as ManualVariable[]
+  const detectedVars: DetectedVariable[] = [
+    ...pptxVars,
+    ...overlayManualVars
+      .filter(ov => !pptxVars.some(d => d.key === ov.key))
+      .map(ov => ({
+        key: ov.key,
+        raw: `{{${ov.key.toUpperCase()}}}`,
+        type: 'auto' as const,
+        display_name: ov.label,
+      })),
+  ]
   const aiFieldCount = isPptx
     ? detectedVars.filter((v) => v.type === 'ai').length
     : template.slide_structure.reduce((s, sl) => s + sl.fields.filter((f) => f.field_type === 'dynamic').length, 0)
@@ -1519,6 +1592,7 @@ export function BusinessCaseTemplateEditor() {
           <OverlayDesignSection
             key={refreshKey}
             thumbnailPaths={template.thumbnail_paths ?? null}
+            pptxStoragePath={template.pptx_storage_path}
             initialVariables={(template.variable_overlays?.variables ?? []) as ManualVariable[]}
             initialOverlays={(template.variable_overlays?.overlays ?? []) as ManualOverlay[]}
             onSave={async (variables, overlays) => {
@@ -1542,7 +1616,7 @@ export function BusinessCaseTemplateEditor() {
       {isPptx && activeMode === 'variables' && (
         <div className="flex gap-5 min-h-0 flex-1 overflow-hidden">
           {/* Left: Slide preview */}
-          <div className="w-[330px] shrink-0 flex flex-col gap-2 overflow-y-auto">
+          <div className="w-[330px] shrink-0 flex flex-col gap-2 overflow-y-auto pb-4">
             <p className="text-sm font-semibold flex items-center gap-2 shrink-0">
               <Eye className="h-4 w-4" />
               Slide Preview
@@ -1553,9 +1627,14 @@ export function BusinessCaseTemplateEditor() {
               thumbnailPaths={template.thumbnail_paths ?? null}
               variables={detectedVars}
               highlightedVar={highlightedVar}
+              manualOverlays={(template.variable_overlays?.overlays ?? []) as ManualOverlay[]}
               onVarClick={(key) => setHighlightedVar(highlightedVar === key ? null : key)}
               onSlideVarsChange={(keys, idx) => {
-                setActiveSlideVarKeys(keys)
+                // Also include overlay vars placed on this specific slide
+                const overlayKeysOnSlide = (template.variable_overlays?.overlays ?? [])
+                  .filter(o => o.slide_index === idx)
+                  .map(o => o.key)
+                setActiveSlideVarKeys(new Set([...keys, ...overlayKeysOnSlide]))
                 setActiveSlideIdx(idx)
               }}
               templateId={template.id}

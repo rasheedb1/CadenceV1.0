@@ -151,15 +151,10 @@ serve(async (req: Request) => {
   }
 
   // ── 4. Fetch events ───────────────────────────────────────────────────────
-  // Sync from 1 week before start of current week to 5 weeks ahead
+  // Sync from 4 weeks before today to 4 weeks ahead
   const now = new Date()
-  const dayOfWeek = now.getDay() // 0=Sun
-  const diffToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
-  const startOfThisWeek = new Date(now)
-  startOfThisWeek.setDate(now.getDate() + diffToMon)
-  startOfThisWeek.setHours(0, 0, 0, 0)
-  const timeMin = new Date(startOfThisWeek.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
-  const timeMax = new Date(startOfThisWeek.getTime() + 5 * 7 * 24 * 60 * 60 * 1000).toISOString()
+  const timeMin = new Date(now.getTime() - 4 * 7 * 24 * 60 * 60 * 1000).toISOString()
+  const timeMax = new Date(now.getTime() + 4 * 7 * 24 * 60 * 60 * 1000).toISOString()
 
   let totalSynced = 0
 
@@ -174,29 +169,39 @@ serve(async (req: Request) => {
 
   for (const cal of targetCalendars) {
     const encodedCalId = encodeURIComponent(cal.id)
-    const eventsUrl = `https://www.googleapis.com/calendar/v3/calendars/${encodedCalId}/events?` +
-      new URLSearchParams({
+
+    // Paginate through all events in the date range
+    let pageToken: string | undefined = undefined
+    let pageCount = 0
+    const MAX_PAGES = 10 // safety limit
+
+    do {
+      const params: Record<string, string> = {
         timeMin,
         timeMax,
-        maxResults: '50',
+        maxResults: '250',
         singleEvents: 'true',
         orderBy: 'startTime',
+      }
+      if (pageToken) params.pageToken = pageToken
+
+      const eventsUrl = `https://www.googleapis.com/calendar/v3/calendars/${encodedCalId}/events?` +
+        new URLSearchParams(params)
+
+      const eventsResp = await fetch(eventsUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
       })
+      const eventsData: GoogleEventsResponse & { nextPageToken?: string } = await eventsResp.json()
 
-    const eventsResp = await fetch(eventsUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-    const eventsData: GoogleEventsResponse = await eventsResp.json()
+      if (eventsData.error) {
+        console.warn(`[ae-calendar-sync] Events error for ${cal.id}:`, eventsData.error.message)
+        break
+      }
 
-    if (eventsData.error) {
-      console.warn(`[ae-calendar-sync] Events error for ${cal.id}:`, eventsData.error.message)
-      continue
-    }
+      const events = eventsData.items || []
+      console.log(`[ae-calendar-sync] Calendar "${cal.summary || cal.id}" page ${pageCount + 1} → ${events.length} events`)
 
-    const events = eventsData.items || []
-    console.log(`[ae-calendar-sync] Calendar "${cal.summary || cal.id}" → ${events.length} events`)
-
-    for (const event of events) {
+      for (const event of events) {
       const title = event.summary
       if (!title) continue
 
@@ -250,6 +255,10 @@ serve(async (req: Request) => {
       if (!error) totalSynced++
       else console.warn('[ae-calendar-sync] Upsert error:', error.message)
     }
+
+      pageToken = eventsData.nextPageToken
+      pageCount++
+    } while (pageToken && pageCount < MAX_PAGES)
   }
 
   console.log(`[ae-calendar-sync] Done: synced=${totalSynced}`)

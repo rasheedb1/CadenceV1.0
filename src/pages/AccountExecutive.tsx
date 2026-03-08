@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,17 +12,106 @@ import {
 } from '@/components/ui/dialog'
 import {
   Plus, RefreshCw, Phone, Mail, Calendar, Bell,
-  Clock, ChevronLeft, ChevronRight, Building2, Star, Loader2
+  Clock, ChevronLeft, ChevronRight, Building2, Star, Loader2, Settings, Copy, Globe
 } from 'lucide-react'
 import { useAEAccounts, useAEAccountMutations } from '@/hooks/useAEAccounts'
 import { useAERecentActivities } from '@/hooks/useAEActivities'
 import { useAEReminders, useAEReminderMutations } from '@/hooks/useAEReminders'
 import { useAccountExecutive } from '@/contexts/AccountExecutiveContext'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
+import { supabase } from '@/integrations/supabase/client'
 import { toast } from 'sonner'
 import type { AEAccountStage } from '@/types/account-executive'
-import { useAECalendarWeek, groupByDay, calcFreeSlots, getWeekDays, localDateStr } from '@/hooks/useAECalendarWeek'
+import {
+  useAECalendarWeek, groupByDayTZ, calcFreeSlotsInTZ,
+  getWeekDays, localDateStr, localDateStrTZ, formatTimeTZ, type CalendarEvent,
+} from '@/hooks/useAECalendarWeek'
 import { AE_STAGE_LABELS, AE_STAGE_COLORS, healthScoreBg, healthScoreColor } from '@/types/account-executive'
+
+// ── Timezone options ───────────────────────────────────────────────
+const TIMEZONE_OPTIONS = [
+  { value: 'America/Mexico_City',  label: 'Ciudad de México', abbr: 'GMT-6' },
+  { value: 'America/New_York',     label: 'Eastern Time',     abbr: 'ET'    },
+  { value: 'America/Chicago',      label: 'Central Time',     abbr: 'CT'    },
+  { value: 'America/Denver',       label: 'Mountain Time',    abbr: 'MT'    },
+  { value: 'America/Los_Angeles',  label: 'Pacific Time',     abbr: 'PT'    },
+  { value: 'America/Bogota',       label: 'Colombia',         abbr: 'COT'   },
+  { value: 'America/Lima',         label: 'Perú',             abbr: 'PET'   },
+  { value: 'America/Santiago',     label: 'Chile',            abbr: 'CLT'   },
+  { value: 'America/Buenos_Aires', label: 'Argentina',        abbr: 'ART'   },
+  { value: 'America/Sao_Paulo',    label: 'São Paulo',        abbr: 'BRT'   },
+  { value: 'Europe/London',        label: 'London',           abbr: 'GMT'   },
+  { value: 'Europe/Madrid',        label: 'Madrid',           abbr: 'CET'   },
+  { value: 'UTC',                  label: 'UTC',              abbr: 'UTC'   },
+]
+
+const DAYS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+const MONTHS_ES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+
+function formatDateES(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  const d = new Date(year, month - 1, day)
+  return `${DAYS_ES[d.getDay()]} ${day} de ${MONTHS_ES[month - 1]}`
+}
+
+function minsTo12h(mins: number): string {
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 || 12
+  return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`
+}
+
+function buildCopyText(
+  days: string[],
+  weekByDay: Record<string, CalendarEvent[]>,
+  tz: string,
+  tzAbbr: string,
+): string {
+  const sections: string[] = []
+  for (const dayStr of [...days].sort()) {
+    const freeSlots = calcFreeSlotsInTZ(weekByDay[dayStr] || [], tz)
+    if (freeSlots.length === 0) continue
+    const lines = [formatDateES(dayStr)]
+    freeSlots.forEach((s, i) => {
+      lines.push(`- Opción ${i + 1}: ${minsTo12h(s.start)} - ${minsTo12h(s.end)} ${tzAbbr}`)
+    })
+    sections.push(lines.join('\n'))
+  }
+  return sections.join('\n\n')
+}
+
+interface SFAccount {
+  sf_account_id: string
+  name: string
+  website: string | null
+  industry: string | null
+  latest_opportunity_stage: string | null
+  latest_opportunity_name: string | null
+  total_pipeline_value: number
+  active_opportunities_count: number
+  has_active_opportunities: boolean
+}
+
+function useSFOwnerAccounts(sfOwnerName: string | null) {
+  const { orgId } = useOrg()
+  return useQuery({
+    queryKey: ['sf-owner-accounts', orgId, sfOwnerName],
+    queryFn: async () => {
+      if (!orgId || !sfOwnerName) return []
+      const { data, error } = await supabase
+        .from('salesforce_accounts')
+        .select('sf_account_id, name, website, industry, latest_opportunity_stage, latest_opportunity_name, total_pipeline_value, active_opportunities_count, has_active_opportunities')
+        .eq('org_id', orgId)
+        .ilike('opp_owner_name', sfOwnerName)
+        .order('total_pipeline_value', { ascending: false })
+      if (error) throw error
+      return (data || []) as SFAccount[]
+    },
+    enabled: !!orgId && !!sfOwnerName,
+  })
+}
 
 // ── Health Score Ring ──────────────────────────────────────────────
 function HealthRing({ score }: { score: number }) {
@@ -142,7 +232,7 @@ function NewAccountDialog({ open, onClose }: { open: boolean; onClose: () => voi
 // ── Main Page ───────────────────────────────────────────────────────────────
 export function AccountExecutive() {
   const navigate = useNavigate()
-  const { session } = useAuth()
+  const { session, user } = useAuth()
   const callbackProcessed = useRef(false)
   const { data: accounts = [], isLoading: loadingAccounts } = useAEAccounts()
   const { data: recentActivities = [], isLoading: loadingActivities } = useAERecentActivities(15)
@@ -151,6 +241,28 @@ export function AccountExecutive() {
   const { syncGong, isSyncingGong, syncCalendar, isSyncingCalendar } = useAccountExecutive()
   const [showNewAccount, setShowNewAccount] = useState(false)
   const [calAnchor, setCalAnchor] = useState(new Date())
+  const [selectedTZ, setSelectedTZ] = useState<string>(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Mexico_City')
+  const [selectedDays, setSelectedDays] = useState<string[]>([])
+
+  // Load sales profile to get sf_owner_name
+  const [sfOwnerName, setSfOwnerName] = useState<string | null>(null)
+  const [jobRole, setJobRole] = useState<string | null>(null)
+  useEffect(() => {
+    if (!user?.id) return
+    supabase
+      .from('profiles')
+      .select('sf_owner_name, job_role')
+      .eq('user_id', user.id)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setSfOwnerName(data.sf_owner_name || null)
+          setJobRole(data.job_role || null)
+        }
+      })
+  }, [user?.id])
+
+  const { data: sfAccounts = [], isLoading: loadingSF } = useSFOwnerAccounts(sfOwnerName)
 
   // ── Handle Google Calendar OAuth callback ──────────────────────────────────
   useEffect(() => {
@@ -212,17 +324,29 @@ export function AccountExecutive() {
   const today = new Date()
   const { data: weekEvents = [] } = useAECalendarWeek(calAnchor)
   const weekDays = getWeekDays(calAnchor)
-  const weekByDay = groupByDay(weekEvents)
-  const todayStr = localDateStr(today)
+  const weekByDay = groupByDayTZ(weekEvents, selectedTZ)
+  const todayStr = localDateStrTZ(today, selectedTZ)
 
   // Today's calendar events — derived from already-fetched weekEvents
   const todayMeetings = (weekByDay[todayStr] || [])
 
-  const prevWeek = () => { const d = new Date(calAnchor); d.setDate(d.getDate() - 7); setCalAnchor(d) }
-  const nextWeek = () => { const d = new Date(calAnchor); d.setDate(d.getDate() + 7); setCalAnchor(d) }
-  const goToday = () => setCalAnchor(new Date())
+  const prevWeek = () => { const d = new Date(calAnchor); d.setDate(d.getDate() - 7); setCalAnchor(d); setSelectedDays([]) }
+  const nextWeek = () => { const d = new Date(calAnchor); d.setDate(d.getDate() + 7); setCalAnchor(d); setSelectedDays([]) }
+  const goToday = () => { setCalAnchor(new Date()); setSelectedDays([]) }
 
-  const DAYS_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  const tzOption = TIMEZONE_OPTIONS.find(o => o.value === selectedTZ) || TIMEZONE_OPTIONS[0]
+
+  const toggleDay = (iso: string) => {
+    setSelectedDays(prev => prev.includes(iso) ? prev.filter(d => d !== iso) : [...prev, iso])
+  }
+
+  const handleCopyAvailability = () => {
+    const text = buildCopyText(selectedDays, weekByDay, selectedTZ, tzOption.abbr)
+    if (!text) { toast.error('No hay horarios disponibles en los días seleccionados'); return }
+    navigator.clipboard.writeText(text).then(() => toast.success('Horarios copiados al portapapeles'))
+  }
+
+  const DAYS_SHORT = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 
   return (
     <div className="p-8 space-y-6">
@@ -259,8 +383,15 @@ export function AccountExecutive() {
       <div className="grid grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
-            <div className="text-2xl font-bold">{accounts.length}</div>
+            <div className="text-2xl font-bold">
+              {jobRole === 'bdm' ? (
+                loadingSF ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : sfAccounts.length
+              ) : accounts.length}
+            </div>
             <p className="text-xs text-muted-foreground mt-1">Total Accounts</p>
+            {jobRole === 'bdm' && !sfOwnerName && (
+              <p className="text-[10px] text-orange-500 mt-0.5">Configure Salesforce name in Settings</p>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -300,6 +431,20 @@ export function AccountExecutive() {
               </div>
             </div>
             <div className="flex items-center gap-1">
+              {/* Timezone selector */}
+              <Select value={selectedTZ} onValueChange={setSelectedTZ}>
+                <SelectTrigger className="h-7 w-auto text-[11px] gap-1 border-border/60 bg-transparent pr-2">
+                  <Globe className="h-3 w-3 text-muted-foreground" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TIMEZONE_OPTIONS.map(tz => (
+                    <SelectItem key={tz.value} value={tz.value} className="text-xs">
+                      {tz.label} ({tz.abbr})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button
                 variant="ghost"
                 size="sm"
@@ -322,26 +467,32 @@ export function AccountExecutive() {
           </div>
         </CardHeader>
         <CardContent className="pt-0">
+          <p className="text-[10px] text-muted-foreground mb-2">Click on a day to select it and copy your availability</p>
           <div className="grid grid-cols-7 gap-1.5">
             {weekDays.map((day, i) => {
               const iso = localDateStr(day)
               const isToday = iso === todayStr
+              const isSelected = selectedDays.includes(iso)
               const dayEvents = weekByDay[iso] || []
-              const freeSlots = calcFreeSlots(dayEvents)
-              const freeMinutes = freeSlots.reduce((sum, s) => sum + (s.end - s.start), 0)
-              const freeHours = Math.round(freeMinutes / 60 * 10) / 10
+              const freeSlots = calcFreeSlotsInTZ(dayEvents, selectedTZ)
 
               return (
                 <div
                   key={iso}
-                  className={`rounded-lg border p-2 cursor-pointer hover:bg-muted/50 transition-colors ${isToday ? 'border-primary/40 bg-primary/5' : 'border-border'}`}
-                  onClick={() => navigate('/account-executive/calendar')}
+                  className={`rounded-lg border p-2 cursor-pointer transition-colors ${
+                    isSelected
+                      ? 'border-primary ring-2 ring-primary/30 bg-primary/8'
+                      : isToday
+                      ? 'border-primary/40 bg-primary/5 hover:bg-primary/10'
+                      : 'border-border hover:bg-muted/50'
+                  }`}
+                  onClick={() => toggleDay(iso)}
                 >
                   {/* Day header */}
-                  <p className={`text-[10px] font-medium text-center ${isToday ? 'text-primary' : 'text-muted-foreground'}`}>
+                  <p className={`text-[10px] font-medium text-center ${isToday || isSelected ? 'text-primary' : 'text-muted-foreground'}`}>
                     {DAYS_SHORT[i]}
                   </p>
-                  <p className={`text-sm font-bold text-center mb-2 ${isToday ? 'text-primary' : ''}`}>
+                  <p className={`text-sm font-bold text-center mb-2 ${isToday || isSelected ? 'text-primary' : ''}`}>
                     {day.getDate()}
                   </p>
 
@@ -356,7 +507,7 @@ export function AccountExecutive() {
                           className={`rounded px-1 py-0.5 text-[9px] font-medium text-white truncate ${hasExternal ? 'bg-blue-500' : 'bg-emerald-500'}`}
                           title={event.title}
                         >
-                          {start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} {event.title}
+                          {formatTimeTZ(start, selectedTZ)} {event.title}
                         </div>
                       )
                     })}
@@ -368,18 +519,45 @@ export function AccountExecutive() {
                     )}
                   </div>
 
-                  {/* Available time badge */}
-                  <div className={`mt-1.5 rounded text-center py-0.5 text-[9px] font-semibold ${
-                    freeHours >= 4 ? 'bg-green-100 text-green-700' :
-                    freeHours >= 2 ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-red-50 text-red-600'
-                  }`}>
-                    {freeHours}h free
-                  </div>
+                  {/* Free time slot ranges */}
+                  {freeSlots.length > 0 ? (
+                    <div className="mt-1.5 space-y-0.5">
+                      {freeSlots.slice(0, 2).map((s, si) => (
+                        <div key={si} className="rounded bg-green-100 text-green-700 text-[8px] font-semibold text-center py-0.5 px-1 truncate">
+                          {minsTo12h(s.start)}–{minsTo12h(s.end)}
+                        </div>
+                      ))}
+                      {freeSlots.length > 2 && (
+                        <div className="text-[8px] text-muted-foreground text-center">+{freeSlots.length - 2} más</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-1.5 rounded text-center py-0.5 text-[9px] font-semibold bg-red-50 text-red-600">
+                      Busy
+                    </div>
+                  )}
                 </div>
               )
             })}
           </div>
+
+          {/* Copy availability panel */}
+          {selectedDays.length > 0 && (
+            <div className="mt-3 p-3 bg-primary/5 rounded-lg border border-primary/20 flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                {selectedDays.length} día{selectedDays.length > 1 ? 's' : ''} seleccionado{selectedDays.length > 1 ? 's' : ''} · {tzOption.abbr}
+              </p>
+              <div className="flex gap-2">
+                <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={() => setSelectedDays([])}>
+                  Limpiar
+                </Button>
+                <Button size="sm" className="text-xs h-7 gap-1" onClick={handleCopyAvailability}>
+                  <Copy className="h-3 w-3" />
+                  Copiar disponibilidad
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -447,47 +625,97 @@ export function AccountExecutive() {
         </div>
 
         {/* CENTER: My Accounts */}
-        <Card>
-          <CardHeader className="pb-3">
+        <Card className="flex flex-col">
+          <CardHeader className="pb-3 shrink-0">
             <CardTitle className="text-sm flex items-center gap-2">
               <Building2 className="h-4 w-4" />
               My Accounts
-              {loadingAccounts && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+              {(loadingAccounts || loadingSF) && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
-            {accounts.length === 0 && !loadingAccounts ? (
-              <div className="px-6 pb-6 text-center">
-                <Building2 className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground">No accounts yet</p>
-                <Button variant="outline" size="sm" className="mt-3" onClick={() => setShowNewAccount(true)}>
-                  <Plus className="h-3.5 w-3.5 mr-1" /> Add Account
-                </Button>
-              </div>
-            ) : (
-              <div className="divide-y">
-                {accounts.map(acc => (
-                  <div
-                    key={acc.id}
-                    className="flex items-center gap-3 px-6 py-3 hover:bg-muted/40 cursor-pointer transition-colors"
-                    onClick={() => navigate(`/account-executive/${acc.id}`)}
-                  >
-                    <HealthRing score={acc.health_score} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{acc.name}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {acc.domain || acc.industry || '—'}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Badge variant="secondary" className={`text-xs ${AE_STAGE_COLORS[acc.stage]}`}>
-                        {AE_STAGE_LABELS[acc.stage]}
-                      </Badge>
-                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                    </div>
+          <CardContent className="p-0 flex-1 overflow-y-auto max-h-[480px]">
+            {/* BDM/AE: show Salesforce accounts */}
+            {jobRole === 'bdm' ? (
+              sfOwnerName ? (
+                sfAccounts.length === 0 && !loadingSF ? (
+                  <div className="px-6 pb-6 text-center">
+                    <Building2 className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                    <p className="text-sm text-muted-foreground">No active Salesforce accounts found for "{sfOwnerName}"</p>
+                    <p className="text-xs text-muted-foreground mt-1">Sync Salesforce or check your name in Settings</p>
                   </div>
-                ))}
-              </div>
+                ) : (
+                  <div className="divide-y">
+                    {sfAccounts.map(acc => (
+                      <div
+                        key={acc.sf_account_id}
+                        className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{acc.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {acc.industry || acc.website || '—'}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          {acc.latest_opportunity_stage && (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                              {acc.latest_opportunity_stage}
+                            </Badge>
+                          )}
+                          {acc.total_pipeline_value > 0 && (
+                            <p className="text-[10px] text-muted-foreground">
+                              ${acc.total_pipeline_value.toLocaleString()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              ) : (
+                <div className="px-6 pb-6 text-center py-8">
+                  <Settings className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground">Set your Salesforce name to see your accounts</p>
+                  <Button variant="outline" size="sm" className="mt-3" onClick={() => navigate('/settings')}>
+                    Go to Settings
+                  </Button>
+                </div>
+              )
+            ) : (
+              /* SDR or no role: show manual ae_accounts */
+              accounts.length === 0 && !loadingAccounts ? (
+                <div className="px-6 pb-6 text-center">
+                  <Building2 className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground">No accounts yet</p>
+                  <Button variant="outline" size="sm" className="mt-3" onClick={() => setShowNewAccount(true)}>
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Add Account
+                  </Button>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {accounts.map(acc => (
+                    <div
+                      key={acc.id}
+                      className="flex items-center gap-3 px-6 py-3 hover:bg-muted/40 cursor-pointer transition-colors"
+                      onClick={() => navigate(`/account-executive/${acc.id}`)}
+                    >
+                      <HealthRing score={acc.health_score} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{acc.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {acc.domain || acc.industry || '—'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Badge variant="secondary" className={`text-xs ${AE_STAGE_COLORS[acc.stage]}`}>
+                          {AE_STAGE_LABELS[acc.stage]}
+                        </Badge>
+                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
             )}
           </CardContent>
         </Card>

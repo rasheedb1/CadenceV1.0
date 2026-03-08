@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
 import { supabase } from '@/integrations/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,7 +9,8 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, CheckCircle2, XCircle, ExternalLink, Mail, Brain, Calendar, RefreshCw } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Loader2, CheckCircle2, XCircle, ExternalLink, Mail, Brain, Calendar, RefreshCw, Briefcase, Search, X } from 'lucide-react'
 import { useLinkedInConnection } from '@/hooks/useLinkedInConnection'
 import { useGmailConnection } from '@/hooks/useGmailConnection'
 import { SalesforceConnection } from '@/components/salesforce/SalesforceConnection'
@@ -23,6 +25,7 @@ const CLAUDE_MODELS = [
 
 export function Settings() {
   const { user } = useAuth()
+  const { orgId } = useOrg()
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -36,6 +39,84 @@ export function Settings() {
   const [gongSaving, setGongSaving] = useState(false)
 
   const gongIntegration = integrations.find(i => i.provider === 'gong')
+
+  // Sales profile settings
+  const [jobRole, setJobRole] = useState<'sdr' | 'bdm' | ''>('')
+  const [sfOwnerName, setSfOwnerName] = useState('')
+  const [salesProfileSaving, setSalesProfileSaving] = useState(false)
+  const [salesProfileMessage, setSalesProfileMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // SF owner name search
+  const [sfOwnerSearch, setSfOwnerSearch] = useState('')
+  const [sfOwnerOptions, setSfOwnerOptions] = useState<string[]>([])
+  const [sfOwnerDropdownOpen, setSfOwnerDropdownOpen] = useState(false)
+  const sfOwnerRef = useRef<HTMLDivElement>(null)
+
+  // Load sales profile from DB
+  useEffect(() => {
+    if (!user?.id) return
+    supabase
+      .from('profiles')
+      .select('job_role, sf_owner_name')
+      .eq('user_id', user.id)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setJobRole((data.job_role as 'sdr' | 'bdm') || '')
+          const name = data.sf_owner_name || ''
+          setSfOwnerName(name)
+          setSfOwnerSearch(name)
+        }
+      })
+  }, [user?.id])
+
+  // Load distinct SF opportunity owner names for the searchable dropdown
+  useEffect(() => {
+    if (!orgId) return
+    supabase
+      .from('salesforce_opportunities')
+      .select('owner_name')
+      .eq('org_id', orgId)
+      .not('owner_name', 'is', null)
+      .then(({ data }) => {
+        if (data) {
+          const names = [...new Set(data.map(r => r.owner_name as string).filter(Boolean))].sort()
+          setSfOwnerOptions(names)
+        }
+      })
+  }, [orgId])
+
+  // Close SF owner dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (sfOwnerRef.current && !sfOwnerRef.current.contains(e.target as Node)) {
+        setSfOwnerDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const filteredSfOwners = sfOwnerOptions.filter(n =>
+    n.toLowerCase().includes(sfOwnerSearch.toLowerCase())
+  )
+
+  const handleSaveSalesProfile = async () => {
+    if (!user?.id) return
+    setSalesProfileSaving(true)
+    setSalesProfileMessage(null)
+    const { error } = await supabase
+      .from('profiles')
+      .update({ job_role: jobRole || null, sf_owner_name: jobRole === 'bdm' ? sfOwnerName.trim() || null : null })
+      .eq('user_id', user.id)
+    if (error) {
+      setSalesProfileMessage({ type: 'error', text: error.message })
+    } else {
+      setSalesProfileMessage({ type: 'success', text: 'Sales profile saved' })
+      setTimeout(() => setSalesProfileMessage(null), 2000)
+    }
+    setSalesProfileSaving(false)
+  }
 
   const handleSaveGong = async () => {
     if (!gongKey.trim() || !gongSecret.trim()) return
@@ -431,6 +512,96 @@ export function Settings() {
                 Coming Soon
               </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Sales Profile */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Briefcase className="h-5 w-5" />
+              Sales Profile
+            </CardTitle>
+            <CardDescription>Your role and Salesforce identity — used to match your accounts in the AE workspace</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Your Role</Label>
+              <Select value={jobRole} onValueChange={v => setJobRole(v as 'sdr' | 'bdm')}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select your role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sdr">SDR — Sales Development Representative</SelectItem>
+                  <SelectItem value="bdm">BDM / AE — Business Development Manager / Account Executive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {jobRole === 'bdm' && (
+              <div className="space-y-2">
+                <Label>Your Salesforce Name (Opportunity Owner)</Label>
+                <div ref={sfOwnerRef} className="relative">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+                    <Input
+                      value={sfOwnerSearch}
+                      onChange={e => {
+                        setSfOwnerSearch(e.target.value)
+                        setSfOwnerName(e.target.value)
+                        setSfOwnerDropdownOpen(true)
+                      }}
+                      onFocus={() => setSfOwnerDropdownOpen(true)}
+                      placeholder="Search by name..."
+                      className="pl-8 pr-8"
+                    />
+                    {sfOwnerSearch && (
+                      <button
+                        type="button"
+                        className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
+                        onClick={() => { setSfOwnerSearch(''); setSfOwnerName(''); setSfOwnerDropdownOpen(false) }}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  {sfOwnerDropdownOpen && filteredSfOwners.length > 0 && (
+                    <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-md max-h-52 overflow-y-auto">
+                      {filteredSfOwners.map(name => (
+                        <button
+                          key={name}
+                          type="button"
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors ${name === sfOwnerName ? 'bg-accent font-medium' : ''}`}
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => {
+                            setSfOwnerName(name)
+                            setSfOwnerSearch(name)
+                            setSfOwnerDropdownOpen(false)
+                          }}
+                        >
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {sfOwnerDropdownOpen && sfOwnerSearch && filteredSfOwners.length === 0 && (
+                    <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-md px-3 py-2 text-sm text-muted-foreground">
+                      No matches — you can still type a custom name
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Select your name from Salesforce Opportunity Owners. Used to filter your active accounts in the Account Executive dashboard.
+                </p>
+              </div>
+            )}
+            {salesProfileMessage && (
+              <p className={`text-sm ${salesProfileMessage.type === 'success' ? 'text-green-600' : 'text-destructive'}`}>
+                {salesProfileMessage.text}
+              </p>
+            )}
+            <Button onClick={handleSaveSalesProfile} disabled={salesProfileSaving || !jobRole}>
+              {salesProfileSaving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : 'Save Sales Profile'}
+            </Button>
           </CardContent>
         </Card>
 

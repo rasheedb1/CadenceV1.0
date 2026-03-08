@@ -2,34 +2,54 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { ChevronLeft, ChevronRight, RefreshCw, Loader2, Users } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ChevronLeft, ChevronRight, RefreshCw, Loader2, Users, Globe } from 'lucide-react'
 import {
   useAECalendarWeek,
-  groupByDay,
-  calcFreeSlots,
+  groupByDayTZ,
+  calcFreeSlotsInTZ,
   getWeekDays,
   localDateStr,
+  localDateStrTZ,
+  getTimeInTZ,
+  formatTimeTZ,
   type CalendarEvent,
 } from '@/hooks/useAECalendarWeek'
 import { useAccountExecutive } from '@/contexts/AccountExecutiveContext'
 
-const HOUR_START = 8   // 8am
-const HOUR_END   = 20  // 8pm
+const HOUR_START = 0   // midnight
+const HOUR_END   = 24  // midnight
 const TOTAL_HOURS = HOUR_END - HOUR_START
 const HOUR_HEIGHT = 64 // px per hour
 
-const DAYS_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const DAYS_SHORT = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+
+const TIMEZONE_OPTIONS = [
+  { value: 'America/Mexico_City',  label: 'Ciudad de México', abbr: 'GMT-6' },
+  { value: 'America/New_York',     label: 'Eastern Time',     abbr: 'ET'    },
+  { value: 'America/Chicago',      label: 'Central Time',     abbr: 'CT'    },
+  { value: 'America/Denver',       label: 'Mountain Time',    abbr: 'MT'    },
+  { value: 'America/Los_Angeles',  label: 'Pacific Time',     abbr: 'PT'    },
+  { value: 'America/Bogota',       label: 'Colombia',         abbr: 'COT'   },
+  { value: 'America/Lima',         label: 'Perú',             abbr: 'PET'   },
+  { value: 'America/Santiago',     label: 'Chile',            abbr: 'CLT'   },
+  { value: 'America/Buenos_Aires', label: 'Argentina',        abbr: 'ART'   },
+  { value: 'America/Sao_Paulo',    label: 'São Paulo',        abbr: 'BRT'   },
+  { value: 'Europe/London',        label: 'London',           abbr: 'GMT'   },
+  { value: 'Europe/Madrid',        label: 'Madrid',           abbr: 'CET'   },
+  { value: 'UTC',                  label: 'UTC',              abbr: 'UTC'   },
+]
 
 function eventColor(event: CalendarEvent): string {
-  // External meetings (has non-self attendees) = blue; internal = green; no attendees = gray
   const external = (event.participants || []).some(p => !p.is_self && p.status !== 'organizer')
   if (external) return 'bg-blue-500 border-blue-600'
   return 'bg-emerald-500 border-emerald-600'
 }
 
-function EventBlock({ event }: { event: CalendarEvent }) {
+function EventBlock({ event, tz }: { event: CalendarEvent; tz: string }) {
   const start = new Date(event.occurred_at)
-  const startMinFromDayStart = (start.getHours() - HOUR_START) * 60 + start.getMinutes()
+  const { hours, minutes } = getTimeInTZ(start, tz)
+  const startMinFromDayStart = (hours - HOUR_START) * 60 + minutes
   const durationMin = event.duration_seconds ? Math.round(event.duration_seconds / 60) : 30
   const top = (startMinFromDayStart / 60) * HOUR_HEIGHT
   const height = Math.max((durationMin / 60) * HOUR_HEIGHT, 20)
@@ -39,13 +59,13 @@ function EventBlock({ event }: { event: CalendarEvent }) {
     <div
       className={`absolute left-0.5 right-0.5 rounded px-1.5 py-0.5 border-l-2 text-white overflow-hidden cursor-pointer hover:opacity-90 transition-opacity ${eventColor(event)}`}
       style={{ top: `${top}px`, height: `${height}px` }}
-      title={`${event.title}\n${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${durationMin}min`}
+      title={`${event.title}\n${formatTimeTZ(start, tz)} · ${durationMin}min`}
     >
       <p className="text-[11px] font-semibold leading-tight truncate">{event.title}</p>
       {!isShort && (
         <p className="text-[10px] opacity-80 leading-tight">
-          {start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          {durationMin < 60 ? ` · ${durationMin}m` : ` · ${Math.round(durationMin/60*10)/10}h`}
+          {formatTimeTZ(start, tz)}
+          {durationMin < 60 ? ` · ${durationMin}m` : ` · ${Math.round(durationMin / 60 * 10) / 10}h`}
         </p>
       )}
       {!isShort && event.participants.length > 1 && (
@@ -71,23 +91,18 @@ function formatWeekLabel(days: Date[]): string {
 export function AccountExecutiveCalendar() {
   const navigate = useNavigate()
   const [anchorDate, setAnchorDate] = useState(new Date())
+  const [selectedTZ, setSelectedTZ] = useState<string>(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Mexico_City'
+  )
   const { syncCalendar, isSyncingCalendar } = useAccountExecutive()
 
   const { data: events = [], isLoading } = useAECalendarWeek(anchorDate)
-  const byDay = groupByDay(events)
+  const byDay = groupByDayTZ(events, selectedTZ)
   const weekDays = getWeekDays(anchorDate)
-  const todayStr = localDateStr(new Date())
+  const todayStr = localDateStrTZ(new Date(), selectedTZ)
 
-  const prevWeek = () => {
-    const d = new Date(anchorDate)
-    d.setDate(d.getDate() - 7)
-    setAnchorDate(d)
-  }
-  const nextWeek = () => {
-    const d = new Date(anchorDate)
-    d.setDate(d.getDate() + 7)
-    setAnchorDate(d)
-  }
+  const prevWeek = () => { const d = new Date(anchorDate); d.setDate(d.getDate() - 7); setAnchorDate(d) }
+  const nextWeek = () => { const d = new Date(anchorDate); d.setDate(d.getDate() + 7); setAnchorDate(d) }
   const goToday = () => setAnchorDate(new Date())
 
   const hours = Array.from({ length: TOTAL_HOURS }, (_, i) => HOUR_START + i)
@@ -107,11 +122,27 @@ export function AccountExecutiveCalendar() {
             <Button variant="outline" size="sm" onClick={nextWeek}><ChevronRight className="h-3.5 w-3.5" /></Button>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={() => syncCalendar()} disabled={isSyncingCalendar}>
-          {isSyncingCalendar
-            ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Syncing...</>
-            : <><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Sync Calendar</>}
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Timezone selector */}
+          <Select value={selectedTZ} onValueChange={setSelectedTZ}>
+            <SelectTrigger className="h-8 w-auto text-xs gap-1">
+              <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TIMEZONE_OPTIONS.map(tz => (
+                <SelectItem key={tz.value} value={tz.value} className="text-xs">
+                  {tz.label} ({tz.abbr})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={() => syncCalendar()} disabled={isSyncingCalendar}>
+            {isSyncingCalendar
+              ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Syncing...</>
+              : <><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Sync Calendar</>}
+          </Button>
+        </div>
       </div>
 
       {/* ── Day header row ── */}
@@ -119,8 +150,9 @@ export function AccountExecutiveCalendar() {
         <div className="border-r" /> {/* time gutter */}
         {weekDays.map((day, i) => {
           const iso = localDateStr(day)
-          const isToday = iso === todayStr
-          const dayEvents = byDay[iso] || []
+          const isoTZ = localDateStrTZ(day, selectedTZ)
+          const isToday = isoTZ === todayStr
+          const dayEvents = byDay[iso] || byDay[isoTZ] || []
           return (
             <div key={iso} className={`px-2 py-2 border-r text-center ${isToday ? 'bg-primary/5' : ''}`}>
               <p className={`text-xs font-medium ${isToday ? 'text-primary' : 'text-muted-foreground'}`}>
@@ -152,7 +184,7 @@ export function AccountExecutiveCalendar() {
               {hours.map(h => (
                 <div key={h} className="border-b" style={{ height: `${HOUR_HEIGHT}px` }}>
                   <span className="text-[10px] text-muted-foreground px-1 -mt-2 block">
-                    {h === 12 ? '12pm' : h < 12 ? `${h}am` : `${h - 12}pm`}
+                    {h === 0 ? '12am' : h === 12 ? '12pm' : h < 12 ? `${h}am` : `${h - 12}pm`}
                   </span>
                 </div>
               ))}
@@ -161,9 +193,10 @@ export function AccountExecutiveCalendar() {
             {/* Day columns */}
             {weekDays.map((day) => {
               const iso = localDateStr(day)
-              const isToday = iso === todayStr
-              const dayEvents = byDay[iso] || []
-              const freeSlots = calcFreeSlots(dayEvents)
+              const isoTZ = localDateStrTZ(day, selectedTZ)
+              const isToday = isoTZ === todayStr
+              const dayEvents = byDay[iso] || byDay[isoTZ] || []
+              const freeSlots = calcFreeSlotsInTZ(dayEvents, selectedTZ)
 
               return (
                 <div
@@ -195,13 +228,14 @@ export function AccountExecutiveCalendar() {
 
                   {/* Events */}
                   {dayEvents.map(event => (
-                    <EventBlock key={event.id} event={event} />
+                    <EventBlock key={event.id} event={event} tz={selectedTZ} />
                   ))}
 
                   {/* Current time indicator */}
                   {isToday && (() => {
                     const now = new Date()
-                    const minFromStart = (now.getHours() - HOUR_START) * 60 + now.getMinutes()
+                    const { hours: nowH, minutes: nowM } = getTimeInTZ(now, selectedTZ)
+                    const minFromStart = (nowH - HOUR_START) * 60 + nowM
                     if (minFromStart < 0 || minFromStart > TOTAL_HOURS * 60) return null
                     return (
                       <div

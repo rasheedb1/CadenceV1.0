@@ -9,13 +9,33 @@ import { supabase } from '@/integrations/supabase/client'
 import { toast } from 'sonner'
 import {
   AlignLeft, AlignCenter, AlignRight,
-  Plus, Trash2, Save, Loader2, X, GripVertical, Type,
+  Plus, Trash2, Save, Loader2, X, GripVertical, Type, Pipette,
   ChevronsLeftRight, ChevronsUpDown,
   ArrowLeftToLine, ArrowRightToLine, ArrowUpToLine, ArrowDownToLine,
 } from 'lucide-react'
+import {
+  parsePptxSlides,
+  type ParsedSlide,
+  type TextRun,
+} from '@/lib/pptx-slide-parser'
 import type { ManualOverlay, ManualVariable } from '@/types/business-cases'
 
 const FONT_FAMILIES = ['Inter', 'Arial', 'Helvetica', 'Georgia', 'Verdana', 'Trebuchet MS', 'Courier New']
+
+/** Convert PPTX text run properties to ManualOverlay style properties */
+function textRunToOverlayStyle(run: TextRun, paraAlign?: string): Partial<ManualOverlay> {
+  const style: Partial<ManualOverlay> = {}
+  if (run.fontSize) style.fontSize = Math.round(run.fontSize / 100) // hundredths-of-point → points
+  if (run.bold !== undefined) style.fontWeight = run.bold ? 'bold' : 'normal'
+  if (run.italic !== undefined) style.fontStyle = run.italic ? 'italic' : 'normal'
+  if (run.color) style.color = `#${run.color}`
+  if (run.fontFamily) style.fontFamily = run.fontFamily
+  if (paraAlign) {
+    const alignMap: Record<string, ManualOverlay['textAlign']> = { l: 'left', ctr: 'center', r: 'right', just: 'left' }
+    if (alignMap[paraAlign]) style.textAlign = alignMap[paraAlign]
+  }
+  return style
+}
 
 const DEFAULT_STYLE: Omit<ManualOverlay, 'id' | 'key' | 'slide_index'> = {
   x_pct: 0.05, y_pct: 0.05, width_pct: 0.28,
@@ -40,6 +60,10 @@ function FormatToolbar({ overlay, onChange, onDelete, onAlign }: {
       {/* Font family */}
       <select value={overlay.fontFamily} onChange={e => onChange({ fontFamily: e.target.value })}
         className="h-7 text-xs border rounded px-1.5 bg-background max-w-[130px]">
+        {/* Include current font even if not in default list (e.g. picked from PPTX) */}
+        {!FONT_FAMILIES.includes(overlay.fontFamily) && (
+          <option value={overlay.fontFamily}>{overlay.fontFamily}</option>
+        )}
         {FONT_FAMILIES.map(f => <option key={f} value={f}>{f}</option>)}
       </select>
 
@@ -138,9 +162,9 @@ function OverlayChip({ overlay, isSelected, containerWidth, onMouseDown }: {
         textAlign: overlay.textAlign, color: overlay.color,
         padding: `${Math.max(2, px * 0.1)}px ${Math.max(4, px * 0.2)}px`,
         borderRadius: 4,
-        background: isSelected ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.85)',
-        border: isSelected ? '2px solid #3B82F6' : '1.5px dashed rgba(80,80,80,0.5)',
-        boxShadow: isSelected ? '0 0 0 3px rgba(59,130,246,0.2), 0 2px 8px rgba(0,0,0,0.15)' : '0 1px 4px rgba(0,0,0,0.12)',
+        background: isSelected ? 'rgba(59,130,246,0.06)' : 'transparent',
+        border: isSelected ? '2px solid #3B82F6' : '1.5px dashed rgba(100,100,100,0.6)',
+        boxShadow: isSelected ? '0 0 0 3px rgba(59,130,246,0.15)' : 'none',
         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.2,
       }}>
         {`{{${overlay.key.toUpperCase()}}}`}
@@ -151,10 +175,12 @@ function OverlayChip({ overlay, isSelected, containerWidth, onMouseDown }: {
 
 // ── Slide Edit Canvas ─────────────────────────────────────────────────────────
 
-function SlideEditCanvas({ thumbnailUrl, overlays, selectedId, onSelect, onMove, onDeselect }: {
+function SlideEditCanvas({ thumbnailUrl, overlays, selectedId, onSelect, onMove, onDeselect, pickStyleMode, parsedSlide, onPickStyle }: {
   thumbnailUrl: string | undefined; overlays: ManualOverlay[]
   selectedId: string | null; onSelect: (id: string) => void
   onMove: (id: string, x: number, y: number) => void; onDeselect: () => void
+  pickStyleMode?: boolean; parsedSlide?: ParsedSlide | null
+  onPickStyle?: (style: Partial<ManualOverlay>) => void
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const slideRef = useRef<HTMLDivElement>(null)
@@ -200,10 +226,79 @@ function SlideEditCanvas({ thumbnailUrl, overlays, selectedId, onSelect, onMove,
             <OverlayChip key={o.id} overlay={o} isSelected={o.id === selectedId}
               containerWidth={containerWidth} onMouseDown={e => handleMouseDown(e, o)} />
           ))}
-          {overlays.length === 0 && (
+          {/* Pick Style mode: clickable text regions from parsed PPTX shapes */}
+          {pickStyleMode && parsedSlide && (() => {
+            const slideW = slideRef.current?.getBoundingClientRect()?.width || containerWidth
+            return parsedSlide.shapes
+              .filter(s => s.kind === 'text' && s.paragraphs.length > 0)
+              .map(shape => {
+                const left = (shape.xEmu / parsedSlide.slideWEmu) * 100
+                const top = (shape.yEmu / parsedSlide.slideHEmu) * 100
+                const width = (shape.wEmu / parsedSlide.slideWEmu) * 100
+                const height = (shape.hEmu / parsedSlide.slideHEmu) * 100
+                // Get font info from first non-empty run
+                const firstPara = shape.paragraphs.find(p => p.runs.some(r => r.text.trim()))
+                const firstRun = firstPara?.runs.find(r => r.text.trim())
+                if (!firstRun) return null
+                const previewFontPx = firstRun.fontSize
+                  ? Math.round((firstRun.fontSize / 100) * (slideW / 960))
+                  : 12
+                return (
+                  <div
+                    key={shape.id}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (onPickStyle && firstRun) {
+                        onPickStyle(textRunToOverlayStyle(firstRun, firstPara?.align))
+                      }
+                    }}
+                    style={{
+                      position: 'absolute',
+                      left: `${left}%`, top: `${top}%`,
+                      width: `${width}%`, height: `${height}%`,
+                      cursor: 'crosshair', zIndex: 30,
+                      border: '2px solid transparent',
+                      borderRadius: 4,
+                      transition: 'border-color 0.15s, background-color 0.15s',
+                    }}
+                    onMouseEnter={e => {
+                      (e.currentTarget as HTMLDivElement).style.borderColor = '#8B5CF6'
+                      ;(e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(139,92,246,0.08)'
+                    }}
+                    onMouseLeave={e => {
+                      (e.currentTarget as HTMLDivElement).style.borderColor = 'transparent'
+                      ;(e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent'
+                    }}
+                    title={`${firstRun.fontFamily || 'Default'} · ${firstRun.fontSize ? Math.round(firstRun.fontSize / 100) + 'pt' : '?pt'}${firstRun.bold ? ' · Bold' : ''}${firstRun.italic ? ' · Italic' : ''}${firstRun.color ? ' · #' + firstRun.color : ''}`}
+                  >
+                    <div style={{
+                      fontSize: Math.max(8, previewFontPx * 0.7),
+                      color: '#8B5CF6',
+                      fontWeight: 600,
+                      pointerEvents: 'none',
+                      padding: 2,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      opacity: 0.9,
+                    }}>
+                      {firstRun.text.trim().slice(0, 30)}
+                    </div>
+                  </div>
+                )
+              })
+          })()}
+          {overlays.length === 0 && !pickStyleMode && (
             <div className="absolute inset-0 flex items-end justify-center pb-3 pointer-events-none">
               <span className="text-xs text-white bg-black/40 rounded px-3 py-1">
                 Click + next to a variable to place it here
+              </span>
+            </div>
+          )}
+          {pickStyleMode && (
+            <div className="absolute inset-0 flex items-end justify-center pb-3 pointer-events-none">
+              <span className="text-xs text-white bg-purple-600/80 rounded px-3 py-1.5 font-medium">
+                Click on any text to copy its style
               </span>
             </div>
           )}
@@ -311,12 +406,14 @@ function VariablePalettePanel({ variables, currentOverlays, onPlace, onRemove, i
 // ── Main Export ───────────────────────────────────────────────────────────────
 
 export function OverlayDesignSection({
-  thumbnailPaths, initialVariables, initialOverlays, onSave,
+  thumbnailPaths, initialVariables, initialOverlays, onSave, pptxStoragePath,
 }: {
   thumbnailPaths: string[] | null
   initialVariables: ManualVariable[]
   initialOverlays: ManualOverlay[]
   onSave: (variables: ManualVariable[], overlays: ManualOverlay[]) => Promise<void>
+  /** Storage path to the uploaded PPTX — needed for Pick Style feature */
+  pptxStoragePath?: string | null
 }) {
   const [variables, setVariables] = useState<ManualVariable[]>(initialVariables)
   const [overlays, setOverlays] = useState<ManualOverlay[]>(initialOverlays)
@@ -325,6 +422,9 @@ export function OverlayDesignSection({
   const [thumbnailUrls, setThumbnailUrls] = useState<string[]>([])
   const [isDirty, setIsDirty] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [pickStyleMode, setPickStyleMode] = useState(false)
+  const [parsedSlides, setParsedSlides] = useState<ParsedSlide[] | null>(null)
+  const [isLoadingSlides, setIsLoadingSlides] = useState(false)
 
   useEffect(() => {
     if (!thumbnailPaths || thumbnailPaths.length === 0) return
@@ -384,6 +484,38 @@ export function OverlayDesignSection({
     finally { setIsSaving(false) }
   }
 
+  // Lazy-load parsed slides when pick-style mode is activated
+  const togglePickStyle = useCallback(async () => {
+    if (pickStyleMode) { setPickStyleMode(false); return }
+    if (!selectedOverlayId) { toast.info('Select an overlay chip first, then pick a style'); return }
+    if (!parsedSlides && pptxStoragePath) {
+      setIsLoadingSlides(true)
+      try {
+        const { data, error } = await supabase.storage.from('bc-templates').download(pptxStoragePath)
+        if (error) throw error
+        const slides = await parsePptxSlides(data)
+        setParsedSlides(slides)
+      } catch {
+        toast.error('Failed to load slide data for style picking')
+        setIsLoadingSlides(false)
+        return
+      } finally {
+        setIsLoadingSlides(false)
+      }
+    }
+    setPickStyleMode(true)
+  }, [pickStyleMode, parsedSlides, pptxStoragePath, selectedOverlayId])
+
+  const handlePickStyle = useCallback((style: Partial<ManualOverlay>) => {
+    if (!selectedOverlayId) { toast.info('Select an overlay chip first'); return }
+    // If picked font isn't in the list, it will still be applied (free text in fontFamily)
+    updateOverlay(selectedOverlayId, style)
+    setPickStyleMode(false)
+    toast.success('Style applied from slide text')
+  }, [selectedOverlayId, updateOverlay])
+
+  const currentParsedSlide = parsedSlides?.find(s => s.index === selectedSlideIdx) ?? null
+
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
       {/* Slide strip */}
@@ -395,7 +527,11 @@ export function OverlayDesignSection({
             <button key={num} type="button"
               onClick={() => { setSelectedSlideIdx(num); setSelectedOverlayId(null) }}
               className={`relative rounded overflow-hidden border-2 transition-colors ${selectedSlideIdx === num ? 'border-primary' : 'border-transparent hover:border-muted-foreground/30'}`}>
-              {url ? <img src={url} alt="" className="w-full" draggable={false} />
+              {url ? (
+                <div style={{ aspectRatio: '16/9', width: '100%' }}>
+                  <img src={url} alt="" style={{ width: '100%', height: '100%', display: 'block', objectFit: 'fill' }} draggable={false} />
+                </div>
+              )
                 : <div className="aspect-video bg-muted flex items-center justify-center text-[10px] text-muted-foreground">{num}</div>}
               <div className="text-[9px] text-center text-muted-foreground py-0.5 bg-white border-t">{num}</div>
               {overlays.some(o => o.slide_index === num) && (
@@ -409,8 +545,26 @@ export function OverlayDesignSection({
       {/* Canvas area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {selectedOverlay ? (
-          <FormatToolbar overlay={selectedOverlay} onChange={u => updateOverlay(selectedOverlay.id, u)}
-            onDelete={() => deleteOverlay(selectedOverlay.id)} onAlign={alignToSlide} />
+          <div className="flex items-center border-b">
+            <FormatToolbar overlay={selectedOverlay} onChange={u => updateOverlay(selectedOverlay.id, u)}
+              onDelete={() => deleteOverlay(selectedOverlay.id)} onAlign={alignToSlide} />
+            {pptxStoragePath && (
+              <button
+                type="button"
+                title="Pick style from slide text"
+                onClick={togglePickStyle}
+                disabled={isLoadingSlides}
+                className={`h-7 px-2 mx-1 border rounded flex items-center gap-1 text-xs shrink-0 transition-colors ${
+                  pickStyleMode
+                    ? 'bg-purple-600 text-white border-purple-600'
+                    : 'hover:bg-muted border-border'
+                }`}
+              >
+                {isLoadingSlides ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pipette className="h-3.5 w-3.5" />}
+                <span className="hidden sm:inline">{pickStyleMode ? 'Cancel' : 'Pick Style'}</span>
+              </button>
+            )}
+          </div>
         ) : (
           <div className="shrink-0 h-[46px] border-b bg-muted/20 flex items-center justify-center">
             <p className="text-xs text-muted-foreground">Select a chip to see formatting tools</p>
@@ -419,7 +573,9 @@ export function OverlayDesignSection({
         <SlideEditCanvas thumbnailUrl={currentThumbnailUrl} overlays={currentOverlays}
           selectedId={selectedOverlayId} onSelect={setSelectedOverlayId}
           onMove={(id, x, y) => updateOverlay(id, { x_pct: x, y_pct: y })}
-          onDeselect={() => setSelectedOverlayId(null)} />
+          onDeselect={() => { setSelectedOverlayId(null); setPickStyleMode(false) }}
+          pickStyleMode={pickStyleMode} parsedSlide={currentParsedSlide}
+          onPickStyle={handlePickStyle} />
       </div>
 
       {/* Variable palette */}
