@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -25,7 +25,7 @@ import { toast } from 'sonner'
 import type { AEAccountStage } from '@/types/account-executive'
 import {
   useAECalendarWeek, groupByDayTZ, calcFreeSlotsInTZ,
-  getWeekDays, localDateStr, localDateStrTZ, formatTimeTZ, type CalendarEvent,
+  getWeekDays, localDateStr, localDateStrTZ, type CalendarEvent,
 } from '@/hooks/useAECalendarWeek'
 import { AE_STAGE_LABELS, AE_STAGE_COLORS, healthScoreBg, healthScoreColor } from '@/types/account-executive'
 
@@ -74,9 +74,12 @@ function buildCopyText(
     const freeSlots = calcFreeSlotsInTZ(weekByDay[dayStr] || [], tz)
     if (freeSlots.length === 0) continue
     const lines = [formatDateES(dayStr)]
-    freeSlots.forEach((s, i) => {
-      lines.push(`- Opción ${i + 1}: ${minsTo12h(s.start)} - ${minsTo12h(s.end)} ${tzAbbr}`)
-    })
+    let optNum = 1
+    for (const s of freeSlots) {
+      for (let t = s.start; t < s.end; t += 30) {
+        lines.push(`- Opción ${optNum++}: ${minsTo12h(t)} ${tzAbbr}`)
+      }
+    }
     sections.push(lines.join('\n'))
   }
   return sections.join('\n\n')
@@ -232,8 +235,7 @@ function NewAccountDialog({ open, onClose }: { open: boolean; onClose: () => voi
 // ── Main Page ───────────────────────────────────────────────────────────────
 export function AccountExecutive() {
   const navigate = useNavigate()
-  const { session, user } = useAuth()
-  const callbackProcessed = useRef(false)
+  const { user } = useAuth()
   const { data: accounts = [], isLoading: loadingAccounts } = useAEAccounts()
   const { data: recentActivities = [], isLoading: loadingActivities } = useAERecentActivities(15)
   const { data: reminders = [] } = useAEReminders()
@@ -263,45 +265,6 @@ export function AccountExecutive() {
   }, [user?.id])
 
   const { data: sfAccounts = [], isLoading: loadingSF } = useSFOwnerAccounts(sfOwnerName)
-
-  // ── Handle Google Calendar OAuth callback ──────────────────────────────────
-  useEffect(() => {
-    if (callbackProcessed.current) return
-    const params = new URLSearchParams(window.location.search)
-    const code = params.get('code')
-    const calendarParam = params.get('calendar')
-    const state = params.get('state')
-    if (!code || calendarParam !== 'connected') return
-
-    callbackProcessed.current = true
-    window.history.replaceState({}, '', '/account-executive')
-
-    if (!session?.access_token) return
-    const token = session.access_token
-
-    toast.loading('Connecting Google Calendar...')
-    fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ae-google-callback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ code, state }),
-    })
-      .then(r => r.json())
-      .then(result => {
-        toast.dismiss()
-        if (result.error) {
-          toast.error('Google Calendar failed: ' + result.error)
-        } else {
-          toast.success('Google Calendar connected' + (result.email ? ' as ' + result.email : '') + '!')
-          // Auto-sync calendar events after connecting
-          fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ae-calendar-sync`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
-          }).catch(() => {/* silent - sync can be retried manually */})
-        }
-      })
-      .catch(() => { toast.dismiss(); toast.error('Google Calendar connection failed') })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.access_token])
 
   // ── Derived stats ──────────────────────────────────────────────────────────
   const atRisk = accounts.filter(a => a.stage === 'at_risk').length
@@ -495,29 +458,6 @@ export function AccountExecutive() {
                   <p className={`text-sm font-bold text-center mb-2 ${isToday || isSelected ? 'text-primary' : ''}`}>
                     {day.getDate()}
                   </p>
-
-                  {/* Meeting blocks (mini timeline) */}
-                  <div className="space-y-0.5 min-h-[40px]">
-                    {dayEvents.slice(0, 3).map(event => {
-                      const start = new Date(event.occurred_at)
-                      const hasExternal = (event.participants || []).some(p => !p.is_self && p.status !== 'organizer')
-                      return (
-                        <div
-                          key={event.id}
-                          className={`rounded px-1 py-0.5 text-[9px] font-medium text-white truncate ${hasExternal ? 'bg-blue-500' : 'bg-emerald-500'}`}
-                          title={event.title}
-                        >
-                          {formatTimeTZ(start, selectedTZ)} {event.title}
-                        </div>
-                      )
-                    })}
-                    {dayEvents.length > 3 && (
-                      <p className="text-[9px] text-muted-foreground text-center">+{dayEvents.length - 3} more</p>
-                    )}
-                    {dayEvents.length === 0 && (
-                      <p className="text-[9px] text-muted-foreground text-center py-1">Free</p>
-                    )}
-                  </div>
 
                   {/* Free time slot ranges */}
                   {freeSlots.length > 0 ? (

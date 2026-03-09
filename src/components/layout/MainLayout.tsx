@@ -1,9 +1,11 @@
+import { useEffect, useRef } from 'react'
 import { Outlet, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrg } from '@/contexts/OrgContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Sidebar } from './Sidebar'
 import { LogOut, Moon, Sun, Settings } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,10 +15,57 @@ import {
 } from '@/components/ui/dropdown-menu'
 
 export function MainLayout() {
-  const { user, profile, loading, signOut } = useAuth()
+  const { user, profile, loading, session, signOut } = useAuth()
   const { orgId, isLoading: orgLoading } = useOrg()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
+  const googleCallbackProcessed = useRef(false)
+
+  // ── Google OAuth callback handler ────────────────────────────────────────────
+  // Lives here (not in AccountExecutive) so it runs regardless of feature flags.
+  // FeatureRoute may block /account-executive for users without that flag,
+  // but MainLayout always renders for authenticated users.
+  useEffect(() => {
+    if (googleCallbackProcessed.current) return
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get('code')
+    const calendarParam = params.get('calendar')
+    const state = params.get('state')
+    if (!code || calendarParam !== 'connected') return
+
+    // Wait for session — do NOT set ref yet so this re-runs when session loads
+    if (!session?.access_token) return
+
+    googleCallbackProcessed.current = true
+    // Clear the OAuth params from the URL immediately to prevent duplicate processing
+    window.history.replaceState({}, '', window.location.pathname)
+
+    const token = session.access_token
+    const origin = sessionStorage.getItem('gmailOAuthOrigin') || '/settings'
+    sessionStorage.removeItem('gmailOAuthOrigin')
+
+    toast.loading('Connecting Google account...')
+    fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ae-google-callback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ code, state }),
+    })
+      .then(r => r.json())
+      .then(result => {
+        toast.dismiss()
+        if (result.error) {
+          toast.error('Google connection failed: ' + result.error)
+        } else {
+          toast.success('Google connected' + (result.email ? ' as ' + result.email : '') + '!')
+        }
+        navigate(origin)
+      })
+      .catch(() => {
+        toast.dismiss()
+        toast.error('Google connection failed')
+        navigate(origin)
+      })
+  }, [session?.access_token, navigate])
 
   if (loading || orgLoading) {
     return (

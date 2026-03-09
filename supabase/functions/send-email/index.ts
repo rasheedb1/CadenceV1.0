@@ -1,6 +1,5 @@
-// Edge Function: Send Email via Unipile
+// Edge Function: Send Email via Gmail API (direct Google integration)
 // POST /functions/v1/send-email
-// Sends an email through the user's connected Gmail account via Unipile API
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createSupabaseClient, getAuthContext, logActivity, trackProspectedCompany } from '../_shared/supabase.ts'
@@ -15,76 +14,146 @@ interface SendEmailRequest {
   to: string          // email address
   subject: string
   body: string        // HTML body
-  bodyType?: 'text/html' | 'text/plain'  // defaults to text/html
-  replyToMessageId?: string  // gmail_message_id to reply to (for email threading)
-  ownerId?: string // For service-role calls from process-queue
-  orgId?: string   // For service-role calls from process-queue
+  bodyType?: 'text/html' | 'text/plain'
+  replyToMessageId?: string  // gmail threadId for reply threading
+  ownerId?: string
+  orgId?: string
 }
 
+// ── Gmail token helpers ────────────────────────────────────────────────────
+
+interface GmailTokenConfig {
+  access_token: string
+  refresh_token?: string | null
+  expires_at: string
+  email?: string | null
+}
+
+async function refreshAccessToken(refreshToken: string): Promise<{ access_token: string; expires_at: string } | null> {
+  const clientId = Deno.env.get('GOOGLE_CLIENT_ID')
+  const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET')
+  if (!clientId || !clientSecret) return null
+
+  const resp = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      refresh_token: refreshToken,
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'refresh_token',
+    }),
+  })
+  const data = await resp.json()
+  if (!data.access_token) return null
+  return {
+    access_token: data.access_token,
+    expires_at: new Date(Date.now() + (data.expires_in || 3600) * 1000).toISOString(),
+  }
+}
+
+async function getValidGmailToken(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  userId: string,
+  orgId: string,
+): Promise<{ token: string; email: string | null } | null> {
+  const { data: integration } = await supabase
+    .from('ae_integrations')
+    .select('config, token_expires_at')
+    .eq('user_id', userId)
+    .eq('org_id', orgId)
+    .eq('provider', 'gmail')
+    .single()
+
+  if (!integration) return null
+
+  const cfg = integration.config as GmailTokenConfig
+  if (!cfg?.access_token) return null
+
+  // Check expiry — refresh if within 2 minutes
+  const expiresAt = new Date(cfg.expires_at).getTime()
+  let accessToken = cfg.access_token
+
+  if (Date.now() > expiresAt - 2 * 60 * 1000 && cfg.refresh_token) {
+    const refreshed = await refreshAccessToken(cfg.refresh_token)
+    if (refreshed) {
+      accessToken = refreshed.access_token
+      // Save refreshed token
+      await supabase
+        .from('ae_integrations')
+        .update({
+          config: { ...cfg, access_token: refreshed.access_token, expires_at: refreshed.expires_at },
+          token_expires_at: refreshed.expires_at,
+        })
+        .eq('user_id', userId)
+        .eq('org_id', orgId)
+        .eq('provider', 'gmail')
+    }
+  }
+
+  return { token: accessToken, email: cfg.email || null }
+}
+
+// ── RFC 2822 builder ──────────────────────────────────────────────────────
+
+function toBase64Url(str: string): string {
+  const bytes = new TextEncoder().encode(str)
+  let binary = ''
+  bytes.forEach(b => { binary += String.fromCharCode(b) })
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+function buildRfc2822({ to, from, subject, html, replyToThreadId }: {
+  to: string
+  from: string
+  subject: string
+  html: string
+  replyToThreadId?: string | null
+}): string {
+  const lines = [
+    `To: ${to}`,
+    `From: ${from}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=UTF-8',
+  ]
+  if (replyToThreadId) {
+    lines.push(`In-Reply-To: <${replyToThreadId}>`)
+    lines.push(`References: <${replyToThreadId}>`)
+  }
+  lines.push('', html)
+  return lines.join('\r\n')
+}
+
+// ── Main handler ──────────────────────────────────────────────────────────
+
 serve(async (req: Request) => {
-  // Handle CORS
   const corsResponse = handleCors(req)
   if (corsResponse) return corsResponse
 
   try {
-    // Authenticate user
     const authHeader = req.headers.get('Authorization')
-    if (!authHeader) {
-      return errorResponse('Missing authorization header', 401)
-    }
+    if (!authHeader) return errorResponse('Missing authorization header', 401)
 
-    // Parse request body
     const requestBody: SendEmailRequest = await req.json()
     const {
-      leadId,
-      cadenceId,
-      cadenceStepId,
-      scheduleId,
-      instanceId,
-      to,
-      subject,
-      body: emailBody,
-      bodyType,
-      replyToMessageId,
-      ownerId,
-      orgId,
+      leadId, cadenceId, cadenceStepId, scheduleId, instanceId,
+      to, subject, body: emailBody, bodyType, replyToMessageId,
+      ownerId, orgId,
     } = requestBody
 
     const ctx = await getAuthContext(authHeader, { ownerId, orgId })
-    if (!ctx) {
-      return errorResponse('Unauthorized', 401)
-    }
+    if (!ctx) return errorResponse('Unauthorized', 401)
 
-    // Get Unipile credentials
-    const unipileDsn = Deno.env.get('UNIPILE_DSN')
-    const unipileAccessToken = Deno.env.get('UNIPILE_ACCESS_TOKEN')
-
-    if (!unipileDsn || !unipileAccessToken) {
-      console.error('Missing Unipile credentials')
-      return errorResponse('Unipile integration not configured', 500)
-    }
-
-    const baseUrl = `https://${unipileDsn}`
     const supabase = createSupabaseClient()
 
-    // Get Gmail account ID from unipile_accounts
-    const { data: gmailAccount, error: gmailError } = await supabase
-      .from('unipile_accounts')
-      .select('account_id')
-      .eq('user_id', ctx.userId)
-      .eq('provider', 'EMAIL')
-      .eq('status', 'active')
-      .single()
-
-    if (gmailError || !gmailAccount?.account_id) {
-      console.error('No active Gmail account found for user:', ctx.userId)
-      return errorResponse('No Gmail account found. Please connect your Gmail account in Settings and try again.')
+    // Get valid Gmail token
+    const gmailAuth = await getValidGmailToken(supabase, ctx.userId, ctx.orgId)
+    if (!gmailAuth) {
+      return errorResponse('No Gmail account found. Please connect your Google account in Settings and try again.')
     }
 
-    const gmailAccountId = gmailAccount.account_id
-    console.log(`Using Gmail Unipile account: ${gmailAccountId}`)
-
-    // Get lead info if leadId provided — also resolve email address
+    // Resolve recipient email and lead info
     let recipientEmail = to
     let leadName: string | null = null
     let leadCompany: string | null = null
@@ -95,49 +164,32 @@ serve(async (req: Request) => {
         .eq('id', leadId)
         .eq('org_id', ctx.orgId)
         .single()
-
       if (lead) {
         leadName = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || null
         leadCompany = lead.company || null
-        // Use lead's email if 'to' was not provided
-        if (!recipientEmail && lead.email) {
-          recipientEmail = lead.email
-        }
-        console.log(`Sending email to lead: ${leadName} <${recipientEmail}>`)
+        if (!recipientEmail && lead.email) recipientEmail = lead.email
       }
     }
 
-    // Validate required fields
-    if (!recipientEmail) {
-      return errorResponse('No email address found. Either provide "to" or ensure the lead has an email.')
-    }
-    if (!subject) {
-      return errorResponse('subject is required')
-    }
-    // Check for truly empty body (including HTML-wrapped empty content like "<p></p>")
+    if (!recipientEmail) return errorResponse('No email address found. Either provide "to" or ensure the lead has an email.')
+    if (!subject) return errorResponse('subject is required')
     const strippedBody = emailBody?.replace(/<[^>]*>/g, '').trim()
-    if (!emailBody || !strippedBody) {
-      return errorResponse('body is required (email body is empty)')
-    }
+    if (!emailBody || !strippedBody) return errorResponse('body is required (email body is empty)')
 
-    // ── Email open tracking: inject pixel + create email_messages record ──
+    // ── Inject tracking pixel ──
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const eventId = crypto.randomUUID()
     let trackedBody = emailBody
 
-    // Only inject tracking pixel for HTML emails
     if (bodyType !== 'text/plain') {
       const pixelUrl = `${supabaseUrl}/functions/v1/track-email-open?eid=${eventId}`
       const pixelTag = `<img src="${pixelUrl}" width="1" height="1" style="display:none" alt="" />`
-
-      if (trackedBody.includes('</body>')) {
-        trackedBody = trackedBody.replace('</body>', `${pixelTag}</body>`)
-      } else {
-        trackedBody = trackedBody + pixelTag
-      }
+      trackedBody = trackedBody.includes('</body>')
+        ? trackedBody.replace('</body>', `${pixelTag}</body>`)
+        : trackedBody + pixelTag
     }
 
-    // Create email_messages record for tracking
+    // Create email_messages record
     await supabase.from('email_messages').insert({
       id: crypto.randomUUID(),
       event_id: eventId,
@@ -153,237 +205,107 @@ serve(async (req: Request) => {
       status: 'queued',
     })
 
-    // Send email via Unipile API with retry for transient errors (502/503/504)
-    console.log(`Sending email to: ${recipientEmail}, subject: ${subject}, event_id: ${eventId}`)
+    // ── Build and send via Gmail API ──────────────────────────────────────
+    const fromAddress = gmailAuth.email
+      ? `${gmailAuth.email}`
+      : 'me'
 
-    const emailPayload: Record<string, unknown> = {
-      account_id: gmailAccountId,
-      to: [{ display_name: leadName || recipientEmail, identifier: recipientEmail }],
-      subject: subject,
-      body: trackedBody,
+    const rawMessage = buildRfc2822({
+      to: leadName ? `${leadName} <${recipientEmail}>` : recipientEmail,
+      from: fromAddress,
+      subject,
+      html: bodyType === 'text/plain' ? emailBody : trackedBody,
+      replyToThreadId: replyToMessageId || null,
+    })
+
+    const gmailBody: Record<string, unknown> = {
+      raw: toBase64Url(rawMessage),
     }
-
-    // Add body_type if explicitly set to text/plain (default is text/html)
-    if (bodyType === 'text/plain') emailPayload.body_type = 'text/plain'
-
-    // Add reply_to for email threading (follow-up in same thread)
-    // Unipile expects the provider_id (Gmail's native hex message ID) — stored in email_messages.gmail_message_id
+    // If replying, attach to existing thread
     if (replyToMessageId) {
-      emailPayload.reply_to = replyToMessageId
-      console.log(`Threading reply using provider_id: ${replyToMessageId}`)
+      gmailBody.threadId = replyToMessageId
     }
 
-    const MAX_RETRIES = 2
-    let response: Response | null = null
-    let lastError = ''
+    console.log(`Sending email via Gmail API to: ${recipientEmail}, subject: ${subject}, event_id: ${eventId}`)
 
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      if (attempt > 0) {
-        console.log(`Retry attempt ${attempt + 1} after transient error...`)
-        await new Promise(r => setTimeout(r, 2000 * attempt))
-      }
+    const sendResp = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${gmailAuth.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(gmailBody),
+    })
 
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 25000) // 25s timeout per attempt
+    if (!sendResp.ok) {
+      const errText = await sendResp.text()
+      console.error('Gmail API send error:', sendResp.status, errText)
 
-      try {
-        response = await fetch(`${baseUrl}/api/v1/emails`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-KEY': unipileAccessToken,
-          },
-          body: JSON.stringify(emailPayload),
-          signal: controller.signal,
-        })
-        clearTimeout(timeout)
-
-        // If success or non-retryable error, break out
-        if (response.ok || ![502, 503, 504].includes(response.status)) {
-          break
-        }
-
-        lastError = await response.text()
-        console.warn(`Unipile returned ${response.status} on attempt ${attempt + 1}: ${lastError}`)
-      } catch (fetchErr) {
-        clearTimeout(timeout)
-        if (fetchErr instanceof DOMException && fetchErr.name === 'AbortError') {
-          lastError = 'Request timed out after 25 seconds'
-          console.warn(`Unipile request timed out on attempt ${attempt + 1}`)
-        } else {
-          lastError = fetchErr instanceof Error ? fetchErr.message : 'Network error'
-          console.warn(`Fetch error on attempt ${attempt + 1}: ${lastError}`)
-        }
-        response = null
-      }
-    }
-
-    if (!response || !response.ok) {
-      const errorText = response ? (lastError || await response.text()) : lastError
-      const statusCode = response?.status || 504
-      console.error('Unipile email API error after retries:', statusCode, errorText)
-
-      // Friendly error message based on status
-      const userMessage = statusCode === 504 || !response
-        ? 'Gmail no respondio a tiempo. Tu conexion de Gmail puede haber expirado — ve a Settings para reconectar.'
-        : `Error enviando email: ${response.statusText}`
-
-      // Update email_messages status to failed
       await supabase
         .from('email_messages')
-        .update({ status: 'failed', last_error: errorText })
+        .update({ status: 'failed', last_error: errText })
         .eq('event_id', eventId)
 
-      // Log failure
       await logActivity({
-        ownerId: ctx.userId,
-        orgId: ctx.orgId,
-        cadenceId,
-        cadenceStepId,
-        leadId,
-        action: 'email',
-        status: 'failed',
-        details: { error: errorText, to: recipientEmail, subject },
+        ownerId: ctx.userId, orgId: ctx.orgId, cadenceId, cadenceStepId, leadId,
+        action: 'email', status: 'failed',
+        details: { error: errText, to: recipientEmail, subject },
       })
 
-      // Update schedule status if provided
       if (scheduleId) {
-        await supabase
-          .from('schedules')
-          .update({
-            status: 'failed',
-            last_error: errorText,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', scheduleId)
+        await supabase.from('schedules').update({ status: 'failed', last_error: errText, updated_at: new Date().toISOString() }).eq('id', scheduleId)
       }
-
-      // Update instance status if provided
       if (instanceId) {
-        await supabase
-          .from('lead_step_instances')
-          .update({
-            status: 'failed',
-            last_error: errorText,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', instanceId)
+        await supabase.from('lead_step_instances').update({ status: 'failed', last_error: errText, updated_at: new Date().toISOString() }).eq('id', instanceId)
       }
 
-      return errorResponse(userMessage, statusCode)
+      const userMessage = sendResp.status === 401
+        ? 'Tu conexión de Gmail expiró. Ve a Settings para reconectar tu cuenta de Google.'
+        : `Error enviando email: ${sendResp.statusText}`
+      return errorResponse(userMessage, sendResp.status)
     }
 
-    const result = await response.json()
-    console.log('Unipile email send response:', JSON.stringify(result))
+    const result = await sendResp.json()
+    // Gmail API returns { id, threadId, labelIds }
+    const messageId = result?.id || null
+    const threadId = result?.threadId || null
+    // Store threadId as gmail_message_id for reply threading in future messages
+    const storedId = threadId || messageId
 
-    // Try to get email ID from POST response first
-    let emailId: string | null = result?.id || result?.message_id || result?.email_id || result?.object_id || null
+    console.log(`Gmail API success: messageId=${messageId}, threadId=${threadId}`)
 
-    // If POST didn't return an ID (Unipile sometimes returns just {}), fetch the sent email
-    // from the listing API to get the Unipile email ID needed for reply threading
-    if (!emailId) {
-      console.log('No email ID in POST response — fetching sent email from Unipile listing...')
-      try {
-        // Small wait to allow Unipile to index the sent email
-        await new Promise(r => setTimeout(r, 3000))
-        // NOTE: role=SENT is NOT a valid Unipile filter — omit it and filter client-side
-        const listRes = await fetch(
-          `${baseUrl}/api/v1/emails?account_id=${gmailAccountId}&limit=10`,
-          { headers: { 'X-API-KEY': unipileAccessToken } }
-        )
-        if (listRes.ok) {
-          const listData = await listRes.json()
-          console.log('Unipile listing response keys:', Object.keys(listData))
-          const items: Array<Record<string, unknown>> = listData?.items || listData?.data || listData?.emails || []
-          console.log(`Unipile listing returned ${items.length} emails`)
-          if (items.length > 0) {
-            console.log('First item sample:', JSON.stringify(items[0]).substring(0, 300))
-          }
-          // Find the email we just sent by matching recipient + subject
-          // Sent emails: to_attendees contains the recipient; inbox emails: to_attendees contains our address
-          const normalizeSubject = (s: string) => s.replace(/^re:\s*/i, '').trim().toLowerCase()
-          const sent = items.find((e) => {
-            const toIds = (e.to_attendees as Array<{identifier: string}> || []).map(a => a.identifier?.toLowerCase())
-            const subjectMatch = normalizeSubject(e.subject as string || '') === normalizeSubject(subject)
-            const recipientMatch = toIds.some(id => id === recipientEmail.toLowerCase())
-            return subjectMatch && recipientMatch
-          })
-          if (sent) {
-            // Unipile reply_to expects provider_id (Gmail's native message hex ID), not the Unipile internal id
-            emailId = (sent.provider_id || sent.id) as string
-            console.log(`Retrieved Unipile email provider_id from listing: ${emailId} (id: ${sent.id})`)
-          } else if (items.length > 0) {
-            console.log(`No exact match found. Subjects checked: ${items.slice(0,5).map(e => e.subject).join(', ')}`)
-          }
-        } else {
-          console.warn(`Unipile listing API returned ${listRes.status}: ${await listRes.text()}`)
-        }
-      } catch (err) {
-        console.warn('Could not retrieve email ID from Unipile listing:', err)
-      }
-    }
-
-    if (!emailId) {
-      console.warn('WARNING: Could not obtain Unipile email ID. Reply threading will not work.')
-    }
-
-    // Update email_messages status to sent
+    // Update email_messages
     await supabase
       .from('email_messages')
-      .update({ status: 'sent', gmail_message_id: emailId, sent_at: new Date().toISOString() })
+      .update({ status: 'sent', gmail_message_id: storedId, sent_at: new Date().toISOString() })
       .eq('event_id', eventId)
 
-    // Log success
     await logActivity({
-      ownerId: ctx.userId,
-      orgId: ctx.orgId,
-      cadenceId,
-      cadenceStepId,
-      leadId,
-      action: 'email',
-      status: 'ok',
-      details: { emailId, to: recipientEmail, subject },
+      ownerId: ctx.userId, orgId: ctx.orgId, cadenceId, cadenceStepId, leadId,
+      action: 'email', status: 'ok',
+      details: { messageId, threadId, to: recipientEmail, subject },
     })
 
-    // Track company as prospected in registry
     if (leadCompany) {
       trackProspectedCompany({
-        ownerId: ctx.userId,
-        orgId: ctx.orgId,
-        companyName: leadCompany,
-        prospectedVia: 'email',
+        ownerId: ctx.userId, orgId: ctx.orgId,
+        companyName: leadCompany, prospectedVia: 'email',
       })
     }
 
-    // Update schedule status if provided
     if (scheduleId) {
-      await supabase
-        .from('schedules')
-        .update({ status: 'executed', updated_at: new Date().toISOString() })
-        .eq('id', scheduleId)
+      await supabase.from('schedules').update({ status: 'executed', updated_at: new Date().toISOString() }).eq('id', scheduleId)
     }
-
-    // Update instance status if provided
     if (instanceId) {
-      await supabase
-        .from('lead_step_instances')
-        .update({
-          status: 'sent',
-          result_snapshot: result,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', instanceId)
+      await supabase.from('lead_step_instances').update({
+        status: 'sent', result_snapshot: result, updated_at: new Date().toISOString(),
+      }).eq('id', instanceId)
     }
 
-    return jsonResponse({
-      success: true,
-      emailId,
-    })
+    return jsonResponse({ success: true, emailId: storedId })
+
   } catch (error) {
     console.error('Error sending email:', error)
-    return errorResponse(
-      error instanceof Error ? error.message : 'Internal error',
-      500
-    )
+    return errorResponse(error instanceof Error ? error.message : 'Internal error', 500)
   }
 })

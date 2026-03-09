@@ -1,4 +1,4 @@
-// ae-google-oauth — Generate Google OAuth URL for Calendar access
+// ae-google-oauth — Generate Google OAuth URL for Calendar + Gmail access
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
@@ -7,6 +7,8 @@ import { getAuthContext } from '../_shared/supabase.ts'
 const REDIRECT_URI = 'https://laiky-cadence.vercel.app/account-executive?calendar=connected'
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/userinfo.email',
 ].join(' ')
 

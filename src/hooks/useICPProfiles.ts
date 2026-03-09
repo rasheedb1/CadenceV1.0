@@ -6,18 +6,20 @@ import type { ICPProfile, BuyerPersona } from '@/types/account-mapping'
 import type { ICPBuilderData } from '@/types/icp-builder'
 import { toast } from 'sonner'
 
-// ── List all ICP profiles for the current org ──
+// ── List all ICP profiles for the current user ──
 export function useICPProfiles() {
   const { orgId } = useOrg()
+  const { user } = useAuth()
 
   return useQuery({
-    queryKey: ['icp-profiles', orgId],
+    queryKey: ['icp-profiles', orgId, user?.id],
     queryFn: async () => {
-      if (!orgId) return []
+      if (!orgId || !user) return []
       const { data, error } = await supabase
         .from('icp_profiles')
         .select('*, buyer_personas(id)')
         .eq('org_id', orgId)
+        .eq('owner_id', user.id)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []).map((p: Record<string, unknown>) => ({
@@ -25,43 +27,47 @@ export function useICPProfiles() {
         persona_count: Array.isArray(p.buyer_personas) ? p.buyer_personas.length : 0,
       })) as (ICPProfile & { persona_count: number })[]
     },
-    enabled: !!orgId,
+    enabled: !!orgId && !!user,
   })
 }
 
 // ── Single ICP profile with full personas ──
 export function useICPProfile(id: string | undefined) {
   const { orgId } = useOrg()
+  const { user } = useAuth()
 
   return useQuery({
     queryKey: ['icp-profile', id],
     queryFn: async () => {
-      if (!id || !orgId) return null
+      if (!id || !orgId || !user) return null
       const { data, error } = await supabase
         .from('icp_profiles')
         .select('*, buyer_personas(*)')
         .eq('id', id)
         .eq('org_id', orgId)
+        .eq('owner_id', user.id)
         .single()
       if (error) throw error
       return data as ICPProfile
     },
-    enabled: !!id && !!orgId,
+    enabled: !!id && !!orgId && !!user,
   })
 }
 
-// ── Count account maps using each profile ──
+// ── Count account maps using each profile (current user only) ──
 export function useICPProfileUsage() {
   const { orgId } = useOrg()
+  const { user } = useAuth()
 
   return useQuery({
-    queryKey: ['icp-profile-usage', orgId],
+    queryKey: ['icp-profile-usage', orgId, user?.id],
     queryFn: async () => {
-      if (!orgId) return new Map<string, number>()
+      if (!orgId || !user) return new Map<string, number>()
       const { data, error } = await supabase
         .from('account_maps')
         .select('icp_profile_id')
         .eq('org_id', orgId)
+        .eq('owner_id', user.id)
         .not('icp_profile_id', 'is', null)
       if (error) throw error
       const counts = new Map<string, number>()
@@ -71,7 +77,7 @@ export function useICPProfileUsage() {
       }
       return counts
     },
-    enabled: !!orgId,
+    enabled: !!orgId && !!user,
   })
 }
 

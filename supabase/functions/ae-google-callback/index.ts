@@ -100,23 +100,40 @@ serve(async (req: Request) => {
     scope: tokens.scope,
   }
 
-  // Upsert: one google_calendar integration per user per org
-  const { error: upsertError } = await supabase
+  // Upsert: save both google_calendar and gmail providers (same tokens, different provider key)
+  const now = new Date().toISOString()
+  const { error: calError } = await supabase
     .from('ae_integrations')
     .upsert({
       org_id: authCtx.orgId,
       user_id: authCtx.userId,
       provider: 'google_calendar',
       config,
-      connected_at: new Date().toISOString(),
+      connected_at: now,
       token_expires_at: expiresAt,
     }, { onConflict: 'org_id,user_id,provider' })
 
-  if (upsertError) {
-    console.error('[ae-google-callback] DB upsert failed:', upsertError.message)
+  if (calError) {
+    console.error('[ae-google-callback] Calendar upsert failed:', calError.message)
     return errorResponse('Failed to save calendar connection', 500)
   }
 
-  console.log(`[ae-google-callback] Saved integration for user ${authCtx.userId}`)
+  const { error: gmailError } = await supabase
+    .from('ae_integrations')
+    .upsert({
+      org_id: authCtx.orgId,
+      user_id: authCtx.userId,
+      provider: 'gmail',
+      config,
+      connected_at: now,
+      token_expires_at: expiresAt,
+    }, { onConflict: 'org_id,user_id,provider' })
+
+  if (gmailError) {
+    console.error('[ae-google-callback] Gmail upsert failed:', gmailError.message, gmailError.code, gmailError.details)
+    return errorResponse('Failed to save Gmail connection: ' + gmailError.message, 500)
+  }
+
+  console.log(`[ae-google-callback] Saved calendar + gmail integration for user ${authCtx.userId}`)
   return jsonResponse({ success: true, email })
 })

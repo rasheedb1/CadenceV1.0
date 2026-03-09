@@ -190,17 +190,19 @@ function processApolloMatch(
 ): {
   email: string | null
   phone: string | null
+  linkedinUrl: string | null
   enrichmentDetails: Record<string, unknown>
   failReason: string | null
 } {
   const enrichmentDetails: Record<string, unknown> = {}
 
   if (!person) {
-    return { email: null, phone: null, enrichmentDetails, failReason: 'not_in_apollo' }
+    return { email: null, phone: null, linkedinUrl: null, enrichmentDetails, failReason: 'not_in_apollo' }
   }
 
   const email = person.email || null
   const phone = person.phone_numbers?.[0]?.sanitized_number || null
+  const linkedinUrl = person.linkedin_url || null
 
   if (person.email) {
     enrichmentDetails.apollo_email = person.email
@@ -208,6 +210,9 @@ function processApolloMatch(
   }
   if (person.phone_numbers && person.phone_numbers.length > 0) {
     enrichmentDetails.apollo_phones = person.phone_numbers
+  }
+  if (linkedinUrl) {
+    enrichmentDetails.apollo_linkedin_url = linkedinUrl
   }
 
   enrichmentDetails.apollo_title = person.title
@@ -222,7 +227,7 @@ function processApolloMatch(
 
   const failReason = (!email && !phone) ? 'no_contact_data' : null
 
-  return { email, phone, enrichmentDetails, failReason }
+  return { email, phone, linkedinUrl, enrichmentDetails, failReason }
 }
 
 // ─── Enrich a single prospect (full pipeline) ───────────────────
@@ -238,6 +243,7 @@ async function enrichSingleProspect(
   success: boolean
   email?: string | null
   phone?: string | null
+  linkedinUrl?: string | null
   source?: string
   error?: string
   failReason?: string | null
@@ -255,6 +261,7 @@ async function enrichSingleProspect(
 
   let bestEmail: string | null = null
   let bestPhone: string | null = null
+  let bestLinkedinUrl: string | null = null
   let source = 'none'
   let failReason: string | null = null
   const enrichmentDetails: Record<string, unknown> = { enriched_at: new Date().toISOString() }
@@ -290,6 +297,10 @@ async function enrichSingleProspect(
         const result = processApolloMatch(apolloResult.person)
         bestEmail = result.email
         bestPhone = result.phone
+        // Only use Apollo's linkedin_url if the prospect doesn't have one yet
+        if (!prospect.linkedin_url && result.linkedinUrl) {
+          bestLinkedinUrl = result.linkedinUrl
+        }
         Object.assign(enrichmentDetails, result.enrichmentDetails)
         failReason = result.failReason
         if (bestEmail || bestPhone) source = 'apollo'
@@ -348,6 +359,7 @@ async function enrichSingleProspect(
   }
   if (bestEmail) updateData.email = bestEmail
   if (bestPhone) updateData.phone = bestPhone
+  if (bestLinkedinUrl) updateData.linkedin_url = bestLinkedinUrl
 
   if (!prospect.location && enrichmentDetails.apollo_city) {
     const parts = [enrichmentDetails.apollo_city, enrichmentDetails.apollo_country].filter(Boolean)
@@ -363,6 +375,7 @@ async function enrichSingleProspect(
     success: true,
     email: bestEmail,
     phone: bestPhone,
+    linkedinUrl: bestLinkedinUrl,
     source,
     failReason: finalFailReason,
   }

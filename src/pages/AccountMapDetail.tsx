@@ -76,6 +76,7 @@ import {
   AlertTriangle,
   XCircle,
   Cloud,
+  Upload,
 } from 'lucide-react'
 import {
   PROSPECT_STATUS_CONFIG,
@@ -130,6 +131,7 @@ export function AccountMapDetail() {
 
   // Dialog states
   const [showAddCompany, setShowAddCompany] = useState(false)
+  const [showImportCompanies, setShowImportCompanies] = useState(false)
   const [showAddPersona, setShowAddPersona] = useState(false)
   const [editingPersona, setEditingPersona] = useState<BuyerPersona | null>(null)
   const [showSearch, setShowSearch] = useState(false)
@@ -285,6 +287,7 @@ export function AccountMapDetail() {
           personas={personas}
           sfIsInPipeline={sfIsInPipeline}
           onAddCompany={() => setShowAddCompany(true)}
+          onImportCompanies={() => setShowImportCompanies(true)}
           onDeleteCompany={deleteCompany}
           onSearchProspects={() => {
             setShowSearch(true)
@@ -326,6 +329,15 @@ export function AccountMapDetail() {
       <AddCompanyDialog
         open={showAddCompany}
         onOpenChange={setShowAddCompany}
+        accountMapId={map.id}
+        ownerId={map.owner_id}
+        onAdd={addCompany}
+      />
+
+      {/* Import Companies Dialog */}
+      <ImportCompaniesDialog
+        open={showImportCompanies}
+        onOpenChange={setShowImportCompanies}
         accountMapId={map.id}
         ownerId={map.owner_id}
         onAdd={addCompany}
@@ -438,6 +450,7 @@ function CompaniesTab({
   personas,
   sfIsInPipeline,
   onAddCompany,
+  onImportCompanies,
   onDeleteCompany,
   onSearchProspects,
   onBatchSearch,
@@ -448,6 +461,7 @@ function CompaniesTab({
   personas: BuyerPersona[]
   sfIsInPipeline: (domainOrName: string) => SalesforceMatch | null
   onAddCompany: () => void
+  onImportCompanies: () => void
   onDeleteCompany: (id: string) => void
   onSearchProspects: (company?: AccountMapCompany) => void
   onBatchSearch: () => void
@@ -535,6 +549,9 @@ function CompaniesTab({
               <Sparkles className="mr-1 h-4 w-4" /> Discover via Chat
             </Button>
           </FeatureGate>
+          <Button size="sm" variant="outline" onClick={onImportCompanies}>
+            <Upload className="mr-1 h-4 w-4" /> Import
+          </Button>
           <Button size="sm" onClick={onAddCompany}>
             <Plus className="mr-1 h-4 w-4" /> Add Company
           </Button>
@@ -1566,6 +1583,279 @@ function AddCompanyDialog({
 }
 
 // ═══════════════════════════════════════════════════════
+// DIALOG: Import Companies (CSV / Excel)
+// ═══════════════════════════════════════════════════════
+
+type ImportedRow = {
+  company_name: string
+  industry: string
+  company_size: string
+  website: string
+  linkedin_url: string
+  location: string
+  description: string
+}
+
+function normalizeHeader(h: string): string {
+  return h.toLowerCase().replace(/[\s_\-]+/g, '_').trim()
+}
+
+function mapRowToCompany(raw: Record<string, string>): ImportedRow {
+  const get = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = raw[normalizeHeader(k)] || raw[k] || ''
+      if (v) return v.trim()
+    }
+    return ''
+  }
+  return {
+    company_name: get('company_name', 'name', 'company', 'company_name'),
+    industry: get('industry', 'sector'),
+    company_size: get('company_size', 'size', 'employees', 'headcount', 'employee_count'),
+    website: get('website', 'domain', 'url', 'website_url', 'company_website'),
+    linkedin_url: get('linkedin_url', 'linkedin', 'company_linkedin', 'linkedin_company'),
+    location: get('location', 'headquarters', 'hq', 'city', 'country', 'region'),
+    description: get('description', 'about', 'notes', 'summary'),
+  }
+}
+
+const TEMPLATE_HEADERS = 'company_name,industry,company_size,website,linkedin_url,location,description'
+const TEMPLATE_EXAMPLE = 'Acme Corp,SaaS,201-500,acmecorp.com,https://linkedin.com/company/acme,"San Francisco, CA",Leading B2B software company'
+
+function ImportCompaniesDialog({
+  open,
+  onOpenChange,
+  accountMapId,
+  ownerId,
+  onAdd,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  accountMapId: string
+  ownerId: string
+  onAdd: (company: Omit<AccountMapCompany, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<AccountMapCompany | null>
+}) {
+  const [rows, setRows] = useState<ImportedRow[]>([])
+  const [fileName, setFileName] = useState('')
+  const [parseError, setParseError] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
+
+  const reset = () => {
+    setRows([])
+    setFileName('')
+    setParseError('')
+    setProgress(null)
+  }
+
+  const handleClose = () => {
+    if (importing) return
+    reset()
+    onOpenChange(false)
+  }
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setParseError('')
+    setRows([])
+    setFileName(file.name)
+
+    try {
+      let rawRows: Record<string, string>[] = []
+      if (file.name.endsWith('.csv')) {
+        // Read as text for full encoding control (Apollo CSV gotcha)
+        const text = await file.text()
+        const Papa = (await import('papaparse')).default
+        const result = Papa.parse<Record<string, string>>(text, {
+          header: true,
+          skipEmptyLines: true,
+          transformHeader: normalizeHeader,
+        })
+        rawRows = result.data
+      } else {
+        const XLSX = await import('xlsx')
+        const buffer = await file.arrayBuffer()
+        const wb = XLSX.read(buffer, { type: 'array' })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        rawRows = XLSX.utils.sheet_to_json<Record<string, string>>(ws, {
+          defval: '',
+          raw: false,
+        })
+        // Normalize headers
+        rawRows = rawRows.map(r => {
+          const normalized: Record<string, string> = {}
+          for (const [k, v] of Object.entries(r)) {
+            normalized[normalizeHeader(k)] = String(v)
+          }
+          return normalized
+        })
+      }
+
+      const mapped = rawRows.map(mapRowToCompany).filter(r => r.company_name.length > 0)
+      if (mapped.length === 0) {
+        setParseError('No valid companies found. Make sure the file has a "company_name" or "name" column.')
+        return
+      }
+      setRows(mapped)
+    } catch (err) {
+      setParseError('Could not parse file. Check the format and try again.')
+      console.error(err)
+    }
+    // Reset the input so re-selecting same file triggers onChange
+    e.target.value = ''
+  }
+
+  const handleImport = async () => {
+    if (rows.length === 0) return
+    setImporting(true)
+    setProgress({ done: 0, total: rows.length })
+    let succeeded = 0
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]
+      try {
+        await onAdd({
+          account_map_id: accountMapId,
+          owner_id: ownerId,
+          company_name: r.company_name,
+          industry: r.industry || null,
+          company_size: r.company_size || null,
+          website: r.website || null,
+          linkedin_url: r.linkedin_url || null,
+          location: r.location || null,
+          description: r.description || null,
+        })
+        succeeded++
+      } catch {
+        // skip failed rows
+      }
+      setProgress({ done: i + 1, total: rows.length })
+    }
+    setImporting(false)
+    toast.success(`Imported ${succeeded} of ${rows.length} companies`)
+    reset()
+    onOpenChange(false)
+  }
+
+  const downloadTemplate = () => {
+    const csv = `${TEMPLATE_HEADERS}\n${TEMPLATE_EXAMPLE}\n`
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'companies_template.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Import Companies</DialogTitle>
+          <DialogDescription>
+            Upload a CSV or Excel file to batch-import target companies into this account map.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto space-y-4 py-2">
+          {/* Template download */}
+          <div className="flex items-center justify-between rounded-lg border border-dashed p-3 bg-muted/30">
+            <div>
+              <p className="text-sm font-medium">Download template</p>
+              <p className="text-xs text-muted-foreground">
+                Columns: company_name (required), industry, company_size, website, linkedin_url, location, description
+              </p>
+            </div>
+            <Button size="sm" variant="outline" onClick={downloadTemplate}>
+              Template CSV
+            </Button>
+          </div>
+
+          {/* File picker */}
+          <div className="space-y-2">
+            <Label>Select file (.csv, .xlsx, .xls)</Label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Button size="sm" variant="outline" asChild>
+                <span><Upload className="mr-1 h-4 w-4" /> Choose file</span>
+              </Button>
+              <span className="text-sm text-muted-foreground">{fileName || 'No file selected'}</span>
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                onChange={handleFile}
+              />
+            </label>
+            {parseError && (
+              <p className="text-xs text-destructive">{parseError}</p>
+            )}
+          </div>
+
+          {/* Preview table */}
+          {rows.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">
+                Preview — {rows.length} companies found
+                {rows.length > 8 && <span className="text-muted-foreground text-xs ml-1">(showing first 8)</span>}
+              </p>
+              <div className="rounded-md border overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">Company</TableHead>
+                      <TableHead className="text-xs">Industry</TableHead>
+                      <TableHead className="text-xs">Size</TableHead>
+                      <TableHead className="text-xs">Website</TableHead>
+                      <TableHead className="text-xs">Location</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rows.slice(0, 8).map((r, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="text-xs font-medium">{r.company_name}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{r.industry || '—'}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{r.company_size || '—'}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate">{r.website || '—'}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{r.location || '—'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+
+          {/* Progress bar */}
+          {progress && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">
+                Importing {progress.done} / {progress.total}…
+              </p>
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose} disabled={importing}>Cancel</Button>
+          <Button onClick={handleImport} disabled={rows.length === 0 || importing}>
+            {importing
+              ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing…</>
+              : `Import ${rows.length > 0 ? rows.length : ''} Companies`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ═══════════════════════════════════════════════════════
 // DIALOG: Search Sales Navigator
 // ═══════════════════════════════════════════════════════
 
@@ -1826,6 +2116,7 @@ function EnrichDialog({
   const [result, setResult] = useState<{
     email: string | null
     phone: string | null
+    linkedinUrl: string | null
     source: string
     emailCreditWarning: boolean
     phoneCreditWarning: boolean
@@ -1841,6 +2132,7 @@ function EnrichDialog({
         setResult({
           email: first.email || null,
           phone: first.phone || null,
+          linkedinUrl: first.linkedinUrl || null,
           source: first.source || 'unknown',
           emailCreditWarning: first.emailCreditWarning || res.summary?.emailCreditWarning || false,
           phoneCreditWarning: first.phoneCreditWarning || res.summary?.phoneCreditWarning || false,
@@ -1918,6 +2210,23 @@ function EnrichDialog({
                 {!result.phone && result.phoneCreditWarning && (
                   <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
                     <span>⚠️</span> Apollo encontró el perfil pero no devolvió teléfono — posiblemente se agotaron los créditos de mobile phone reveal. Revisa tu plan en Apollo.io.
+                  </p>
+                )}
+              </div>
+              <div>
+                <p className="text-sm font-medium">LinkedIn</p>
+                {result.linkedinUrl ? (
+                  <a
+                    href={result.linkedinUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-500 hover:underline truncate block"
+                  >
+                    {result.linkedinUrl}
+                  </a>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {prospect.linkedin_url ? 'Ya tenía LinkedIn URL' : 'No encontrado'}
                   </p>
                 )}
               </div>

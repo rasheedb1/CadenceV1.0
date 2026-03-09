@@ -232,13 +232,14 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
   // ── Queries ──
 
   const { data: accountMaps = [], isLoading } = useQuery({
-    queryKey: ['account-maps', orgId],
+    queryKey: ['account-maps', orgId, user?.id],
     queryFn: async () => {
       if (!user || !orgId) return []
       const { data, error } = await supabase
         .from('account_maps')
         .select('*, account_map_companies(*), buyer_personas(*), prospects(*), icp_profiles(*, buyer_personas(*))')
         .eq('org_id', orgId)
+        .eq('owner_id', user.id)
         .order('created_at', { ascending: false })
       if (error) throw error
       // Normalize: if map has a linked ICP profile, expose its personas as map.buyer_personas for backward compat

@@ -442,11 +442,14 @@ export function Settings() {
                   )}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Connect your Gmail account for email automation
+                  Conecta tu cuenta de Google para envío de emails automáticos (Gmail API directo)
                 </p>
+                {gmail.status.isConnected && gmail.status.email && (
+                  <p className="text-xs text-muted-foreground">{gmail.status.email}</p>
+                )}
                 {gmail.status.isConnected && gmail.status.connectedAt && (
                   <p className="text-xs text-muted-foreground">
-                    Connected on {formatDate(gmail.status.connectedAt)}
+                    Conectado el {formatDate(gmail.status.connectedAt)}
                   </p>
                 )}
               </div>
@@ -458,13 +461,8 @@ export function Settings() {
                     disabled={gmail.actionLoading}
                   >
                     {gmail.actionLoading ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Disconnecting...
-                      </>
-                    ) : (
-                      'Disconnect'
-                    )}
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Disconnecting...</>
+                    ) : 'Disconnect'}
                   </Button>
                 ) : (
                   <Button
@@ -473,26 +471,16 @@ export function Settings() {
                     disabled={gmail.actionLoading || gmail.isLoading}
                   >
                     {gmail.actionLoading ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Connecting...
-                      </>
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Connecting...</>
                     ) : (
-                      <>
-                        <Mail className="h-4 w-4 mr-2" />
-                        Connect Gmail
-                      </>
+                      <><Mail className="h-4 w-4 mr-2" />Connect Gmail via Google</>
                     )}
                   </Button>
                 )}
               </div>
             </div>
             {gmail.message && (
-              <p
-                className={`text-sm ${
-                  gmail.message.type === 'success' ? 'text-green-600' : 'text-destructive'
-                }`}
-              >
+              <p className={`text-sm ${gmail.message.type === 'success' ? 'text-green-600' : 'text-destructive'}`}>
                 {gmail.message.text}
               </p>
             )}
