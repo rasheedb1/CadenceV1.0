@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 import { useAccountMapping } from '@/contexts/AccountMappingContext'
+import { normalizeCompanyName } from '@/lib/company-normalize'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import {
@@ -313,8 +314,8 @@ export function ImportExclusionDialog({ open, onOpenChange, defaultRegistryType 
     for (const row of parsedData) {
       const name = row[columnMapping.company_name!]?.trim()
       if (!name) continue
-      const key = name.toLowerCase()
-      if (seen.has(key)) continue
+      const key = normalizeCompanyName(name)
+      if (!key || seen.has(key)) continue
       seen.add(key)
       companies.push({
         company_name: name,
