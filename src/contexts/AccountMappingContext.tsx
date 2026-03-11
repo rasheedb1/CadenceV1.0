@@ -1100,11 +1100,11 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
         },
 
         // Buyer Persona Suggestions
-        suggestBuyerPersonas: async (accountMapId) => {
+        suggestBuyerPersonas: async (icpProfileId) => {
           if (!session?.access_token) throw new Error('Not authenticated')
           const result = await callEdgeFunction<{ success: boolean; personas: SuggestedPersona[] }>(
             'suggest-buyer-personas',
-            { accountMapId },
+            { icpProfileId },
             session.access_token
           )
           return result.personas
@@ -1209,21 +1209,38 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
           addRegistryEntryMutation.mutateAsync(entry),
         addRegistryEntries: async (entries) => {
           if (!user || !orgId) throw new Error('Not authenticated')
-          const rows = entries.map(e => ({
-            owner_id: user.id,
-            org_id: orgId,
-            company_name: normalizeCompanyName(e.company_name_display),
-            company_name_display: e.company_name_display.trim(),
-            registry_type: e.registry_type,
-            source: e.source || 'csv_import',
-            website: e.website || null,
-            industry: e.industry || null,
-            exclusion_reason: e.exclusion_reason || null,
-          }))
-          const { error } = await supabase
-            .from('company_registry')
-            .upsert(rows, { onConflict: 'org_id,company_name' })
-          if (error) throw error
+          // Deduplicate by normalized company_name to prevent ON CONFLICT duplicate row error
+          const seenNames = new Set<string>()
+          const rows = entries.reduce<Array<{
+            owner_id: string; org_id: string; company_name: string; company_name_display: string;
+            registry_type: string; source: string; website: string | null; industry: string | null;
+            exclusion_reason: string | null;
+          }>>((acc, e) => {
+            const normalized = normalizeCompanyName(e.company_name_display)
+            if (!normalized || seenNames.has(normalized)) return acc
+            seenNames.add(normalized)
+            acc.push({
+              owner_id: user.id,
+              org_id: orgId,
+              company_name: normalized,
+              company_name_display: e.company_name_display.trim(),
+              registry_type: e.registry_type,
+              source: e.source || 'csv_import',
+              website: e.website || null,
+              industry: e.industry || null,
+              exclusion_reason: e.exclusion_reason || null,
+            })
+            return acc
+          }, [])
+          // Batch in chunks of 500 to avoid request size limits
+          const CHUNK = 500
+          for (let i = 0; i < rows.length; i += CHUNK) {
+            const chunk = rows.slice(i, i + CHUNK)
+            const { error } = await supabase
+              .from('company_registry')
+              .upsert(chunk, { onConflict: 'org_id,company_name' })
+            if (error) throw error
+          }
           queryClient.invalidateQueries({ queryKey: ['company-registry'] })
           return rows.length
         },
