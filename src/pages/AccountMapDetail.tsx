@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react'
 import { toast } from 'sonner'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { useOrg } from '@/contexts/OrgContext'
+import { supabase } from '@/integrations/supabase/client'
 import { callEdgeFunction } from '@/lib/edge-functions'
 import { useAccountMapping, type SalesNavResult } from '@/contexts/AccountMappingContext'
 import { EXCLUSION_TYPES } from '@/types/registry'
@@ -125,6 +127,7 @@ export function AccountMapDetail() {
   const { cadences } = useCadence()
   const { convertInlineICP: convertInlineICPMutation } = useICPProfileMutations()
   const { session } = useAuth()
+  const { orgId } = useOrg()
 
   const [activeTab, setActiveTab] = useState<TabId>('icp')
   const [pushingToSalesforce, setPushingToSalesforce] = useState(false)
@@ -132,6 +135,7 @@ export function AccountMapDetail() {
   // Dialog states
   const [showAddCompany, setShowAddCompany] = useState(false)
   const [showImportCompanies, setShowImportCompanies] = useState(false)
+  const [showImportProspects, setShowImportProspects] = useState(false)
   const [showAddPersona, setShowAddPersona] = useState(false)
   const [editingPersona, setEditingPersona] = useState<BuyerPersona | null>(null)
   const [showSearch, setShowSearch] = useState(false)
@@ -312,6 +316,7 @@ export function AccountMapDetail() {
           selectedProspects={selectedProspects}
           onToggleProspect={toggleProspect}
           onToggleAll={toggleAllProspects}
+          onImportProspects={() => setShowImportProspects(true)}
           onSearch={() => setShowSearch(true)}
           onBatchSearch={() => setShowBatchSearch(true)}
           onEnrich={(p) => setShowEnrich(p)}
@@ -341,6 +346,17 @@ export function AccountMapDetail() {
         accountMapId={map.id}
         ownerId={map.owner_id}
         onAdd={addCompany}
+      />
+
+      {/* Import Prospects Dialog */}
+      <ImportProspectsDialog
+        open={showImportProspects}
+        onOpenChange={setShowImportProspects}
+        accountMapId={map.id}
+        ownerId={map.owner_id}
+        orgId={orgId}
+        companies={companies}
+        onSuccess={refreshAccountMaps}
       />
 
       {/* Add Persona Dialog */}
@@ -638,6 +654,7 @@ function ProspectsTab({
   onBulkEnrich,
   onPromote,
   onDelete,
+  onImportProspects,
   onPushToSalesforce,
   pushingToSalesforce,
 }: {
@@ -651,6 +668,7 @@ function ProspectsTab({
   selectedProspects: Set<string>
   onToggleProspect: (id: string) => void
   onToggleAll: () => void
+  onImportProspects: () => void
   onSearch: () => void
   onBatchSearch: () => void
   onEnrich: (p: Prospect) => void
@@ -1032,6 +1050,9 @@ function ProspectsTab({
             <Button size="sm" variant="outline" onClick={handleExportCSV} disabled={prospects.length === 0}>
               <FileText className="mr-1 h-4 w-4" /> Export CSV
             </Button>
+            <Button size="sm" variant="outline" onClick={onImportProspects}>
+              <Upload className="mr-1 h-4 w-4" /> Import CSV
+            </Button>
             <div className="flex rounded-md border">
               <button
                 className={cn('px-2 py-1 text-xs', viewMode === 'company' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted')}
@@ -1062,7 +1083,10 @@ function ProspectsTab({
               <p className="text-sm text-muted-foreground">
                 No prospects yet. Use batch search to find prospects across all companies.
               </p>
-              <div className="flex items-center justify-center gap-2">
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                <Button size="sm" variant="outline" onClick={onImportProspects}>
+                  <Upload className="mr-1 h-4 w-4" /> Import CSV
+                </Button>
                 <Button size="sm" variant="outline" onClick={onSearch}>
                   <Search className="mr-1 h-4 w-4" /> Manual Search
                 </Button>
@@ -1848,6 +1872,332 @@ function ImportCompaniesDialog({
             {importing
               ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing…</>
               : `Import ${rows.length > 0 ? rows.length : ''} Companies`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ═══════════════════════════════════════════════════════
+// DIALOG: Import Prospects (CSV / Excel)
+// ═══════════════════════════════════════════════════════
+
+type ImportedProspectRow = {
+  first_name: string
+  last_name: string
+  email: string
+  phone: string
+  title: string
+  company: string
+  linkedin_url: string
+  headline: string
+  location: string
+}
+
+function mapRowToProspect(raw: Record<string, string>): ImportedProspectRow {
+  const get = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = raw[normalizeHeader(k)] || raw[k] || ''
+      if (v) return v.trim()
+    }
+    return ''
+  }
+  return {
+    first_name: get('first_name', 'firstname', 'first', 'nombre', 'first name'),
+    last_name: get('last_name', 'lastname', 'last', 'apellido', 'last name'),
+    email: get('email', 'email_address', 'correo', 'work_email', 'corporate_email'),
+    phone: get('phone', 'phone_number', 'mobile', 'tel', 'telefono'),
+    title: get('title', 'job_title', 'position', 'cargo', 'puesto', 'role'),
+    company: get('company', 'company_name', 'organization', 'empresa', 'account_name'),
+    linkedin_url: get('linkedin_url', 'linkedin', 'linkedin_profile', 'person_linkedin_url'),
+    headline: get('headline', 'bio', 'summary', 'about'),
+    location: get('location', 'city', 'country', 'region', 'ciudad', 'geography'),
+  }
+}
+
+const PROSPECT_TEMPLATE_HEADERS = 'first_name,last_name,email,phone,title,company,linkedin_url,headline,location'
+const PROSPECT_TEMPLATE_EXAMPLE = 'Ana,García,ana@empresa.com,+34 600 000 000,VP of Sales,Empresa SA,https://linkedin.com/in/ana-garcia,"Madrid, Spain",Senior sales leader with 10+ years experience'
+
+function ImportProspectsDialog({
+  open,
+  onOpenChange,
+  accountMapId,
+  ownerId,
+  orgId,
+  companies,
+  onSuccess,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  accountMapId: string
+  ownerId: string
+  orgId: string | null
+  companies: AccountMapCompany[]
+  onSuccess: () => void
+}) {
+  const [rows, setRows] = useState<ImportedProspectRow[]>([])
+  const [fileName, setFileName] = useState('')
+  const [parseError, setParseError] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('none')
+
+  const reset = () => {
+    setRows([])
+    setFileName('')
+    setParseError('')
+    setProgress(null)
+    setSelectedCompanyId('none')
+  }
+
+  const handleClose = () => {
+    if (importing) return
+    reset()
+    onOpenChange(false)
+  }
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setParseError('')
+    setRows([])
+    setFileName(file.name)
+
+    try {
+      let rawRows: Record<string, string>[] = []
+      if (file.name.endsWith('.csv')) {
+        const text = await file.text()
+        const Papa = (await import('papaparse')).default
+        const result = Papa.parse<Record<string, string>>(text, {
+          header: true,
+          skipEmptyLines: true,
+          transformHeader: normalizeHeader,
+        })
+        rawRows = result.data
+      } else {
+        const XLSX = await import('xlsx')
+        const buffer = await file.arrayBuffer()
+        const wb = XLSX.read(buffer, { type: 'array' })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        rawRows = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '', raw: false })
+        rawRows = rawRows.map(r => {
+          const normalized: Record<string, string> = {}
+          for (const [k, v] of Object.entries(r)) normalized[normalizeHeader(k)] = String(v)
+          return normalized
+        })
+      }
+
+      const mapped = rawRows
+        .map(mapRowToProspect)
+        .filter(r => r.first_name || r.last_name)
+
+      if (mapped.length === 0) {
+        setParseError('No valid rows found. Make sure the file has "first_name" and/or "last_name" columns.')
+        return
+      }
+      setRows(mapped)
+    } catch (err) {
+      setParseError('Could not parse file. Check the format and try again.')
+      console.error(err)
+    }
+    e.target.value = ''
+  }
+
+  const handleImport = async () => {
+    if (rows.length === 0) return
+    setImporting(true)
+    setProgress({ done: 0, total: rows.length })
+
+    const companyId = selectedCompanyId !== 'none' ? selectedCompanyId : null
+    const companyName = companyId ? companies.find(c => c.id === companyId)?.company_name || null : null
+
+    // Insert in chunks of 50
+    const CHUNK = 50
+    let inserted = 0
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK).map(r => ({
+        account_map_id: accountMapId,
+        company_id: companyId,
+        owner_id: ownerId,
+        org_id: orgId,
+        first_name: r.first_name || '—',
+        last_name: r.last_name || '',
+        email: r.email || null,
+        phone: r.phone || null,
+        title: r.title || null,
+        company: r.company || companyName || null,
+        linkedin_url: r.linkedin_url || null,
+        headline: r.headline || null,
+        location: r.location || null,
+        source: 'csv_import',
+        status: 'new',
+      }))
+      const { error } = await supabase.from('prospects').insert(chunk)
+      if (error) {
+        console.error('Import chunk error:', error)
+        toast.error(`Error al importar: ${error.message}`)
+        break
+      }
+      inserted += chunk.length
+      setProgress({ done: Math.min(i + CHUNK, rows.length), total: rows.length })
+    }
+
+    setImporting(false)
+    if (inserted > 0) {
+      toast.success(`${inserted} prospects importados correctamente`)
+      onSuccess()
+      reset()
+      onOpenChange(false)
+    }
+  }
+
+  const downloadTemplate = () => {
+    const csv = `${PROSPECT_TEMPLATE_HEADERS}\n${PROSPECT_TEMPLATE_EXAMPLE}\n`
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'prospects_template.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const validRows = rows.filter(r => r.first_name || r.last_name)
+  const invalidRows = rows.length - validRows.length
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Importar Prospects</DialogTitle>
+          <DialogDescription>
+            Sube un CSV o Excel para agregar prospects manualmente a este account map.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto space-y-4 py-2">
+          {/* Template download */}
+          <div className="flex items-center justify-between rounded-lg border border-dashed p-3 bg-muted/30">
+            <div>
+              <p className="text-sm font-medium">Descargar plantilla</p>
+              <p className="text-xs text-muted-foreground">
+                Columnas: first_name, last_name, email, phone, title, company, linkedin_url, headline, location
+              </p>
+            </div>
+            <Button size="sm" variant="outline" onClick={downloadTemplate}>
+              Plantilla CSV
+            </Button>
+          </div>
+
+          {/* Optional company assignment */}
+          {companies.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-sm">Asignar a empresa (opcional)</Label>
+              <Select value={selectedCompanyId} onValueChange={setSelectedCompanyId}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Sin empresa (sin asignar)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin empresa (sin asignar)</SelectItem>
+                  {companies.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.company_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Si el CSV tiene columna "company", se usará ese valor. Esta selección la sobreescribe solo cuando el CSV no tiene empresa.
+              </p>
+            </div>
+          )}
+
+          {/* File picker */}
+          <div className="space-y-2">
+            <Label>Seleccionar archivo (.csv, .xlsx, .xls)</Label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Button size="sm" variant="outline" asChild>
+                <span><Upload className="mr-1 h-4 w-4" /> Elegir archivo</span>
+              </Button>
+              <span className="text-sm text-muted-foreground">{fileName || 'Ningún archivo seleccionado'}</span>
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                onChange={handleFile}
+              />
+            </label>
+            {parseError && <p className="text-xs text-destructive">{parseError}</p>}
+          </div>
+
+          {/* Preview */}
+          {rows.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium">
+                  Vista previa — {validRows.length} prospects
+                  {rows.length > 8 && <span className="text-muted-foreground text-xs ml-1">(mostrando primeros 8)</span>}
+                </p>
+                {invalidRows > 0 && (
+                  <Badge variant="outline" className="text-xs text-orange-600 border-orange-300">
+                    {invalidRows} filas sin nombre (se omitirán)
+                  </Badge>
+                )}
+              </div>
+              <div className="rounded-md border overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">Nombre</TableHead>
+                      <TableHead className="text-xs">Título</TableHead>
+                      <TableHead className="text-xs">Empresa</TableHead>
+                      <TableHead className="text-xs">Email</TableHead>
+                      <TableHead className="text-xs">LinkedIn</TableHead>
+                      <TableHead className="text-xs">Ubicación</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {validRows.slice(0, 8).map((r, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="text-xs font-medium">
+                          {[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate">{r.title || '—'}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[100px] truncate">{r.company || '—'}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[130px] truncate">{r.email || '—'}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[80px] truncate">
+                          {r.linkedin_url ? <span className="text-blue-600">✓</span> : '—'}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{r.location || '—'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+
+          {/* Progress */}
+          {progress && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">
+                Importando {progress.done} / {progress.total}…
+              </p>
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose} disabled={importing}>Cancelar</Button>
+          <Button onClick={handleImport} disabled={validRows.length === 0 || importing}>
+            {importing
+              ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importando…</>
+              : `Importar ${validRows.length > 0 ? validRows.length : ''} Prospects`}
           </Button>
         </DialogFooter>
       </DialogContent>
