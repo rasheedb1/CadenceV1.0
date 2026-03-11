@@ -72,6 +72,7 @@ import {
   ExternalLink,
   Reply,
   Eye,
+  Pencil,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -399,8 +400,9 @@ export function CadenceBuilder() {
   // State for Start Automation dialog
   const [isAutomationOpen, setIsAutomationOpen] = useState(false)
 
-  // State for add step dialog
+  // State for add/edit step dialog
   const [isAddStepOpen, setIsAddStepOpen] = useState(false)
+  const [editingStepId, setEditingStepId] = useState<string | null>(null)
   const [newStep, setNewStep] = useState<{
     step_type: StepType
     step_label: string
@@ -599,6 +601,62 @@ export function CadenceBuilder() {
     } catch (error) {
       console.error('Error adding step:', error)
       toast.error(error instanceof Error ? error.message : 'Failed to add step')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleOpenEditStep = (step: CadenceStep) => {
+    const config = step.config_json as Record<string, unknown>
+    setEditingStepId(step.id)
+    setNewStep({
+      step_type: step.step_type as StepType,
+      step_label: step.step_label,
+      day_offset: step.day_offset,
+      message_template: (config?.message_template as string) || '',
+      template_id: (config?.template_id as string) || '',
+      ai_prompt_id: (config?.ai_prompt_id as string) || '',
+      ai_research_prompt_id: (config?.ai_research_prompt_id as string) || '',
+      ai_example_section_id: (config?.ai_example_section_id as string) || '',
+      reply_to_step_id: (config?.reply_to_step_id as string) || '',
+    })
+    setIsAddStepOpen(true)
+  }
+
+  const handleSaveEditStep = async () => {
+    if (!editingStepId) return
+    setSaving(true)
+    try {
+      await updateStep(editingStepId, {
+        step_type: newStep.step_type,
+        step_label: newStep.step_label || STEP_TYPE_CONFIG[newStep.step_type].label,
+        day_offset: newStep.day_offset,
+        config_json: {
+          message_template: newStep.message_template,
+          template_id: newStep.template_id && newStep.template_id !== 'none' ? newStep.template_id : null,
+          ai_prompt_id: newStep.ai_prompt_id && newStep.ai_prompt_id !== 'none' ? newStep.ai_prompt_id : null,
+          ai_research_prompt_id: newStep.ai_research_prompt_id && newStep.ai_research_prompt_id !== 'none' ? newStep.ai_research_prompt_id : null,
+          ai_example_section_id: newStep.ai_example_section_id && newStep.ai_example_section_id !== 'none' ? newStep.ai_example_section_id : null,
+          reply_to_step_id: newStep.reply_to_step_id && newStep.reply_to_step_id !== 'none' ? newStep.reply_to_step_id : null,
+        },
+      })
+      setIsAddStepOpen(false)
+      setEditingStepId(null)
+      setNewStep({
+        step_type: 'linkedin_message',
+        step_label: '',
+        day_offset: 0,
+        message_template: '',
+        template_id: '',
+        ai_prompt_id: '',
+        ai_research_prompt_id: '',
+        ai_example_section_id: '',
+        reply_to_step_id: '',
+      })
+      toast.success('Step updated successfully')
+    } catch (error) {
+      console.error('Error updating step:', error)
+      toast.error(error instanceof Error ? error.message : 'Failed to update step')
     } finally {
       setSaving(false)
     }
@@ -1034,6 +1092,14 @@ export function CadenceBuilder() {
                                             </SelectContent>
                                           </Select>
                                         )}
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => handleOpenEditStep(step)}
+                                        >
+                                          <Pencil className="mr-1 h-4 w-4" />
+                                          Edit
+                                        </Button>
                                         <Button
                                           variant="ghost"
                                           size="sm"
@@ -1716,11 +1782,27 @@ export function CadenceBuilder() {
       </Tabs>
 
       {/* Add Step Dialog */}
-      <Dialog open={isAddStepOpen} onOpenChange={setIsAddStepOpen}>
+      <Dialog open={isAddStepOpen} onOpenChange={(open) => {
+        setIsAddStepOpen(open)
+        if (!open) {
+          setEditingStepId(null)
+          setNewStep({
+            step_type: 'linkedin_message',
+            step_label: '',
+            day_offset: 0,
+            message_template: '',
+            template_id: '',
+            ai_prompt_id: '',
+            ai_research_prompt_id: '',
+            ai_example_section_id: '',
+            reply_to_step_id: '',
+          })
+        }
+      }}>
         <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>Add Step</DialogTitle>
-            <DialogDescription>Configure a new step for your cadence</DialogDescription>
+            <DialogTitle>{editingStepId ? 'Edit Step' : 'Add Step'}</DialogTitle>
+            <DialogDescription>{editingStepId ? 'Modify this step configuration' : 'Configure a new step for your cadence'}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4 overflow-y-auto flex-1">
             <div className="grid grid-cols-2 gap-4">
@@ -1955,8 +2037,8 @@ export function CadenceBuilder() {
             <Button variant="outline" onClick={() => setIsAddStepOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAddStep} disabled={saving}>
-              {saving ? 'Adding...' : 'Add Step'}
+            <Button onClick={editingStepId ? handleSaveEditStep : handleAddStep} disabled={saving}>
+              {saving ? (editingStepId ? 'Saving...' : 'Adding...') : (editingStepId ? 'Save Changes' : 'Add Step')}
             </Button>
           </DialogFooter>
         </DialogContent>
