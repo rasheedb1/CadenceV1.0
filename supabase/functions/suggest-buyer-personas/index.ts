@@ -48,40 +48,62 @@ serve(async (req: Request) => {
     if (!ctx) return errorResponse('Unauthorized', 401)
 
     const body = await req.json()
-    const { accountMapId } = body as { accountMapId: string }
-
-    if (!accountMapId) return errorResponse('accountMapId is required')
+    const { icpProfileId, accountMapId } = body as { icpProfileId?: string; accountMapId?: string }
 
     const supabase = createSupabaseClient(authHeader)
 
-    // Fetch account map with builder data + linked ICP profile
-    const { data: accountMap, error: amErr } = await supabase
-      .from('account_maps')
-      .select('filters_json, icp_description, icp_profile_id, icp_profiles(description, builder_data)')
-      .eq('id', accountMapId)
-      .eq('org_id', ctx.orgId)
-      .single()
+    let builderData: Record<string, unknown> | null = null
+    let icpDescription = ''
+    let resolvedProfileId: string | null = null
 
-    if (amErr) return errorResponse(`Failed to fetch account map: ${amErr.message}`, 500)
+    if (icpProfileId) {
+      // Called from ICP Profile page — fetch directly from icp_profiles
+      const { data: profile, error: profileErr } = await supabase
+        .from('icp_profiles')
+        .select('description, builder_data')
+        .eq('id', icpProfileId)
+        .eq('org_id', ctx.orgId)
+        .single()
 
-    // Use ICP profile data if linked, otherwise fall back to inline data
-    const linkedProfile = accountMap?.icp_profiles as { description: string | null; builder_data: Record<string, unknown> | null } | null
-    const builderData = linkedProfile?.builder_data || accountMap?.filters_json?.icp_builder_data || null
-    const icpDescription = linkedProfile?.description || accountMap?.icp_description || ''
+      if (profileErr) return errorResponse(`Failed to fetch ICP profile: ${profileErr.message}`, 500)
+
+      builderData = profile?.builder_data || null
+      icpDescription = profile?.description || ''
+      resolvedProfileId = icpProfileId
+    } else if (accountMapId) {
+      // Legacy: called from account map context
+      const { data: accountMap, error: amErr } = await supabase
+        .from('account_maps')
+        .select('filters_json, icp_description, icp_profile_id, icp_profiles(description, builder_data)')
+        .eq('id', accountMapId)
+        .eq('org_id', ctx.orgId)
+        .single()
+
+      if (amErr) return errorResponse(`Failed to fetch account map: ${amErr.message}`, 500)
+
+      const linkedProfile = accountMap?.icp_profiles as { description: string | null; builder_data: Record<string, unknown> | null } | null
+      builderData = linkedProfile?.builder_data || accountMap?.filters_json?.icp_builder_data || null
+      icpDescription = linkedProfile?.description || accountMap?.icp_description || ''
+      resolvedProfileId = accountMap?.icp_profile_id || null
+    } else {
+      return errorResponse('icpProfileId or accountMapId is required')
+    }
 
     if (!builderData && !icpDescription) {
       return errorResponse('No ICP data available. Fill in the ICP builder or custom prompt first.')
     }
 
-    // Fetch existing personas from ICP profile if linked, otherwise from account map (legacy)
+    // Fetch existing personas
     const personaQuery = supabase
       .from('buyer_personas')
       .select('name, title_keywords, seniority, department')
       .eq('org_id', ctx.orgId)
 
-    const { data: existingPersonas, error: pErr } = accountMap?.icp_profile_id
-      ? await personaQuery.eq('icp_profile_id', accountMap.icp_profile_id)
-      : await personaQuery.eq('account_map_id', accountMapId)
+    const { data: existingPersonas, error: pErr } = resolvedProfileId
+      ? await personaQuery.eq('icp_profile_id', resolvedProfileId)
+      : accountMapId
+        ? await personaQuery.eq('account_map_id', accountMapId)
+        : await personaQuery.limit(0)
 
     if (pErr) return errorResponse(`Failed to fetch personas: ${pErr.message}`, 500)
 
@@ -226,7 +248,7 @@ Suggest 3-5 buyer personas for this ICP.`
       }
     })
 
-    console.log(`Generated ${personas.length} persona suggestions for account map ${accountMapId}`)
+    console.log(`Generated ${personas.length} persona suggestions for profile ${icpProfileId || accountMapId}`)
 
     return jsonResponse({
       success: true,

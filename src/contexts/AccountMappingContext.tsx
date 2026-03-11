@@ -1100,11 +1100,11 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
         },
 
         // Buyer Persona Suggestions
-        suggestBuyerPersonas: async (accountMapId) => {
+        suggestBuyerPersonas: async (icpProfileId) => {
           if (!session?.access_token) throw new Error('Not authenticated')
           const result = await callEdgeFunction<{ success: boolean; personas: SuggestedPersona[] }>(
             'suggest-buyer-personas',
-            { accountMapId },
+            { icpProfileId },
             session.access_token
           )
           return result.personas
