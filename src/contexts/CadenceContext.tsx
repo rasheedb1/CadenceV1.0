@@ -236,12 +236,10 @@ export function CadenceProvider({ children }: { children: ReactNode }) {
 
   const deleteCadenceMutation = useMutation({
     mutationFn: async (id: string) => {
-      // Soft delete: set deleted_at instead of hard deleting — allows recovery
-      const { error } = await supabase
-        .from('cadences')
-        .update({ deleted_at: new Date().toISOString() })
-        .eq('id', id)
-      if (error) throw error
+      if (!session?.access_token) throw new Error('Not authenticated')
+      // Delegate to edge function which uses service role key to bypass RLS
+      // and validates ownership explicitly in server code
+      await callEdgeFunction('delete-cadence', { cadenceId: id }, session.access_token)
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['cadences'] }),
   })

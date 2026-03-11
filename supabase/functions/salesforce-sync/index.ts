@@ -172,6 +172,40 @@ serve(async (req: Request) => {
       }
     }
 
+    // Sync contacts into salesforce_contacts for prospect filtering during cascade search
+    // A contact is flagged has_active_opportunity=true if their account has open (non-closed) opps
+    await supabase.from('salesforce_contacts').delete().eq('org_id', ctx.orgId)
+
+    const contactRows: Record<string, unknown>[] = []
+    for (const account of records) {
+      const openOpps = (account.Opportunities?.records || []).filter(o => !o.IsClosed)
+      const hasActiveOpportunity = openOpps.length > 0
+
+      for (const contact of account.Contacts?.records || []) {
+        if (!contact.Name) continue
+        contactRows.push({
+          org_id: ctx.orgId,
+          sf_account_id: account.Id,
+          sf_contact_id: contact.Id,
+          name: contact.Name,
+          name_normalized: contact.Name.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim(),
+          email: contact.Email || null,
+          title: contact.Title || null,
+          has_active_opportunity: hasActiveOpportunity,
+          synced_at: now,
+        })
+      }
+    }
+
+    if (contactRows.length > 0) {
+      for (let i = 0; i < contactRows.length; i += 500) {
+        const batch = contactRows.slice(i, i + 500)
+        const { error: ctxError } = await supabase.from('salesforce_contacts').insert(batch)
+        if (ctxError) console.error('Error inserting SF contacts batch:', ctxError)
+      }
+      console.log(`Synced ${contactRows.length} Salesforce contacts`)
+    }
+
     // Sync active pipeline companies to company_registry for visibility + auto-exclusion
     // 1. Remove previous salesforce_sync entries that are no longer in the pipeline
     await supabase
@@ -234,12 +268,13 @@ serve(async (req: Request) => {
       .update({ last_sync_at: now, last_error: null, updated_at: now })
       .eq('org_id', ctx.orgId)
 
-    console.log(`Salesforce sync complete: ${accountRows.length} accounts, ${oppRows.length} opportunities`)
+    console.log(`Salesforce sync complete: ${accountRows.length} accounts, ${oppRows.length} opportunities, ${contactRows.length} contacts`)
 
     return jsonResponse({
       success: true,
       accountsCount: accountRows.length,
       opportunitiesCount: oppRows.length,
+      contactsCount: contactRows.length,
     })
   } catch (error) {
     console.error('salesforce-sync error:', error)

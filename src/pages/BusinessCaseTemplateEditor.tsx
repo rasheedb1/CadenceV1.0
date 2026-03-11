@@ -702,29 +702,31 @@ function FullSlideModal({
 
         <div className="flex flex-1 min-h-0">
           {/* Slide thumbnails strip */}
-          <div className="w-[300px] shrink-0 bg-muted/20 border-r overflow-y-auto flex flex-col gap-2 p-2">
+          <div className="w-[200px] shrink-0 bg-muted/20 border-r overflow-y-auto flex flex-col gap-2 p-2">
             {slides.map((s) => {
               const thumbUrl = thumbnailUrls[s.index - 1]
               return (
                 <button
                   key={s.index}
                   type="button"
-                  className={`rounded border-2 overflow-hidden transition-colors ${s.index === currentIdx ? 'border-primary' : 'border-transparent hover:border-muted-foreground/30'}`}
+                  className={`rounded border-2 overflow-hidden transition-colors text-left ${s.index === currentIdx ? 'border-primary' : 'border-transparent hover:border-muted-foreground/30'}`}
                   onClick={() => setCurrentIdx(s.index)}
                 >
-                  <div style={{ width: '100%', aspectRatio: '1 / 1', backgroundColor: '#e8eaed', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                  <div style={{ width: '100%', aspectRatio: '16 / 9', backgroundColor: '#e8eaed', overflow: 'hidden', position: 'relative' }}>
                     {thumbUrl ? (
                       <img src={thumbUrl} alt={`Slide ${s.index}`}
-                        style={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain' }}
+                        style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover' }}
                         draggable={false} />
                     ) : (
-                      <SlideCanvas
-                        slide={s}
-                        displayWidth={280}
-                        variables={variables}
-                        highlighted={null}
-                        onVarClick={() => {}}
-                      />
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <SlideCanvas
+                          slide={s}
+                          displayWidth={184}
+                          variables={variables}
+                          highlighted={null}
+                          onVarClick={() => {}}
+                        />
+                      </div>
                     )}
                   </div>
                   <div className="text-center text-[10px] text-muted-foreground py-0.5 bg-white">{s.index}</div>

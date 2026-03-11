@@ -3,7 +3,7 @@ import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { createSupabaseClient, getAuthContext, getUnipileAccountId, logActivity } from '../_shared/supabase.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
 import { createFirecrawlClient, type FirecrawlClient } from '../_shared/firecrawl.ts'
-import { createLLMClientForUser } from '../_shared/llm.ts'
+import { createLLMClient, createLLMClientForUser } from '../_shared/llm.ts'
 import { detectLanguage, type LanguageConfig } from '../_shared/language-detection.ts'
 import { GLOBAL_ANTI_PATTERNS, getBannedPhrasesForLanguage, findBannedPhrases, findFormatViolations, buildAntiPatternsPromptSection } from '../_shared/anti-patterns.ts'
 import { scanSignals } from '../_shared/signal-scanner.ts'
@@ -35,6 +35,9 @@ interface AIGenerateRequest {
   useSignals?: boolean
   ownerId?: string
   orgId?: string
+  // Model override (for test tab — bypasses profile default)
+  llmProvider?: string
+  llmModel?: string
 }
 
 interface SenderPersona {
@@ -465,6 +468,8 @@ serve(async (req: Request) => {
       useSignals: useSignalsParam,
       ownerId,
       orgId,
+      llmProvider,
+      llmModel,
     } = body
 
     const ctx = await getAuthContext(authHeader, { ownerId, orgId })
@@ -681,7 +686,12 @@ serve(async (req: Request) => {
     const generationStart = Date.now()
     let llm
     try {
-      llm = await createLLMClientForUser(userId)
+      if (llmProvider && llmModel) {
+        llm = createLLMClient(llmProvider as 'anthropic' | 'openai', llmModel)
+        console.log(`Using LLM override: ${llmProvider}/${llmModel}`)
+      } else {
+        llm = await createLLMClientForUser(userId)
+      }
     } catch (err) {
       console.error('Failed to create LLM client:', err)
       return errorResponse('LLM API not configured', 500)

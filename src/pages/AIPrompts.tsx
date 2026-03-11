@@ -54,7 +54,6 @@ import {
   Mail,
   Reply,
   Star,
-  Search,
   BookOpen,
   User,
   X,
@@ -97,7 +96,7 @@ const COMMUNICATION_STYLES = [
   { value: 'executive_brief', label: 'Executive Brief', desc: 'Conciso y ejecutivo' },
 ] as const
 
-type PromptTabType = 'persona' | 'message' | 'research' | 'examples' | 'signals' | 'test'
+type PromptTabType = 'persona' | 'message' | 'examples' | 'signals' | 'test'
 type StepType = 'linkedin_message' | 'linkedin_connect' | 'linkedin_comment' | 'send_email' | 'email_reply'
 type Tone = 'professional' | 'casual' | 'friendly'
 
@@ -129,10 +128,10 @@ interface FormData {
   anti_patterns: string[]
 }
 
-const makeEmptyForm = (promptType: 'message' | 'research'): FormData => ({
+const makeEmptyForm = (): FormData => ({
   name: '',
-  prompt_type: promptType,
-  step_type: promptType === 'message' ? 'linkedin_message' : null,
+  prompt_type: 'message',
+  step_type: 'linkedin_message',
   description: '',
   prompt_body: '',
   tone: 'professional',
@@ -155,7 +154,7 @@ export function AIPrompts() {
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
-  const [formData, setFormData] = useState<FormData>(makeEmptyForm('message'))
+  const [formData, setFormData] = useState<FormData>(makeEmptyForm())
   const [polishing, setPolishing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showSlashMenu, setShowSlashMenu] = useState(false)
@@ -212,7 +211,6 @@ export function AIPrompts() {
   })
 
   const messagePrompts = prompts.filter(p => p.prompt_type === 'message')
-  const researchPrompts = prompts.filter(p => p.prompt_type === 'research')
 
   // Create mutation
   const createMutation = useMutation({
@@ -265,7 +263,7 @@ export function AIPrompts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-prompts'] })
       setIsCreateOpen(false)
-      setFormData(makeEmptyForm(activeTab === 'message' ? 'message' : 'research'))
+      setFormData(makeEmptyForm())
       toast.success('Prompt creado')
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Error al crear'),
@@ -422,7 +420,7 @@ export function AIPrompts() {
   }
 
   const openCreate = () => {
-    setFormData(makeEmptyForm(activeTab === 'message' ? 'message' : 'research'))
+    setFormData(makeEmptyForm())
     setIsCreateOpen(true)
   }
 
@@ -598,8 +596,6 @@ export function AIPrompts() {
     prompts: messagePrompts.filter(p => p.step_type === st.value),
   }))
 
-  const isResearchForm = formData.prompt_type === 'research'
-
   // ─── Prompt Form (reused in create/edit) ───
   const renderForm = () => (
     <div className="space-y-4">
@@ -607,79 +603,73 @@ export function AIPrompts() {
       <div>
         <Label>Nombre</Label>
         <Input
-          placeholder={isResearchForm
-            ? 'Ej: Research enfocado en funding y tecnologia'
-            : 'Ej: Outreach para SaaS founders'
-          }
+          placeholder="Ej: Outreach para SaaS founders — LinkedIn Connect"
           value={formData.name}
           onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
         />
       </div>
 
-      {/* Step type (only for message prompts) */}
-      {!isResearchForm && (
+      {/* Step type */}
+      <div>
+        <Label>Tipo de mensaje</Label>
+        <Select
+          value={formData.step_type || 'linkedin_message'}
+          onValueChange={(v) => setFormData(prev => ({ ...prev, step_type: v as StepType }))}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {STEP_TYPES.map(st => (
+              <SelectItem key={st.value} value={st.value}>
+                {st.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground mt-1">
+          El prompt aplica cuando el step de la cadencia es de este tipo.
+        </p>
+      </div>
+
+      {/* Objective */}
+      <div>
+        <Label>Objetivo del mensaje</Label>
+        <Select
+          value={formData.objective || 'none'}
+          onValueChange={(v) => setFormData(prev => ({ ...prev, objective: v === 'none' ? null : v }))}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Selecciona un objetivo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Sin objetivo especifico</SelectItem>
+            {OBJECTIVES.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Tone + Language row */}
+      <div className="grid grid-cols-2 gap-3">
         <div>
-          <Label>Tipo de step</Label>
+          <Label>Tono</Label>
           <Select
-            value={formData.step_type || 'linkedin_message'}
-            onValueChange={(v) => setFormData(prev => ({ ...prev, step_type: v as StepType }))}
+            value={formData.tone}
+            onValueChange={(v) => setFormData(prev => ({ ...prev, tone: v as Tone }))}
           >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {STEP_TYPES.map(st => (
-                <SelectItem key={st.value} value={st.value}>
-                  {st.label}
-                </SelectItem>
+              {TONES.map(t => (
+                <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
-      )}
-
-      {/* Objective (only for message prompts) */}
-      {!isResearchForm && (
         <div>
-          <Label>Objetivo del mensaje</Label>
-          <Select
-            value={formData.objective || 'none'}
-            onValueChange={(v) => setFormData(prev => ({ ...prev, objective: v === 'none' ? null : v }))}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Selecciona un objetivo" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">Sin objetivo especifico</SelectItem>
-              {OBJECTIVES.map(o => (
-                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
-      {/* Tone + Language row */}
-      <div className="grid grid-cols-2 gap-3">
-        {!isResearchForm && (
-          <div>
-            <Label>Tono</Label>
-            <Select
-              value={formData.tone}
-              onValueChange={(v) => setFormData(prev => ({ ...prev, tone: v as Tone }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TONES.map(t => (
-                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        <div className={isResearchForm ? 'col-span-2' : ''}>
           <Label>Idioma</Label>
           <Select
             value={formData.language}
@@ -699,17 +689,9 @@ export function AIPrompts() {
 
       {/* Description + Polish button */}
       <div>
-        <Label>
-          {isResearchForm
-            ? 'Descripcion (que tipo de investigacion quieres)'
-            : 'Descripcion (lo que quieres lograr)'
-          }
-        </Label>
+        <Label>Descripcion del prompt</Label>
         <Textarea
-          placeholder={isResearchForm
-            ? 'Ej: Quiero que la investigacion se enfoque en funding reciente, stack tecnologico, y los intereses del prospecto segun sus posts...'
-            : 'Ej: Quiero un mensaje que mencione algo reciente del prospecto, proponga una demo de 15 min, y suene casual pero profesional...'
-          }
+          placeholder="Ej: Quiero un mensaje que use señales del prospecto (posts recientes, cargo, empresa), mencione algo relevante, proponga una demo de 15 min y suene casual pero profesional. Incluir como analizar la investigacion del prospecto y como redactar el mensaje."
           value={formData.description}
           onChange={e => setFormData(prev => ({ ...prev, description: e.target.value }))}
           rows={3}
@@ -735,15 +717,13 @@ export function AIPrompts() {
 
       {/* Prompt body */}
       <div>
-        <Label>
-          {isResearchForm
-            ? 'Prompt (instrucciones para el analista de investigacion)'
-            : 'Prompt (instrucciones para el generador de mensajes)'
-          }
-        </Label>
+        <Label>Prompt general (investigacion + redaccion del mensaje)</Label>
+        <p className="text-xs text-muted-foreground mb-2">
+          Incluye instrucciones de como analizar al prospecto Y como redactar el mensaje. El AI usara esto junto con las Referencias y Señales configuradas.
+        </p>
 
         {/* Variable chips */}
-        <div className="flex flex-wrap items-center gap-1.5 my-2">
+        <div className="flex flex-wrap items-center gap-1.5 mb-2">
           <span className="text-xs text-muted-foreground">Variables:</span>
           {TEMPLATE_VARIABLES.map(v => (
             <button
@@ -810,80 +790,74 @@ export function AIPrompts() {
         </p>
       </div>
 
-      {/* Structure (only for message prompts) */}
-      {!isResearchForm && (
-        <div>
-          <Label>Estructura del mensaje (opcional)</Label>
-          <Textarea
-            placeholder="Ej: 1. Hook con referencia personal\n2. Conexion con su problema\n3. Propuesta de valor breve\n4. CTA suave"
-            value={formData.structure}
-            onChange={e => setFormData(prev => ({ ...prev, structure: e.target.value }))}
-            rows={4}
+      {/* Structure */}
+      <div>
+        <Label>Estructura del mensaje (opcional)</Label>
+        <Textarea
+          placeholder="Ej: 1. Hook con referencia personal\n2. Conexion con su problema\n3. Propuesta de valor breve\n4. CTA suave"
+          value={formData.structure}
+          onChange={e => setFormData(prev => ({ ...prev, structure: e.target.value }))}
+          rows={4}
+          className="text-sm"
+        />
+        <p className="text-xs text-muted-foreground mt-1">
+          Define como quieres que se organice el mensaje.
+        </p>
+      </div>
+
+      {/* Writing Principles */}
+      <div>
+        <Label>Principios de escritura</Label>
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {formData.writing_principles.map((p, i) => (
+            <Badge key={i} variant="secondary" className="gap-1 pr-1">
+              {p}
+              <button type="button" onClick={() => removePrinciple(i)} className="ml-1 hover:text-destructive">
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <Input
+            placeholder="Ej: Usar datos especificos, no generalidades"
+            value={principleInput}
+            onChange={e => setPrincipleInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addPrinciple() } }}
             className="text-sm"
           />
-          <p className="text-xs text-muted-foreground mt-1">
-            Define como quieres que se organice el mensaje.
-          </p>
+          <Button variant="outline" size="sm" onClick={addPrinciple} disabled={!principleInput.trim()}>
+            <Plus className="h-4 w-4" />
+          </Button>
         </div>
-      )}
+      </div>
 
-      {/* Writing Principles (only for message prompts) */}
-      {!isResearchForm && (
-        <div>
-          <Label>Principios de escritura</Label>
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {formData.writing_principles.map((p, i) => (
-              <Badge key={i} variant="secondary" className="gap-1 pr-1">
-                {p}
-                <button type="button" onClick={() => removePrinciple(i)} className="ml-1 hover:text-destructive">
-                  <X className="h-3 w-3" />
-                </button>
-              </Badge>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Ej: Usar datos especificos, no generalidades"
-              value={principleInput}
-              onChange={e => setPrincipleInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addPrinciple() } }}
-              className="text-sm"
-            />
-            <Button variant="outline" size="sm" onClick={addPrinciple} disabled={!principleInput.trim()}>
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
+      {/* Anti-Patterns */}
+      <div>
+        <Label>Anti-patterns (cosas que NO debe hacer)</Label>
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {formData.anti_patterns.map((p, i) => (
+            <Badge key={i} variant="outline" className="gap-1 pr-1 border-red-200 text-red-700 dark:border-red-800 dark:text-red-400">
+              {p}
+              <button type="button" onClick={() => removeAntiPattern(i)} className="ml-1 hover:text-destructive">
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))}
         </div>
-      )}
-
-      {/* Anti-Patterns (only for message prompts) */}
-      {!isResearchForm && (
-        <div>
-          <Label>Anti-patterns (cosas que NO debe hacer)</Label>
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {formData.anti_patterns.map((p, i) => (
-              <Badge key={i} variant="outline" className="gap-1 pr-1 border-red-200 text-red-700 dark:border-red-800 dark:text-red-400">
-                {p}
-                <button type="button" onClick={() => removeAntiPattern(i)} className="ml-1 hover:text-destructive">
-                  <X className="h-3 w-3" />
-                </button>
-              </Badge>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <Input
-              placeholder='Ej: No usar "espero que estes bien"'
-              value={antiPatternInput}
-              onChange={e => setAntiPatternInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addAntiPattern() } }}
-              className="text-sm"
-            />
-            <Button variant="outline" size="sm" onClick={addAntiPattern} disabled={!antiPatternInput.trim()}>
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
+        <div className="flex gap-2">
+          <Input
+            placeholder='Ej: No usar "espero que estes bien"'
+            value={antiPatternInput}
+            onChange={e => setAntiPatternInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addAntiPattern() } }}
+            className="text-sm"
+          />
+          <Button variant="outline" size="sm" onClick={addAntiPattern} disabled={!antiPatternInput.trim()}>
+            <Plus className="h-4 w-4" />
+          </Button>
         </div>
-      )}
+      </div>
 
       {/* Default toggle */}
       <label className="flex items-center gap-2 cursor-pointer">
@@ -894,10 +868,7 @@ export function AIPrompts() {
           className="rounded border-gray-300"
         />
         <span className="text-sm">
-          {isResearchForm
-            ? 'Usar como default para investigacion'
-            : `Usar como default para ${getStepTypeConfig(formData.step_type).label}`
-          }
+          Usar como default para {getStepTypeConfig(formData.step_type).label}
         </span>
       </label>
     </div>
@@ -998,7 +969,7 @@ export function AIPrompts() {
             Configura tu perfil, prompts y referencias para controlar como el AI genera mensajes.
           </p>
         </div>
-        {(activeTab === 'message' || activeTab === 'research') && (
+        {activeTab === 'message' && (
           <PermissionGate permission="ai_prompts_create">
             <Button onClick={openCreate}>
               <Plus className="mr-2 h-4 w-4" />
@@ -1016,17 +987,10 @@ export function AIPrompts() {
             Mi Perfil
           </TabsTrigger>
           <TabsTrigger value="message" className="gap-1.5">
-            <MessageSquare className="h-4 w-4" />
-            Prompts de Mensaje
+            <Brain className="h-4 w-4" />
+            Prompts
             {messagePrompts.length > 0 && (
               <Badge variant="secondary" className="text-xs ml-1 h-5">{messagePrompts.length}</Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="research" className="gap-1.5">
-            <Search className="h-4 w-4" />
-            Investigacion
-            {researchPrompts.length > 0 && (
-              <Badge variant="secondary" className="text-xs ml-1 h-5">{researchPrompts.length}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="examples" className="gap-1.5">
@@ -1163,20 +1127,20 @@ export function AIPrompts() {
           </Card>
         </TabsContent>
 
-        {/* Message Prompts Tab */}
+        {/* Prompts Tab (unified) */}
         <TabsContent value="message" className="space-y-6 mt-4">
           {messagePrompts.length === 0 && (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12">
-                <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
-                <h3 className="text-lg font-medium mb-2">No tienes prompts de mensaje</h3>
+                <Brain className="h-12 w-12 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-medium mb-2">No tienes prompts configurados</h3>
                 <p className="text-muted-foreground text-center mb-4 max-w-md">
-                  Crea prompts para controlar como el AI genera mensajes, notas de conexion y comentarios.
+                  Crea un prompt por tipo de mensaje (LinkedIn Connect, Message, Email, etc.). Cada prompt define como el AI investiga al prospecto y redacta el mensaje, usando tus Referencias y Señales.
                 </p>
                 <PermissionGate permission="ai_prompts_create">
                   <Button onClick={openCreate}>
                     <Plus className="mr-2 h-4 w-4" />
-                    Crear prompt de mensaje
+                    Crear prompt
                   </Button>
                 </PermissionGate>
               </CardContent>
@@ -1202,35 +1166,7 @@ export function AIPrompts() {
             })}
         </TabsContent>
 
-        {/* Research Prompts Tab */}
-        <TabsContent value="research" className="space-y-6 mt-4">
-          {researchPrompts.length === 0 && (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-12">
-                <Search className="h-12 w-12 text-muted-foreground mb-4" />
-                <h3 className="text-lg font-medium mb-2">No tienes prompts de investigacion</h3>
-                <p className="text-muted-foreground text-center mb-4 max-w-md">
-                  Crea prompts para controlar como el AI analiza y sintetiza la investigacion sobre tus prospectos.
-                  Define que aspectos priorizar: funding, tecnologia, intereses, noticias, etc.
-                </p>
-                <PermissionGate permission="ai_prompts_create">
-                  <Button onClick={openCreate}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Crear prompt de investigacion
-                  </Button>
-                </PermissionGate>
-              </CardContent>
-            </Card>
-          )}
-
-          {researchPrompts.length > 0 && (
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {researchPrompts.map(renderPromptCard)}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* Referencias Tab (renamed from Mensajes Base) */}
+        {/* Referencias Tab */}
         <TabsContent value="examples" className="mt-4">
           <ExampleSectionsTab />
         </TabsContent>
@@ -1251,12 +1187,8 @@ export function AIPrompts() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {isResearchForm ? (
-                <Search className="h-5 w-5 text-blue-500" />
-              ) : (
-                <Brain className="h-5 w-5 text-purple-500" />
-              )}
-              {isResearchForm ? 'Crear Prompt de Investigacion' : 'Crear Prompt de Mensaje'}
+              <Brain className="h-5 w-5 text-purple-500" />
+              Crear Prompt
             </DialogTitle>
           </DialogHeader>
           {renderForm()}

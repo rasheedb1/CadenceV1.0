@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCadence } from '@/contexts/CadenceContext'
 import { Button } from '@/components/ui/button'
@@ -15,23 +15,51 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { Plus, Workflow, MoreVertical, Pencil, Trash2, Copy, Loader2 } from 'lucide-react'
+import { Plus, Workflow, MoreVertical, Pencil, Trash2, Copy, Loader2, SquarePen } from 'lucide-react'
 import { PermissionGate } from '@/components/PermissionGate'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
 export function Cadences() {
   const navigate = useNavigate()
-  const { cadences, isLoading, createCadence, duplicateCadence, deleteCadence } = useCadence()
+  const { cadences, isLoading, createCadence, duplicateCadence, deleteCadence, updateCadence } = useCadence()
   const [newCadenceName, setNewCadenceName] = useState('')
   const [newCadenceDescription, setNewCadenceDescription] = useState('')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState('')
+  const editInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editingId) editInputRef.current?.select()
+  }, [editingId])
+
+  const startEdit = (e: React.MouseEvent, id: string, currentName: string) => {
+    e.stopPropagation()
+    setEditingId(id)
+    setEditingName(currentName)
+  }
+
+  const commitEdit = async () => {
+    if (!editingId) return
+    const trimmed = editingName.trim()
+    if (trimmed && trimmed !== cadences.find(c => c.id === editingId)?.name) {
+      await updateCadence(editingId, { name: trimmed })
+    }
+    setEditingId(null)
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditingName('')
+  }
 
   const handleCreate = async () => {
     if (!newCadenceName.trim()) return
@@ -54,7 +82,11 @@ export function Cadences() {
 
   const handleDelete = async (id: string, name: string) => {
     if (confirm(`¿Eliminar la cadencia "${name}"?\n\nEsta acción puede revertirse contactando al soporte.`)) {
-      await deleteCadence(id)
+      try {
+        await deleteCadence(id)
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'Error al eliminar la cadencia. Inténtalo de nuevo.')
+      }
     }
   }
 
@@ -157,11 +189,32 @@ export function Cadences() {
             <Card
               key={cadence.id}
               className="cursor-pointer transition-shadow hover:shadow-md"
-              onClick={() => navigate(`/cadences/${cadence.id}`)}
+              onClick={() => editingId !== cadence.id && navigate(`/cadences/${cadence.id}`)}
             >
               <CardHeader className="flex flex-row items-start justify-between">
-                <div>
-                  <CardTitle className="text-lg">{cadence.name}</CardTitle>
+                <div className="flex-1 min-w-0 mr-2">
+                  {editingId === cadence.id ? (
+                    <Input
+                      ref={editInputRef}
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); commitEdit() }
+                        if (e.key === 'Escape') cancelEdit()
+                      }}
+                      onBlur={commitEdit}
+                      className="h-7 text-lg font-semibold px-1 -ml-1"
+                    />
+                  ) : (
+                    <CardTitle
+                      className="text-lg cursor-text"
+                      onDoubleClick={(e) => startEdit(e, cadence.id, cadence.name)}
+                      title="Double-click to rename"
+                    >
+                      {cadence.name}
+                    </CardTitle>
+                  )}
                   <CardDescription>
                     {cadence.steps?.length || 0} steps
                   </CardDescription>
@@ -182,6 +235,10 @@ export function Cadences() {
                       <Pencil className="mr-2 h-4 w-4" />
                       Edit
                     </DropdownMenuItem>
+                    <DropdownMenuItem onClick={(e) => startEdit(e, cadence.id, cadence.name)}>
+                      <SquarePen className="mr-2 h-4 w-4" />
+                      Rename
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={(e) => handleDuplicate(e, cadence.id)}
                       disabled={duplicatingId === cadence.id}
@@ -193,6 +250,7 @@ export function Cadences() {
                       )}
                       {duplicatingId === cadence.id ? 'Duplicating...' : 'Duplicate'}
                     </DropdownMenuItem>
+                    <DropdownMenuSeparator />
                     <DropdownMenuItem
                       className="text-destructive"
                       onClick={(e) => {

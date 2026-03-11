@@ -101,9 +101,23 @@ serve(async (req: Request) => {
 
     console.log(`Cascade search for ${company.company_name} (${personas.length} personas, max ${maxPerRole}/role)`)
 
+    // Load Salesforce contacts from accounts with open opportunities for this org.
+    // Used to filter out prospects who are already in an active deal.
+    const { data: sfContactRows } = await supabase
+      .from('salesforce_contacts')
+      .select('name_normalized')
+      .eq('org_id', ctx.orgId)
+      .eq('has_active_opportunity', true)
+
+    const sfActiveContactNames = new Set((sfContactRows || []).map(c => c.name_normalized as string))
+    if (sfActiveContactNames.size > 0) {
+      console.log(`Loaded ${sfActiveContactNames.size} SF contacts in open opportunities (will filter)`)
+    }
+
     const foundProviderIds = new Set<string>()
     const personaResults: PersonaResult[] = []
     let totalFound = 0
+    let totalSfFiltered = 0
     const tier = getCompanySizeTier(company)
 
     for (let i = 0; i < personas.length; i++) {
@@ -142,9 +156,27 @@ serve(async (req: Request) => {
           if (p.linkedinProviderId) foundProviderIds.add(p.linkedinProviderId)
         }
 
+        // Filter out prospects who are already contacts in an open Salesforce opportunity.
+        // Note: filtered provider IDs stay in foundProviderIds so Sales Nav won't return
+        // them again in subsequent personas — correct, since we don't want them regardless.
+        const prospectsToSave: SalesNavResult[] = []
+        let sfFilteredCount = 0
+        for (const p of cascadeResult.prospects) {
+          const normalized = `${p.firstName} ${p.lastName}`.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+          if (sfActiveContactNames.has(normalized)) {
+            sfFilteredCount++
+          } else {
+            prospectsToSave.push(p)
+          }
+        }
+        if (sfFilteredCount > 0) {
+          console.log(`  ${persona.name}: filtered ${sfFilteredCount} prospect(s) already in open SF opportunities`)
+          totalSfFiltered += sfFilteredCount
+        }
+
         // Save prospects to DB
-        if (cascadeResult.prospects.length > 0) {
-          const rows = cascadeResult.prospects.map((p: SalesNavResult) => ({
+        if (prospectsToSave.length > 0) {
+          const rows = prospectsToSave.map((p: SalesNavResult) => ({
             account_map_id: accountMapId,
             company_id: companyId,
             owner_id: ctx.userId,
@@ -176,18 +208,18 @@ serve(async (req: Request) => {
           }
         }
 
-        totalFound += cascadeResult.prospects.length
+        totalFound += prospectsToSave.length
 
         personaResults.push({
           personaId: persona.id,
           personaName: persona.name,
-          resultsCount: cascadeResult.prospects.length,
+          resultsCount: prospectsToSave.length,
           searchLevel: cascadeResult.level,
           queryUsed: cascadeResult.queryUsed,
           levelDetails: cascadeResult.levelDetails,
         })
 
-        console.log(`  ${persona.name}: ${cascadeResult.prospects.length} found (L${cascadeResult.level})`)
+        console.log(`  ${persona.name}: ${prospectsToSave.length} saved (${sfFilteredCount} SF-filtered) L${cascadeResult.level}`)
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Unknown error'
         console.error(`  ${persona.name}: ERROR - ${errorMsg}`)
@@ -215,11 +247,12 @@ serve(async (req: Request) => {
       }
     }
 
-    console.log(`Cascade search complete: ${totalFound} total for ${company.company_name}`)
+    console.log(`Cascade search complete: ${totalFound} saved, ${totalSfFiltered} filtered (SF open opp) for ${company.company_name}`)
 
     return jsonResponse({
       success: true,
       totalFound,
+      totalSfFiltered,
       companyName: company.company_name,
       personaResults,
     })

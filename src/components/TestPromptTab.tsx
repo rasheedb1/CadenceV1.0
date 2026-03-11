@@ -56,6 +56,7 @@ import {
   Save,
   WandSparkles,
   Reply,
+  Cpu,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -98,6 +99,19 @@ const TONE_OPTIONS: Array<{ value: Tone; label: string }> = [
   { value: 'friendly', label: 'Amigable' },
 ]
 
+const MODEL_OPTIONS: Array<{ value: string; label: string; provider: 'anthropic' | 'openai' | null; badge?: string }> = [
+  { value: 'default', label: 'Default (configuración del perfil)', provider: null },
+  // Anthropic
+  { value: 'anthropic:claude-opus-4-6',          label: 'Claude Opus 4.6',    provider: 'anthropic', badge: 'Mejor' },
+  { value: 'anthropic:claude-sonnet-4-6',         label: 'Claude Sonnet 4.6',  provider: 'anthropic', badge: 'Balanceado' },
+  { value: 'anthropic:claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5',   provider: 'anthropic', badge: 'Rapido' },
+  // OpenAI
+  { value: 'openai:gpt-4o',     label: 'GPT-4o',       provider: 'openai', badge: 'Balanceado' },
+  { value: 'openai:gpt-4o-mini', label: 'GPT-4o Mini',  provider: 'openai', badge: 'Rapido' },
+  { value: 'openai:gpt-5',      label: 'GPT-5',        provider: 'openai', badge: 'Mejor' },
+  { value: 'openai:gpt-5-mini', label: 'GPT-5 Mini',   provider: 'openai' },
+]
+
 function getScoreColor(score: number): string {
   if (score >= 9) return 'bg-green-500 text-white'
   if (score >= 7) return 'bg-green-100 text-green-700 border-green-200'
@@ -129,8 +143,8 @@ export function TestPromptTab() {
   // Config state
   const [stepType, setStepType] = useState<StepType>('linkedin_message')
   const [selectedMessagePromptId, setSelectedMessagePromptId] = useState<string>('none')
-  const [selectedResearchPromptId, setSelectedResearchPromptId] = useState<string>('none')
   const [selectedSectionId, setSelectedSectionId] = useState<string>('none')
+  const [selectedModel, setSelectedModel] = useState<string>('default')
   const [selectedLeadId, setSelectedLeadId] = useState<string>('')
   const [tone, setTone] = useState<Tone>('professional')
   const [useSignals, setUseSignals] = useState(true)
@@ -185,7 +199,6 @@ export function TestPromptTab() {
   })
 
   const messagePrompts = allPrompts.filter(p => p.prompt_type === 'message' && (p.step_type === stepType || p.step_type === null))
-  const researchPrompts = allPrompts.filter(p => p.prompt_type === 'research')
 
   // Fetch example sections
   const { data: exampleSections = [] } = useQuery({
@@ -269,9 +282,6 @@ export function TestPromptTab() {
       const activePrompt = selectedMessagePromptId !== 'none'
         ? allPrompts.find(p => p.id === selectedMessagePromptId)
         : undefined
-      const activeResearchPrompt = selectedResearchPromptId !== 'none'
-        ? allPrompts.find(p => p.id === selectedResearchPromptId)
-        : undefined
 
       const exampleMessageBodies = sectionMessages.length > 0
         ? sectionMessages.map(m => m.body)
@@ -280,17 +290,21 @@ export function TestPromptTab() {
         ? sectionMessages.map(m => m.quality_note || '')
         : undefined
 
+      const [modelProvider, modelId] = selectedModel !== 'default'
+        ? selectedModel.split(':')
+        : [undefined, undefined]
+
       const requestBody: Record<string, unknown> = {
         leadId: selectedLeadId,
         stepType,
         messageTemplate: activePrompt?.prompt_body || undefined,
-        researchPrompt: activeResearchPrompt?.prompt_body || undefined,
         tone,
         language: activePrompt?.language || 'es',
         exampleMessages: exampleMessageBodies,
         exampleNotes,
         customInstructions: overrideCustomInstructions ?? (customInstructions || undefined),
         useSignals,
+        ...(modelProvider && modelId ? { llmProvider: modelProvider, llmModel: modelId } : {}),
       }
 
       if (activePrompt) {
@@ -567,11 +581,11 @@ export function TestPromptTab() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {/* Message Prompt */}
+              {/* Prompt */}
               <div>
                 <Label className="flex items-center gap-1.5 mb-1.5 text-sm">
                   <Brain className="h-3.5 w-3.5 text-purple-500" />
-                  Prompt de Mensaje
+                  Prompt
                 </Label>
                 <Select value={selectedMessagePromptId} onValueChange={setSelectedMessagePromptId}>
                   <SelectTrigger className="h-9">
@@ -598,25 +612,6 @@ export function TestPromptTab() {
                 )}
               </div>
 
-              {/* Research Prompt */}
-              <div>
-                <Label className="flex items-center gap-1.5 mb-1.5 text-sm">
-                  <Search className="h-3.5 w-3.5 text-blue-500" />
-                  Prompt de Investigacion
-                </Label>
-                <Select value={selectedResearchPromptId} onValueChange={setSelectedResearchPromptId}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Sin investigacion" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Sin investigacion</SelectItem>
-                    {researchPrompts.map(p => (
-                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
               {/* Example Section */}
               <div>
                 <Label className="flex items-center gap-1.5 mb-1.5 text-sm">
@@ -631,6 +626,37 @@ export function TestPromptTab() {
                     <SelectItem value="none">Sin ejemplos</SelectItem>
                     {exampleSections.map((s: { id: string; name: string }) => (
                       <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Model */}
+              <div>
+                <Label className="flex items-center gap-1.5 mb-1.5 text-sm">
+                  <Cpu className="h-3.5 w-3.5 text-indigo-500" />
+                  Modelo de IA
+                </Label>
+                <Select value={selectedModel} onValueChange={setSelectedModel}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Default (perfil)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MODEL_OPTIONS.map(m => (
+                      <SelectItem key={m.value} value={m.value}>
+                        <div className="flex items-center gap-2">
+                          {m.provider === 'anthropic' && (
+                            <span className="text-[9px] font-semibold text-orange-600 bg-orange-100 px-1 rounded">Claude</span>
+                          )}
+                          {m.provider === 'openai' && (
+                            <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-100 px-1 rounded">OpenAI</span>
+                          )}
+                          <span>{m.label}</span>
+                          {m.badge && (
+                            <span className="text-[9px] text-muted-foreground">· {m.badge}</span>
+                          )}
+                        </div>
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
