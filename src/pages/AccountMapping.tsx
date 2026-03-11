@@ -1,7 +1,10 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { useAccountMapping } from '@/contexts/AccountMappingContext'
 import { useICPProfiles, useICPProfileUsage, useICPProfileMutations } from '@/hooks/useICPProfiles'
+import { useOrg } from '@/contexts/OrgContext'
+import { useAuth } from '@/contexts/AuthContext'
+import { supabase } from '@/integrations/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -16,7 +19,8 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { Plus, Target, MoreVertical, Pencil, Trash2, Building2, Users, UserSearch, Brain, Map } from 'lucide-react'
+import { useState } from 'react'
+import { Plus, Target, MoreVertical, Pencil, Trash2, Building2, Users, UserSearch, Brain, Map, UserCircle, ArrowRight } from 'lucide-react'
 import { PermissionGate } from '@/components/PermissionGate'
 import {
   DropdownMenu,
@@ -25,17 +29,34 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
+import type { BuyerPersona } from '@/types/account-mapping'
 
-type TabId = 'maps' | 'icp-profiles'
+type TabId = 'maps' | 'icp-profiles' | 'buyer-personas'
+
+type PersonaWithProfile = BuyerPersona & {
+  icp_profiles: { id: string; name: string } | null
+}
 
 export function AccountMapping() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { orgId } = useOrg()
+  const { user } = useAuth()
   const { accountMaps, isLoading, createAccountMap, deleteAccountMap } = useAccountMapping()
   const { data: icpProfiles = [], isLoading: icpLoading } = useICPProfiles()
   const { data: usageMap } = useICPProfileUsage()
   const { createProfile, deleteProfile } = useICPProfileMutations()
 
-  const [activeTab, setActiveTab] = useState<TabId>('maps')
+  // Derive active tab from URL param (so sidebar links work even when already on this page)
+  const activeTab = (searchParams.get('tab') as TabId) || 'maps'
+  const setActiveTab = (tab: TabId) => {
+    if (tab === 'maps') {
+      setSearchParams({})
+    } else {
+      setSearchParams({ tab })
+    }
+  }
+
   const [newName, setNewName] = useState('')
   const [newDescription, setNewDescription] = useState('')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -45,6 +66,23 @@ export function AccountMapping() {
   const [isCreateProfileOpen, setIsCreateProfileOpen] = useState(false)
   const [profileName, setProfileName] = useState('')
   const [creatingProfile, setCreatingProfile] = useState(false)
+
+  // All buyer personas across all ICP profiles
+  const { data: allPersonas = [], isLoading: personasLoading } = useQuery({
+    queryKey: ['all-buyer-personas', orgId, user?.id],
+    queryFn: async () => {
+      if (!orgId || !user) return []
+      const { data, error } = await supabase
+        .from('buyer_personas')
+        .select('*, icp_profiles(id, name)')
+        .eq('org_id', orgId)
+        .not('icp_profile_id', 'is', null)
+        .order('created_at', { ascending: false })
+      if (error) throw error
+      return (data || []) as PersonaWithProfile[]
+    },
+    enabled: !!orgId && !!user,
+  })
 
   const handleCreate = async () => {
     if (!newName.trim()) return
@@ -110,6 +148,7 @@ export function AccountMapping() {
   const tabs: { id: TabId; label: string; count: number }[] = [
     { id: 'maps', label: 'Account Maps', count: accountMaps.length },
     { id: 'icp-profiles', label: 'ICP Profiles', count: icpProfiles.length },
+    { id: 'buyer-personas', label: 'Buying Personas', count: allPersonas.length },
   ]
 
   return (
@@ -205,6 +244,13 @@ export function AccountMapping() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+        )}
+
+        {activeTab === 'buyer-personas' && (
+          <Button onClick={() => setActiveTab('icp-profiles')}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Persona (via ICP Profile)
+          </Button>
         )}
       </div>
 
@@ -404,6 +450,82 @@ export function AccountMapping() {
                   </Card>
                 )
               })}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Buying Personas Tab */}
+      {activeTab === 'buyer-personas' && (
+        <>
+          {personasLoading ? (
+            <div className="flex h-32 items-center justify-center">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            </div>
+          ) : allPersonas.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12">
+                <UserCircle className="mb-4 h-12 w-12 text-muted-foreground" />
+                <h3 className="mb-2 text-lg font-medium">No buying personas yet</h3>
+                <p className="mb-4 text-sm text-muted-foreground text-center max-w-md">
+                  Buying personas are created within ICP Profiles. Create an ICP Profile first, then add personas to it.
+                </p>
+                <Button onClick={() => setActiveTab('icp-profiles')}>
+                  <ArrowRight className="mr-2 h-4 w-4" />
+                  Go to ICP Profiles
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {allPersonas.map((persona) => (
+                <Card
+                  key={persona.id}
+                  className="cursor-pointer transition-shadow hover:shadow-md"
+                  onClick={() =>
+                    persona.icp_profile_id &&
+                    navigate(`/account-mapping/icp-profiles/${persona.icp_profile_id}`)
+                  }
+                >
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10">
+                          <UserCircle className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-base">{persona.name}</CardTitle>
+                          {persona.department && (
+                            <CardDescription className="text-xs mt-0.5">{persona.department}</CardDescription>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <div className="flex flex-col gap-1.5 text-sm text-muted-foreground">
+                      {persona.seniority && (
+                        <span className="flex items-center gap-1.5">
+                          <span className="font-medium text-foreground/70">Seniority:</span>
+                          {persona.seniority}
+                        </span>
+                      )}
+                      {persona.role_in_buying_committee && (
+                        <span className="flex items-center gap-1.5">
+                          <span className="font-medium text-foreground/70">Role:</span>
+                          {persona.role_in_buying_committee.replace(/_/g, ' ')}
+                        </span>
+                      )}
+                      {persona.icp_profiles && (
+                        <span className="flex items-center gap-1 mt-1 text-xs text-muted-foreground/70">
+                          <ArrowRight className="h-3 w-3" />
+                          {persona.icp_profiles.name}
+                        </span>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           )}
         </>
