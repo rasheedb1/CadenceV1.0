@@ -670,6 +670,37 @@ serve(async (req: Request) => {
 
     console.log(`Research complete: profile=${!!settled.profile}, posts=${profileSummary.recentPosts.length}, insights=${finalInsights.length}, persona=${!!senderPersona}`)
 
+    // ── Fetch company research report if {{research}} is referenced in templates ──
+    let companyResearchText = ''
+    const templatesNeedResearch =
+      (messageTemplate || '').includes('{{research}}') ||
+      (researchPrompt || '').includes('{{research}}')
+
+    if (templatesNeedResearch && company) {
+      try {
+        const { data: researchRow } = await supabase
+          .from('research_project_companies')
+          .select('research_summary, research_content, company_name')
+          .eq('org_id', ctx.orgId)
+          .eq('status', 'completed')
+          .ilike('company_name', company.trim())
+          .order('completed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (researchRow) {
+          companyResearchText = researchRow.research_summary
+            || truncate(researchRow.research_content || '', 3000)
+          console.log(`Found company research for "${company}" (${companyResearchText.length} chars)`)
+        } else {
+          console.log(`No completed research found for company: "${company}"`)
+          companyResearchText = '(No se encontró investigación disponible para esta empresa)'
+        }
+      } catch (err) {
+        console.error('Failed to fetch company research (non-fatal):', err)
+      }
+    }
+
     // ── Template variable substitution ──
     const templateVars: Record<string, string> = {
       first_name: firstName, last_name: lastName, company,
@@ -677,6 +708,7 @@ serve(async (req: Request) => {
       industry: lead.industry || '', website: lead.website || '',
       department: lead.department || '', annual_revenue: lead.annual_revenue || '',
       company_linkedin_url: lead.company_linkedin_url || '',
+      research: companyResearchText,
     }
 
     const resolvedMessageTemplate = messageTemplate ? substituteTemplateVariables(messageTemplate, templateVars) : null

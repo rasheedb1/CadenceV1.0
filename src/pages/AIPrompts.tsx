@@ -111,6 +111,7 @@ const TEMPLATE_VARIABLES = [
   { key: 'website', label: 'Sitio Web', example: 'edpuzzle.com' },
   { key: 'department', label: 'Departamento', example: 'Sales' },
   { key: 'annual_revenue', label: 'Ingresos Anuales', example: '$10M' },
+  { key: 'research', label: 'Investigación de empresa', example: 'Reporte AI de la empresa' },
 ] as const
 
 interface FormData {
