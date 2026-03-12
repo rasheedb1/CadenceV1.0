@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { cn } from '@/lib/utils'
@@ -22,6 +23,9 @@ import {
   ArrowLeft,
   Calendar,
   TrendingUp,
+  ChevronDown,
+  UserCircle,
+  ScanSearch,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrg } from '@/contexts/OrgContext'
@@ -34,24 +38,57 @@ import { OrgSwitcher } from './OrgSwitcher'
 import { Button } from '@/components/ui/button'
 import type { FeatureFlagKey } from '@/types/feature-flags'
 
-// ── SDR / Prospecting navigation ─────────────────────────────────────────────
-const sdr_navigation: { name: string; href: string; icon: typeof LayoutDashboard; featureFlag?: FeatureFlagKey }[] = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Cadences', href: '/cadences', icon: Workflow, featureFlag: 'section_cadences' },
-  { name: 'Outreach Activity', href: '/outreach', icon: Activity, featureFlag: 'section_cadences' },
-  { name: 'Workflows', href: '/workflows', icon: GitBranch, featureFlag: 'section_workflows' },
-  { name: 'Account Mapping', href: '/account-mapping', icon: Target, featureFlag: 'section_account_mapping' },
-  { name: 'Company Registry', href: '/company-registry', icon: ShieldCheck, featureFlag: 'section_company_registry' },
-  { name: 'Company Research', href: '/company-research', icon: Building2, featureFlag: 'section_company_research' },
-  { name: 'Leads', href: '/leads', icon: Users, featureFlag: 'section_leads' },
-  { name: 'Business Cases', href: '/business-cases', icon: Briefcase, featureFlag: 'section_business_cases' },
-  { name: 'Templates', href: '/templates', icon: FileText, featureFlag: 'section_templates' },
-  { name: 'AI Prompts', href: '/ai-prompts', icon: Brain, featureFlag: 'section_ai_prompts' },
-  { name: 'LinkedIn Inbox', href: '/inbox', icon: MessageSquare, featureFlag: 'section_linkedin_inbox' },
-  { name: 'Notifications', href: '/notifications', icon: Bell, featureFlag: 'section_notifications' },
-  { name: 'Settings', href: '/settings', icon: Settings },
-  { name: 'Admin', href: '/admin', icon: Shield },
-  { name: 'Super Admin', href: '/super-admin/organizations', icon: Crown },
+type NavItem = {
+  name: string
+  href: string
+  icon: typeof LayoutDashboard
+  featureFlag?: FeatureFlagKey
+  end?: boolean
+}
+
+type NavSection = {
+  id: string
+  label: string
+  items: NavItem[]
+}
+
+// ── SDR / Prospecting navigation — 3 sections ────────────────────────────────
+const sdr_sections: NavSection[] = [
+  {
+    id: 'daily',
+    label: 'Daily Use',
+    items: [
+      { name: 'Dashboard', href: '/', icon: LayoutDashboard, end: true },
+      { name: 'Account Mapping', href: '/account-mapping', icon: Target, featureFlag: 'section_account_mapping' },
+      { name: 'Account Research', href: '/company-research', icon: Building2, featureFlag: 'section_company_research' },
+      { name: 'Cadences', href: '/cadences', icon: Workflow, featureFlag: 'section_cadences' },
+      { name: 'Notifications', href: '/notifications', icon: Bell, featureFlag: 'section_notifications' },
+      { name: 'LinkedIn Inbox', href: '/inbox', icon: MessageSquare, featureFlag: 'section_linkedin_inbox' },
+      { name: 'Outreach Activity', href: '/outreach', icon: Activity, featureFlag: 'section_cadences' },
+    ],
+  },
+  {
+    id: 'onetime',
+    label: 'One Time Use',
+    items: [
+      { name: 'ICP Setup', href: '/account-mapping?tab=icp-profiles', icon: ScanSearch, featureFlag: 'section_account_mapping' },
+      { name: 'Buying Persona', href: '/account-mapping?tab=buyer-personas', icon: UserCircle, featureFlag: 'section_account_mapping' },
+      { name: 'AI Prompts', href: '/ai-prompts', icon: Brain, featureFlag: 'section_ai_prompts' },
+      { name: 'Business Cases', href: '/business-cases', icon: Briefcase, featureFlag: 'section_business_cases' },
+      { name: 'Templates', href: '/templates', icon: FileText, featureFlag: 'section_templates' },
+      { name: 'Workflows', href: '/workflows', icon: GitBranch, featureFlag: 'section_workflows' },
+    ],
+  },
+  {
+    id: 'tracker',
+    label: 'Tracker',
+    items: [
+      { name: 'Leads', href: '/leads', icon: Users, featureFlag: 'section_leads' },
+      { name: 'Business Cases', href: '/business-cases?view=tracker', icon: Briefcase, featureFlag: 'section_business_cases' },
+      { name: 'Company Research', href: '/company-research', icon: Building2, featureFlag: 'section_company_research' },
+      { name: 'Company Registry', href: '/company-registry', icon: ShieldCheck, featureFlag: 'section_company_registry' },
+    ],
+  },
 ]
 
 // ── AE navigation ─────────────────────────────────────────────────────────────
@@ -71,6 +108,12 @@ export function Sidebar() {
   const { mode, setMode } = useMode()
   const navigate = useNavigate()
 
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    daily: true,
+    onetime: true,
+    tracker: true,
+  })
+
   const { data: unreadCount = 0 } = useQuery({
     queryKey: ['notifications-unread-count', orgId],
     queryFn: async () => {
@@ -88,12 +131,24 @@ export function Sidebar() {
     refetchInterval: 30000,
   })
 
+  const toggleSection = (id: string) => {
+    setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }))
+  }
+
   const handleBackToSDR = () => {
     setMode('sdr')
     navigate('/')
   }
 
   const isAE = mode === 'ae'
+
+  const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+    cn(
+      'flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium transition-all',
+      isActive
+        ? 'nav-active-gradient text-foreground'
+        : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+    )
 
   return (
     <div className="flex h-full w-[280px] flex-col sidebar-gradient">
@@ -139,7 +194,7 @@ export function Sidebar() {
       )}
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-0.5 px-4 py-1">
+      <nav className="flex-1 overflow-y-auto px-4 py-1">
         {isAE ? (
           // ── AE Navigation ──────────────────────────────────────────
           <>
@@ -150,14 +205,7 @@ export function Sidebar() {
                   key={item.name}
                   to={item.href}
                   end={item.href === '/account-executive'}
-                  className={({ isActive }) =>
-                    cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium transition-all',
-                      isActive
-                        ? 'nav-active-gradient text-foreground'
-                        : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-                    )
-                  }
+                  className={navLinkClass}
                 >
                   <item.icon className="h-[18px] w-[18px]" />
                   <span className="flex-1">{item.name}</span>
@@ -165,55 +213,86 @@ export function Sidebar() {
               )
             })}
             {role === 'admin' && (
-              <NavLink
-                to="/admin"
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium transition-all',
-                    isActive
-                      ? 'nav-active-gradient text-foreground'
-                      : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-                  )
-                }
-              >
+              <NavLink to="/admin" className={navLinkClass}>
                 <Shield className="h-[18px] w-[18px]" />
                 <span className="flex-1">Admin</span>
               </NavLink>
             )}
           </>
         ) : (
-          // ── SDR Navigation ─────────────────────────────────────────
-          sdr_navigation.map((item) => {
-            if (item.name === 'Admin' && role !== 'admin') return null
-            if (item.name === 'Super Admin' && !isSuperAdmin) return null
-            if (item.featureFlag && !featureFlags[item.featureFlag]) return null
-            return (
-              <NavLink
-                key={item.name}
-                to={item.href}
-                end={item.href === '/'}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium transition-all',
-                    isActive
-                      ? 'nav-active-gradient text-foreground'
-                      : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-                  )
-                }
-              >
-                <item.icon className="h-[18px] w-[18px]" />
-                <span className="flex-1">{item.name}</span>
-                {item.name === 'Notifications' && unreadCount > 0 && (
-                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground">
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </span>
-                )}
+          // ── SDR Navigation — 3 sections ────────────────────────────
+          <>
+            {sdr_sections.map((section) => {
+              const visibleItems = section.items.filter(
+                (item) => !item.featureFlag || featureFlags[item.featureFlag]
+              )
+              if (visibleItems.length === 0) return null
+
+              const isOpen = openSections[section.id]
+
+              return (
+                <div key={section.id} className="mb-3">
+                  {/* Section header */}
+                  <button
+                    onClick={() => toggleSection(section.id)}
+                    className="flex w-full items-center justify-between px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 hover:text-muted-foreground transition-colors"
+                  >
+                    <span>{section.label}</span>
+                    <ChevronDown
+                      className={cn(
+                        'h-3 w-3 transition-transform duration-200',
+                        !isOpen && '-rotate-90'
+                      )}
+                    />
+                  </button>
+
+                  {/* Section items */}
+                  {isOpen && (
+                    <div className="space-y-0.5 mt-0.5">
+                      {visibleItems.map((item) => (
+                        <NavLink
+                          key={item.name}
+                          to={item.href}
+                          end={item.end}
+                          className={navLinkClass}
+                        >
+                          <item.icon className="h-[18px] w-[18px] shrink-0" />
+                          <span className="flex-1">{item.name}</span>
+                          {item.name === 'Notifications' && unreadCount > 0 && (
+                            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground">
+                              {unreadCount > 99 ? '99+' : unreadCount}
+                            </span>
+                          )}
+                        </NavLink>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+            {/* Bottom items: Settings, Admin, Super Admin */}
+            <div className="mt-2 border-t border-border/50 pt-2 space-y-0.5">
+              <NavLink to="/settings" className={navLinkClass}>
+                <Settings className="h-[18px] w-[18px]" />
+                <span className="flex-1">Settings</span>
               </NavLink>
-            )
-          })
+              {role === 'admin' && (
+                <NavLink to="/admin" className={navLinkClass}>
+                  <Shield className="h-[18px] w-[18px]" />
+                  <span className="flex-1">Admin</span>
+                </NavLink>
+              )}
+              {isSuperAdmin && (
+                <NavLink to="/super-admin/organizations" className={navLinkClass}>
+                  <Crown className="h-[18px] w-[18px]" />
+                  <span className="flex-1">Super Admin</span>
+                </NavLink>
+              )}
+            </div>
+          </>
         )}
       </nav>
-
     </div>
   )
 }

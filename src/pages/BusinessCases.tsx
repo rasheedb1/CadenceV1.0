@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   DropdownMenu,
@@ -19,6 +20,8 @@ import {
   Download,
   Sparkles,
   FileText,
+  Search,
+  Building2,
 } from 'lucide-react'
 import { useBusinessCases } from '@/contexts/BusinessCasesContext'
 import { toast } from 'sonner'
@@ -38,10 +41,161 @@ function statusBadge(status: BusinessCase['status']) {
   return <Badge variant={cfg.variant as 'default' | 'secondary' | 'outline'}>{cfg.label}</Badge>
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ── Tracker View ──────────────────────────────────────────────────────────────
+
+function TrackerView({ cases, onDownload, downloadingId }: {
+  cases: BusinessCase[]
+  onDownload: (bc: BusinessCase) => void
+  downloadingId: string | null
+}) {
+  const [search, setSearch] = useState('')
+
+  const filtered = search.trim()
+    ? cases.filter((bc) => bc.company_name.toLowerCase().includes(search.toLowerCase()))
+    : cases
+
+  // Group by company name
+  const grouped = filtered.reduce<Record<string, BusinessCase[]>>((acc, bc) => {
+    const key = bc.company_name || 'Unknown Company'
+    if (!acc[key]) acc[key] = []
+    acc[key].push(bc)
+    return acc
+  }, {})
+
+  const sortedCompanies = Object.keys(grouped).sort((a, b) => a.localeCompare(b))
+
+  return (
+    <div>
+      {/* Search */}
+      <div className="relative mb-6 max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search by company..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-9"
+        />
+      </div>
+
+      {cases.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16">
+            <Briefcase className="mb-4 h-12 w-12 text-muted-foreground" />
+            <h3 className="mb-2 text-lg font-medium">No business cases yet</h3>
+            <p className="text-sm text-muted-foreground text-center max-w-md">
+              Business cases generated from the One Time Use section will appear here grouped by company.
+            </p>
+          </CardContent>
+        </Card>
+      ) : filtered.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Search className="mb-4 h-10 w-10 text-muted-foreground" />
+            <h3 className="mb-1 text-base font-medium">No results for "{search}"</h3>
+            <p className="text-sm text-muted-foreground">Try a different company name.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-6">
+          {sortedCompanies.map((company) => {
+            const companyCases = grouped[company]
+            return (
+              <div key={company}>
+                {/* Company header */}
+                <div className="flex items-center gap-2 mb-3">
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="font-semibold text-sm">{company}</h3>
+                  <Badge variant="secondary" className="text-xs h-5">
+                    {companyCases.length} {companyCases.length === 1 ? 'case' : 'cases'}
+                  </Badge>
+                </div>
+
+                {/* Cases for this company */}
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 ml-6">
+                  {companyCases.map((bc) => (
+                    <Card key={bc.id} className="hover:shadow-md transition-shadow">
+                      <CardContent className="pt-4">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            {bc.contact_name && (
+                              <p className="text-sm font-medium line-clamp-1">{bc.contact_name}</p>
+                            )}
+                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                              {bc.template?.name ?? 'Unknown template'}
+                            </p>
+                          </div>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="shrink-0 h-7 w-7">
+                                <MoreVertical className="h-3.5 w-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => onDownload(bc)}
+                                disabled={downloadingId === bc.id}
+                              >
+                                <Download className="mr-2 h-4 w-4" />
+                                {downloadingId === bc.id ? 'Generating...' : 'Download PPTX'}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+
+                        <div className="mt-2 flex items-center justify-between">
+                          {statusBadge(bc.status)}
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(bc.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+
+                        {bc.signals_used && bc.signals_used.length > 0 && (
+                          <div className="mt-2 border-t pt-2">
+                            <div className="flex flex-wrap gap-1">
+                              {bc.signals_used.slice(0, 2).map((s, i) => (
+                                <Badge key={i} variant="outline" className="text-[10px] px-1.5 py-0">
+                                  {s.name}
+                                </Badge>
+                              ))}
+                              {bc.signals_used.length > 2 && (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                                  +{bc.signals_used.length - 2}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-3 w-full h-7 text-xs"
+                          onClick={() => onDownload(bc)}
+                          disabled={downloadingId === bc.id}
+                        >
+                          <Download className="mr-1.5 h-3.5 w-3.5" />
+                          {downloadingId === bc.id ? 'Generating...' : 'Download PPTX'}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
 
 export function BusinessCases() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const isTracker = searchParams.get('view') === 'tracker'
+
   const { cases, templates, isLoadingCases, isLoadingTemplates, deleteCase, deleteTemplate } = useBusinessCases()
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
 
@@ -93,6 +247,20 @@ export function BusinessCases() {
     }
   }
 
+  // ── Tracker view ──────────────────────────────────────────────────────────
+  if (isTracker) {
+    return (
+      <div className="p-8">
+        <div className="mb-8">
+          <h1 className="text-[28px] font-bold tracking-tight font-heading">Business Cases</h1>
+          <p className="text-muted-foreground">Search and consult business cases created by company</p>
+        </div>
+        <TrackerView cases={cases} onDownload={handleDownload} downloadingId={downloadingId} />
+      </div>
+    )
+  }
+
+  // ── Standard view ─────────────────────────────────────────────────────────
   return (
     <div className="p-8">
       {/* Header */}
