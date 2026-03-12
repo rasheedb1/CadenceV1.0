@@ -10,7 +10,7 @@ import { EXCLUSION_TYPES } from '@/types/registry'
 import { AddPersonaDialog } from '@/components/account-mapping/AddPersonaDialog'
 import { BatchSearchDialog } from '@/components/account-mapping/BatchSearchDialog'
 import { ICPProfileSelector } from '@/components/account-mapping/ICPProfileSelector'
-import { useICPProfileMutations } from '@/hooks/useICPProfiles'
+import { useICPProfiles, useICPProfileMutations } from '@/hooks/useICPProfiles'
 import { CompanyDiscoveryChat } from '@/components/account-mapping/CompanyDiscoveryChat'
 import { useCadence } from '@/contexts/CadenceContext'
 import { Button } from '@/components/ui/button'
@@ -97,7 +97,7 @@ import { useSalesforceCheck, type SalesforceMatch } from '@/hooks/useSalesforceC
 import { SalesforceBadge } from '@/components/salesforce/SalesforceBadge'
 import { cn } from '@/lib/utils'
 
-type TabId = 'icp' | 'companies' | 'prospects'
+type TabId = 'companies' | 'prospects'
 
 export function AccountMapDetail() {
   const { id } = useParams<{ id: string }>()
@@ -126,10 +126,11 @@ export function AccountMapDetail() {
   } = useAccountMapping()
   const { cadences } = useCadence()
   const { convertInlineICP: convertInlineICPMutation } = useICPProfileMutations()
+  const { data: icpProfiles = [] } = useICPProfiles()
   const { session } = useAuth()
   const { orgId } = useOrg()
 
-  const [activeTab, setActiveTab] = useState<TabId>('icp')
+  const [activeTab, setActiveTab] = useState<TabId>('companies')
   const [pushingToSalesforce, setPushingToSalesforce] = useState(false)
 
   // Dialog states
@@ -143,6 +144,11 @@ export function AccountMapDetail() {
   const [showPromote, setShowPromote] = useState(false)
   const [showBatchSearch, setShowBatchSearch] = useState(false)
   const [showDiscoveryChat, setShowDiscoveryChat] = useState(false)
+
+  // ICP Profile picker state (used when opening AI features without a linked profile)
+  const [showICPPicker, setShowICPPicker] = useState(false)
+  const [icpPickerTarget, setICPPickerTarget] = useState<'discovery' | 'batch_search' | null>(null)
+  const [selectedICPProfileId, setSelectedICPProfileId] = useState<string>('')
 
   // Selection state
   const [selectedProspects, setSelectedProspects] = useState<Set<string>>(new Set())
@@ -190,6 +196,42 @@ export function AccountMapDetail() {
     }
   }
 
+  // Open AI features, prompting for ICP profile if not linked
+  const handleOpenDiscoveryChat = () => {
+    if (!map?.icp_profile_id) {
+      setICPPickerTarget('discovery')
+      setSelectedICPProfileId('')
+      setShowICPPicker(true)
+    } else {
+      setShowDiscoveryChat(true)
+    }
+  }
+
+  const handleOpenBatchSearch = () => {
+    if (!map?.icp_profile_id && personas.length === 0) {
+      setICPPickerTarget('batch_search')
+      setSelectedICPProfileId('')
+      setShowICPPicker(true)
+    } else {
+      setShowBatchSearch(true)
+    }
+  }
+
+  const handleICPPickerConfirm = async () => {
+    if (!map || !selectedICPProfileId) return
+    await updateAccountMap(map.id, { icp_profile_id: selectedICPProfileId })
+    await refreshAccountMaps()
+    setShowICPPicker(false)
+    toast.success('ICP Profile linked')
+    // Open the target dialog after linking
+    if (icpPickerTarget === 'discovery') {
+      setShowDiscoveryChat(true)
+    } else if (icpPickerTarget === 'batch_search') {
+      setShowBatchSearch(true)
+    }
+    setICPPickerTarget(null)
+  }
+
   // Salesforce pipeline check for discovered companies (hooks must be before conditional returns)
   const companyNames = useMemo(() => companies.map(c => c.company_name), [companies])
   const { isInPipeline: sfIsInPipeline } = useSalesforceCheck(undefined, companyNames, companies.length > 0)
@@ -214,7 +256,6 @@ export function AccountMapDetail() {
   }
 
   const tabs: { id: TabId; label: string; icon: React.ReactNode; count: number }[] = [
-    { id: 'icp', label: 'ICP & Personas', icon: <Users className="h-4 w-4" />, count: personas.length },
     { id: 'companies', label: 'Companies', icon: <Building2 className="h-4 w-4" />, count: companies.length },
     { id: 'prospects', label: 'Prospects', icon: <UserSearch className="h-4 w-4" />, count: prospects.length },
   ]
@@ -271,19 +312,6 @@ export function AccountMapDetail() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'icp' && (
-        <div className="space-y-6">
-          <ICPProfileSelector
-            accountMapId={map.id}
-            currentProfileId={map.icp_profile_id || null}
-            currentProfile={map.icp_profile}
-            hasInlineICP={!!(map.icp_description || map.filters_json?.icp_builder_data)}
-            onLink={(profileId) => updateAccountMap(map.id, { icp_profile_id: profileId })}
-            onConvertInline={handleConvertInline}
-          />
-        </div>
-      )}
-
       {activeTab === 'companies' && (
         <CompaniesTab
           companies={companies}
@@ -296,8 +324,8 @@ export function AccountMapDetail() {
           onSearchProspects={() => {
             setShowSearch(true)
           }}
-          onBatchSearch={() => setShowBatchSearch(true)}
-          onDiscoveryChat={() => setShowDiscoveryChat(true)}
+          onBatchSearch={handleOpenBatchSearch}
+          onDiscoveryChat={handleOpenDiscoveryChat}
         />
       )}
 
@@ -318,7 +346,7 @@ export function AccountMapDetail() {
           onToggleAll={toggleAllProspects}
           onImportProspects={() => setShowImportProspects(true)}
           onSearch={() => setShowSearch(true)}
-          onBatchSearch={() => setShowBatchSearch(true)}
+          onBatchSearch={handleOpenBatchSearch}
           onEnrich={(p) => setShowEnrich(p)}
           onBulkEnrich={bulkEnrichProspects}
           onPromote={() => setShowPromote(true)}
@@ -435,14 +463,54 @@ export function AccountMapDetail() {
         onOpenChange={setShowDiscoveryChat}
         accountMapId={map.id}
         ownerId={map.owner_id}
-        icpDescription={map.icp_description}
-        icpBuilderData={map.filters_json?.icp_builder_data || null}
+        icpDescription={map.icp_profile?.description || map.icp_description}
+        icpBuilderData={map.icp_profile?.builder_data || map.filters_json?.icp_builder_data || null}
         existingCompanies={companies}
         excludedCompanyNames={companyRegistry
           .filter(e => (EXCLUSION_TYPES as string[]).includes(e.registry_type))
           .map(e => e.company_name_display)}
         onAddCompany={addCompany}
       />
+
+      {/* ICP Profile Picker Dialog */}
+      <Dialog open={showICPPicker} onOpenChange={setShowICPPicker}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select ICP Profile</DialogTitle>
+            <DialogDescription>
+              {icpPickerTarget === 'discovery'
+                ? 'Choose an ICP Profile to guide the AI company discovery.'
+                : 'Choose an ICP Profile with buyer personas to search for prospects.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Select value={selectedICPProfileId} onValueChange={setSelectedICPProfileId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select an ICP Profile..." />
+              </SelectTrigger>
+              <SelectContent>
+                {icpProfiles.map((profile) => (
+                  <SelectItem key={profile.id} value={profile.id}>
+                    {profile.name}
+                    {profile.persona_count > 0 && ` (${profile.persona_count} personas)`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {icpProfiles.length === 0 && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                No ICP Profiles found. Create one in <button className="underline text-primary" onClick={() => navigate('/account-mapping?tab=icp')}>ICP Setup</button>.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowICPPicker(false)}>Cancel</Button>
+            <Button onClick={handleICPPickerConfirm} disabled={!selectedICPProfileId}>
+              Link & Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
