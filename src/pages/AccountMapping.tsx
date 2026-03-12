@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { useState } from 'react'
-import { Plus, Target, MoreVertical, Pencil, Trash2, Building2, Users, UserSearch, Brain, Map, UserCircle, ArrowRight } from 'lucide-react'
+import { Plus, Target, MoreVertical, Pencil, Trash2, Building2, Users, UserSearch, Brain, Map, UserCircle, ArrowRight, ChevronDown, ExternalLink } from 'lucide-react'
 import { PermissionGate } from '@/components/PermissionGate'
 import {
   DropdownMenu,
@@ -70,6 +70,11 @@ export function AccountMapping() {
   const [newDescription, setNewDescription] = useState('')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
+
+  // Buyer persona groups collapse state
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
+  const toggleGroup = (id: string) =>
+    setOpenGroups((prev) => ({ ...prev, [id]: prev[id] === false ? true : false }))
 
   // ICP Profile creation
   const [isCreateProfileOpen, setIsCreateProfileOpen] = useState(false)
@@ -446,7 +451,7 @@ export function AccountMapping() {
         </>
       )}
 
-      {/* Buying Personas Tab */}
+      {/* Buying Personas Tab — grouped by ICP Profile */}
       {activeTab === 'buyer-personas' && (
         <>
           {personasLoading ? (
@@ -467,107 +472,160 @@ export function AccountMapping() {
                 </Button>
               </CardContent>
             </Card>
-          ) : (
-            <Card>
-              <CardContent className="pt-4">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Keywords by Tier</TableHead>
-                      <TableHead className="w-24 text-center">Max</TableHead>
-                      <TableHead className="w-32">ICP Profile</TableHead>
-                      <TableHead className="w-20" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {[...allPersonas].sort((a, b) => {
-                      if (a.is_required !== b.is_required) return a.is_required ? -1 : 1
-                      return a.priority - b.priority
-                    }).map((persona) => {
-                      const roleConfig = persona.role_in_buying_committee
-                        ? BUYING_ROLE_CONFIG[persona.role_in_buying_committee as BuyingCommitteeRole]
-                        : null
-                      const tierKw = persona.title_keywords_by_tier || { enterprise: [], mid_market: [], startup_smb: [] }
-                      const eCount = tierKw.enterprise?.length || 0
-                      const mCount = tierKw.mid_market?.length || 0
-                      const sCount = tierKw.startup_smb?.length || 0
-                      const hasTierData = eCount + mCount + sCount > 0
-                      return (
-                        <TableRow
-                          key={persona.id}
-                          className="cursor-pointer hover:bg-muted/50"
-                          onClick={() =>
-                            persona.icp_profile_id &&
-                            navigate(`/account-mapping/icp-profiles/${persona.icp_profile_id}`)
-                          }
+          ) : (() => {
+            // Group personas by ICP Profile
+            const groups: Record<string, { profileId: string; profileName: string; personas: PersonaWithProfile[] }> = {}
+            for (const persona of allPersonas) {
+              const pid = persona.icp_profile_id || '__unknown__'
+              if (!groups[pid]) {
+                groups[pid] = {
+                  profileId: pid,
+                  profileName: persona.icp_profiles?.name || 'Unknown Profile',
+                  personas: [],
+                }
+              }
+              groups[pid].personas.push(persona)
+            }
+            // Sort personas within each group
+            for (const g of Object.values(groups)) {
+              g.personas.sort((a, b) => {
+                if (a.is_required !== b.is_required) return a.is_required ? -1 : 1
+                return a.priority - b.priority
+              })
+            }
+            const sortedGroups = Object.values(groups).sort((a, b) =>
+              a.profileName.localeCompare(b.profileName)
+            )
+
+            return (
+              <div className="space-y-3">
+                {sortedGroups.map((group) => {
+                  const isOpen = openGroups[group.profileId] !== false // default open
+                  return (
+                    <Card key={group.profileId} className="overflow-hidden">
+                      {/* Group header */}
+                      <button
+                        onClick={() => toggleGroup(group.profileId)}
+                        className="flex w-full items-center justify-between px-5 py-3 hover:bg-muted/40 transition-colors border-b border-border/60"
+                      >
+                        <div className="flex items-center gap-3">
+                          <ChevronDown
+                            className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${!isOpen ? '-rotate-90' : ''}`}
+                          />
+                          <span className="font-semibold text-sm">{group.profileName}</span>
+                          <Badge variant="secondary" className="text-xs">
+                            {group.personas.length} {group.personas.length === 1 ? 'persona' : 'personas'}
+                          </Badge>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            navigate(`/account-mapping/icp-profiles/${group.profileId}`)
+                          }}
                         >
-                          <TableCell>
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-xs text-muted-foreground font-mono">{persona.priority}.</span>
-                              <span className="font-medium">{persona.name}</span>
-                              {persona.is_required && (
-                                <span className="text-amber-500 text-xs" title="Required">*</span>
-                              )}
-                              {roleConfig && (
-                                <Badge variant="outline" className={`text-[10px] h-4 ${roleConfig.color}`}>
-                                  {roleConfig.label}
-                                </Badge>
-                              )}
-                            </div>
-                            {persona.description && (
-                              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{persona.description}</p>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {hasTierData ? (
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <span title="Enterprise keywords">E:{eCount}</span>
-                                <span title="Mid-market keywords">M:{mCount}</span>
-                                <span title="Startup/SMB keywords">S:{sCount}</span>
-                              </div>
-                            ) : (
-                              <div className="flex flex-wrap gap-1">
-                                {(persona.title_keywords || []).slice(0, 3).map((kw) => (
-                                  <Badge key={kw} variant="outline" className="text-xs">{kw}</Badge>
-                                ))}
-                                {(persona.title_keywords || []).length > 3 && (
-                                  <Badge variant="outline" className="text-xs">+{(persona.title_keywords || []).length - 3}</Badge>
-                                )}
-                              </div>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-center">{persona.max_per_company}</TableCell>
-                          <TableCell>
-                            {persona.icp_profiles && (
-                              <span className="text-xs text-muted-foreground">{persona.icp_profiles.name}</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  persona.icp_profile_id &&
-                                    navigate(`/account-mapping/icp-profiles/${persona.icp_profile_id}`)
-                                }}
-                                title="Edit persona"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          Edit profile
+                        </Button>
+                      </button>
+
+                      {/* Personas table */}
+                      {isOpen && (
+                        <CardContent className="p-0">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Name</TableHead>
+                                <TableHead>Keywords by Tier</TableHead>
+                                <TableHead className="w-24 text-center">Max</TableHead>
+                                <TableHead className="w-20" />
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {group.personas.map((persona) => {
+                                const roleConfig = persona.role_in_buying_committee
+                                  ? BUYING_ROLE_CONFIG[persona.role_in_buying_committee as BuyingCommitteeRole]
+                                  : null
+                                const tierKw = persona.title_keywords_by_tier || { enterprise: [], mid_market: [], startup_smb: [] }
+                                const eCount = tierKw.enterprise?.length || 0
+                                const mCount = tierKw.mid_market?.length || 0
+                                const sCount = tierKw.startup_smb?.length || 0
+                                const hasTierData = eCount + mCount + sCount > 0
+                                return (
+                                  <TableRow
+                                    key={persona.id}
+                                    className="cursor-pointer hover:bg-muted/50"
+                                    onClick={() =>
+                                      persona.icp_profile_id &&
+                                      navigate(`/account-mapping/icp-profiles/${persona.icp_profile_id}`)
+                                    }
+                                  >
+                                    <TableCell>
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="text-xs text-muted-foreground font-mono">{persona.priority}.</span>
+                                        <span className="font-medium">{persona.name}</span>
+                                        {persona.is_required && (
+                                          <span className="text-amber-500 text-xs" title="Required">*</span>
+                                        )}
+                                        {roleConfig && (
+                                          <Badge variant="outline" className={`text-[10px] h-4 ${roleConfig.color}`}>
+                                            {roleConfig.label}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      {persona.description && (
+                                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{persona.description}</p>
+                                      )}
+                                    </TableCell>
+                                    <TableCell>
+                                      {hasTierData ? (
+                                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                          <span title="Enterprise keywords">E:{eCount}</span>
+                                          <span title="Mid-market keywords">M:{mCount}</span>
+                                          <span title="Startup/SMB keywords">S:{sCount}</span>
+                                        </div>
+                                      ) : (
+                                        <div className="flex flex-wrap gap-1">
+                                          {(persona.title_keywords || []).slice(0, 3).map((kw) => (
+                                            <Badge key={kw} variant="outline" className="text-xs">{kw}</Badge>
+                                          ))}
+                                          {(persona.title_keywords || []).length > 3 && (
+                                            <Badge variant="outline" className="text-xs">+{(persona.title_keywords || []).length - 3}</Badge>
+                                          )}
+                                        </div>
+                                      )}
+                                    </TableCell>
+                                    <TableCell className="text-center">{persona.max_per_company}</TableCell>
+                                    <TableCell>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          persona.icp_profile_id &&
+                                            navigate(`/account-mapping/icp-profiles/${persona.icp_profile_id}`)
+                                        }}
+                                        title="Edit persona"
+                                      >
+                                        <Pencil className="h-4 w-4" />
+                                      </Button>
+                                    </TableCell>
+                                  </TableRow>
+                                )
+                              })}
+                            </TableBody>
+                          </Table>
+                        </CardContent>
+                      )}
+                    </Card>
+                  )
+                })}
+              </div>
+            )
+          })()}
         </>
       )}
     </div>
