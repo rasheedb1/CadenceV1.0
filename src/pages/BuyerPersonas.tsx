@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAccountMapping, type SuggestedPersona } from '@/contexts/AccountMappingContext'
+import { useICPProfiles } from '@/hooks/useICPProfiles'
 import { useAuth } from '@/contexts/AuthContext'
 import { AddPersonaDialog } from '@/components/account-mapping/AddPersonaDialog'
 import { LLMModelSelector } from '@/components/LLMModelSelector'
@@ -13,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -166,6 +169,84 @@ function GroupDialog({ open, onOpenChange, initial, onSave }: GroupDialogProps) 
   )
 }
 
+// ── ICP Picker Dialog ────────────────────────────────────────────────────────
+
+interface ICPPickerDialogProps {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  onSelect: (icpProfileId: string | null) => void
+}
+
+function ICPPickerDialog({ open, onOpenChange, onSelect }: ICPPickerDialogProps) {
+  const { data: icpProfiles = [], isLoading } = useICPProfiles()
+  const [selected, setSelected] = useState<string | null>(null)
+
+  const handleOpenChange = (v: boolean) => {
+    if (v) setSelected(null)
+    onOpenChange(v)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Select an ICP Profile</DialogTitle>
+          <DialogDescription>
+            Choose an ICP profile so the AI can suggest personas tailored to your target companies.
+            Or skip to suggest based on this group's description only.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="py-2 space-y-1.5 max-h-64 overflow-y-auto">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-4 w-4 animate-spin" />
+            </div>
+          ) : icpProfiles.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No ICP profiles found.{' '}
+              <Link to="/account-mapping" className="text-primary underline" onClick={() => onOpenChange(false)}>
+                Create one first.
+              </Link>
+            </p>
+          ) : (
+            icpProfiles.map((profile) => (
+              <button
+                key={profile.id}
+                type="button"
+                onClick={() => setSelected(profile.id)}
+                className={`w-full text-left rounded-lg border px-3 py-2.5 text-sm transition-colors ${
+                  selected === profile.id
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-muted-foreground'
+                }`}
+              >
+                <p className="font-medium">{profile.name}</p>
+                {profile.description && (
+                  <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{profile.description}</p>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+        <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="sm:mr-auto text-muted-foreground"
+            onClick={() => { onOpenChange(false); onSelect(null) }}
+          >
+            Skip — use group context
+          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={() => { onOpenChange(false); onSelect(selected) }} disabled={!selected}>
+            Suggest with ICP
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ── Persona group card ───────────────────────────────────────────────────────
 
 interface GroupCardProps {
@@ -185,6 +266,7 @@ function GroupCard({ group, expanded, onToggle, onEdit, onDelete }: GroupCardPro
   const [suggestions, setSuggestions] = useState<SuggestedPersona[]>([])
   const [suggesting, setSuggesting] = useState(false)
   const [addedSuggestions, setAddedSuggestions] = useState<Set<number>>(new Set())
+  const [showICPPicker, setShowICPPicker] = useState(false)
 
   const personas: BuyerPersona[] = group.buyer_personas || []
 
@@ -196,11 +278,13 @@ function GroupCard({ group, expanded, onToggle, onEdit, onDelete }: GroupCardPro
     }
   }
 
-  const handleSuggest = async () => {
+  const handleSuggest = async (icpProfileId: string | null) => {
     setSuggesting(true)
     setAddedSuggestions(new Set())
     try {
-      const result = await suggestBuyerPersonas(group.id, 'personaGroupId')
+      const result = icpProfileId
+        ? await suggestBuyerPersonas(icpProfileId, 'icpProfileId')
+        : await suggestBuyerPersonas(group.id, 'personaGroupId')
       setSuggestions(result)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al sugerir personas')
@@ -291,7 +375,7 @@ function GroupCard({ group, expanded, onToggle, onEdit, onDelete }: GroupCardPro
           {/* Toolbar */}
           <div className="flex items-center gap-2 mb-3">
             <FeatureGate flag="acctmap_persona_suggest">
-              <Button variant="outline" size="sm" onClick={handleSuggest} disabled={suggesting}>
+              <Button variant="outline" size="sm" onClick={() => setShowICPPicker(true)} disabled={suggesting}>
                 {suggesting
                   ? <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />Suggesting...</>
                   : <><Sparkles className="mr-1.5 h-3.5 w-3.5" />Suggest Personas</>
@@ -439,6 +523,13 @@ function GroupCard({ group, expanded, onToggle, onEdit, onDelete }: GroupCardPro
               )}
             </>
           )}
+
+          {/* ICP Picker for AI suggestions */}
+          <ICPPickerDialog
+            open={showICPPicker}
+            onOpenChange={setShowICPPicker}
+            onSelect={handleSuggest}
+          />
 
           {/* Add Persona Dialog */}
           {showAddPersona && user && (
