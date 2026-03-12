@@ -7,7 +7,6 @@ import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/integrations/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -145,9 +144,7 @@ export function AccountMapping() {
     )
   }
 
-  const tabs: { id: TabId; label: string; count: number }[] = [
-    { id: 'maps', label: 'Account Maps', count: accountMaps.length },
-  ]
+  // tabs hidden - ICP/Personas moved to One Time Use section
 
   return (
     <div className="p-8">
