@@ -1804,6 +1804,7 @@ export function CadenceBuilder() {
             ai_research_prompt_id: '',
             ai_example_section_id: '',
             reply_to_step_id: '',
+            cc: '',
           })
         }
       }}>
