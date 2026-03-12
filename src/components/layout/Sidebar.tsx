@@ -72,7 +72,7 @@ const sdr_sections: NavSection[] = [
     label: 'One Time Use',
     items: [
       { name: 'ICP Setup', href: '/account-mapping?tab=icp-profiles', icon: ScanSearch, featureFlag: 'section_account_mapping' },
-      { name: 'Buying Persona', href: '/account-mapping?tab=buyer-personas', icon: UserCircle, featureFlag: 'section_account_mapping' },
+      { name: 'Buyer Personas', href: '/buyer-personas', icon: UserCircle, featureFlag: 'section_account_mapping' },
       { name: 'AI Prompts', href: '/ai-prompts', icon: Brain, featureFlag: 'section_ai_prompts' },
       { name: 'Business Cases', href: '/business-cases', icon: Briefcase, featureFlag: 'section_business_cases' },
       { name: 'Templates', href: '/templates', icon: FileText, featureFlag: 'section_templates' },

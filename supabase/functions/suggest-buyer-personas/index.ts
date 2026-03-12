@@ -48,15 +48,29 @@ serve(async (req: Request) => {
     if (!ctx) return errorResponse('Unauthorized', 401)
 
     const body = await req.json()
-    const { icpProfileId, accountMapId } = body as { icpProfileId?: string; accountMapId?: string }
+    const { icpProfileId, accountMapId, productDescription, personaGroupId } = body as { icpProfileId?: string; accountMapId?: string; productDescription?: string; personaGroupId?: string }
 
     const supabase = createSupabaseClient(authHeader)
 
     let builderData: Record<string, unknown> | null = null
     let icpDescription = ''
     let resolvedProfileId: string | null = null
+    let resolvedGroupId: string | null = null
 
-    if (icpProfileId) {
+    if (personaGroupId) {
+      // Called from Buyer Personas page — use group name/description as context
+      const { data: group, error: groupErr } = await supabase
+        .from('persona_groups')
+        .select('name, description')
+        .eq('id', personaGroupId)
+        .eq('org_id', ctx.orgId)
+        .single()
+
+      if (groupErr) return errorResponse(`Failed to fetch persona group: ${groupErr.message}`, 500)
+
+      icpDescription = [group?.name, group?.description].filter(Boolean).join(' — ')
+      resolvedGroupId = personaGroupId
+    } else if (icpProfileId) {
       // Called from ICP Profile page — fetch directly from icp_profiles
       const { data: profile, error: profileErr } = await supabase
         .from('icp_profiles')
@@ -85,8 +99,13 @@ serve(async (req: Request) => {
       builderData = linkedProfile?.builder_data || accountMap?.filters_json?.icp_builder_data || null
       icpDescription = linkedProfile?.description || accountMap?.icp_description || ''
       resolvedProfileId = accountMap?.icp_profile_id || null
+    } else if (productDescription) {
+      // Standalone: called from Buying Personas tab with a user-provided description
+      builderData = null
+      icpDescription = productDescription
+      resolvedProfileId = null
     } else {
-      return errorResponse('icpProfileId or accountMapId is required')
+      return errorResponse('icpProfileId, accountMapId, or productDescription is required')
     }
 
     if (!builderData && !icpDescription) {
@@ -99,11 +118,13 @@ serve(async (req: Request) => {
       .select('name, title_keywords, seniority, department')
       .eq('org_id', ctx.orgId)
 
-    const { data: existingPersonas, error: pErr } = resolvedProfileId
-      ? await personaQuery.eq('icp_profile_id', resolvedProfileId)
-      : accountMapId
-        ? await personaQuery.eq('account_map_id', accountMapId)
-        : await personaQuery.limit(0)
+    const { data: existingPersonas, error: pErr } = resolvedGroupId
+      ? await personaQuery.eq('persona_group_id', resolvedGroupId)
+      : resolvedProfileId
+        ? await personaQuery.eq('icp_profile_id', resolvedProfileId)
+        : accountMapId
+          ? await personaQuery.eq('account_map_id', accountMapId)
+          : await personaQuery.limit(0)
 
     if (pErr) return errorResponse(`Failed to fetch personas: ${pErr.message}`, 500)
 

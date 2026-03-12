@@ -20,25 +20,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { X, Sparkles, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
+import { X, Sparkles, Loader2 } from 'lucide-react'
 import {
   SENIORITY_OPTIONS,
   BUYING_COMMITTEE_ROLES,
-  EMPTY_TIER_KEYWORDS,
-  EMPTY_TIER_SENIORITY,
   type BuyerPersona,
-  type CompanySizeTier,
   type TierKeywords,
   type TierSeniority,
   type BuyingCommitteeRole,
 } from '@/types/account-mapping'
-import { TIER_LABELS } from '@/lib/prospecting/adaptive-keywords'
 
 interface AddPersonaDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   accountMapId: string
   icpProfileId?: string
+  personaGroupId?: string
   ownerId: string
   onAdd: (persona: Omit<BuyerPersona, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<BuyerPersona | null>
   onUpdate?: (id: string, data: Partial<BuyerPersona>) => Promise<void>
@@ -57,6 +54,7 @@ export function AddPersonaDialog({
   onOpenChange,
   accountMapId,
   icpProfileId,
+  personaGroupId,
   ownerId,
   onAdd,
   onUpdate,
@@ -72,28 +70,26 @@ export function AddPersonaDialog({
   const [isRequired, setIsRequired] = useState(true)
   const [maxPerCompany, setMaxPerCompany] = useState(3)
 
-  // Tier-specific keywords
-  const [tierKeywords, setTierKeywords] = useState<TierKeywords>({ ...EMPTY_TIER_KEYWORDS })
-  const [tierSeniority, setTierSeniority] = useState<TierSeniority>({ ...EMPTY_TIER_SENIORITY })
-  const [tierInputs, setTierInputs] = useState({ enterprise: '', mid_market: '', startup_smb: '' })
+  // General keywords (apply to all company sizes)
+  const [keywords, setKeywords] = useState<string[]>([])
+  const [selectedSeniority, setSelectedSeniority] = useState<string[]>([])
+  const [keywordInput, setKeywordInput] = useState('')
 
   // Departments
   const [departments, setDepartments] = useState<string[]>([])
   const [deptInput, setDeptInput] = useState('')
 
   // UI state
-  const [expandedTiers, setExpandedTiers] = useState<Set<CompanySizeTier>>(new Set(['enterprise', 'mid_market', 'startup_smb']))
   const [saving, setSaving] = useState(false)
   const [suggesting, setSuggesting] = useState(false)
 
   const reset = () => {
     setName(''); setDescription(''); setRole(''); setPriority(1)
     setIsRequired(true); setMaxPerCompany(3)
-    setTierKeywords({ ...EMPTY_TIER_KEYWORDS })
-    setTierSeniority({ ...EMPTY_TIER_SENIORITY })
-    setTierInputs({ enterprise: '', mid_market: '', startup_smb: '' })
+    setKeywords([])
+    setSelectedSeniority([])
+    setKeywordInput('')
     setDepartments([]); setDeptInput('')
-    setExpandedTiers(new Set(['enterprise', 'mid_market', 'startup_smb']))
   }
 
   // When opening in edit mode, populate fields from existing persona
@@ -106,56 +102,46 @@ export function AddPersonaDialog({
       setIsRequired(persona.is_required)
       setMaxPerCompany(persona.max_per_company)
       setDepartments(persona.departments || [])
-      setTierKeywords(
-        persona.title_keywords_by_tier && (
-          persona.title_keywords_by_tier.enterprise?.length ||
-          persona.title_keywords_by_tier.mid_market?.length ||
-          persona.title_keywords_by_tier.startup_smb?.length
-        )
-          ? persona.title_keywords_by_tier
-          : { enterprise: [], mid_market: persona.title_keywords || [], startup_smb: [] }
-      )
-      setTierSeniority(
-        persona.seniority_by_tier && (
-          persona.seniority_by_tier.enterprise?.length ||
-          persona.seniority_by_tier.mid_market?.length ||
-          persona.seniority_by_tier.startup_smb?.length
-        )
-          ? persona.seniority_by_tier
-          : { enterprise: [], mid_market: persona.seniority ? [persona.seniority] : [], startup_smb: [] }
-      )
+
+      // Merge all tier keywords into one deduplicated list
+      const allKeywords = [
+        ...(persona.title_keywords_by_tier?.enterprise || []),
+        ...(persona.title_keywords_by_tier?.mid_market || []),
+        ...(persona.title_keywords_by_tier?.startup_smb || []),
+        ...(persona.title_keywords || []),
+      ]
+      setKeywords([...new Set(allKeywords)])
+
+      // Merge all tier seniority into one deduplicated list
+      const allSeniority = [
+        ...(persona.seniority_by_tier?.enterprise || []),
+        ...(persona.seniority_by_tier?.mid_market || []),
+        ...(persona.seniority_by_tier?.startup_smb || []),
+        ...(persona.seniority ? [persona.seniority] : []),
+      ]
+      setSelectedSeniority([...new Set(allSeniority)])
     } else if (!open) {
       reset()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, persona?.id])
 
-  const addKeywordToTier = (tier: CompanySizeTier) => {
-    const input = tierInputs[tier].trim()
+  const addKeyword = () => {
+    const input = keywordInput.trim()
     if (!input) return
-    // Support comma-separated input
     const newKeywords = input.split(',').map(k => k.trim()).filter(Boolean)
-    setTierKeywords(prev => ({
-      ...prev,
-      [tier]: [...prev[tier], ...newKeywords.filter(k => !prev[tier].includes(k))],
-    }))
-    setTierInputs(prev => ({ ...prev, [tier]: '' }))
+    setKeywords(prev => [...prev, ...newKeywords.filter(k => !prev.includes(k))])
+    setKeywordInput('')
   }
 
-  const removeKeywordFromTier = (tier: CompanySizeTier, keyword: string) => {
-    setTierKeywords(prev => ({
-      ...prev,
-      [tier]: prev[tier].filter(k => k !== keyword),
-    }))
+  const removeKeyword = (keyword: string) => {
+    setKeywords(prev => prev.filter(k => k !== keyword))
   }
 
-  const toggleSeniorityForTier = (tier: CompanySizeTier, seniority: string) => {
-    setTierSeniority(prev => ({
-      ...prev,
-      [tier]: prev[tier].includes(seniority)
-        ? prev[tier].filter(s => s !== seniority)
-        : [...prev[tier], seniority],
-    }))
+  const toggleSeniority = (seniority: string) => {
+    setSelectedSeniority(prev =>
+      prev.includes(seniority) ? prev.filter(s => s !== seniority) : [...prev, seniority]
+    )
   }
 
   const addDepartment = () => {
@@ -163,15 +149,6 @@ export function AddPersonaDialog({
     if (!dept || departments.includes(dept)) return
     setDepartments(prev => [...prev, dept])
     setDeptInput('')
-  }
-
-  const toggleTierExpanded = (tier: CompanySizeTier) => {
-    setExpandedTiers(prev => {
-      const next = new Set(prev)
-      if (next.has(tier)) next.delete(tier)
-      else next.add(tier)
-      return next
-    })
   }
 
   const handleAutoSuggest = async () => {
@@ -184,16 +161,19 @@ export function AddPersonaDialog({
         buyingRole: role,
         personaDescription: description,
       })
-      setTierKeywords({
-        enterprise: result.tiers.enterprise || [],
-        mid_market: result.tiers.mid_market || [],
-        startup_smb: result.tiers.startup_smb || [],
-      })
-      setTierSeniority({
-        enterprise: result.seniority.enterprise || [],
-        mid_market: result.seniority.mid_market || [],
-        startup_smb: result.seniority.startup_smb || [],
-      })
+      // Merge all tier suggestions into one deduplicated list
+      const allKeywords = [
+        ...(result.tiers.enterprise || []),
+        ...(result.tiers.mid_market || []),
+        ...(result.tiers.startup_smb || []),
+      ]
+      const allSeniority = [
+        ...(result.seniority.enterprise || []),
+        ...(result.seniority.mid_market || []),
+        ...(result.seniority.startup_smb || []),
+      ]
+      setKeywords([...new Set(allKeywords)])
+      setSelectedSeniority([...new Set(allSeniority)])
     } catch (err) {
       console.error('Auto-suggest failed:', err)
     } finally {
@@ -205,26 +185,23 @@ export function AddPersonaDialog({
     if (!name.trim()) return
     setSaving(true)
     try {
-      // Build flat title_keywords from mid_market tier as default
-      const flatKeywords = tierKeywords.mid_market.length > 0
-        ? tierKeywords.mid_market
-        : tierKeywords.enterprise.length > 0
-          ? tierKeywords.enterprise
-          : tierKeywords.startup_smb
-
-      const flatSeniority = tierSeniority.mid_market.length > 0
-        ? tierSeniority.mid_market[0]
-        : tierSeniority.enterprise.length > 0
-          ? tierSeniority.enterprise[0]
-          : tierSeniority.startup_smb.length > 0
-            ? tierSeniority.startup_smb[0]
-            : null
+      // Populate all tiers with the same keywords so backend search logic works unchanged
+      const tierKeywords: TierKeywords = {
+        enterprise: keywords,
+        mid_market: keywords,
+        startup_smb: keywords,
+      }
+      const tierSeniority: TierSeniority = {
+        enterprise: selectedSeniority,
+        mid_market: selectedSeniority,
+        startup_smb: selectedSeniority,
+      }
 
       if (isEditing && persona && onUpdate) {
         await onUpdate(persona.id, {
           name: name.trim(),
-          title_keywords: flatKeywords,
-          seniority: flatSeniority,
+          title_keywords: keywords,
+          seniority: selectedSeniority[0] || null,
           department: departments[0] || null,
           max_per_company: maxPerCompany,
           description: description.trim() || null,
@@ -237,12 +214,13 @@ export function AddPersonaDialog({
         })
       } else {
         await onAdd({
-          account_map_id: icpProfileId ? null : accountMapId,
+          account_map_id: (icpProfileId || personaGroupId) ? null : accountMapId,
           icp_profile_id: icpProfileId || null,
+          persona_group_id: personaGroupId || null,
           owner_id: ownerId,
           name: name.trim(),
-          title_keywords: flatKeywords,
-          seniority: flatSeniority,
+          title_keywords: keywords,
+          seniority: selectedSeniority[0] || null,
           department: departments[0] || null,
           max_per_company: maxPerCompany,
           description: description.trim() || null,
@@ -262,15 +240,13 @@ export function AddPersonaDialog({
     }
   }
 
-  const totalKeywords = tierKeywords.enterprise.length + tierKeywords.mid_market.length + tierKeywords.startup_smb.length
-
   return (
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o) }}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEditing ? 'Edit Buyer Persona' : 'Add Buyer Persona'}</DialogTitle>
           <DialogDescription>
-            Define a role to search for in target companies with adaptive title keywords by company size.
+            Define a role to search for in target companies using title keywords and seniority filters.
           </DialogDescription>
         </DialogHeader>
 
@@ -378,10 +354,10 @@ export function AddPersonaDialog({
             )}
           </div>
 
-          {/* Title Keywords by Tier */}
+          {/* Title Keywords */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Label>Title Keywords by Company Size</Label>
+              <Label>Title Keywords</Label>
               {onSuggestTitles && (
                 <div className="flex items-center gap-1.5">
                   <Button
@@ -403,89 +379,55 @@ export function AddPersonaDialog({
               )}
             </div>
 
-            {(['enterprise', 'mid_market', 'startup_smb'] as CompanySizeTier[]).map((tier) => {
-              const config = TIER_LABELS[tier]
-              const isExpanded = expandedTiers.has(tier)
-              const keywords = tierKeywords[tier]
-              const seniorities = tierSeniority[tier]
-
-              return (
-                <div key={tier} className="rounded-lg border">
-                  <button
-                    className="flex items-center justify-between w-full px-3 py-2 text-left hover:bg-muted/50 transition-colors"
-                    onClick={() => toggleTierExpanded(tier)}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span>{config.icon}</span>
-                      <span className="text-sm font-medium">{config.label}</span>
-                      <span className="text-xs text-muted-foreground">({config.description})</span>
-                      {keywords.length > 0 && (
-                        <Badge variant="secondary" className="text-[10px] h-5">
-                          {keywords.length} keywords
-                        </Badge>
-                      )}
-                    </div>
-                    {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </button>
-
-                  {isExpanded && (
-                    <div className="px-3 pb-3 space-y-3 border-t">
-                      {/* Keywords input */}
-                      <div className="space-y-1.5 pt-2">
-                        <p className="text-xs text-muted-foreground">Title keywords (comma-separated)</p>
-                        <div className="flex gap-2">
-                          <Input
-                            value={tierInputs[tier]}
-                            onChange={(e) => setTierInputs(prev => ({ ...prev, [tier]: e.target.value }))}
-                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeywordToTier(tier) } }}
-                            placeholder={tier === 'enterprise' ? 'VP Payments, Head of Payments' : tier === 'startup_smb' ? 'CEO, CTO, Co-Founder' : 'VP Finance, Director of Engineering'}
-                            className="text-sm"
-                          />
-                          <Button variant="outline" size="sm" onClick={() => addKeywordToTier(tier)} disabled={!tierInputs[tier].trim()}>
-                            Add
-                          </Button>
-                        </div>
-                        {keywords.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {keywords.map((kw) => (
-                              <Badge key={kw} variant="secondary" className="gap-1 text-xs">
-                                {kw}
-                                <button onClick={() => removeKeywordFromTier(tier, kw)}>
-                                  <X className="h-3 w-3" />
-                                </button>
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Seniority */}
-                      <div className="space-y-1.5">
-                        <p className="text-xs text-muted-foreground">Seniority levels</p>
-                        <div className="flex flex-wrap gap-1">
-                          {SENIORITY_OPTIONS.map((s) => (
-                            <Badge
-                              key={s}
-                              variant={seniorities.includes(s) ? 'default' : 'outline'}
-                              className="cursor-pointer text-xs"
-                              onClick={() => toggleSeniorityForTier(tier, s)}
-                            >
-                              {s}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
+            <div className="space-y-1.5">
+              <div className="flex gap-2">
+                <Input
+                  value={keywordInput}
+                  onChange={(e) => setKeywordInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addKeyword() } }}
+                  placeholder="e.g., VP Payments, Head of Payments, Director of Finance"
+                  className="text-sm"
+                />
+                <Button variant="outline" size="sm" onClick={addKeyword} disabled={!keywordInput.trim()}>
+                  Add
+                </Button>
+              </div>
+              {keywords.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {keywords.map((kw) => (
+                    <Badge key={kw} variant="secondary" className="gap-1 text-xs">
+                      {kw}
+                      <button onClick={() => removeKeyword(kw)}>
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
                 </div>
-              )
-            })}
+              )}
+            </div>
+
+            {/* Seniority */}
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">Seniority levels</p>
+              <div className="flex flex-wrap gap-1">
+                {SENIORITY_OPTIONS.map((s) => (
+                  <Badge
+                    key={s}
+                    variant={selectedSeniority.includes(s) ? 'default' : 'outline'}
+                    className="cursor-pointer text-xs"
+                    onClick={() => toggleSeniority(s)}
+                  >
+                    {s}
+                  </Badge>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
 
         <DialogFooter>
           <div className="flex items-center gap-2 text-xs text-muted-foreground mr-auto">
-            {totalKeywords > 0 && <span>{totalKeywords} total keywords across tiers</span>}
+            {keywords.length > 0 && <span>{keywords.length} keyword{keywords.length !== 1 ? 's' : ''}</span>}
           </div>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving || !name.trim()}>

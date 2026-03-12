@@ -32,6 +32,7 @@ import { AccountMapping } from '@/pages/AccountMapping'
 import { AccountMapDetail } from '@/pages/AccountMapDetail'
 import { ICPProfileDetail } from '@/pages/ICPProfileDetail'
 import { CompanyRegistry } from '@/pages/CompanyRegistry'
+import { BuyerPersonas } from '@/pages/BuyerPersonas'
 import { AccountMappingProvider } from '@/contexts/AccountMappingContext'
 import { CompanyResearchProvider } from '@/contexts/CompanyResearchContext'
 import { BusinessCasesProvider } from '@/contexts/BusinessCasesContext'
@@ -97,6 +98,7 @@ function App() {
                   <Route path="/account-mapping" element={<FeatureRoute flag="section_account_mapping"><AccountMapping /></FeatureRoute>} />
                   <Route path="/account-mapping/icp-profiles/:id" element={<FeatureRoute flag="section_account_mapping"><PageErrorBoundary><ICPProfileDetail /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/account-mapping/:id" element={<FeatureRoute flag="section_account_mapping"><AccountMapDetail /></FeatureRoute>} />
+                  <Route path="/buyer-personas" element={<FeatureRoute flag="section_account_mapping"><BuyerPersonas /></FeatureRoute>} />
                   <Route path="/company-registry" element={<FeatureRoute flag="section_company_registry"><CompanyRegistry /></FeatureRoute>} />
                   <Route path="/company-research" element={<FeatureRoute flag="section_company_research"><PageErrorBoundary><CompanyResearch /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/company-research/:id" element={<FeatureRoute flag="section_company_research"><PageErrorBoundary><ResearchProjectDetail /></PageErrorBoundary></FeatureRoute>} />

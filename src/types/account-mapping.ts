@@ -109,10 +109,23 @@ export const BUYING_ROLE_CONFIG: Record<BuyingCommitteeRole, { label: string; co
   end_user: { label: 'End User', color: 'text-gray-600 bg-gray-50 border-gray-200' },
 }
 
+export interface PersonaGroup {
+  id: string
+  owner_id: string
+  org_id: string
+  name: string
+  description: string | null
+  scope: 'personal' | 'organization'
+  created_at: string
+  updated_at: string
+  buyer_personas?: BuyerPersona[]
+}
+
 export interface BuyerPersona {
   id: string
   account_map_id: string | null
   icp_profile_id: string | null
+  persona_group_id: string | null
   owner_id: string
   org_id: string
   name: string

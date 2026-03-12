@@ -1,5 +1,5 @@
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAccountMapping } from '@/contexts/AccountMappingContext'
 import { useICPProfiles, useICPProfileUsage, useICPProfileMutations } from '@/hooks/useICPProfiles'
 import { useOrg } from '@/contexts/OrgContext'
@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/integrations/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -19,7 +20,8 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { useState } from 'react'
-import { Plus, Target, MoreVertical, Pencil, Trash2, Building2, Users, UserSearch, Brain, Map, UserCircle, ArrowRight, ChevronDown, ExternalLink } from 'lucide-react'
+import { Plus, Target, MoreVertical, Pencil, Trash2, Building2, Users, UserSearch, Brain, Map, UserCircle, ChevronDown, ExternalLink, Wand2, FilePenLine, Loader2 } from 'lucide-react'
+import { AddPersonaDialog } from '@/components/account-mapping/AddPersonaDialog'
 import { PermissionGate } from '@/components/PermissionGate'
 import {
   DropdownMenu,
@@ -42,15 +44,29 @@ import { BUYING_ROLE_CONFIG } from '@/types/account-mapping'
 
 type TabId = 'maps' | 'icp-profiles' | 'buyer-personas'
 
+interface SuggestedPersona {
+  name: string
+  title_keywords: string[]
+  seniority: string
+  department: string
+  reasoning?: string
+  description?: string
+  role_in_buying_committee?: string
+  departments?: string[]
+  title_keywords_by_tier?: { enterprise: string[]; mid_market: string[]; startup_smb: string[] }
+  seniority_by_tier?: { enterprise: string[]; mid_market: string[]; startup_smb: string[] }
+}
+
 type PersonaWithProfile = BuyerPersona & {
   icp_profiles: { id: string; name: string } | null
 }
 
 export function AccountMapping() {
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const { orgId } = useOrg()
   const { user } = useAuth()
+  const queryClient = useQueryClient()
   const { accountMaps, isLoading, createAccountMap, deleteAccountMap } = useAccountMapping()
   const { data: icpProfiles = [], isLoading: icpLoading } = useICPProfiles()
   const { data: usageMap } = useICPProfileUsage()
@@ -58,14 +74,6 @@ export function AccountMapping() {
 
   // Derive active tab from URL param (so sidebar links work even when already on this page)
   const activeTab = (searchParams.get('tab') as TabId) || 'maps'
-  const setActiveTab = (tab: TabId) => {
-    if (tab === 'maps') {
-      setSearchParams({})
-    } else {
-      setSearchParams({ tab })
-    }
-  }
-
   const [newName, setNewName] = useState('')
   const [newDescription, setNewDescription] = useState('')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -75,6 +83,81 @@ export function AccountMapping() {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
   const toggleGroup = (id: string) =>
     setOpenGroups((prev) => ({ ...prev, [id]: prev[id] === false ? true : false }))
+
+  // Add Persona choice modal
+  const [isAddPersonaChoiceOpen, setIsAddPersonaChoiceOpen] = useState(false)
+  const [isManualPersonaOpen, setIsManualPersonaOpen] = useState(false)
+  // AI generation state
+  const [isAIPersonaOpen, setIsAIPersonaOpen] = useState(false)
+  const [aiProductDescription, setAIProductDescription] = useState('')
+  const [aiSuggesting, setAISuggesting] = useState(false)
+  const [aiSuggestions, setAISuggestions] = useState<SuggestedPersona[]>([])
+  const [addingPersonaId, setAddingPersonaId] = useState<number | null>(null)
+
+  // Insert a standalone persona (no icp_profile_id, no account_map_id)
+  const onAddStandalonePersona = async (
+    persona: Omit<BuyerPersona, 'id' | 'created_at' | 'updated_at' | 'org_id'>
+  ): Promise<BuyerPersona | null> => {
+    const { data, error } = await supabase
+      .from('buyer_personas')
+      .insert({
+        ...persona,
+        icp_profile_id: null,
+        account_map_id: null,
+        org_id: orgId,
+        owner_id: user!.id,
+      })
+      .select()
+      .single()
+    if (error) { toast.error(error.message); return null }
+    queryClient.invalidateQueries({ queryKey: ['all-buyer-personas', orgId, user?.id] })
+    toast.success('Persona created')
+    return data as BuyerPersona
+  }
+
+  // Add a suggested persona as standalone
+  const handleAddSuggestedPersona = async (persona: SuggestedPersona, idx: number) => {
+    setAddingPersonaId(idx)
+    try {
+      await onAddStandalonePersona({
+        account_map_id: null,
+        icp_profile_id: null,
+        persona_group_id: null,
+        owner_id: user!.id,
+        name: persona.name,
+        title_keywords: persona.title_keywords || [],
+        seniority: persona.seniority || null,
+        department: persona.department || null,
+        max_per_company: 3,
+        description: persona.description || null,
+        role_in_buying_committee: (persona.role_in_buying_committee as BuyerPersona['role_in_buying_committee']) || null,
+        priority: idx + 1,
+        is_required: idx === 0,
+        departments: persona.departments || [],
+        title_keywords_by_tier: persona.title_keywords_by_tier || { enterprise: [], mid_market: [], startup_smb: [] },
+        seniority_by_tier: persona.seniority_by_tier || { enterprise: [], mid_market: [], startup_smb: [] },
+      })
+    } finally {
+      setAddingPersonaId(null)
+    }
+  }
+
+  const handleGeneratePersonasWithAI = async () => {
+    if (!aiProductDescription.trim()) return
+    setAISuggesting(true)
+    setAISuggestions([])
+    try {
+      const resp = await supabase.functions.invoke('suggest-buyer-personas', {
+        body: { productDescription: aiProductDescription.trim() },
+      })
+      if (resp.error) throw new Error(resp.error.message)
+      setAISuggestions(resp.data?.personas || [])
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error generating personas')
+    } finally {
+      setAISuggesting(false)
+    }
+  }
 
   // ICP Profile creation
   const [isCreateProfileOpen, setIsCreateProfileOpen] = useState(false)
@@ -90,7 +173,6 @@ export function AccountMapping() {
         .from('buyer_personas')
         .select('*, icp_profiles(id, name)')
         .eq('org_id', orgId)
-        .not('icp_profile_id', 'is', null)
         .order('created_at', { ascending: false })
       if (error) throw error
       return (data || []) as PersonaWithProfile[]
@@ -261,9 +343,9 @@ export function AccountMapping() {
         )}
 
         {activeTab === 'buyer-personas' && (
-          <Button onClick={() => setActiveTab('icp-profiles')}>
+          <Button onClick={() => setIsAddPersonaChoiceOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
-            Add Persona (via ICP Profile)
+            Add Persona
           </Button>
         )}
       </div>
@@ -464,38 +546,43 @@ export function AccountMapping() {
                 <UserCircle className="mb-4 h-12 w-12 text-muted-foreground" />
                 <h3 className="mb-2 text-lg font-medium">No buying personas yet</h3>
                 <p className="mb-4 text-sm text-muted-foreground text-center max-w-md">
-                  Buying personas are created within ICP Profiles. Create an ICP Profile first, then add personas to it.
+                  Create your first buying persona manually or let AI suggest them based on your product.
                 </p>
-                <Button onClick={() => setActiveTab('icp-profiles')}>
-                  <ArrowRight className="mr-2 h-4 w-4" />
-                  Go to ICP Profiles
+                <Button onClick={() => setIsAddPersonaChoiceOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Persona
                 </Button>
               </CardContent>
             </Card>
           ) : (() => {
-            // Group personas by ICP Profile
-            const groups: Record<string, { profileId: string; profileName: string; personas: PersonaWithProfile[] }> = {}
+            // Group by ICP Profile; standalone (no icp_profile_id) → '__standalone__'
+            const STANDALONE = '__standalone__'
+            const groups: Record<string, { profileId: string; profileName: string; isStandalone: boolean; personas: PersonaWithProfile[] }> = {}
             for (const persona of allPersonas) {
-              const pid = persona.icp_profile_id || '__unknown__'
+              const pid = persona.icp_profile_id || STANDALONE
               if (!groups[pid]) {
                 groups[pid] = {
                   profileId: pid,
-                  profileName: persona.icp_profiles?.name || 'Unknown Profile',
+                  profileName: pid === STANDALONE ? 'Sin perfil ICP' : (persona.icp_profiles?.name || 'Unknown Profile'),
+                  isStandalone: pid === STANDALONE,
                   personas: [],
                 }
               }
               groups[pid].personas.push(persona)
             }
-            // Sort personas within each group
+            // Sort within each group
             for (const g of Object.values(groups)) {
               g.personas.sort((a, b) => {
                 if (a.is_required !== b.is_required) return a.is_required ? -1 : 1
                 return a.priority - b.priority
               })
             }
-            const sortedGroups = Object.values(groups).sort((a, b) =>
-              a.profileName.localeCompare(b.profileName)
-            )
+            // ICP-linked groups alphabetically, standalone last
+            const sortedGroups = Object.values(groups).sort((a, b) => {
+              if (a.isStandalone) return 1
+              if (b.isStandalone) return -1
+              return a.profileName.localeCompare(b.profileName)
+            })
 
             return (
               <div className="space-y-3">
@@ -517,18 +604,20 @@ export function AccountMapping() {
                             {group.personas.length} {group.personas.length === 1 ? 'persona' : 'personas'}
                           </Badge>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            navigate(`/account-mapping/icp-profiles/${group.profileId}`)
-                          }}
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                          Edit profile
-                        </Button>
+                        {!group.isStandalone && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              navigate(`/account-mapping/icp-profiles/${group.profileId}`)
+                            }}
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            Edit profile
+                          </Button>
+                        )}
                       </button>
 
                       {/* Personas table */}
@@ -628,6 +717,137 @@ export function AccountMapping() {
           })()}
         </>
       )}
+
+      {/* ── Add Persona choice modal ────────────────────────────────── */}
+      <Dialog open={isAddPersonaChoiceOpen} onOpenChange={setIsAddPersonaChoiceOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Buying Persona</DialogTitle>
+            <DialogDescription>Choose how you want to create the persona</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 py-2">
+            <button
+              onClick={() => { setIsAddPersonaChoiceOpen(false); setIsManualPersonaOpen(true) }}
+              className="flex flex-col items-center gap-2 rounded-lg border border-border p-4 hover:bg-accent/50 transition-colors text-left"
+            >
+              <FilePenLine className="h-8 w-8 text-muted-foreground" />
+              <div>
+                <p className="font-medium text-sm">Manually</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Fill in the form yourself</p>
+              </div>
+            </button>
+            <button
+              onClick={() => { setIsAddPersonaChoiceOpen(false); setIsAIPersonaOpen(true) }}
+              className="flex flex-col items-center gap-2 rounded-lg border border-border p-4 hover:bg-accent/50 transition-colors text-left"
+            >
+              <Wand2 className="h-8 w-8 text-primary" />
+              <div>
+                <p className="font-medium text-sm">Generate with AI</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Describe your product, AI suggests personas</p>
+              </div>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Manual persona dialog (standalone) ─────────────────────── */}
+      <AddPersonaDialog
+        open={isManualPersonaOpen}
+        onOpenChange={setIsManualPersonaOpen}
+        accountMapId=""
+        icpProfileId=""
+        ownerId={user?.id || ''}
+        onAdd={onAddStandalonePersona}
+      />
+
+      {/* ── AI persona generation dialog ─────────────────────────────── */}
+      <Dialog open={isAIPersonaOpen} onOpenChange={(open) => {
+        setIsAIPersonaOpen(open)
+        if (!open) { setAISuggestions([]); setAIProductDescription('') }
+      }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Generate Personas with AI</DialogTitle>
+            <DialogDescription>Describe your product and target market — AI will suggest buyer personas</DialogDescription>
+          </DialogHeader>
+
+          {aiSuggestions.length === 0 ? (
+            <div className="space-y-3 py-1">
+              <Label htmlFor="ai-desc">Product / Company Description</Label>
+              <Textarea
+                id="ai-desc"
+                rows={4}
+                value={aiProductDescription}
+                onChange={(e) => setAIProductDescription(e.target.value)}
+                placeholder="e.g. We sell a payment orchestration platform to fintech companies and online marketplaces that need to process payments globally..."
+              />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsAIPersonaOpen(false)}>Cancel</Button>
+                <Button
+                  onClick={handleGeneratePersonasWithAI}
+                  disabled={aiSuggesting || !aiProductDescription.trim()}
+                >
+                  {aiSuggesting ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</>
+                  ) : (
+                    <><Wand2 className="mr-2 h-4 w-4" /> Generate</>
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-2 py-1 max-h-[60vh] overflow-y-auto">
+              <p className="text-sm text-muted-foreground mb-3">{aiSuggestions.length} personas suggested — click Add to save</p>
+              {aiSuggestions.map((persona, idx) => {
+                const roleConfig = persona.role_in_buying_committee
+                  ? BUYING_ROLE_CONFIG[persona.role_in_buying_committee as BuyingCommitteeRole]
+                  : null
+                return (
+                  <div key={idx} className="flex items-start gap-3 rounded-lg border border-border p-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm">{persona.name}</span>
+                        {roleConfig && (
+                          <Badge variant="outline" className={`text-[10px] h-4 ${roleConfig.color}`}>
+                            {roleConfig.label}
+                          </Badge>
+                        )}
+                      </div>
+                      {persona.description && (
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{persona.description}</p>
+                      )}
+                      {persona.title_keywords?.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {persona.title_keywords.slice(0, 4).map((kw: string) => (
+                            <Badge key={kw} variant="secondary" className="text-[10px]">{kw}</Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0"
+                      disabled={addingPersonaId === idx}
+                      onClick={() => handleAddSuggestedPersona(persona, idx)}
+                    >
+                      {addingPersonaId === idx ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
+                )
+              })}
+              <DialogFooter className="pt-2">
+                <Button variant="outline" onClick={() => { setAISuggestions([]); setAIProductDescription('') }}>
+                  Regenerate
+                </Button>
+                <Button onClick={() => { setIsAIPersonaOpen(false); setAISuggestions([]); setAIProductDescription('') }}>
+                  Done
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

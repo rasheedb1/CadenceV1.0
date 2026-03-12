@@ -8,6 +8,7 @@ import type {
   AccountMap,
   AccountMapCompany,
   BuyerPersona,
+  PersonaGroup,
   ICPTemplate,
   FeedbackType,
   ICPInsight,
@@ -172,6 +173,12 @@ interface AccountMappingContextType {
   addPersona: (persona: Omit<BuyerPersona, 'id' | 'created_at' | 'updated_at' | 'org_id'>) => Promise<BuyerPersona | null>
   updatePersona: (id: string, data: Partial<BuyerPersona>) => Promise<void>
   deletePersona: (id: string) => Promise<void>
+  // Persona Groups CRUD
+  personaGroups: PersonaGroup[]
+  personaGroupsLoading: boolean
+  addPersonaGroup: (data: { name: string; description?: string | null; scope: 'personal' | 'organization' }) => Promise<PersonaGroup>
+  updatePersonaGroup: (id: string, data: Partial<Pick<PersonaGroup, 'name' | 'description' | 'scope'>>) => Promise<void>
+  deletePersonaGroup: (id: string) => Promise<void>
   // Prospects
   saveProspects: (accountMapId: string, companyId: string | null, prospects: SalesNavResult[], options?: { personaId?: string; buyingRole?: string; searchMetadata?: Record<string, unknown> }) => Promise<number>
   saveProspectsBatch: (accountMapId: string, companyId: string | null, prospects: SalesNavResult[], options?: { personaId?: string; buyingRole?: string; searchMetadata?: Record<string, unknown> }) => Promise<number>
@@ -199,7 +206,7 @@ interface AccountMappingContextType {
   // Smart ICP Insights
   getSmartICPInsights: (accountMapId: string) => Promise<ICPInsight[]>
   // Buyer Persona Suggestions
-  suggestBuyerPersonas: (accountMapId: string) => Promise<SuggestedPersona[]>
+  suggestBuyerPersonas: (id: string, source?: 'icpProfileId' | 'personaGroupId') => Promise<SuggestedPersona[]>
   suggestPersonaTitles: (params: { productCategory: string; companyDescription: string; buyingRole: string; personaDescription: string }) => Promise<{ tiers: TierKeywords; seniority: TierSeniority }>
   // Company Enrichment (Firecrawl)
   enrichCompany: (companyName: string, website?: string | null) => Promise<EnrichCompanyResponse>
@@ -341,7 +348,10 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
       if (error) throw error
       return data as BuyerPersona
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['account-maps'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['account-maps'] })
+      queryClient.invalidateQueries({ queryKey: ['persona-groups', orgId] })
+    },
   })
 
   const updatePersonaMutation = useMutation({
@@ -349,7 +359,10 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.from('buyer_personas').update(data).eq('id', id)
       if (error) throw error
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['account-maps'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['account-maps'] })
+      queryClient.invalidateQueries({ queryKey: ['persona-groups', orgId] })
+    },
   })
 
   const deletePersonaMutation = useMutation({
@@ -357,7 +370,57 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.from('buyer_personas').delete().eq('id', id)
       if (error) throw error
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['account-maps'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['account-maps'] })
+      queryClient.invalidateQueries({ queryKey: ['persona-groups', orgId] })
+    },
+  })
+
+  // ── Persona Groups ──
+
+  const { data: personaGroups = [], isLoading: personaGroupsLoading } = useQuery({
+    queryKey: ['persona-groups', orgId],
+    queryFn: async () => {
+      if (!user || !orgId) return []
+      const { data, error } = await supabase
+        .from('persona_groups')
+        .select('*, buyer_personas(*)')
+        .eq('org_id', orgId)
+        .order('created_at', { ascending: false })
+      if (error) throw error
+      return (data || []) as PersonaGroup[]
+    },
+    enabled: !!user && !!orgId,
+  })
+
+  const addPersonaGroupMutation = useMutation({
+    mutationFn: async (data: { name: string; description?: string | null; scope: 'personal' | 'organization' }) => {
+      if (!user || !orgId) throw new Error('Not authenticated')
+      const { data: created, error } = await supabase
+        .from('persona_groups')
+        .insert({ ...data, owner_id: user.id, org_id: orgId })
+        .select()
+        .single()
+      if (error) throw error
+      return created as PersonaGroup
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['persona-groups', orgId] }),
+  })
+
+  const updatePersonaGroupMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<Pick<PersonaGroup, 'name' | 'description' | 'scope'>> }) => {
+      const { error } = await supabase.from('persona_groups').update(data).eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['persona-groups', orgId] }),
+  })
+
+  const deletePersonaGroupMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('persona_groups').delete().eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['persona-groups', orgId] }),
   })
 
   // ── Prospects ──
@@ -599,6 +662,16 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
           updatePersonaMutation.mutateAsync({ id, data }),
         deletePersona: async (id) =>
           deletePersonaMutation.mutateAsync(id),
+
+        // Persona Groups
+        personaGroups,
+        personaGroupsLoading,
+        addPersonaGroup: async (data) =>
+          addPersonaGroupMutation.mutateAsync(data),
+        updatePersonaGroup: async (id, data) =>
+          updatePersonaGroupMutation.mutateAsync({ id, data }),
+        deletePersonaGroup: async (id) =>
+          deletePersonaGroupMutation.mutateAsync(id),
 
         // Prospects: bulk save from search results
         saveProspects: async (accountMapId, companyId, prospects, options) => {
@@ -1100,11 +1173,11 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
         },
 
         // Buyer Persona Suggestions
-        suggestBuyerPersonas: async (icpProfileId) => {
+        suggestBuyerPersonas: async (id, source = 'icpProfileId') => {
           if (!session?.access_token) throw new Error('Not authenticated')
           const result = await callEdgeFunction<{ success: boolean; personas: SuggestedPersona[] }>(
             'suggest-buyer-personas',
-            { icpProfileId },
+            { [source]: id },
             session.access_token
           )
           return result.personas
