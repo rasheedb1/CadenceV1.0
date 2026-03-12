@@ -413,6 +413,7 @@ export function CadenceBuilder() {
     ai_research_prompt_id: string
     ai_example_section_id: string
     reply_to_step_id: string
+    cc: string
   }>({
     step_type: 'linkedin_message',
     step_label: '',
@@ -423,6 +424,7 @@ export function CadenceBuilder() {
     ai_research_prompt_id: '',
     ai_example_section_id: '',
     reply_to_step_id: '',
+    cc: '',
   })
   const [saving, setSaving] = useState(false)
   const messageTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -472,6 +474,7 @@ export function CadenceBuilder() {
       ai_research_prompt_id: '',
       ai_example_section_id: '',
       reply_to_step_id: '',
+      cc: '',
     }))
   }, [newStep.step_type])
 
@@ -582,6 +585,7 @@ export function CadenceBuilder() {
           ai_research_prompt_id: newStep.ai_research_prompt_id && newStep.ai_research_prompt_id !== 'none' ? newStep.ai_research_prompt_id : null,
           ai_example_section_id: newStep.ai_example_section_id && newStep.ai_example_section_id !== 'none' ? newStep.ai_example_section_id : null,
           reply_to_step_id: newStep.reply_to_step_id && newStep.reply_to_step_id !== 'none' ? newStep.reply_to_step_id : null,
+          cc: newStep.cc.trim() || null,
         },
       })
 
@@ -596,6 +600,7 @@ export function CadenceBuilder() {
         ai_research_prompt_id: '',
         ai_example_section_id: '',
         reply_to_step_id: '',
+        cc: '',
       })
       toast.success('Step added successfully')
     } catch (error) {
@@ -619,6 +624,7 @@ export function CadenceBuilder() {
       ai_research_prompt_id: (config?.ai_research_prompt_id as string) || '',
       ai_example_section_id: (config?.ai_example_section_id as string) || '',
       reply_to_step_id: (config?.reply_to_step_id as string) || '',
+      cc: (config?.cc as string) || '',
     })
     setIsAddStepOpen(true)
   }
@@ -638,6 +644,7 @@ export function CadenceBuilder() {
           ai_research_prompt_id: newStep.ai_research_prompt_id && newStep.ai_research_prompt_id !== 'none' ? newStep.ai_research_prompt_id : null,
           ai_example_section_id: newStep.ai_example_section_id && newStep.ai_example_section_id !== 'none' ? newStep.ai_example_section_id : null,
           reply_to_step_id: newStep.reply_to_step_id && newStep.reply_to_step_id !== 'none' ? newStep.reply_to_step_id : null,
+          cc: newStep.cc.trim() || null,
         },
       })
       setIsAddStepOpen(false)
@@ -652,6 +659,7 @@ export function CadenceBuilder() {
         ai_research_prompt_id: '',
         ai_example_section_id: '',
         reply_to_step_id: '',
+        cc: '',
       })
       toast.success('Step updated successfully')
     } catch (error) {
@@ -1893,6 +1901,21 @@ export function CadenceBuilder() {
                       ))}
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+
+            {/* CC field for email steps */}
+            {(newStep.step_type === 'send_email' || newStep.step_type === 'email_reply') && (
+              <div className="space-y-2">
+                <Label>CC (copia)</Label>
+                <Input
+                  value={newStep.cc}
+                  onChange={(e) => setNewStep((prev) => ({ ...prev, cc: e.target.value }))}
+                  placeholder="cc@empresa.com, otro@empresa.com"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Opcional. Separar múltiples emails con comas. Se enviará en copia en cada email de este step.
+                </p>
               </div>
             )}
 
