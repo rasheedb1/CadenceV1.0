@@ -84,6 +84,7 @@ const sdr_sections: NavSection[] = [
     label: 'Tracker',
     items: [
       { name: 'Leads', href: '/leads', icon: Users, featureFlag: 'section_leads' },
+      { name: 'Business Cases', href: '/business-cases?view=tracker', icon: Briefcase, featureFlag: 'section_business_cases' },
       { name: 'Company Research', href: '/company-research', icon: Building2, featureFlag: 'section_company_research' },
       { name: 'Company Registry', href: '/company-registry', icon: ShieldCheck, featureFlag: 'section_company_registry' },
     ],
