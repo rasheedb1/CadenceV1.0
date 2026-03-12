@@ -12,6 +12,7 @@ interface SendEmailRequest {
   scheduleId?: string
   instanceId?: string
   to: string          // email address
+  cc?: string         // comma-separated CC addresses
   subject: string
   body: string        // HTML body
   bodyType?: 'text/html' | 'text/plain'
@@ -103,12 +104,13 @@ function toBase64Url(str: string): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-function buildRfc2822({ to, from, subject, html, replyToThreadId }: {
+function buildRfc2822({ to, from, subject, html, replyToThreadId, cc }: {
   to: string
   from: string
   subject: string
   html: string
   replyToThreadId?: string | null
+  cc?: string | null
 }): string {
   const lines = [
     `To: ${to}`,
@@ -117,6 +119,9 @@ function buildRfc2822({ to, from, subject, html, replyToThreadId }: {
     'MIME-Version: 1.0',
     'Content-Type: text/html; charset=UTF-8',
   ]
+  if (cc) {
+    lines.push(`Cc: ${cc}`)
+  }
   if (replyToThreadId) {
     lines.push(`In-Reply-To: <${replyToThreadId}>`)
     lines.push(`References: <${replyToThreadId}>`)
@@ -138,7 +143,7 @@ serve(async (req: Request) => {
     const requestBody: SendEmailRequest = await req.json()
     const {
       leadId, cadenceId, cadenceStepId, scheduleId, instanceId,
-      to, subject, body: emailBody, bodyType, replyToMessageId,
+      to, cc, subject, body: emailBody, bodyType, replyToMessageId,
       ownerId, orgId,
     } = requestBody
 
@@ -216,6 +221,7 @@ serve(async (req: Request) => {
       subject,
       html: bodyType === 'text/plain' ? emailBody : trackedBody,
       replyToThreadId: replyToMessageId || null,
+      cc: cc || null,
     })
 
     const gmailBody: Record<string, unknown> = {

@@ -648,6 +648,7 @@ async function executeLinkedInAction(
                          'No subject'
       // Convert plain text to HTML for proper email formatting
       baseBody.body = textToHtml(emailBody)
+      if (configJson.cc) baseBody.cc = configJson.cc as string
       break
     }
 
@@ -711,6 +712,7 @@ async function executeLinkedInAction(
       } else {
         console.warn(`email_reply: no previous gmail_message_id found for lead ${schedule.lead_id}, sending as new email with subject: "${baseBody.subject}"`)
       }
+      if (configJson.cc) baseBody.cc = configJson.cc as string
       break
     }
   }
