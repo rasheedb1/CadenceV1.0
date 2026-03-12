@@ -221,7 +221,22 @@ export function CompanyDiscoveryChat({
   const hasICPData = useCallback((): boolean => {
     if (icpBuilderData) {
       const bd = icpBuilderData
-      return !!(bd.companyDescription || bd.productCategory || bd.industries.length > 0 || bd.companySizes.length > 0 || bd.targetRegions.length > 0)
+      const hasArr = (arr: string[] | null | undefined) => (arr?.length ?? 0) > 0
+      return !!(
+        bd.companyDescription ||
+        bd.productCategory ||
+        bd.customSignals ||
+        hasArr(bd.industries) ||
+        hasArr(bd.companySizes) ||
+        hasArr(bd.targetRegions) ||
+        hasArr(bd.businessModels) ||
+        hasArr(bd.companyStages) ||
+        hasArr(bd.buyingSignals) ||
+        hasArr(bd.techSignals) ||
+        hasArr(bd.existingCustomers) ||
+        hasArr(bd.mustOperateIn) ||
+        hasArr(bd.digitalPresence)
+      )
     }
     return !!icpDescription
   }, [icpBuilderData, icpDescription])
@@ -329,6 +344,10 @@ export function CompanyDiscoveryChat({
     }
   }, [session, icpDescription, icpBuilderData, acceptedCompanies, rejectedCompanies, existingCompanies, excludedCompanyNames, savedNames])
 
+  // Keep a stable ref to sendMessage so the auto-send effect doesn't need it as a dep
+  const sendMessageRef = useRef(sendMessage)
+  useEffect(() => { sendMessageRef.current = sendMessage }, [sendMessage])
+
   // Wrapper for the input field send
   const handleSend = useCallback(() => {
     const text = inputValue.trim()
@@ -338,14 +357,13 @@ export function CompanyDiscoveryChat({
 
   // Auto-send ICP as first message when dialog opens
   useEffect(() => {
-    if (!open || autoSentRef.current || isLoading) return
+    if (!open || autoSentRef.current) return
     if (!session?.access_token) return
+    if (!hasICPData()) return
 
-    if (hasICPData()) {
-      autoSentRef.current = true
-      sendMessage('Find companies matching my ICP criteria', [])
-    }
-  }, [open, session, isLoading, hasICPData, sendMessage])
+    autoSentRef.current = true
+    sendMessageRef.current('Find companies matching my ICP criteria', [])
+  }, [open, session, hasICPData])
 
   const handleAccept = useCallback((messageId: string, companyIndex: number) => {
     setMessages(prev => prev.map(msg => {

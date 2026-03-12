@@ -1,63 +1,53 @@
-# Plan: Filtrar Prospects con Contactos de Oportunidades Abiertas en Salesforce
+# UX Restructure: 3-Section Sidebar
 
 ## Objetivo
-Al hacer cascade search de prospects, filtrar cualquier persona que ya sea contacto
-en una cuenta de Salesforce con oportunidad abierta (is_closed = false).
-Así evitamos contactar a alguien que ya está en un deal activo.
+Reorganizar el sidebar en 3 secciones claras para mejorar usabilidad.
+Sin cambios en lógica de negocio. Solo UX/navegación.
 
-## Arquitectura
+## Análisis de impacto
+- ✅ Todos los routes existentes se mantienen
+- ✅ Feature flags funcionan igual
+- ✅ Notificaciones badge se preserva
+- ✅ Admin/Super Admin gating se mantiene
+- ✅ Modo AE (Account Executive) no cambia
+- ⚠️ Account Research (Daily) y Company Research (Tracker) = mismo `/company-research` - OK
+- ⚠️ ICP Setup → `/account-mapping?tab=icp-profiles` (tab ya existe)
+- ⚠️ Buying Persona → `/account-mapping?tab=buyer-personas` (NUEVO tab, datos ya en DB)
 
-### Por qué un tabla nueva (`salesforce_contacts`):
-- Los contactos hoy solo están en `company_registry.metadata.sf_contacts` (JSON, no indexado)
-- Necesitamos queries eficientes por nombre normalizado durante cada cascade search
-- Una tabla propia con índice permite filtrar en O(1) con un IN query
+## Nueva Estructura del Sidebar
 
-### Matching strategy:
-- Match por nombre completo normalizado: lowercase, sin signos de puntuación
-- "Jonathan Smith" (SF) ↔ "Jonathan Smith" (LinkedIn) → match
-- Es la única info que tenemos en el momento del search (pre-enrichment, no hay email)
+### Daily Use
+- Dashboard → `/`
+- Account Mapping → `/account-mapping` (ff: section_account_mapping)
+- Account Research → `/company-research` (ff: section_company_research)
+- Cadences → `/cadences` (ff: section_cadences)
+- Notifications → `/notifications` [badge] (ff: section_notifications)
+- LinkedIn Inbox → `/inbox` (ff: section_linkedin_inbox)
+- Outreach Activity → `/outreach` (ff: section_cadences)
 
-## Checklist
+### One Time Use
+- ICP Setup → `/account-mapping?tab=icp-profiles` (ff: section_account_mapping)
+- Buying Persona → `/account-mapping?tab=buyer-personas` (ff: section_account_mapping)
+- AI Prompts → `/ai-prompts` (ff: section_ai_prompts)
+- Business Cases → `/business-cases` (ff: section_business_cases)
+- Templates → `/templates` (ff: section_templates)
+- Workflows → `/workflows` (ff: section_workflows)
 
-- [ ] **Migration 065**: Crear tabla `salesforce_contacts` con `name_normalized` indexado
-- [ ] **`salesforce-sync`**: Poblar `salesforce_contacts` al sincronizar (clear + re-insert)
-- [ ] **`cascade-search-company`**: Cargar SF contacts al inicio, filtrar resultados antes de insertar
-- [ ] **Deploy**: función `salesforce-sync` + `cascade-search-company` + migration
+### Tracker
+- Leads → `/leads` (ff: section_leads)
+- Company Research → `/company-research` (ff: section_company_research)
+- Company Registry → `/company-registry` (ff: section_company_registry)
 
-## Detalle de cambios
+### Bottom (siempre visible)
+- Settings → `/settings`
+- Admin → `/admin` (admin only)
+- Super Admin → `/super-admin/organizations` (super admin only)
 
-### 065_salesforce_contacts.sql
-```sql
-CREATE TABLE salesforce_contacts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  sf_account_id TEXT NOT NULL,
-  sf_contact_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  name_normalized TEXT NOT NULL,  -- lowercase stripped for matching
-  email TEXT,
-  title TEXT,
-  has_active_opportunity BOOLEAN DEFAULT FALSE,
-  synced_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(org_id, sf_contact_id)
-);
--- Index for fast lookup during cascade search
-CREATE INDEX ON salesforce_contacts(org_id, has_active_opportunity);
-```
+## Checkboxes
+- [x] Plan escrito
+- [ ] Sidebar.tsx - Restructurar en 3 secciones colapsibles
+- [ ] AccountMapping.tsx - Agregar tab buyer-personas + URL query param
 
-### salesforce-sync: añadir al final del sync
-```
-// Clear + insert salesforce_contacts
-// has_active_opportunity = account has open opps (is_closed = false)
-```
-
-### cascade-search-company: filtrar antes de insertar
-```
-// Load SF contact names with open opps for this org
-// After cascade result → filter out any prospect whose normalized full name is in the set
-// Log how many were filtered per persona
-// Include sfFilteredCount in personaResults and response
-```
-
-## Review
-_(se completa al terminar)_
+## Archivos a modificar
+1. `src/components/layout/Sidebar.tsx`
+2. `src/pages/AccountMapping.tsx`
