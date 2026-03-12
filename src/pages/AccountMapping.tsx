@@ -147,8 +147,6 @@ export function AccountMapping() {
 
   const tabs: { id: TabId; label: string; count: number }[] = [
     { id: 'maps', label: 'Account Maps', count: accountMaps.length },
-    { id: 'icp-profiles', label: 'ICP Profiles', count: icpProfiles.length },
-    { id: 'buyer-personas', label: 'Buying Personas', count: allPersonas.length },
   ]
 
   return (
@@ -254,25 +252,7 @@ export function AccountMapping() {
         )}
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 rounded-lg bg-muted p-1 mb-6 w-fit">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === tab.id
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {tab.label}
-            <Badge variant="secondary" className="text-xs ml-1 h-5 min-w-[20px] justify-center">
-              {tab.count}
-            </Badge>
-          </button>
-        ))}
-      </div>
+      {/* Tab bar - hidden since ICP/Personas moved to One Time Use */}
 
       {/* Account Maps Tab */}
       {activeTab === 'maps' && (
