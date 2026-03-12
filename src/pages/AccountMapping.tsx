@@ -28,7 +28,17 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
-import type { BuyerPersona } from '@/types/account-mapping'
+import { Badge } from '@/components/ui/badge'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import type { BuyerPersona, BuyingCommitteeRole } from '@/types/account-mapping'
+import { BUYING_ROLE_CONFIG } from '@/types/account-mapping'
 
 type TabId = 'maps' | 'icp-profiles' | 'buyer-personas'
 
@@ -458,56 +468,105 @@ export function AccountMapping() {
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {allPersonas.map((persona) => (
-                <Card
-                  key={persona.id}
-                  className="cursor-pointer transition-shadow hover:shadow-md"
-                  onClick={() =>
-                    persona.icp_profile_id &&
-                    navigate(`/account-mapping/icp-profiles/${persona.icp_profile_id}`)
-                  }
-                >
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10">
-                          <UserCircle className="h-5 w-5 text-primary" />
-                        </div>
-                        <div>
-                          <CardTitle className="text-base">{persona.name}</CardTitle>
-                          {persona.department && (
-                            <CardDescription className="text-xs mt-0.5">{persona.department}</CardDescription>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    <div className="flex flex-col gap-1.5 text-sm text-muted-foreground">
-                      {persona.seniority && (
-                        <span className="flex items-center gap-1.5">
-                          <span className="font-medium text-foreground/70">Seniority:</span>
-                          {persona.seniority}
-                        </span>
-                      )}
-                      {persona.role_in_buying_committee && (
-                        <span className="flex items-center gap-1.5">
-                          <span className="font-medium text-foreground/70">Role:</span>
-                          {persona.role_in_buying_committee.replace(/_/g, ' ')}
-                        </span>
-                      )}
-                      {persona.icp_profiles && (
-                        <span className="flex items-center gap-1 mt-1 text-xs text-muted-foreground/70">
-                          <ArrowRight className="h-3 w-3" />
-                          {persona.icp_profiles.name}
-                        </span>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            <Card>
+              <CardContent className="pt-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Keywords by Tier</TableHead>
+                      <TableHead className="w-24 text-center">Max</TableHead>
+                      <TableHead className="w-32">ICP Profile</TableHead>
+                      <TableHead className="w-20" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {[...allPersonas].sort((a, b) => {
+                      if (a.is_required !== b.is_required) return a.is_required ? -1 : 1
+                      return a.priority - b.priority
+                    }).map((persona) => {
+                      const roleConfig = persona.role_in_buying_committee
+                        ? BUYING_ROLE_CONFIG[persona.role_in_buying_committee as BuyingCommitteeRole]
+                        : null
+                      const tierKw = persona.title_keywords_by_tier || { enterprise: [], mid_market: [], startup_smb: [] }
+                      const eCount = tierKw.enterprise?.length || 0
+                      const mCount = tierKw.mid_market?.length || 0
+                      const sCount = tierKw.startup_smb?.length || 0
+                      const hasTierData = eCount + mCount + sCount > 0
+                      return (
+                        <TableRow
+                          key={persona.id}
+                          className="cursor-pointer hover:bg-muted/50"
+                          onClick={() =>
+                            persona.icp_profile_id &&
+                            navigate(`/account-mapping/icp-profiles/${persona.icp_profile_id}`)
+                          }
+                        >
+                          <TableCell>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs text-muted-foreground font-mono">{persona.priority}.</span>
+                              <span className="font-medium">{persona.name}</span>
+                              {persona.is_required && (
+                                <span className="text-amber-500 text-xs" title="Required">*</span>
+                              )}
+                              {roleConfig && (
+                                <Badge variant="outline" className={`text-[10px] h-4 ${roleConfig.color}`}>
+                                  {roleConfig.label}
+                                </Badge>
+                              )}
+                            </div>
+                            {persona.description && (
+                              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{persona.description}</p>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {hasTierData ? (
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <span title="Enterprise keywords">E:{eCount}</span>
+                                <span title="Mid-market keywords">M:{mCount}</span>
+                                <span title="Startup/SMB keywords">S:{sCount}</span>
+                              </div>
+                            ) : (
+                              <div className="flex flex-wrap gap-1">
+                                {(persona.title_keywords || []).slice(0, 3).map((kw) => (
+                                  <Badge key={kw} variant="outline" className="text-xs">{kw}</Badge>
+                                ))}
+                                {(persona.title_keywords || []).length > 3 && (
+                                  <Badge variant="outline" className="text-xs">+{(persona.title_keywords || []).length - 3}</Badge>
+                                )}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-center">{persona.max_per_company}</TableCell>
+                          <TableCell>
+                            {persona.icp_profiles && (
+                              <span className="text-xs text-muted-foreground">{persona.icp_profiles.name}</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  persona.icp_profile_id &&
+                                    navigate(`/account-mapping/icp-profiles/${persona.icp_profile_id}`)
+                                }}
+                                title="Edit persona"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
           )}
         </>
       )}
