@@ -9,8 +9,7 @@ import { useAccountMapping, type SalesNavResult } from '@/contexts/AccountMappin
 import { EXCLUSION_TYPES } from '@/types/registry'
 import { AddPersonaDialog } from '@/components/account-mapping/AddPersonaDialog'
 import { BatchSearchDialog } from '@/components/account-mapping/BatchSearchDialog'
-import { ICPProfileSelector } from '@/components/account-mapping/ICPProfileSelector'
-import { useICPProfiles, useICPProfileMutations } from '@/hooks/useICPProfiles'
+import { useICPProfiles } from '@/hooks/useICPProfiles'
 import { CompanyDiscoveryChat } from '@/components/account-mapping/CompanyDiscoveryChat'
 import { useCadence } from '@/contexts/CadenceContext'
 import { Button } from '@/components/ui/button'
@@ -125,7 +124,6 @@ export function AccountMapDetail() {
     applyScoreThreshold,
   } = useAccountMapping()
   const { cadences } = useCadence()
-  const { convertInlineICP: convertInlineICPMutation } = useICPProfileMutations()
   const { data: icpProfiles = [] } = useICPProfiles()
   const { session } = useAuth()
   const { orgId } = useOrg()
@@ -184,15 +182,6 @@ export function AccountMapDetail() {
       toast.error(err instanceof Error ? err.message : 'Failed to push to Salesforce')
     } finally {
       setPushingToSalesforce(false)
-    }
-  }
-
-  const handleConvertInline = async () => {
-    if (!map) return
-    try {
-      await convertInlineICPMutation.mutateAsync(map.id)
-    } catch {
-      // Error handled in mutation
     }
   }
 
