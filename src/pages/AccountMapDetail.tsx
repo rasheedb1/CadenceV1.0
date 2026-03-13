@@ -9,7 +9,8 @@ import { useAccountMapping, type SalesNavResult } from '@/contexts/AccountMappin
 import { EXCLUSION_TYPES } from '@/types/registry'
 import { AddPersonaDialog } from '@/components/account-mapping/AddPersonaDialog'
 import { BatchSearchDialog } from '@/components/account-mapping/BatchSearchDialog'
-import { useICPProfiles } from '@/hooks/useICPProfiles'
+import { useICPProfiles, useICPProfile } from '@/hooks/useICPProfiles'
+import type { ICPBuilderData } from '@/types/icp-builder'
 import { CompanyDiscoveryChat } from '@/components/account-mapping/CompanyDiscoveryChat'
 import { useCadence } from '@/contexts/CadenceContext'
 import { Button } from '@/components/ui/button'
@@ -147,15 +148,36 @@ export function AccountMapDetail() {
   const [showICPPicker, setShowICPPicker] = useState(false)
   const [icpPickerTarget, setICPPickerTarget] = useState<'discovery' | 'batch_search' | null>(null)
   const [selectedICPProfileId, setSelectedICPProfileId] = useState<string>('')
+  // Tracks the profile ID chosen in the picker — used as override until the cache refreshes
+  const [pendingICPProfileId, setPendingICPProfileId] = useState<string | null>(null)
 
   // Selection state
   const [selectedProspects, setSelectedProspects] = useState<Set<string>>(new Set())
 
   const map = accountMaps.find((m) => m.id === id)
 
+  // Direct query for the linked ICP profile — most reliable source, TanStack Query caches it.
+  // This fires when map.icp_profile_id is known and handles the case where the join
+  // on account_maps didn't hydrate map.icp_profile yet (stale cache after linking).
+  const resolvedProfileId = pendingICPProfileId || map?.icp_profile_id || undefined
+  const { data: directICPProfile } = useICPProfile(resolvedProfileId)
+
+  // Resolve the ICP profile with all fallbacks:
+  // 1. directICPProfile — fetched directly by ID (most reliable, re-fetches when ID changes)
+  // 2. map.icp_profile  — from the account_maps join (may be stale)
+  // 3. icpProfiles list — already-loaded profiles list
+  const chatICPProfile = useMemo(() => {
+    if (!resolvedProfileId) return null
+    return directICPProfile || map?.icp_profile || icpProfiles.find(p => p.id === resolvedProfileId) || null
+  }, [resolvedProfileId, directICPProfile, map?.icp_profile, icpProfiles])
+
   const companies = map?.account_map_companies || []
-  // Personas come from the linked ICP profile if available, otherwise from inline (legacy)
-  const personas = map?.icp_profile?.buyer_personas || map?.buyer_personas || []
+  // Personas: prefer direct ICP profile query (most up-to-date, works right after linking),
+  // then map join, then inline legacy personas
+  const personas = (directICPProfile?.buyer_personas?.length ? directICPProfile.buyer_personas : null)
+    || map?.icp_profile?.buyer_personas
+    || map?.buyer_personas
+    || []
   const prospects = map?.prospects || []
 
   const handlePushProspectsToSalesforce = async (prospectIds: string[]) => {
@@ -208,8 +230,11 @@ export function AccountMapDetail() {
 
   const handleICPPickerConfirm = async () => {
     if (!map || !selectedICPProfileId) return
+    // Store the selected profile ID so the chat can use it immediately
+    // (refreshAccountMaps is void — it doesn't wait for the refetch to complete)
+    setPendingICPProfileId(selectedICPProfileId)
     await updateAccountMap(map.id, { icp_profile_id: selectedICPProfileId })
-    await refreshAccountMaps()
+    refreshAccountMaps() // Trigger background cache refresh (no await — it's void)
     setShowICPPicker(false)
     toast.success('ICP Profile linked')
     // Open the target dialog after linking
@@ -449,11 +474,14 @@ export function AccountMapDetail() {
       {/* Company Discovery Chat */}
       <CompanyDiscoveryChat
         open={showDiscoveryChat}
-        onOpenChange={setShowDiscoveryChat}
+        onOpenChange={(v) => {
+          setShowDiscoveryChat(v)
+          if (!v) setPendingICPProfileId(null) // Clear override once chat closes
+        }}
         accountMapId={map.id}
         ownerId={map.owner_id}
-        icpDescription={map.icp_profile?.description || map.icp_description}
-        icpBuilderData={map.icp_profile?.builder_data || map.filters_json?.icp_builder_data || null}
+        icpDescription={chatICPProfile?.description || map.icp_description || null}
+        icpBuilderData={(chatICPProfile?.builder_data as ICPBuilderData | null) || (map.filters_json?.icp_builder_data as ICPBuilderData | null) || null}
         existingCompanies={companies}
         excludedCompanyNames={companyRegistry
           .filter(e => (EXCLUSION_TYPES as string[]).includes(e.registry_type))

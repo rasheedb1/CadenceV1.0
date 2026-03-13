@@ -219,6 +219,8 @@ export function CompanyDiscoveryChat({
 
   // Check if we have ICP data to auto-send
   const hasICPData = useCallback((): boolean => {
+    // Check description first — even if builderData exists but is empty, description alone is enough
+    if (icpDescription) return true
     if (icpBuilderData) {
       const bd = icpBuilderData
       const hasArr = (arr: string[] | null | undefined) => (arr?.length ?? 0) > 0
@@ -238,7 +240,7 @@ export function CompanyDiscoveryChat({
         hasArr(bd.digitalPresence)
       )
     }
-    return !!icpDescription
+    return false
   }, [icpBuilderData, icpDescription])
 
   // Track whether auto-send has been triggered for this dialog open
@@ -495,11 +497,28 @@ export function CompanyDiscoveryChat({
           <div className="flex-1 min-h-0 overflow-y-auto pr-4">
             <div className="space-y-1 pb-2">
               {messages.length === 0 && !isLoading && (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Sparkles className="h-10 w-10 text-muted-foreground/40 mb-3" />
-                  <p className="text-sm text-muted-foreground">
-                    Describe what companies you&apos;re looking for to get started.
-                  </p>
+                <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
+                  <Sparkles className="h-10 w-10 text-muted-foreground/40" />
+                  {hasICPData() ? (
+                    <>
+                      <p className="text-sm text-muted-foreground">
+                        Your ICP is ready. Start discovering companies based on your criteria.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={() => sendMessage('Find companies matching my ICP criteria', [])}
+                      >
+                        <Sparkles className="h-3.5 w-3.5" />
+                        Find companies with my ICP
+                      </Button>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Describe what companies you&apos;re looking for to get started.
+                    </p>
+                  )}
                 </div>
               )}
 

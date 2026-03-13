@@ -32,6 +32,7 @@ import { Badge } from '@/components/ui/badge'
 import { LLMModelSelector } from '@/components/LLMModelSelector'
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Switch } from '@/components/ui/switch'
 import {
   Sparkles,
   Loader2,
@@ -44,6 +45,7 @@ import {
   AlertTriangle,
   Pencil,
   LinkIcon,
+  Zap,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -97,9 +99,9 @@ export function BulkAIGenerateDialog({
   const [phase, setPhase] = useState<Phase>('config')
   const [tone, setTone] = useState<Tone>('professional')
   const [selectedMessagePromptId, setSelectedMessagePromptId] = useState<string>('none')
-  const [selectedResearchPromptId, setSelectedResearchPromptId] = useState<string>('none')
   const [selectedSectionId, setSelectedSectionId] = useState<string>('none')
   const [customPrompt, setCustomPrompt] = useState('')
+  const [useSignals, setUseSignals] = useState(true)
 
   // Generate phase state
   const [genResults, setGenResults] = useState<LeadGenResult[]>([])
@@ -125,25 +127,6 @@ export function BulkAIGenerateDialog({
         .eq('owner_id', user.id)
         .eq('prompt_type', 'message')
         .eq('step_type', stepType)
-        .order('is_default', { ascending: false })
-        .order('name', { ascending: true })
-      if (error) throw error
-      return (data || []) as AIPrompt[]
-    },
-    enabled: !!user && !!orgId && open,
-  })
-
-  // Fetch research prompts
-  const { data: researchPrompts = [] } = useQuery({
-    queryKey: ['ai-prompts-research', orgId, user?.id],
-    queryFn: async () => {
-      if (!user) return []
-      const { data, error } = await supabase
-        .from('ai_prompts')
-        .select('*')
-        .eq('org_id', orgId!)
-        .eq('owner_id', user.id)
-        .eq('prompt_type', 'research')
         .order('is_default', { ascending: false })
         .order('name', { ascending: true })
       if (error) throw error
@@ -196,22 +179,15 @@ export function BulkAIGenerateDialog({
     }
   }, [messagePrompts])
 
-  useEffect(() => {
-    if (researchPrompts.length > 0 && selectedResearchPromptId === 'none') {
-      const defaultPrompt = researchPrompts.find(p => p.is_default)
-      if (defaultPrompt) setSelectedResearchPromptId(defaultPrompt.id)
-    }
-  }, [researchPrompts])
-
   // Reset on close
   useEffect(() => {
     if (!open) {
       setPhase('config')
       setTone('professional')
       setSelectedMessagePromptId('none')
-      setSelectedResearchPromptId('none')
       setSelectedSectionId('none')
       setCustomPrompt('')
+      setUseSignals(true)
       setGenResults([])
       setGenProgress({ current: 0, total: 0, currentName: '' })
       setSendResults([])
@@ -229,13 +205,6 @@ export function BulkAIGenerateDialog({
       return `${body}\n\n## Instrucciones adicionales:\n${customPrompt}`
     }
     return body || customPrompt || undefined
-  }
-
-  const getResearchPromptBody = (): string | undefined => {
-    if (selectedResearchPromptId !== 'none') {
-      return researchPrompts.find(p => p.id === selectedResearchPromptId)?.prompt_body
-    }
-    return undefined
   }
 
   const handleMessagePromptChange = (promptId: string) => {
@@ -259,7 +228,6 @@ export function BulkAIGenerateDialog({
     setGenProgress({ current: 0, total: leads.length, currentName: '' })
 
     const messageTemplate = getMessagePromptBody()
-    const researchPromptBody = getResearchPromptBody()
     const activePrompt = selectedMessagePromptId !== 'none'
       ? messagePrompts.find(p => p.id === selectedMessagePromptId)
       : undefined
@@ -287,12 +255,12 @@ export function BulkAIGenerateDialog({
           leadId: lead.id,
           stepType,
           messageTemplate,
-          researchPrompt: researchPromptBody,
           tone,
           language,
           exampleMessages: exampleMessageBodies,
           exampleNotes,
           customInstructions: customPrompt || undefined,
+          useSignals,
         }
         if (activePrompt) {
           if (activePrompt.objective) requestBody.objective = activePrompt.objective
@@ -468,29 +436,6 @@ export function BulkAIGenerateDialog({
           {/* ====== CONFIG PHASE ====== */}
           {phase === 'config' && (
             <>
-              {/* Research Prompt */}
-              <div>
-                <label className="text-sm text-muted-foreground mb-1 block">
-                  Prompt de Investigacion
-                </label>
-                <Select value={selectedResearchPromptId} onValueChange={setSelectedResearchPromptId}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="No usar ninguno" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No usar ninguno</SelectItem>
-                    {researchPrompts.map(p => (
-                      <SelectItem key={p.id} value={p.id}>
-                        <span className="flex items-center gap-1.5">
-                          {p.is_default && <Star className="h-3 w-3 text-amber-500 fill-amber-500" />}
-                          {p.name}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
               {/* Message Prompt */}
               <div>
                 <label className="text-sm text-muted-foreground mb-1 block">
@@ -554,6 +499,15 @@ export function BulkAIGenerateDialog({
                     </Button>
                   ))}
                 </div>
+              </div>
+
+              {/* Signals toggle */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-amber-500" />
+                  <span className="text-sm text-muted-foreground">Señales de venta</span>
+                </div>
+                <Switch checked={useSignals} onCheckedChange={setUseSignals} />
               </div>
 
               {/* Custom instructions */}
