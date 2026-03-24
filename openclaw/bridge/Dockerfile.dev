@@ -1,0 +1,12 @@
+FROM node:20-alpine
+
+RUN apk add --no-cache curl
+
+WORKDIR /app/bridge
+COPY package.json package-lock.json* ./
+RUN npm install
+COPY . .
+
+EXPOSE 3100
+
+CMD ["node", "--watch", "server.js"]
