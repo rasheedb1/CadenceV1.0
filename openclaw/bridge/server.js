@@ -173,7 +173,7 @@ class OpenClawClient {
     const params = {
       minProtocol: 3,
       maxProtocol: 3,
-      client: { id: "twilio-bridge", platform: "node", mode: "webchat" },
+      client: { id: "openclaw-control-ui", platform: "web", mode: "webchat", version: "2026.3.23" },
       role: "operator",
       scopes: ["operator.read", "operator.write"],
       device: {
