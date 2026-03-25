@@ -53,13 +53,17 @@ export function startLoginFlow(): string {
 /**
  * Complete the OAuth login by exchanging the authorization code for tokens.
  */
-export async function completeLogin(authCode: string): Promise<string> {
+export async function completeLogin(rawCode: string): Promise<string> {
   if (!pendingLogin) {
     throw new Error("No login in progress. Send /login first.");
   }
 
-  const { codeVerifier } = pendingLogin;
+  const { codeVerifier, state } = pendingLogin;
   pendingLogin = null;
+
+  // The user might paste "CODE#STATE" or just "CODE" — strip the state part
+  const authCode = rawCode.split("#")[0].trim();
+  console.log(`[auth] Exchanging code (${authCode.length} chars) for token...`);
 
   const response = await fetch(config.oauth.tokenEndpoint, {
     method: "POST",
@@ -70,6 +74,7 @@ export async function completeLogin(authCode: string): Promise<string> {
       redirect_uri: "https://platform.claude.com/oauth/code/callback",
       client_id: config.oauth.clientId,
       code_verifier: codeVerifier,
+      state,
     }),
   });
 
