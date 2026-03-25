@@ -167,30 +167,44 @@ class OpenClawClient {
   }
 
   async _sendConnect() {
-    // Generate a device key pair for the handshake
-    const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
-    // Export raw 32-byte public key (strip SPKI DER header)
-    const pubKeyDer = publicKey.export({ type: "spki", format: "der" });
-    const pubKeyRaw = pubKeyDer.slice(-32); // Last 32 bytes = raw Ed25519 key
-    const pubKeyB64 = pubKeyRaw.toString("base64");
+    // Generate persistent device key pair (Ed25519)
+    if (!this.deviceKeys) {
+      const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+      const pubRaw = publicKey.export({ type: "spki", format: "der" }).slice(-32);
+      const privRaw = privateKey.export({ type: "pkcs8", format: "der" }).slice(-32);
+      const pubHex = pubRaw.toString("hex");
+      // Device ID = SHA-256 of public key, truncated
+      const deviceId = crypto.createHash("sha256").update(pubRaw).digest("hex").substring(0, 16);
+      this.deviceKeys = { publicKey: pubHex, privateKeyObj: privateKey, deviceId, pubRaw };
+    }
+
+    const { publicKey: pubHex, privateKeyObj, deviceId } = this.deviceKeys;
     const signedAt = Date.now();
-    // Sign the nonce with the device private key
+    const clientId = "openclaw-control-ui";
+    const clientMode = "webchat";
+    const role = "operator";
+    const scopes = ["operator.read", "operator.write"];
+    const authToken = OPENCLAW_GATEWAY_TOKEN || "";
     const nonce = this.connectNonce || "";
-    const signature = crypto.sign(null, Buffer.from(nonce), privateKey).toString("base64");
-    console.log(`[oc] Device pubkey: ${pubKeyB64.substring(0,10)}... (${pubKeyRaw.length}b), nonce: ${nonce.substring(0,10)}...`);
+
+    // Sign payload: v2:deviceId:clientId:clientMode:role:scopes:signedAt:token
+    const signPayload = ["v2", deviceId, clientId, clientMode, role, scopes.join(","), String(signedAt), authToken].join(":");
+    const signature = crypto.sign(null, Buffer.from(signPayload), privateKeyObj).toString("hex");
+
+    console.log(`[oc] Device: ${deviceId}, payload prefix: ${signPayload.substring(0,60)}...`);
 
     const params = {
       minProtocol: 3,
       maxProtocol: 3,
-      client: { id: "openclaw-control-ui", platform: "web", mode: "webchat", version: "2026.3.23" },
-      role: "operator",
-      scopes: ["operator.read", "operator.write"],
+      client: { id: clientId, platform: "web", mode: clientMode, version: "2026.3.23" },
+      role,
+      scopes,
       device: {
-        id: "twilio-bridge-" + crypto.randomBytes(4).toString("hex"),
-        publicKey: pubKeyB64,
-        signature: signature,
-        signedAt: signedAt,
-        nonce: this.connectNonce || "",
+        id: deviceId,
+        publicKey: pubHex,
+        signature,
+        signedAt,
+        nonce,
       },
       caps: ["tool-events"],
       auth: OPENCLAW_GATEWAY_TOKEN ? { token: OPENCLAW_GATEWAY_TOKEN } : {},
