@@ -162,22 +162,31 @@ class OpenClawClient {
   }
 
   async _sendConnect() {
+    // Generate a device key pair for the handshake
+    const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+    const pubKeyDer = publicKey.export({ type: "spki", format: "der" });
+    const pubKeyB64 = pubKeyDer.toString("base64");
+    const signedAt = new Date().toISOString();
+    const signPayload = `${pubKeyB64}:${signedAt}:${this.connectNonce || ""}`;
+    const signature = crypto.sign(null, Buffer.from(signPayload), privateKey).toString("base64");
+
     const params = {
       minProtocol: 3,
       maxProtocol: 3,
-      client: "twilio-bridge",
+      client: { name: "twilio-bridge", version: "2.0" },
       role: "operator",
       scopes: ["operator.read", "operator.write"],
-      device: { id: "twilio-bridge-001", name: "Twilio WhatsApp Bridge" },
+      device: {
+        publicKey: pubKeyB64,
+        signature: signature,
+        signedAt: signedAt,
+        nonce: this.connectNonce || "",
+      },
       caps: ["tool-events"],
       auth: OPENCLAW_GATEWAY_TOKEN ? { token: OPENCLAW_GATEWAY_TOKEN } : {},
-      userAgent: "TwilioBridge/1.0",
+      userAgent: "TwilioBridge/2.0",
       locale: "es",
     };
-
-    if (this.connectNonce) {
-      params.nonce = this.connectNonce;
-    }
 
     try {
       const result = await this.request("connect", params);
