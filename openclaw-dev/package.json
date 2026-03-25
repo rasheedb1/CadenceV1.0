@@ -4,7 +4,7 @@
   "description": "Telegram bot that uses Claude Code to develop and QA Chief (Laiky AI)",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "./scripts/startup.sh",
     "dev": "tsx src/index.ts"
   },
   "dependencies": {

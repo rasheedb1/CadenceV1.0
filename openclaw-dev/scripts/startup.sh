@@ -3,6 +3,27 @@ set -e
 
 echo "=== Chief Dev Bot — Starting ==="
 
+# Install Claude Code CLI if not present
+if ! command -v claude &> /dev/null; then
+  echo "[startup] Installing Claude Code CLI..."
+  npm install -g @anthropic-ai/claude-code 2>&1 | tail -5
+  echo "[startup] Claude Code CLI installed: $(claude --version 2>/dev/null || echo 'installed')"
+fi
+
+# Install GitHub CLI if not present
+if ! command -v gh &> /dev/null; then
+  echo "[startup] Installing GitHub CLI..."
+  if command -v apt-get &> /dev/null; then
+    apt-get update -qq && apt-get install -y -qq gh 2>/dev/null || {
+      echo "[startup] gh via apt failed, trying direct install..."
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+      apt-get update -qq && apt-get install -y -qq gh
+    }
+  fi
+  echo "[startup] gh installed: $(gh --version 2>/dev/null | head -1 || echo 'not available')"
+fi
+
 # Clone or update repo
 if [ ! -d "/repo/.git" ]; then
   echo "[startup] Cloning repository..."
@@ -76,4 +97,15 @@ You receive tasks via Telegram and execute them autonomously in this codebase.
 CLAUDEMD
 
 echo "[startup] Config ready. Starting bot..."
-exec node /app/dist/index.js
+
+# Find the correct dist path (varies by builder)
+if [ -f "/app/dist/index.js" ]; then
+  exec node /app/dist/index.js
+elif [ -f "./dist/index.js" ]; then
+  exec node ./dist/index.js
+else
+  echo "[startup] ERROR: Cannot find dist/index.js"
+  echo "[startup] Current dir: $(pwd)"
+  echo "[startup] Contents: $(ls -la)"
+  exit 1
+fi
