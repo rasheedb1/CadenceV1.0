@@ -1,0 +1,75 @@
+{
+  "$schema": "https://openclaw.ai/schema/config.json",
+  "name": "Chief by Laiky AI",
+  "version": "1.0.0",
+  "description": "Sales automation assistant powered by Laiky AI, accessible via WhatsApp",
+
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 18789,
+    "protocol": "ws"
+  },
+
+  "http": {
+    "host": "0.0.0.0",
+    "port": 8080
+  },
+
+  "workspace": {
+    "path": "./workspace",
+    "soul": "./workspace/SOUL.md",
+    "agents": "./workspace/AGENTS.md",
+    "skills_dir": "./workspace/skills"
+  },
+
+  "channels": {
+    "whatsapp": {
+      "enabled": true,
+      "provider": "twilio-bridge",
+      "bridge_url": "http://localhost:3100",
+      "webhook_path": "/api/whatsapp/incoming",
+      "config": {
+        "max_message_length": 4096,
+        "split_long_messages": true,
+        "typing_indicator": false,
+        "response_timeout_seconds": 120
+      }
+    }
+  },
+
+  "llm": {
+    "provider": "openai",
+    "model": "gpt-4o",
+    "temperature": 0.3,
+    "max_tokens": 4096,
+    "api_key_env": "OPENAI_API_KEY"
+  },
+
+  "memory": {
+    "enabled": true,
+    "provider": "local",
+    "max_context_messages": 50,
+    "persist": true,
+    "storage_path": "./data/memory"
+  },
+
+  "tools": {
+    "http_requests": {
+      "enabled": true,
+      "allowed_domains": [
+        "arupeqczrxmfkcbjwyad.supabase.co"
+      ],
+      "default_headers": {
+        "Content-Type": "application/json"
+      },
+      "auth_header_env": "SUPABASE_SERVICE_ROLE_KEY",
+      "auth_header_prefix": "Bearer"
+    }
+  },
+
+  "logging": {
+    "level": "info",
+    "format": "json",
+    "output": "stdout"
+  }
+}

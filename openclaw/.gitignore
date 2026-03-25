@@ -1,0 +1,18 @@
+# Environment
+.env
+.env.local
+.env.production
+
+# Node
+node_modules/
+bridge/node_modules/
+
+# Data
+data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

@@ -1,0 +1,77 @@
+###############################################################################
+# OpenClaw + Twilio WhatsApp Bridge — Local Development
+###############################################################################
+#
+# Usage:
+#   1. Copy .env.example → .env and fill in values
+#   2. docker compose up --build
+#   3. Use ngrok or similar to expose port 3100 for Twilio webhook
+#
+###############################################################################
+
+version: "3.9"
+
+services:
+  # --------------------------------------------------------------------------
+  # OpenClaw Gateway — AI agent runtime
+  # --------------------------------------------------------------------------
+  openclaw:
+    image: node:20-alpine
+    # Replace with official OpenClaw image when available:
+    # image: openclaw/openclaw:latest
+    container_name: openclaw-gateway
+    working_dir: /app
+    volumes:
+      - ./workspace:/app/workspace:ro
+      - ./openclaw.json:/app/openclaw.json:ro
+      - openclaw-data:/app/data
+    ports:
+      - "8080:8080"
+      - "18789:18789"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - SUPABASE_URL=${SUPABASE_URL}
+    # Placeholder command — replace with actual OpenClaw start command
+    command: >
+      sh -c "echo 'OpenClaw gateway placeholder — replace with actual image/binary' && sleep infinity"
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Twilio WhatsApp Bridge — webhook receiver + WS relay
+  # --------------------------------------------------------------------------
+  bridge:
+    build:
+      context: .
+      dockerfile: bridge/Dockerfile.dev
+    container_name: twilio-bridge
+    working_dir: /app/bridge
+    volumes:
+      - ./bridge:/app/bridge
+    ports:
+      - "3100:3100"
+    environment:
+      - NODE_ENV=development
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_WHATSAPP_NUMBER=${TWILIO_WHATSAPP_NUMBER}
+      - OPENCLAW_GATEWAY_URL=ws://openclaw:18789
+      - BRIDGE_PORT=3100
+      - WEBHOOK_BASE_URL=${WEBHOOK_BASE_URL}
+    depends_on:
+      - openclaw
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3100/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  openclaw-data:
