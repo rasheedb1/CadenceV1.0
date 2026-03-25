@@ -1,12 +1,16 @@
 import express from "express";
 import { config, validateConfig } from "./config";
-import { createBot } from "./bot";
+import { createRouter } from "./bot";
 
-// Validate env vars
 validateConfig();
 
-// Health server (Railway needs this)
 const app = express();
+
+// Twilio sends form-encoded POSTs
+app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
+
+// Health
 app.get("/health", (_, res) => {
   res.json({
     status: "ok",
@@ -18,26 +22,18 @@ app.get("/", (_, res) => {
   res.json({ service: "chief-dev-bot", status: "running" });
 });
 
+// WhatsApp webhooks
+app.use(createRouter());
+
 app.listen(config.port, () => {
-  console.log(`[health] Listening on port ${config.port}`);
+  console.log(`[bot] Chief Dev Bot (WhatsApp) listening on port ${config.port}`);
+  console.log(`[bot] Allowed numbers: ${config.allowedNumbers.join(", ")}`);
+  console.log(`[bot] Default model: ${config.defaultModel}`);
 });
 
-// Start Telegram bot
-const bot = createBot();
-bot.start({
-  onStart: () => {
-    console.log("[bot] Chief Dev Bot is running");
-    console.log(`[bot] Allowed chat IDs: ${config.allowedChatIds.join(", ")}`);
-    console.log(`[bot] Default model: ${config.defaultModel}`);
-  },
-});
-
-// Graceful shutdown
-const shutdown = async () => {
+const shutdown = () => {
   console.log("[bot] Shutting down...");
-  bot.stop();
   process.exit(0);
 };
-
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);

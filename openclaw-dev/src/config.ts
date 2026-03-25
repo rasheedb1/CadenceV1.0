@@ -1,12 +1,17 @@
 export const config = {
-  // Telegram
-  telegramToken: process.env.TELEGRAM_BOT_TOKEN || "",
-  allowedChatIds: (process.env.ALLOWED_CHAT_IDS || "")
+  // Twilio / WhatsApp
+  twilio: {
+    accountSid: process.env.TWILIO_ACCOUNT_SID || "",
+    authToken: process.env.TWILIO_AUTH_TOKEN || "",
+    whatsappNumber: process.env.TWILIO_WHATSAPP_NUMBER || "",
+  },
+  // Allowed sender numbers (without whatsapp: prefix)
+  allowedNumbers: (process.env.ALLOWED_NUMBERS || "")
     .split(",")
-    .map((id) => id.trim())
+    .map((n) => n.trim())
     .filter(Boolean),
 
-  // Claude OAuth (Max plan — no per-token billing)
+  // Claude OAuth (Max plan)
   oauth: {
     accessToken: process.env.OAUTH_ACCESS_TOKEN || "",
     refreshToken: process.env.OAUTH_REFRESH_TOKEN || "",
@@ -17,7 +22,7 @@ export const config = {
       "user:file_upload user:inference user:mcp_servers user:profile user:sessions:claude_code",
   },
 
-  // Fallback API key (per-token billing)
+  // Fallback API key
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
 
   // GitHub
@@ -38,8 +43,9 @@ export const config = {
 
 export function validateConfig(): void {
   const required = [
-    ["TELEGRAM_BOT_TOKEN", config.telegramToken],
-    ["ALLOWED_CHAT_IDS", config.allowedChatIds.length > 0 ? "ok" : ""],
+    ["TWILIO_ACCOUNT_SID", config.twilio.accountSid],
+    ["TWILIO_AUTH_TOKEN", config.twilio.authToken],
+    ["TWILIO_WHATSAPP_NUMBER", config.twilio.whatsappNumber],
   ] as const;
 
   const missing = required.filter(([, v]) => !v).map(([k]) => k);
@@ -47,7 +53,6 @@ export function validateConfig(): void {
     throw new Error(`Missing required env vars: ${missing.join(", ")}`);
   }
 
-  // Must have either OAuth or API key
   if (!config.oauth.refreshToken && !config.anthropicApiKey) {
     throw new Error(
       "Must set either OAUTH_REFRESH_TOKEN (Max plan) or ANTHROPIC_API_KEY"

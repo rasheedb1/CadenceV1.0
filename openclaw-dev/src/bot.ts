@@ -1,222 +1,251 @@
-import { Bot, Context } from "grammy";
+import { Router, Request, Response } from "express";
+import twilio from "twilio";
 import { config } from "./config";
 import { runClaudeTask, gitPull, TaskOptions } from "./claude-runner";
 import { startLoginFlow, completeLogin, getAuthStatus } from "./token-manager";
 
-const MAX_TG_LENGTH = 4096;
+const WA_MAX_LENGTH = 4096;
+let activeTask: { from: string; startedAt: number } | null = null;
 
-// Track active tasks to prevent concurrent execution
-let activeTask: { chatId: number; startedAt: number } | null = null;
+// Twilio client for sending replies
+const twilioClient = twilio(config.twilio.accountSid, config.twilio.authToken);
 
 function splitMessage(text: string): string[] {
-  if (text.length <= MAX_TG_LENGTH) return [text];
-
+  if (text.length <= WA_MAX_LENGTH) return [text];
   const chunks: string[] = [];
   let remaining = text;
-
   while (remaining.length > 0) {
-    if (remaining.length <= MAX_TG_LENGTH) {
+    if (remaining.length <= WA_MAX_LENGTH) {
       chunks.push(remaining);
       break;
     }
-
-    let splitIdx = remaining.lastIndexOf("\n\n", MAX_TG_LENGTH);
-    if (splitIdx < MAX_TG_LENGTH * 0.3)
-      splitIdx = remaining.lastIndexOf("\n", MAX_TG_LENGTH);
-    if (splitIdx < MAX_TG_LENGTH * 0.3)
-      splitIdx = remaining.lastIndexOf(" ", MAX_TG_LENGTH);
-    if (splitIdx < 1) splitIdx = MAX_TG_LENGTH;
-
+    let splitIdx = remaining.lastIndexOf("\n\n", WA_MAX_LENGTH);
+    if (splitIdx < WA_MAX_LENGTH * 0.3)
+      splitIdx = remaining.lastIndexOf("\n", WA_MAX_LENGTH);
+    if (splitIdx < WA_MAX_LENGTH * 0.3)
+      splitIdx = remaining.lastIndexOf(" ", WA_MAX_LENGTH);
+    if (splitIdx < 1) splitIdx = WA_MAX_LENGTH;
     chunks.push(remaining.slice(0, splitIdx));
     remaining = remaining.slice(splitIdx).trimStart();
   }
-
   return chunks;
 }
 
-function isAllowed(ctx: Context): boolean {
-  const chatId = ctx.chat?.id?.toString();
-  return !!chatId && config.allowedChatIds.includes(chatId);
+function isAllowed(from: string): boolean {
+  // If no allowed numbers configured, allow all (open access)
+  if (config.allowedNumbers.length === 0) return true;
+  // from = "whatsapp:+521234567890"
+  return config.allowedNumbers.some((n) => from.includes(n));
 }
 
-function parseCommand(text: string): { model?: string; task: string } {
-  // /opus <task> — use opus model
-  if (text.startsWith("/opus ")) {
-    return { model: "claude-opus-4-6", task: text.slice(6).trim() };
+async function sendWhatsApp(to: string, body: string): Promise<void> {
+  const chunks = splitMessage(body);
+  for (const chunk of chunks) {
+    await twilioClient.messages.create({
+      from: config.twilio.whatsappNumber,
+      to,
+      body: chunk,
+    });
+    if (chunks.length > 1) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
   }
-  // /haiku <task> — use haiku model
-  if (text.startsWith("/haiku ")) {
-    return { model: "claude-haiku-4-5-20251001", task: text.slice(7).trim() };
-  }
-  // default: sonnet
-  return { task: text };
 }
 
-export function createBot(): Bot {
-  const bot = new Bot(config.telegramToken);
+function parseCommand(text: string): {
+  command?: string;
+  model?: string;
+  task: string;
+} {
+  const trimmed = text.trim();
 
-  // /start command
-  bot.command("start", async (ctx) => {
-    if (!isAllowed(ctx)) return;
-    await ctx.reply(
+  if (trimmed === "/start" || trimmed === "start")
+    return { command: "start", task: "" };
+  if (trimmed === "/status" || trimmed === "status")
+    return { command: "status", task: "" };
+  if (trimmed === "/pull" || trimmed === "pull")
+    return { command: "pull", task: "" };
+  if (trimmed === "/auth" || trimmed === "auth")
+    return { command: "auth", task: "" };
+  if (trimmed === "/login" || trimmed === "login")
+    return { command: "login", task: "" };
+
+  if (trimmed.startsWith("/code "))
+    return { command: "code", task: trimmed.slice(6).trim() };
+  if (trimmed.startsWith("code "))
+    return { command: "code", task: trimmed.slice(5).trim() };
+
+  if (trimmed.startsWith("/opus "))
+    return { model: "claude-opus-4-6", task: trimmed.slice(6).trim() };
+  if (trimmed.startsWith("/haiku "))
+    return { model: "claude-haiku-4-5-20251001", task: trimmed.slice(7).trim() };
+
+  return { task: trimmed };
+}
+
+async function handleMessage(from: string, body: string): Promise<void> {
+  if (!isAllowed(from)) {
+    console.log(`[bot] Rejected message from unauthorized number: ${from}`);
+    return;
+  }
+
+  const { command, model, task } = parseCommand(body);
+
+  // --- Commands ---
+  if (command === "start") {
+    await sendWhatsApp(
+      from,
       "Chief Dev Bot activo.\n\n" +
         "Envame una tarea y la ejecuto con Claude Code en el repo.\n\n" +
         "Comandos:\n" +
-        "/opus <tarea> - Usar Opus (mas capaz)\n" +
-        "/haiku <tarea> - Usar Haiku (mas rapido)\n" +
+        "/opus <tarea> - Usar Opus\n" +
+        "/haiku <tarea> - Usar Haiku\n" +
         "/pull - Actualizar repo\n" +
         "/status - Estado del bot\n" +
-        "/login - Autenticar con Max plan (gratis)\n" +
-        "/auth - Ver estado de autenticacion\n\n" +
+        "/login - Autenticar con Max plan\n" +
+        "/auth - Ver estado de auth\n\n" +
         "Por defecto usa Sonnet 4.6."
     );
-  });
+    return;
+  }
 
-  // /pull — git pull
-  bot.command("pull", async (ctx) => {
-    if (!isAllowed(ctx)) return;
-    try {
-      const result = await gitPull();
-      await ctx.reply(`git pull:\n${result}`);
-    } catch (err: any) {
-      await ctx.reply(`Error en git pull: ${err.message}`);
-    }
-  });
-
-  // /status — bot status
-  bot.command("status", async (ctx) => {
-    if (!isAllowed(ctx)) return;
+  if (command === "status") {
     const status = activeTask
       ? `Trabajando en tarea desde hace ${Math.round((Date.now() - activeTask.startedAt) / 1000)}s`
       : "Libre, esperando tarea";
-    await ctx.reply(`Estado: ${status}\nModelo default: ${config.defaultModel}\nAuth: ${getAuthStatus()}`);
-  });
+    await sendWhatsApp(
+      from,
+      `Estado: ${status}\nModelo: ${config.defaultModel}\nAuth: ${getAuthStatus()}`
+    );
+    return;
+  }
 
-  // /login — start OAuth login flow for Max plan
-  bot.command("login", async (ctx) => {
-    if (!isAllowed(ctx)) return;
+  if (command === "pull") {
+    try {
+      const result = await gitPull();
+      await sendWhatsApp(from, `git pull:\n${result}`);
+    } catch (err: any) {
+      await sendWhatsApp(from, `Error en git pull: ${err.message}`);
+    }
+    return;
+  }
+
+  if (command === "auth") {
+    await sendWhatsApp(from, `Auth: ${getAuthStatus()}`);
+    return;
+  }
+
+  if (command === "login") {
     try {
       const authUrl = startLoginFlow();
-      await ctx.reply(
+      await sendWhatsApp(
+        from,
         "Abre este link en tu browser e inicia sesion con tu cuenta de Claude:\n\n" +
           authUrl +
-          "\n\nDespues de autorizar, la pagina te dara un codigo. " +
-          "Copialo y mandamelo aqui con:\n/code TU_CODIGO"
+          "\n\nDespues de autorizar, te dara un codigo. Mandamelo aqui con:\n/code TU_CODIGO"
       );
     } catch (err: any) {
-      await ctx.reply(`Error: ${err.message}`);
+      await sendWhatsApp(from, `Error: ${err.message}`);
     }
-  });
+    return;
+  }
 
-  // /code <code> — complete OAuth login
-  bot.command("code", async (ctx) => {
-    if (!isAllowed(ctx)) return;
-    const authCode = ctx.match?.trim();
-    if (!authCode) {
-      await ctx.reply("Falta el codigo. Uso: /code TU_CODIGO_AQUI");
-      return;
-    }
-    try {
-      await ctx.reply("Intercambiando codigo por token...");
-      const result = await completeLogin(authCode);
-      await ctx.reply(result);
-    } catch (err: any) {
-      await ctx.reply(`Error en login: ${err.message}`);
-    }
-  });
-
-  // /auth — check auth status
-  bot.command("auth", async (ctx) => {
-    if (!isAllowed(ctx)) return;
-    await ctx.reply(`Auth: ${getAuthStatus()}`);
-  });
-
-  // Handle text messages — run as Claude Code task
-  bot.on("message:text", async (ctx) => {
-    if (!isAllowed(ctx)) return;
-
-    const text = ctx.message.text;
-
-    // Skip bot commands
-    if (text.startsWith("/")) {
-      return;
-    }
-
-    // Check if already busy
-    if (activeTask) {
-      const elapsed = Math.round((Date.now() - activeTask.startedAt) / 1000);
-      await ctx.reply(
-        `Ya estoy trabajando en una tarea (${elapsed}s). Espera a que termine.`
-      );
-      return;
-    }
-
-    const { model, task } = parseCommand(text);
+  if (command === "code") {
     if (!task) {
-      await ctx.reply("Envame una tarea. Ejemplo: 'Arregla el bug en process-queue'");
+      await sendWhatsApp(from, "Falta el codigo. Uso: /code TU_CODIGO_AQUI");
       return;
     }
-
-    const options: TaskOptions = {};
-    if (model) options.model = model;
-
-    // Mark as busy
-    activeTask = { chatId: ctx.chat.id, startedAt: Date.now() };
-
-    // Send "working" message
-    const modelName = model
-      ? model.includes("opus") ? "Opus" : model.includes("haiku") ? "Haiku" : "Sonnet"
-      : "Sonnet 4.5";
-    await ctx.reply(`Trabajando con ${modelName}...`);
-
-    // Keep typing indicator alive
-    const typingInterval = setInterval(async () => {
-      try {
-        await ctx.api.sendChatAction(ctx.chat.id, "typing");
-      } catch {}
-    }, 4000);
-
     try {
-      // Pull latest code first
-      try {
-        await gitPull();
-      } catch (pullErr: any) {
-        console.log(`[bot] git pull warning: ${pullErr.message}`);
-      }
-
-      // Run the task
-      const result = await runClaudeTask(task, options);
-
-      clearInterval(typingInterval);
-
-      // Format result
-      const duration = Math.round(result.durationMs / 1000);
-      const header =
-        result.exitCode === 0
-          ? `Listo (${duration}s)`
-          : `Terminado con errores (exit ${result.exitCode}, ${duration}s)`;
-
-      const fullMessage = `${header}\n\n${result.output}`;
-      const chunks = splitMessage(fullMessage);
-
-      for (const chunk of chunks) {
-        await ctx.reply(chunk);
-        if (chunks.length > 1) {
-          await new Promise((r) => setTimeout(r, 500));
-        }
-      }
+      await sendWhatsApp(from, "Intercambiando codigo por token...");
+      const result = await completeLogin(task);
+      await sendWhatsApp(from, result);
     } catch (err: any) {
-      clearInterval(typingInterval);
-      await ctx.reply(`Error: ${err.message}`);
-    } finally {
-      activeTask = null;
+      await sendWhatsApp(from, `Error en login: ${err.message}`);
+    }
+    return;
+  }
+
+  // --- Task execution ---
+  if (!task) {
+    await sendWhatsApp(from, "Envame una tarea. Ejemplo: 'Arregla el bug en process-queue'");
+    return;
+  }
+
+  if (activeTask) {
+    const elapsed = Math.round((Date.now() - activeTask.startedAt) / 1000);
+    await sendWhatsApp(
+      from,
+      `Ya estoy trabajando en una tarea (${elapsed}s). Espera a que termine.`
+    );
+    return;
+  }
+
+  const options: TaskOptions = {};
+  if (model) options.model = model;
+
+  activeTask = { from, startedAt: Date.now() };
+
+  const modelName = model
+    ? model.includes("opus")
+      ? "Opus"
+      : model.includes("haiku")
+        ? "Haiku"
+        : "Sonnet"
+    : "Sonnet 4.6";
+  await sendWhatsApp(from, `Trabajando con ${modelName}...`);
+
+  try {
+    try {
+      await gitPull();
+    } catch (pullErr: any) {
+      console.log(`[bot] git pull warning: ${pullErr.message}`);
+    }
+
+    const result = await runClaudeTask(task, options);
+
+    const duration = Math.round(result.durationMs / 1000);
+    const header =
+      result.exitCode === 0
+        ? `Listo (${duration}s)`
+        : `Terminado con errores (exit ${result.exitCode}, ${duration}s)`;
+
+    await sendWhatsApp(from, `${header}\n\n${result.output}`);
+  } catch (err: any) {
+    await sendWhatsApp(from, `Error: ${err.message}`);
+  } finally {
+    activeTask = null;
+  }
+}
+
+// --- Express Router ---
+
+export function createRouter(): Router {
+  const router = Router();
+
+  // Twilio sends form-encoded POSTs
+  router.post("/api/whatsapp/incoming", async (req: Request, res: Response) => {
+    const { From, Body, ProfileName, WaId, MessageSid } = req.body;
+
+    console.log(`[incoming] From=${From} Profile=${ProfileName} MsgSid=${MessageSid}`);
+    console.log(`[incoming] Body: ${Body?.substring(0, 200)}`);
+
+    // Acknowledge immediately to Twilio
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response></Response>`;
+    res.type("text/xml").send(twiml);
+
+    // Process async
+    if (Body && From) {
+      handleMessage(From, Body).catch((err) => {
+        console.error(`[bot] Error handling message from ${From}:`, err);
+      });
     }
   });
 
-  // Error handler
-  bot.catch((err) => {
-    console.error("[bot] Unhandled error:", err);
+  router.post("/api/whatsapp/status", (req: Request, res: Response) => {
+    const { MessageSid, MessageStatus, To } = req.body;
+    console.log(`[status] ${MessageSid} → ${MessageStatus} (to: ${To})`);
+    res.sendStatus(200);
   });
 
-  return bot;
+  return router;
 }
