@@ -445,7 +445,7 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
 });
 
 // ---------------------------------------------------------------------------
-// Start
+// Start HTTP server
 // ---------------------------------------------------------------------------
 const PORT = parseInt(BRIDGE_PORT, 10);
 app.listen(PORT, () => {
@@ -454,3 +454,234 @@ app.listen(PORT, () => {
   console.log(`  Gateway: ${OPENCLAW_GATEWAY_URL}`);
   console.log(`  Session: ${OPENCLAW_SESSION_KEY}`);
 });
+
+// =============================================================================
+// EMBEDDED GATEWAY — OpenClaw AI (Anthropic Claude + tool calling)
+// Runs in the same process to avoid supervisord multi-process issues.
+// =============================================================================
+
+const _AnthSdk = require("@anthropic-ai/sdk");
+const Anthropic = _AnthSdk.default || _AnthSdk;
+const path = require("path");
+const { readFileSync } = require("fs");
+
+const {
+  ANTHROPIC_API_KEY,
+  SUPABASE_URL: SB_URL = "https://arupeqczrxmfkcbjwyad.supabase.co",
+  SUPABASE_SERVICE_ROLE_KEY: SB_KEY,
+  GATEWAY_PORT: GW_PORT_STR = "18789",
+  CLAUDE_MODEL = "claude-sonnet-4-6",
+} = process.env;
+
+if (!ANTHROPIC_API_KEY || !SB_KEY) {
+  console.error("[gateway] Missing ANTHROPIC_API_KEY or SUPABASE_SERVICE_ROLE_KEY — gateway disabled");
+} else {
+  // Load workspace context
+  const workspaceDir = path.join(__dirname, "..", "workspace");
+  let SYSTEM_PROMPT;
+  try {
+    const soul = readFileSync(path.join(workspaceDir, "SOUL.md"), "utf8");
+    const agents = readFileSync(path.join(workspaceDir, "AGENTS.md"), "utf8");
+    SYSTEM_PROMPT = `${soul}\n\n---\n\n${agents}`;
+  } catch (err) {
+    console.error("[gateway] Failed to load workspace files:", err.message);
+    process.exit(1);
+  }
+
+  const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+
+  // Supabase helpers
+  function sbHeaders(edge = false) {
+    const h = { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` };
+    if (!edge) h["apikey"] = SB_KEY;
+    return h;
+  }
+  async function sbFetch(url, opts = {}) {
+    const res = await fetch(url, opts);
+    const txt = await res.text();
+    try { return JSON.parse(txt); } catch { return { _raw: txt, _status: res.status }; }
+  }
+
+  // Tools (Anthropic format)
+  const gwTools = [
+    { name: "buscar_prospectos", description: "Busca prospectos en una empresa usando LinkedIn Sales Navigator (L1→L2→L3).", input_schema: { type: "object", properties: { org_id: { type: "string" }, company_name: { type: "string" }, company_domain: { type: "string" }, titles: { type: "array", items: { type: "string" } }, seniority_levels: { type: "array", items: { type: "string" } }, limit: { type: "number" }, buyer_persona_id: { type: "string" } }, required: ["org_id", "company_name"] } },
+    { name: "crear_cadencia", description: "Crea una cadencia de outreach con pasos. Confirma con el usuario antes de ejecutar.", input_schema: { type: "object", properties: { org_id: { type: "string" }, name: { type: "string" }, description: { type: "string" }, steps: { type: "array", items: { type: "object", properties: { step_number: { type: "number" }, step_type: { type: "string", enum: ["linkedin_connect","linkedin_message","linkedin_inmail","email","manual_task","linkedin_like","linkedin_comment"] }, delay_days: { type: "number" }, template: { type: "string" }, subject: { type: "string" } }, required: ["step_number","step_type","delay_days","template"] } } }, required: ["org_id","name","steps"] } },
+    { name: "descubrir_empresas", description: "Descubre empresas que encajan con el ICP.", input_schema: { type: "object", properties: { org_id: { type: "string" }, icp_profile_id: { type: "string" }, criteria: { type: "object", properties: { industries: { type: "array", items: { type: "string" } }, employee_range: { type: "string" }, revenue_range: { type: "string" }, locations: { type: "array", items: { type: "string" } }, technologies: { type: "array", items: { type: "string" } } } }, limit: { type: "number" }, exclude_existing: { type: "boolean" } }, required: ["org_id"] } },
+    { name: "investigar_empresa", description: "Investiga una empresa a fondo — noticias, tech stack, insights.", input_schema: { type: "object", properties: { org_id: { type: "string" }, company_name: { type: "string" }, company_domain: { type: "string" }, depth: { type: "string", enum: ["quick","deep"] } }, required: ["org_id","company_name"] } },
+    { name: "enriquecer_prospectos", description: "Enriquece un prospecto con email y datos de LinkedIn.", input_schema: { type: "object", properties: { org_id: { type: "string" }, prospect_id: { type: "string" }, first_name: { type: "string" }, last_name: { type: "string" }, company: { type: "string" }, company_domain: { type: "string" }, linkedin_url: { type: "string" }, enrich_email: { type: "boolean" }, enrich_phone: { type: "boolean" } }, required: ["org_id"] } },
+    { name: "ver_actividad", description: "Consulta el log de actividades — mensajes enviados, respuestas, errores.", input_schema: { type: "object", properties: { org_id: { type: "string" }, lead_id: { type: "string" }, cadence_id: { type: "string" }, activity_type: { type: "string" }, status: { type: "string" }, date_from: { type: "string" }, limit: { type: "number" } }, required: ["org_id"] } },
+    { name: "enviar_mensaje", description: "Envía un mensaje por LinkedIn. Confirmar con usuario antes.", input_schema: { type: "object", properties: { org_id: { type: "string" }, sender_account_id: { type: "string" }, recipient_provider_id: { type: "string" }, message: { type: "string" }, message_type: { type: "string", enum: ["message","inmail","connection_request"] } }, required: ["org_id","sender_account_id","recipient_provider_id","message","message_type"] } },
+    { name: "business_case", description: "Genera un business case personalizado para una empresa.", input_schema: { type: "object", properties: { org_id: { type: "string" }, company_name: { type: "string" }, company_domain: { type: "string" }, prospect_name: { type: "string" }, prospect_title: { type: "string" }, pain_points: { type: "array", items: { type: "string" } }, our_solution: { type: "string" }, research_data: { type: "object" }, language: { type: "string", enum: ["es","en"] } }, required: ["org_id","company_name"] } },
+    { name: "ver_metricas", description: "Consulta métricas de cadencias — respuesta, conexión, conversión.", input_schema: { type: "object", properties: { org_id: { type: "string" }, cadence_id: { type: "string" }, date_from: { type: "string" }, date_to: { type: "string" } }, required: ["org_id"] } },
+    { name: "gestionar_leads", description: "CRUD sobre leads — listar, crear, actualizar, asignar a cadencias.", input_schema: { type: "object", properties: { org_id: { type: "string" }, operation: { type: "string", enum: ["list","create","update","assign_to_cadence","remove_from_cadence"] }, filters: { type: "object", properties: { status: { type: "string" }, company: { type: "string" }, limit: { type: "number" } } }, lead: { type: "object", properties: { first_name: { type: "string" }, last_name: { type: "string" }, email: { type: "string" }, company: { type: "string" }, title: { type: "string" }, linkedin_url: { type: "string" }, provider_id: { type: "string" }, status: { type: "string" }, source: { type: "string" } } }, lead_id: { type: "string" }, lead_ids: { type: "array", items: { type: "string" } }, updates: { type: "object" }, cadence_id: { type: "string" } }, required: ["org_id","operation"] } },
+  ];
+
+  async function gwExecuteTool(name, args) {
+    const base = SB_URL;
+    try {
+      switch (name) {
+        case "buscar_prospectos": return await sbFetch(`${base}/functions/v1/cascade-search-company`, { method: "POST", headers: sbHeaders(true), body: JSON.stringify(args) });
+        case "crear_cadencia": {
+          const { steps, ...cd } = args;
+          const cad = await sbFetch(`${base}/rest/v1/cadences`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" }, body: JSON.stringify({ ...cd, status: "draft" }) });
+          const c = Array.isArray(cad) ? cad[0] : cad;
+          if (!c?.id) return { success: false, error: "No se pudo crear la cadencia", details: cad };
+          const rows = steps.map(s => ({ ...s, cadence_id: c.id, org_id: args.org_id }));
+          const created = await sbFetch(`${base}/rest/v1/cadence_steps`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" }, body: JSON.stringify(rows) });
+          return { success: true, cadence_id: c.id, cadence_name: c.name, steps_created: Array.isArray(created) ? created.length : 0 };
+        }
+        case "descubrir_empresas": return await sbFetch(`${base}/functions/v1/discover-icp-companies`, { method: "POST", headers: sbHeaders(true), body: JSON.stringify(args) });
+        case "investigar_empresa": return await sbFetch(`${base}/functions/v1/company-research`, { method: "POST", headers: sbHeaders(true), body: JSON.stringify(args) });
+        case "enriquecer_prospectos": return await sbFetch(`${base}/functions/v1/enrich-prospect`, { method: "POST", headers: sbHeaders(true), body: JSON.stringify(args) });
+        case "ver_actividad": {
+          const p = new URLSearchParams({ select: "*", org_id: `eq.${args.org_id}`, order: "created_at.desc", limit: String(args.limit || 20) });
+          if (args.lead_id) p.set("lead_id", `eq.${args.lead_id}`);
+          if (args.cadence_id) p.set("cadence_id", `eq.${args.cadence_id}`);
+          if (args.activity_type) p.set("activity_type", `eq.${args.activity_type}`);
+          if (args.status) p.set("status", `eq.${args.status}`);
+          if (args.date_from) p.set("created_at", `gte.${args.date_from}`);
+          const data = await sbFetch(`${base}/rest/v1/activity_log?${p}`, { headers: sbHeaders() });
+          return { success: true, activities: data, total: Array.isArray(data) ? data.length : 0 };
+        }
+        case "enviar_mensaje": return await sbFetch(`${base}/functions/v1/linkedin-send-message`, { method: "POST", headers: sbHeaders(true), body: JSON.stringify(args) });
+        case "business_case": return await sbFetch(`${base}/functions/v1/generate-business-case`, { method: "POST", headers: sbHeaders(true), body: JSON.stringify(args) });
+        case "ver_metricas": {
+          const cp = new URLSearchParams({ select: "*", org_id: `eq.${args.org_id}` });
+          if (args.cadence_id) cp.set("id", `eq.${args.cadence_id}`);
+          const ap = new URLSearchParams({ select: "activity_type,status,created_at", org_id: `eq.${args.org_id}`, limit: "1000" });
+          if (args.cadence_id) ap.set("cadence_id", `eq.${args.cadence_id}`);
+          const lp = new URLSearchParams({ select: "status,cadence_id", org_id: `eq.${args.org_id}` });
+          if (args.cadence_id) lp.set("cadence_id", `eq.${args.cadence_id}`);
+          const [cads, acts, leads] = await Promise.all([
+            sbFetch(`${base}/rest/v1/cadences?${cp}`, { headers: sbHeaders() }),
+            sbFetch(`${base}/rest/v1/activity_log?${ap}`, { headers: sbHeaders() }),
+            sbFetch(`${base}/rest/v1/cadence_leads?${lp}`, { headers: sbHeaders() }),
+          ]);
+          return { success: true, cadences: cads, activities: acts, cadence_leads: leads };
+        }
+        case "gestionar_leads": {
+          const { org_id, operation, filters, lead, lead_id, lead_ids, updates, cadence_id } = args;
+          if (operation === "list") {
+            const p = new URLSearchParams({ select: "*", org_id: `eq.${org_id}`, order: "created_at.desc", limit: String(filters?.limit || 20) });
+            if (filters?.status) p.set("status", `eq.${filters.status}`);
+            if (filters?.company) p.set("company", `eq.${filters.company}`);
+            const data = await sbFetch(`${base}/rest/v1/leads?${p}`, { headers: sbHeaders() });
+            return { success: true, leads: data, total: Array.isArray(data) ? data.length : 0 };
+          }
+          if (operation === "create") {
+            const data = await sbFetch(`${base}/rest/v1/leads`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" }, body: JSON.stringify({ ...lead, org_id }) });
+            const c = Array.isArray(data) ? data[0] : data;
+            return { success: !!c?.id, lead: c };
+          }
+          if (operation === "update") {
+            const data = await sbFetch(`${base}/rest/v1/leads?id=eq.${lead_id}&org_id=eq.${org_id}`, { method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=representation" }, body: JSON.stringify(updates) });
+            const u = Array.isArray(data) ? data[0] : data;
+            return { success: !!u?.id, lead: u };
+          }
+          if (operation === "assign_to_cadence") {
+            const ids = lead_ids?.length ? lead_ids : (lead_id ? [lead_id] : []);
+            if (!ids.length) return { success: false, error: "Se requiere lead_id o lead_ids" };
+            const rows = ids.map(id => ({ cadence_id, lead_id: id, org_id, status: "active", current_step: 1 }));
+            const data = await sbFetch(`${base}/rest/v1/cadence_leads`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" }, body: JSON.stringify(rows) });
+            return { success: true, assigned: Array.isArray(data) ? data.length : 0 };
+          }
+          if (operation === "remove_from_cadence") {
+            await fetch(`${base}/rest/v1/cadence_leads?lead_id=eq.${lead_id}&cadence_id=eq.${cadence_id}&org_id=eq.${org_id}`, { method: "DELETE", headers: sbHeaders() });
+            return { success: true };
+          }
+          return { success: false, error: `Operación desconocida: ${operation}` };
+        }
+        default: return { success: false, error: `Tool desconocida: ${name}` };
+      }
+    } catch (err) {
+      console.error(`[gateway] tool ${name} error:`, err.message);
+      return { success: false, error: err.message };
+    }
+  }
+
+  const gwConversations = new Map();
+  const GW_MAX_HISTORY = 50;
+
+  async function gwProcessMessage(sessionKey, message) {
+    if (!gwConversations.has(sessionKey)) gwConversations.set(sessionKey, []);
+    const history = gwConversations.get(sessionKey);
+    history.push({ role: "user", content: message });
+
+    for (let i = 0; i < 10; i++) {
+      const response = await anthropic.messages.create({
+        model: CLAUDE_MODEL,
+        max_tokens: 4096,
+        system: SYSTEM_PROMPT,
+        messages: history,
+        tools: gwTools,
+      });
+
+      history.push({ role: "assistant", content: response.content });
+
+      if (response.stop_reason === "tool_use") {
+        const blocks = response.content.filter(b => b.type === "tool_use");
+        const results = await Promise.all(blocks.map(async (b) => {
+          const r = await gwExecuteTool(b.name, b.input);
+          console.log(`[gateway] tool ${b.name} →`, JSON.stringify(r).substring(0, 150));
+          return { type: "tool_result", tool_use_id: b.id, content: JSON.stringify(r) };
+        }));
+        history.push({ role: "user", content: results });
+        continue;
+      }
+
+      const text = response.content.find(b => b.type === "text")?.text || "";
+      if (history.length > GW_MAX_HISTORY) gwConversations.set(sessionKey, history.slice(-GW_MAX_HISTORY));
+      return text;
+    }
+    return "Hubo un problema procesando tu solicitud. Intenta de nuevo.";
+  }
+
+  // Start embedded gateway WebSocket server
+  const { WebSocketServer: GwWSS } = require("ws");
+  const GW_PORT = parseInt(GW_PORT_STR, 10);
+  const gwServer = new GwWSS({ port: GW_PORT, host: "0.0.0.0" });
+
+  gwServer.on("connection", (ws) => {
+    let authorized = false;
+    const nonce = crypto.randomBytes(16).toString("hex");
+    ws.send(JSON.stringify({ type: "event", event: "connect.challenge", payload: { nonce } }));
+
+    ws.on("message", async (data) => {
+      let msg;
+      try { msg = JSON.parse(data.toString()); } catch { return; }
+      if (msg.type !== "req") return;
+
+      if (msg.method === "connect") {
+        authorized = true;
+        ws.send(JSON.stringify({ type: "res", id: msg.id, result: { protocol: 3, auth: { role: msg.params?.role || "operator" }, ok: true } }));
+        return;
+      }
+      if (!authorized) { ws.send(JSON.stringify({ type: "res", id: msg.id, result: { error: "Not authorized" } })); return; }
+
+      if (msg.method === "chat.send") {
+        const { sessionKey = "default", message } = msg.params || {};
+        if (!message) { ws.send(JSON.stringify({ type: "res", id: msg.id, result: { ok: false } })); return; }
+        console.log(`[gateway] chat.send session=${sessionKey} "${message.substring(0, 80)}"`);
+        ws.send(JSON.stringify({ type: "res", id: msg.id, result: { ok: true } }));
+        gwProcessMessage(sessionKey, message)
+          .then(reply => {
+            console.log(`[gateway] reply "${reply.substring(0, 80)}"`);
+            ws.send(JSON.stringify({ type: "event", event: "chat.message", data: { content: reply } }));
+          })
+          .catch(err => {
+            console.error("[gateway] error:", err.message);
+            ws.send(JSON.stringify({ type: "event", event: "chat.message", data: { content: "Error interno. Intenta de nuevo." } }));
+          });
+        return;
+      }
+      ws.send(JSON.stringify({ type: "res", id: msg.id, result: { error: `Unknown method: ${msg.method}` } }));
+    });
+
+    ws.on("error", err => console.error("[gateway] ws error:", err.message));
+  });
+
+  console.log(`🤖 Gateway embedded on ws://0.0.0.0:${GW_PORT} (${CLAUDE_MODEL})`);
+  // Note: the original IIFE (ocClient.connect()) already handles initial connection.
+  // The gateway WS server is synchronously registered before the event loop processes
+  // the TCP connection, so the IIFE's connect() will succeed.
+}
