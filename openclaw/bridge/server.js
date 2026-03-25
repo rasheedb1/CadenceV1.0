@@ -166,17 +166,18 @@ class OpenClawClient {
     const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
     const pubKeyDer = publicKey.export({ type: "spki", format: "der" });
     const pubKeyB64 = pubKeyDer.toString("base64");
-    const signedAt = new Date().toISOString();
+    const signedAt = Date.now();
     const signPayload = `${pubKeyB64}:${signedAt}:${this.connectNonce || ""}`;
     const signature = crypto.sign(null, Buffer.from(signPayload), privateKey).toString("base64");
 
     const params = {
       minProtocol: 3,
       maxProtocol: 3,
-      client: { name: "twilio-bridge", version: "2.0" },
+      client: { id: "twilio-bridge", platform: "node", mode: "webchat" },
       role: "operator",
       scopes: ["operator.read", "operator.write"],
       device: {
+        id: "twilio-bridge-" + crypto.randomBytes(4).toString("hex"),
         publicKey: pubKeyB64,
         signature: signature,
         signedAt: signedAt,
