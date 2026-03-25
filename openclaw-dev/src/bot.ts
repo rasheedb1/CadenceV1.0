@@ -1,6 +1,7 @@
 import { Bot, Context } from "grammy";
 import { config } from "./config";
 import { runClaudeTask, gitPull, TaskOptions } from "./claude-runner";
+import { startLoginFlow, completeLogin, getAuthStatus } from "./token-manager";
 
 const MAX_TG_LENGTH = 4096;
 
@@ -64,8 +65,10 @@ export function createBot(): Bot {
         "/opus <tarea> - Usar Opus (mas capaz)\n" +
         "/haiku <tarea> - Usar Haiku (mas rapido)\n" +
         "/pull - Actualizar repo\n" +
-        "/status - Estado del bot\n\n" +
-        "Por defecto usa Sonnet 4.5."
+        "/status - Estado del bot\n" +
+        "/login - Autenticar con Max plan (gratis)\n" +
+        "/auth - Ver estado de autenticacion\n\n" +
+        "Por defecto usa Sonnet 4.6."
     );
   });
 
@@ -86,7 +89,46 @@ export function createBot(): Bot {
     const status = activeTask
       ? `Trabajando en tarea desde hace ${Math.round((Date.now() - activeTask.startedAt) / 1000)}s`
       : "Libre, esperando tarea";
-    await ctx.reply(`Estado: ${status}\nModelo default: ${config.defaultModel}`);
+    await ctx.reply(`Estado: ${status}\nModelo default: ${config.defaultModel}\nAuth: ${getAuthStatus()}`);
+  });
+
+  // /login — start OAuth login flow for Max plan
+  bot.command("login", async (ctx) => {
+    if (!isAllowed(ctx)) return;
+    try {
+      const authUrl = startLoginFlow();
+      await ctx.reply(
+        "Abre este link en tu browser e inicia sesion con tu cuenta de Claude:\n\n" +
+          authUrl +
+          "\n\nDespues de autorizar, la pagina te dara un codigo. " +
+          "Copialo y mandamelo aqui con:\n/code TU_CODIGO"
+      );
+    } catch (err: any) {
+      await ctx.reply(`Error: ${err.message}`);
+    }
+  });
+
+  // /code <code> — complete OAuth login
+  bot.command("code", async (ctx) => {
+    if (!isAllowed(ctx)) return;
+    const authCode = ctx.match?.trim();
+    if (!authCode) {
+      await ctx.reply("Falta el codigo. Uso: /code TU_CODIGO_AQUI");
+      return;
+    }
+    try {
+      await ctx.reply("Intercambiando codigo por token...");
+      const result = await completeLogin(authCode);
+      await ctx.reply(result);
+    } catch (err: any) {
+      await ctx.reply(`Error en login: ${err.message}`);
+    }
+  });
+
+  // /auth — check auth status
+  bot.command("auth", async (ctx) => {
+    if (!isAllowed(ctx)) return;
+    await ctx.reply(`Auth: ${getAuthStatus()}`);
   });
 
   // Handle text messages — run as Claude Code task
@@ -95,8 +137,8 @@ export function createBot(): Bot {
 
     const text = ctx.message.text;
 
-    // Skip other bot commands
-    if (text.startsWith("/start") || text.startsWith("/pull") || text.startsWith("/status")) {
+    // Skip bot commands
+    if (text.startsWith("/")) {
       return;
     }
 
