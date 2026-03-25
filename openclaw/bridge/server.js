@@ -74,7 +74,12 @@ class OpenClawClient {
   connect() {
     return new Promise((resolve, reject) => {
       console.log(`[oc] Connecting to ${this.url}`);
-      this.ws = new WebSocket(this.url);
+      this.ws = new WebSocket(this.url, {
+        headers: {
+          Origin: "https://openclaw-production-1352.up.railway.app",
+          "User-Agent": "TwilioBridge/2.0",
+        },
+      });
 
       const timeout = setTimeout(() => {
         reject(new Error("Connection timeout (30s)"));
