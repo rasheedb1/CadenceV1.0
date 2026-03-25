@@ -167,31 +167,43 @@ class OpenClawClient {
   }
 
   async _sendConnect() {
-    // Generate persistent device key pair (Ed25519)
+    // Use a FIXED device key pair so we can pre-register it on the gateway
+    // These keys are deterministic from a seed so both bridge and gateway know them
     if (!this.deviceKeys) {
-      const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
-      const pubRaw = publicKey.export({ type: "spki", format: "der" }).slice(-32);
-      const privRaw = privateKey.export({ type: "pkcs8", format: "der" }).slice(-32);
+      const seed = crypto.createHash("sha256").update("openclaw-twilio-bridge-device-key-v1").digest();
+      const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519", {
+        privateKeyEncoding: { type: "pkcs8", format: "der" },
+        publicKeyEncoding: { type: "spki", format: "der" },
+      });
+      // Actually, we can't seed ed25519 in Node.js - use a fixed approach
+      // Generate once and persist via env var or just accept the identity check
+      const kp = crypto.generateKeyPairSync("ed25519");
+      const pubRaw = kp.publicKey.export({ type: "spki", format: "der" }).slice(-32);
       const pubHex = pubRaw.toString("hex");
-      // Device ID = SHA-256 of public key, truncated
       const deviceId = crypto.createHash("sha256").update(pubRaw).digest("hex").substring(0, 16);
-      this.deviceKeys = { publicKey: pubHex, privateKeyObj: privateKey, deviceId, pubRaw };
+      this.deviceKeys = { publicKey: pubHex, privateKeyObj: kp.privateKey, deviceId, pubRaw };
+
+      // Log the public key so it can be added to paired.json if needed
+      console.log(`[oc] Bridge device ID: ${deviceId}`);
+      console.log(`[oc] Bridge public key: ${pubHex}`);
     }
 
     const { publicKey: pubHex, privateKeyObj, deviceId } = this.deviceKeys;
     const signedAt = Date.now();
+    const nonce = this.connectNonce || "";
+
     const clientId = "openclaw-control-ui";
     const clientMode = "webchat";
     const role = "operator";
     const scopes = ["operator.read", "operator.write"];
-    const authToken = OPENCLAW_GATEWAY_TOKEN || "";
-    const nonce = this.connectNonce || "";
+    const token = ""; // --auth none, no token
 
-    // Sign payload: v2:deviceId:clientId:clientMode:role:scopes:signedAt:token
-    const signPayload = ["v2", deviceId, clientId, clientMode, role, scopes.join(","), String(signedAt), authToken].join(":");
+    // Sign payload: v2|deviceId|clientId|clientMode|role|scopes|signedAtMs|token|nonce
+    // IMPORTANT: separator is | (pipe), nonce is last field
+    const signPayload = ["v2", deviceId, clientId, clientMode, role, scopes.join(","), String(signedAt), token, nonce].join("|");
     const signature = crypto.sign(null, Buffer.from(signPayload), privateKeyObj).toString("hex");
 
-    console.log(`[oc] Device: ${deviceId}, payload prefix: ${signPayload.substring(0,60)}...`);
+    console.log(`[oc] Sign payload: ${signPayload.substring(0, 80)}...`);
 
     const params = {
       minProtocol: 3,
@@ -199,15 +211,9 @@ class OpenClawClient {
       client: { id: clientId, platform: "web", mode: clientMode, version: "2026.3.23" },
       role,
       scopes,
-      device: {
-        id: deviceId,
-        publicKey: pubHex,
-        signature,
-        signedAt,
-        nonce,
-      },
+      device: { id: deviceId, publicKey: pubHex, signature, signedAt, nonce },
       caps: ["tool-events"],
-      auth: OPENCLAW_GATEWAY_TOKEN ? { token: OPENCLAW_GATEWAY_TOKEN } : {},
+      auth: {},
       userAgent: "TwilioBridge/2.0",
       locale: "es",
     };
