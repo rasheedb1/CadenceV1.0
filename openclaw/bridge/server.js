@@ -169,12 +169,15 @@ class OpenClawClient {
   async _sendConnect() {
     // Generate a device key pair for the handshake
     const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+    // Export raw 32-byte public key (strip SPKI DER header)
     const pubKeyDer = publicKey.export({ type: "spki", format: "der" });
-    const pubKeyB64 = pubKeyDer.toString("base64");
+    const pubKeyRaw = pubKeyDer.slice(-32); // Last 32 bytes = raw Ed25519 key
+    const pubKeyB64 = pubKeyRaw.toString("base64");
     const signedAt = Date.now();
     // Sign the nonce with the device private key
     const nonce = this.connectNonce || "";
     const signature = crypto.sign(null, Buffer.from(nonce), privateKey).toString("base64");
+    console.log(`[oc] Device pubkey: ${pubKeyB64.substring(0,10)}... (${pubKeyRaw.length}b), nonce: ${nonce.substring(0,10)}...`);
 
     const params = {
       minProtocol: 3,
