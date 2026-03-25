@@ -167,25 +167,18 @@ class OpenClawClient {
   }
 
   async _sendConnect() {
-    // Use a FIXED device key pair so we can pre-register it on the gateway
-    // These keys are deterministic from a seed so both bridge and gateway know them
+    // Use a FIXED device key pair that's pre-registered in the gateway's paired.json
     if (!this.deviceKeys) {
-      const seed = crypto.createHash("sha256").update("openclaw-twilio-bridge-device-key-v1").digest();
-      const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519", {
-        privateKeyEncoding: { type: "pkcs8", format: "der" },
-        publicKeyEncoding: { type: "spki", format: "der" },
+      const privPkcs8B64 = process.env.BRIDGE_DEVICE_PRIV_PKCS8 || "MC4CAQAwBQYDK2VwBCIEIES3M2mQg2KWlOK3awTyyr+/VB9HnP+AApGU6lKAYXf3";
+      const privateKeyObj = crypto.createPrivateKey({
+        key: Buffer.from(privPkcs8B64, "base64"),
+        format: "der",
+        type: "pkcs8",
       });
-      // Actually, we can't seed ed25519 in Node.js - use a fixed approach
-      // Generate once and persist via env var or just accept the identity check
-      const kp = crypto.generateKeyPairSync("ed25519");
-      const pubRaw = kp.publicKey.export({ type: "spki", format: "der" }).slice(-32);
-      const pubHex = pubRaw.toString("hex");
-      const deviceId = crypto.createHash("sha256").update(pubRaw).digest("hex").substring(0, 16);
-      this.deviceKeys = { publicKey: pubHex, privateKeyObj: kp.privateKey, deviceId, pubRaw };
-
-      // Log the public key so it can be added to paired.json if needed
-      console.log(`[oc] Bridge device ID: ${deviceId}`);
-      console.log(`[oc] Bridge public key: ${pubHex}`);
+      const pubHex = "6ba347b711c57dbc0032b7c2bff32e7982516218392e515bd6428ab33b1bc227";
+      const deviceId = "d5679b0ffc21ab3d";
+      this.deviceKeys = { publicKey: pubHex, privateKeyObj, deviceId };
+      console.log(`[oc] Using fixed device: ${deviceId}`);
     }
 
     const { publicKey: pubHex, privateKeyObj, deviceId } = this.deviceKeys;
