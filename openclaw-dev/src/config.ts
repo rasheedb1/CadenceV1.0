@@ -31,7 +31,7 @@ export const config = {
   port: parseInt(process.env.PORT || "8080"),
 
   // Claude Code defaults
-  defaultModel: "claude-sonnet-4-5-20250514",
+  defaultModel: "claude-sonnet-4-6",
   maxTurns: 50,
   maxBudgetUsd: 10,
 } as const;

@@ -41,7 +41,7 @@ function isAllowed(ctx: Context): boolean {
 function parseCommand(text: string): { model?: string; task: string } {
   // /opus <task> — use opus model
   if (text.startsWith("/opus ")) {
-    return { model: "claude-opus-4-5-20250514", task: text.slice(6).trim() };
+    return { model: "claude-opus-4-6", task: text.slice(6).trim() };
   }
   // /haiku <task> — use haiku model
   if (text.startsWith("/haiku ")) {
