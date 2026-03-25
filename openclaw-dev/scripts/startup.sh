@@ -24,6 +24,20 @@ if ! command -v gh &> /dev/null; then
   echo "[startup] gh installed: $(gh --version 2>/dev/null | head -1 || echo 'not available')"
 fi
 
+# Install Supabase CLI if not present
+if ! command -v supabase &> /dev/null; then
+  echo "[startup] Installing Supabase CLI..."
+  npm install -g supabase 2>&1 | tail -3
+  echo "[startup] Supabase CLI: $(supabase --version 2>/dev/null || echo 'installed')"
+fi
+
+# Install Vercel CLI if not present
+if ! command -v vercel &> /dev/null; then
+  echo "[startup] Installing Vercel CLI..."
+  npm install -g vercel 2>&1 | tail -3
+  echo "[startup] Vercel CLI: $(vercel --version 2>/dev/null || echo 'installed')"
+fi
+
 # Clone or update repo
 if [ ! -d "/repo/.git" ]; then
   echo "[startup] Cloning repository..."
@@ -88,6 +102,13 @@ You receive tasks via Telegram and execute them autonomously in this codebase.
 - Create feature branches: `dev/short-description`
 - Clear commit messages in English
 - Push and create PR if the task warrants it
+
+## Deploy Commands
+- **Frontend (Vercel):** \`npx vercel --prod --yes --token=\$VERCEL_TOKEN --name chief.ai --scope team_wkauOukILE7VaSS4M7dDapQG\`
+- **Edge Function:** \`SUPABASE_ACCESS_TOKEN=\$SUPABASE_ACCESS_TOKEN npx supabase functions deploy <name> --no-verify-jwt --project-ref arupeqczrxmfkcbjwyad\`
+- **DB Migration:** Push via Supabase Management API with \$SUPABASE_ACCESS_TOKEN
+- Always deploy from /repo directory
+- After deploy, verify the deployment succeeded
 
 ## Response Format
 - Keep responses concise (output goes to Telegram with 4096 char limit)
