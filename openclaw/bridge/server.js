@@ -172,8 +172,9 @@ class OpenClawClient {
     const pubKeyDer = publicKey.export({ type: "spki", format: "der" });
     const pubKeyB64 = pubKeyDer.toString("base64");
     const signedAt = Date.now();
-    const signPayload = `${pubKeyB64}:${signedAt}:${this.connectNonce || ""}`;
-    const signature = crypto.sign(null, Buffer.from(signPayload), privateKey).toString("base64");
+    // Sign the nonce with the device private key
+    const nonce = this.connectNonce || "";
+    const signature = crypto.sign(null, Buffer.from(nonce), privateKey).toString("base64");
 
     const params = {
       minProtocol: 3,
