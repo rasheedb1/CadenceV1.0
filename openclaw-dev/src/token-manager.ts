@@ -1,5 +1,9 @@
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 import { config } from "./config";
+
+const CREDENTIALS_PATH = "/root/.claude/.credentials.json";
 
 interface TokenState {
   accessToken: string;
@@ -14,6 +18,69 @@ let tokens: TokenState = {
 };
 
 // -------------------------------------------------------------------------
+// Credentials File — Claude Code reads this for OAuth auth
+// -------------------------------------------------------------------------
+
+/**
+ * Write tokens to ~/.claude/.credentials.json so Claude Code
+ * uses its own internal OAuth routing (not direct API calls).
+ */
+function writeCredentialsFile(): void {
+  const credentials = {
+    claudeAiOauth: {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      expiresAt: tokens.expiresAt,
+      scopes: [
+        "user:file_upload",
+        "user:inference",
+        "user:mcp_servers",
+        "user:profile",
+        "user:sessions:claude_code",
+      ],
+      subscriptionType: "max",
+      rateLimitTier: "default_claude_max_20x",
+    },
+  };
+
+  const dir = path.dirname(CREDENTIALS_PATH);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
+  fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify(credentials), {
+    mode: 0o600,
+  });
+  console.log("[auth] Credentials written to", CREDENTIALS_PATH);
+}
+
+/**
+ * Load tokens from credentials file if it exists (e.g., after restart).
+ */
+function loadCredentialsFile(): boolean {
+  try {
+    if (!fs.existsSync(CREDENTIALS_PATH)) return false;
+    const data = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, "utf-8"));
+    const oauth = data.claudeAiOauth;
+    if (oauth?.accessToken && oauth?.refreshToken) {
+      tokens.accessToken = oauth.accessToken;
+      tokens.refreshToken = oauth.refreshToken;
+      tokens.expiresAt = oauth.expiresAt || 0;
+      console.log("[auth] Loaded credentials from file");
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+// Try loading from file on startup
+loadCredentialsFile();
+
+// If we have tokens from env vars, write the initial credentials file
+if (tokens.accessToken && tokens.refreshToken) {
+  writeCredentialsFile();
+}
+
+// -------------------------------------------------------------------------
 // PKCE OAuth Login Flow
 // -------------------------------------------------------------------------
 
@@ -22,9 +89,6 @@ let pendingLogin: {
   state: string;
 } | null = null;
 
-/**
- * Start the OAuth login flow. Returns a URL for the user to open in browser.
- */
 export function startLoginFlow(): string {
   const codeVerifier = crypto.randomBytes(32).toString("base64url");
   const codeChallenge = crypto
@@ -50,9 +114,6 @@ export function startLoginFlow(): string {
   return authUrl.toString();
 }
 
-/**
- * Complete the OAuth login by exchanging the authorization code for tokens.
- */
 export async function completeLogin(rawCode: string): Promise<string> {
   if (!pendingLogin) {
     throw new Error("No login in progress. Send /login first.");
@@ -61,7 +122,6 @@ export async function completeLogin(rawCode: string): Promise<string> {
   const { codeVerifier, state } = pendingLogin;
   pendingLogin = null;
 
-  // The user might paste "CODE#STATE" or just "CODE" — strip the state part
   const authCode = rawCode.split("#")[0].trim();
   console.log(`[auth] Exchanging code (${authCode.length} chars) for token...`);
 
@@ -92,25 +152,22 @@ export async function completeLogin(rawCode: string): Promise<string> {
     tokens.refreshToken = data.refresh_token;
   }
 
-  // Persist tokens to Railway env vars so they survive redeploys
+  // Write to credentials file so Claude Code picks it up
+  writeCredentialsFile();
+
+  // Persist to Railway env vars for redeploy survival
   await persistTokensToRailway().catch((err) =>
-    console.error("[auth] Failed to persist tokens to Railway:", err.message)
+    console.error("[auth] Failed to persist to Railway:", err.message)
   );
 
   const expiresIn = Math.round((tokens.expiresAt - Date.now()) / 1000 / 60);
   console.log(`[auth] Login successful. Token expires in ${expiresIn} min.`);
-  return `Login exitoso. Max plan activo. Token expira en ${expiresIn} min (se renueva automaticamente).`;
+  return `Login exitoso. Max plan activo. Token expira en ${expiresIn} min. Claude Code usara el archivo de credenciales para auth.`;
 }
 
-/**
- * Save current tokens as Railway env vars so they persist across deploys.
- */
 async function persistTokensToRailway(): Promise<void> {
   const railwayToken = process.env.RAILWAY_TOKEN;
-  if (!railwayToken) {
-    console.log("[auth] No RAILWAY_TOKEN — skipping env var persistence");
-    return;
-  }
+  if (!railwayToken) return;
 
   const query = `mutation($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }`;
   const variables = {
@@ -135,118 +192,57 @@ async function persistTokensToRailway(): Promise<void> {
     body: JSON.stringify({ query, variables }),
   });
 
-  if (!res.ok) {
-    throw new Error(`Railway API ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`Railway API ${res.status}`);
   console.log("[auth] Tokens persisted to Railway env vars");
 }
 
 // -------------------------------------------------------------------------
-// Token Access
+// Token Access for Claude Code
 // -------------------------------------------------------------------------
 
 /**
- * Returns a valid access token for Claude Code.
- * Refreshes automatically if expired.
- * Falls back to ANTHROPIC_API_KEY if OAuth is not configured.
- */
-export async function getAuthToken(): Promise<{
-  token: string;
-  type: "oauth" | "api_key";
-}> {
-  // If no OAuth configured, use API key
-  if (!tokens.refreshToken) {
-    if (!config.anthropicApiKey) {
-      throw new Error("No auth configured. Send /login to authenticate with Max plan, or set ANTHROPIC_API_KEY.");
-    }
-    return { token: config.anthropicApiKey, type: "api_key" };
-  }
-
-  const now = Date.now();
-  const bufferMs = 2 * 60 * 1000;
-
-  if (tokens.accessToken && now < tokens.expiresAt - bufferMs) {
-    return { token: tokens.accessToken, type: "oauth" };
-  }
-
-  // Need to refresh
-  console.log("[auth] Refreshing OAuth token...");
-  const response = await fetch(config.oauth.tokenEndpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      grant_type: "refresh_token",
-      refresh_token: tokens.refreshToken,
-      client_id: config.oauth.clientId,
-      scope: config.oauth.scopes,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`[auth] Token refresh failed: ${response.status} ${errorText}`);
-
-    if (config.anthropicApiKey) {
-      console.log("[auth] Falling back to ANTHROPIC_API_KEY");
-      return { token: config.anthropicApiKey, type: "api_key" };
-    }
-    throw new Error(`OAuth refresh failed. Send /login to re-authenticate.`);
-  }
-
-  const data = await response.json();
-  tokens.accessToken = data.access_token;
-  tokens.expiresAt = data.expires_at
-    ? data.expires_at
-    : Date.now() + (data.expires_in || 3600) * 1000;
-  if (data.refresh_token) {
-    tokens.refreshToken = data.refresh_token;
-  }
-
-  // Persist refreshed tokens
-  await persistTokensToRailway().catch(() => {});
-
-  console.log(
-    `[auth] Token refreshed. Expires at ${new Date(tokens.expiresAt).toISOString()}`
-  );
-  return { token: tokens.accessToken, type: "oauth" };
-}
-
-/**
- * Build the env vars for spawning claude -p
+ * Build the env vars for spawning claude -p.
+ * If OAuth is configured, we DON'T set ANTHROPIC_AUTH_TOKEN.
+ * Instead, Claude Code reads ~/.claude/.credentials.json and handles
+ * OAuth routing internally (which supports Max plan).
+ * Only set ANTHROPIC_API_KEY as fallback when no OAuth is available.
  */
 export async function getClaudeEnv(): Promise<Record<string, string>> {
-  const { token, type } = await getAuthToken();
   const env: Record<string, string> = {
     ...(process.env as Record<string, string>),
     HOME: "/root",
   };
 
-  if (type === "oauth") {
-    env.ANTHROPIC_AUTH_TOKEN = token;
+  if (tokens.refreshToken && tokens.accessToken) {
+    // OAuth active — let Claude Code use credentials file
+    // Remove API key so it doesn't override credentials file
     delete env.ANTHROPIC_API_KEY;
+    delete env.ANTHROPIC_AUTH_TOKEN;
+    // Ensure credentials file is fresh
+    writeCredentialsFile();
+    console.log("[auth] Using OAuth credentials file (Max plan)");
+  } else if (config.anthropicApiKey) {
+    // Fallback to API key
+    env.ANTHROPIC_API_KEY = config.anthropicApiKey;
+    console.log("[auth] Using ANTHROPIC_API_KEY (per-token)");
   } else {
-    env.ANTHROPIC_API_KEY = token;
+    throw new Error("No auth configured. Send /login to authenticate.");
   }
 
   return env;
 }
 
-/**
- * Get current auth status
- */
 export function getAuthStatus(): string {
   if (tokens.refreshToken && tokens.accessToken) {
     const expiresIn = Math.round((tokens.expiresAt - Date.now()) / 1000 / 60);
+    const hasFile = fs.existsSync(CREDENTIALS_PATH);
     if (expiresIn > 0) {
-      return `Max plan (OAuth). Token expira en ${expiresIn} min.`;
+      return `Max plan (credentials file). Token expira en ${expiresIn} min. File: ${hasFile ? "OK" : "MISSING"}`;
     }
-    return `Max plan (OAuth). Token expirado — se renovara en la proxima tarea.`;
-  }
-  if (tokens.refreshToken) {
-    return `Max plan (OAuth). Pendiente de refresh.`;
+    return `Max plan (credentials file). Token expirado — Claude Code lo renovara automaticamente.`;
   }
   if (config.anthropicApiKey) {
-    return `API Key (cobra por token).`;
+    return `API Key (cobra por token). Enviar /login para usar Max plan.`;
   }
   return `Sin autenticacion. Enviar /login.`;
 }
