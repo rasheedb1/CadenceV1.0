@@ -476,16 +476,26 @@ const {
 if (!ANTHROPIC_API_KEY || !SB_KEY) {
   console.error("[gateway] Missing ANTHROPIC_API_KEY or SUPABASE_SERVICE_ROLE_KEY — gateway disabled");
 } else {
-  // Load workspace context
-  const workspaceDir = path.join(__dirname, "..", "workspace");
+  // Load workspace context — try multiple paths for resilience
   let SYSTEM_PROMPT;
-  try {
-    const soul = readFileSync(path.join(workspaceDir, "SOUL.md"), "utf8");
-    const agents = readFileSync(path.join(workspaceDir, "AGENTS.md"), "utf8");
-    SYSTEM_PROMPT = `${soul}\n\n---\n\n${agents}`;
-  } catch (err) {
-    console.error("[gateway] Failed to load workspace files:", err.message);
-    process.exit(1);
+  const workspaceCandidates = [
+    "/app/workspace",
+    path.join(__dirname, "..", "workspace"),
+    path.join(__dirname, "workspace"),
+    path.join(process.cwd(), "..", "workspace"),
+  ];
+  for (const dir of workspaceCandidates) {
+    try {
+      const soul = readFileSync(path.join(dir, "SOUL.md"), "utf8");
+      const agents = readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+      SYSTEM_PROMPT = `${soul}\n\n---\n\n${agents}`;
+      console.log(`[gateway] Loaded workspace from ${dir}`);
+      break;
+    } catch (_) {}
+  }
+  if (!SYSTEM_PROMPT) {
+    console.error("[gateway] Could not find workspace files — using fallback prompt");
+    SYSTEM_PROMPT = "Eres Chief, el asistente de automatización de ventas de Laiky AI. Responde siempre en español. Tienes acceso a herramientas para buscar prospectos, crear cadencias, gestionar leads y más. Siempre pide el org_id si no lo tienes.";
   }
 
   const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
