@@ -28,12 +28,15 @@ app.use(express.json({ limit: "5mb" }));
 let agentTools = [];
 try { agentTools = JSON.parse(AGENT_TOOLS); } catch { console.error("[agent] Failed to parse AGENT_TOOLS"); }
 
-// Always add registrar_aprendizaje tool
-agentTools.push({
-  name: "registrar_aprendizaje",
-  description: "Registra un aprendizaje o lección aprendida después de completar una tarea. Usa esto para mejorar con el tiempo — guarda patrones, preferencias del cliente, estrategias efectivas, errores a evitar.",
-  input_schema: { type: "object", properties: { category: { type: "string", description: "Categoría: prospecting, outreach, company_research, cadences, general" }, learning: { type: "string", description: "El aprendizaje en lenguaje natural" }, context: { type: "string", description: "Contexto adicional (empresa, industria, etc.)" }, task_id: { type: "string", description: "ID de la tarea relacionada" } }, required: ["learning"] },
-});
+// Add built-in tools only if not already present
+const builtInTools = [
+  { name: "registrar_aprendizaje", description: "Registra un aprendizaje o lección aprendida después de completar una tarea. Usa esto para mejorar con el tiempo — guarda patrones, preferencias del cliente, estrategias efectivas, errores a evitar.", input_schema: { type: "object", properties: { category: { type: "string", description: "Categoría: prospecting, outreach, company_research, cadences, general" }, learning: { type: "string", description: "El aprendizaje en lenguaje natural" }, context: { type: "string", description: "Contexto adicional (empresa, industria, etc.)" }, task_id: { type: "string", description: "ID de la tarea relacionada" } }, required: ["learning"] } },
+  { name: "comunicar_agente", description: "Comunica con otro agente de la organización. Envía un mensaje y recibe respuesta.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string" }, agent_name: { type: "string", description: "Nombre del agente destino" }, message: { type: "string" } }, required: ["message"] } },
+];
+const existingNames = new Set(agentTools.map(t => t.name));
+for (const t of builtInTools) {
+  if (!existingNames.has(t.name)) agentTools.push(t);
+}
 
 console.log(`[agent] Loaded ${agentTools.length} tools`);
 
