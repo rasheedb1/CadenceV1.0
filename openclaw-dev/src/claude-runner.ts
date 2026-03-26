@@ -83,7 +83,7 @@ export async function runClaudeTask(
     const child = spawn("claude", args, {
       cwd: config.repoPath,
       env,
-      timeout: 30 * 60 * 1000, // 30 min max per task
+      timeout: 60 * 60 * 1000, // 60 min max per task
       stdio: ["ignore", "pipe", "pipe"], // redirect stdin to /dev/null
     });
 
