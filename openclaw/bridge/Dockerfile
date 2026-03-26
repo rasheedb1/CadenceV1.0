@@ -4,11 +4,10 @@ RUN apk add --no-cache curl
 
 WORKDIR /app
 
-COPY bridge/package.json bridge/package-lock.json* ./
+COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 
-COPY bridge/server.js .
-COPY workspace/ ./workspace/
+COPY server.js .
 
 EXPOSE 3100
 
