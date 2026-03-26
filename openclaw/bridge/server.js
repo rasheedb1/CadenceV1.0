@@ -526,6 +526,8 @@ if (!ANTHROPIC_API_KEY || !SB_KEY) {
     { name: "gestionar_leads", description: "CRUD sobre leads — listar, crear, actualizar, asignar a cadencias.", input_schema: { type: "object", properties: { org_id: { type: "string" }, operation: { type: "string", enum: ["list","create","update","assign_to_cadence","remove_from_cadence"] }, filters: { type: "object", properties: { status: { type: "string" }, company: { type: "string" }, limit: { type: "number" } } }, lead: { type: "object", properties: { first_name: { type: "string" }, last_name: { type: "string" }, email: { type: "string" }, company: { type: "string" }, title: { type: "string" }, linkedin_url: { type: "string" }, provider_id: { type: "string" }, status: { type: "string" }, source: { type: "string" } } }, lead_id: { type: "string" }, lead_ids: { type: "array", items: { type: "string" } }, updates: { type: "object" }, cadence_id: { type: "string" } }, required: ["org_id","operation"] } },
     { name: "guardar_sesion", description: "Guarda la identidad del usuario (org_id, user_id, member_id, nombre) asociada a su número de WhatsApp. Úsalo siempre que el usuario te proporcione su org_id o se identifique, para que no tenga que repetirlo en futuras conversaciones.", input_schema: { type: "object", properties: { whatsapp_number: { type: "string", description: "Número de WhatsApp del usuario — ya lo tienes como sessionKey" }, org_id: { type: "string" }, user_id: { type: "string" }, member_id: { type: "string" }, display_name: { type: "string", description: "Nombre del usuario para saludarlo en futuras sesiones" } }, required: ["whatsapp_number"] } },
     { name: "identificar_usuario", description: "Busca un usuario dentro de una organización por su email. Úsalo durante el onboarding — después de recibir el org_id, pide el email y llama esta tool para obtener user_id, member_id y nombre completo. Luego llama guardar_sesion con esos datos.", input_schema: { type: "object", properties: { org_id: { type: "string" }, email: { type: "string" } }, required: ["org_id", "email"] } },
+    { name: "enviar_otp", description: "Envía un código de verificación de 6 dígitos al email del usuario via Supabase Auth. Úsalo después de recibir el email durante el onboarding para verificar que el usuario es dueño de esa cuenta.", input_schema: { type: "object", properties: { email: { type: "string" } }, required: ["email"] } },
+    { name: "verificar_otp", description: "Verifica el código OTP que el usuario recibió en su email. Si es válido, identifica al usuario en la organización y guarda la sesión permanentemente. Este es el paso final del onboarding — después de esto el usuario no necesita identificarse nunca más.", input_schema: { type: "object", properties: { email: { type: "string" }, token: { type: "string", description: "Código de 6 dígitos que el usuario recibió en su email" }, org_id: { type: "string" }, whatsapp_number: { type: "string", description: "Número WhatsApp del usuario — ya lo tienes como sessionKey" } }, required: ["email", "token", "org_id", "whatsapp_number"] } },
   ];
 
   async function gwExecuteTool(name, args) {
@@ -602,6 +604,44 @@ if (!ANTHROPIC_API_KEY || !SB_KEY) {
             return { success: true };
           }
           return { success: false, error: `Operación desconocida: ${operation}` };
+        }
+        case "enviar_otp": {
+          const { email } = args;
+          const res = await sbFetch(`${base}/auth/v1/otp`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "apikey": SB_KEY },
+            body: JSON.stringify({ email, should_create_user: false }),
+          });
+          if (res?.error) return { success: false, error: res.error.message || "No se pudo enviar el código. Verifica que el email esté registrado en Chief." };
+          return { success: true };
+        }
+        case "verificar_otp": {
+          const { email, token, org_id, whatsapp_number } = args;
+          // Verify OTP with Supabase Auth
+          const verifyRes = await sbFetch(`${base}/auth/v1/verify`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "apikey": SB_KEY },
+            body: JSON.stringify({ type: "email", email, token }),
+          });
+          if (verifyRes?.error || !verifyRes?.user?.id) {
+            return { success: false, error: verifyRes?.error?.message || "Código inválido o expirado. Pide uno nuevo." };
+          }
+          const user_id = verifyRes.user.id;
+          // Resolve org membership
+          const members = await sbFetch(`${base}/rest/v1/organization_members?org_id=eq.${org_id}&user_id=eq.${user_id}&select=id,role&limit=1`, { headers: sbHeaders() });
+          const member = Array.isArray(members) ? members[0] : null;
+          if (!member) return { success: false, error: "El usuario verificado no pertenece a esta organización." };
+          // Get display name
+          const profs = await sbFetch(`${base}/rest/v1/profiles?user_id=eq.${user_id}&select=full_name&limit=1`, { headers: sbHeaders() });
+          const display_name = Array.isArray(profs) ? profs[0]?.full_name : null;
+          // Save session permanently
+          await sbFetch(`${base}/rest/v1/chief_sessions`, {
+            method: "POST",
+            headers: { ...sbHeaders(), Prefer: "resolution=merge-duplicates,return=representation" },
+            body: JSON.stringify({ whatsapp_number, org_id, user_id, member_id: member.id, display_name, updated_at: new Date().toISOString() }),
+          });
+          console.log(`[gateway] OTP verified & session saved: ${whatsapp_number} → ${email} (${user_id})`);
+          return { success: true, user_id, member_id: member.id, display_name, role: member.role };
         }
         case "identificar_usuario": {
           const { org_id, email } = args;

@@ -58,14 +58,24 @@ Chief es el asistente de ventas con acceso a las siguientes skills para automati
 **Requiere:** org_id. Operación específica determina parámetros adicionales.
 
 ### 11. identificar_usuario
-**Cuándo:** Onboarding de usuario nuevo por WhatsApp — después de obtener org_id.
+**Cuándo:** Lookup de usuario por email dentro de una org (uso interno / admin).
 **Acción:** Busca el usuario en la org por email, devuelve user_id, member_id y nombre.
 **Requiere:** org_id, email.
 
 ### 12. guardar_sesion
-**Cuándo:** Inmediatamente después de identificar al usuario (o cuando actualice datos).
+**Cuándo:** Inmediatamente después de verificar OTP exitosamente.
 **Acción:** Persiste org_id, user_id, member_id y display_name asociados al número WhatsApp.
 **Requiere:** whatsapp_number. Opcional: org_id, user_id, member_id, display_name.
+
+### 13. enviar_otp
+**Cuándo:** Onboarding de usuario nuevo — después de recibir su email.
+**Acción:** Envía código de 6 dígitos al email via Supabase Auth. El usuario lo recibe en segundos.
+**Requiere:** email.
+
+### 14. verificar_otp
+**Cuándo:** Después de que el usuario comparta el código recibido en su email.
+**Acción:** Verifica el código con Supabase Auth, resuelve user_id + member_id, guarda sesión permanentemente. Todo en un paso.
+**Requiere:** email, token, org_id, whatsapp_number.
 
 ---
 
