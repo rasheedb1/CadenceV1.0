@@ -263,5 +263,78 @@ export function createRouter(): Router {
     res.sendStatus(200);
   });
 
+  // --- Agent Platform API (Chief ↔ Juanse communication) ---
+
+  // Auth middleware for agent API
+  const requireApiAuth = (req: Request, res: Response, next: Function) => {
+    const auth = req.headers.authorization;
+    if (!auth) return res.status(401).json({ error: "Unauthorized" });
+    const token = auth.replace("Bearer ", "");
+    // Accept Supabase service role key as auth
+    if (token !== process.env.SUPABASE_SERVICE_ROLE_KEY && token !== process.env.AUTH_TOKEN) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    next();
+  };
+
+  // Task execution — runs Claude Code CLI on the repo
+  router.post("/api/task", requireApiAuth, async (req: Request, res: Response) => {
+    const { instruction, context, task_id } = req.body;
+    if (!instruction) return res.status(400).json({ error: "Missing instruction" });
+
+    if (activeTask) {
+      return res.status(429).json({ error: "Agent busy with another task", active_since: activeTask.startedAt });
+    }
+
+    console.log(`[api/task] Received: "${instruction.substring(0, 100)}" (task_id=${task_id})`);
+    activeTask = { from: "api", startedAt: Date.now() };
+
+    try {
+      // Pull latest code first
+      try { await gitPull(); } catch (e) { console.log("[api/task] git pull skipped:", (e as Error).message); }
+
+      const progressMessages: string[] = [];
+      const result = await runClaudeTask(instruction, { model: context?.model || "claude-sonnet-4-6" }, (msg) => {
+        progressMessages.push(msg);
+      });
+
+      console.log(`[api/task] Completed (${result.durationMs}ms, exit=${result.exitCode})`);
+      activeTask = null;
+      res.json({
+        success: result.exitCode === 0,
+        result: result.output,
+        exit_code: result.exitCode,
+        duration_ms: result.durationMs,
+        progress_messages: progressMessages.slice(-10),
+      });
+    } catch (err) {
+      console.error(`[api/task] Error:`, (err as Error).message);
+      activeTask = null;
+      res.status(500).json({ success: false, error: (err as Error).message });
+    }
+  });
+
+  // Chat — quick question (still uses Claude Code but lighter)
+  router.post("/api/chat", requireApiAuth, async (req: Request, res: Response) => {
+    const { message, context } = req.body;
+    if (!message) return res.status(400).json({ error: "Missing message" });
+
+    if (activeTask) {
+      return res.status(429).json({ error: "Agent busy", active_since: activeTask.startedAt });
+    }
+
+    console.log(`[api/chat] Received: "${message.substring(0, 100)}"`);
+    activeTask = { from: "api", startedAt: Date.now() };
+
+    try {
+      const result = await runClaudeTask(message, { model: context?.model || "claude-sonnet-4-6", maxTurns: 10 });
+      activeTask = null;
+      res.json({ success: true, reply: result.output });
+    } catch (err) {
+      activeTask = null;
+      res.status(500).json({ success: false, error: (err as Error).message });
+    }
+  });
+
   return router;
 }
