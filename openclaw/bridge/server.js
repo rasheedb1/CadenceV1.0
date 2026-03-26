@@ -1234,7 +1234,7 @@ ${args.description ? `\n${args.description}\n` : ""}
               console.error(`[deploy] Domain creation error:`, domErr.message);
             }
 
-            // 4. Update agent record
+            // 4. Update agent record — set to active (Railway builds async, domain is ready)
             await sbFetch(`${base}/functions/v1/manage-agent`, {
               method: "PATCH", headers: sbHeaders(true),
               body: JSON.stringify({
@@ -1242,7 +1242,7 @@ ${args.description ? `\n${args.description}\n` : ""}
                 updates: {
                   railway_service_id: serviceId,
                   railway_url: railwayUrl,
-                  status: "deploying",
+                  status: "active",
                 },
               }),
             });
@@ -1252,8 +1252,8 @@ ${args.description ? `\n${args.description}\n` : ""}
               agent: agent.name,
               service_id: serviceId,
               railway_url: railwayUrl,
-              status: "deploying",
-              message: `${agent.name} se está desplegando en Railway. El servicio tardará ~2 minutos en estar listo. URL: ${railwayUrl || "pendiente"}`,
+              status: "active",
+              message: `${agent.name} desplegado exitosamente en Railway. URL: ${railwayUrl}. El servicio estará listo en ~2 minutos mientras se construye.`,
             };
           } catch (err) {
             console.error(`[deploy] Error deploying agent ${agent.name}:`, err.message);
