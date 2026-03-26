@@ -19,7 +19,7 @@ export const config = {
     tokenEndpoint: "https://platform.claude.com/v1/oauth/token",
     clientId: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
     scopes:
-      "user:file_upload user:inference user:ccr_inference user:mcp_servers user:profile user:sessions:claude_code",
+      "user:file_upload user:inference user:mcp_servers user:profile user:sessions:claude_code",
   },
 
   // Fallback API key

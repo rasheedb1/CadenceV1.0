@@ -3,10 +3,9 @@ import twilio from "twilio";
 import { config } from "./config";
 import { runClaudeTask, gitPull, TaskOptions } from "./claude-runner";
 import {
-  runClaudeLogin,
-  sendCodeToLogin,
+  startLoginFlow,
+  completeLogin,
   getAuthStatus,
-  getClaudeEnv,
 } from "./token-manager";
 
 const WA_MAX_LENGTH = 4096;
@@ -142,24 +141,15 @@ async function handleMessage(from: string, body: string): Promise<void> {
 
   if (command === "login") {
     try {
-      await sendWhatsApp(from, "Iniciando claude login...");
-      const { authUrl, waitForCompletion } = await runClaudeLogin();
-
-      if (authUrl) {
-        await sendWhatsApp(
-          from,
-          "Abre este link en tu browser e inicia sesion con tu cuenta de Claude:\n\n" +
-            authUrl +
-            "\n\nSi la pagina te da un codigo, mandamelo aqui con:\ncode TU_CODIGO\n\nSi completa automaticamente, espera unos segundos."
-        );
-        waitForCompletion(async (result) => {
-          await sendWhatsApp(from, result);
-        });
-      } else {
-        await sendWhatsApp(from, "Ya estas autenticado con Claude Code.");
-      }
+      const authUrl = startLoginFlow();
+      await sendWhatsApp(
+        from,
+        "Abre este link en tu browser:\n\n" +
+          authUrl +
+          "\n\nDespues de autorizar, copia el codigo y mandamelo con:\ncode TU_CODIGO"
+      );
     } catch (err: any) {
-      await sendWhatsApp(from, `Error en login: ${err.message}`);
+      await sendWhatsApp(from, `Error: ${err.message}`);
     }
     return;
   }
@@ -169,14 +159,12 @@ async function handleMessage(from: string, body: string): Promise<void> {
       await sendWhatsApp(from, "Falta el codigo. Uso: code TU_CODIGO_AQUI");
       return;
     }
-    const sent = sendCodeToLogin(task);
-    if (sent) {
-      await sendWhatsApp(from, "Codigo enviado a Claude Code. Esperando...");
-    } else {
-      await sendWhatsApp(
-        from,
-        "No hay login en progreso. Envia 'login' primero."
-      );
+    try {
+      await sendWhatsApp(from, "Intercambiando codigo...");
+      const result = await completeLogin(task);
+      await sendWhatsApp(from, result);
+    } catch (err: any) {
+      await sendWhatsApp(from, `Error: ${err.message}`);
     }
     return;
   }
