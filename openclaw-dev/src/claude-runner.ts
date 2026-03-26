@@ -130,7 +130,7 @@ export async function runClaudeTask(
 }
 
 /**
- * Parse stream-json events and send progress updates.
+ * Parse stream-json events and send human-readable progress updates in Spanish.
  */
 function handleStreamEvent(
   event: any,
@@ -139,34 +139,64 @@ function handleStreamEvent(
   shouldSend: () => boolean
 ): void {
   if (!onProgress) return;
+  if (!shouldSend()) return;
 
   const elapsed = Math.round((Date.now() - startTime) / 1000);
+  const time = `${elapsed}s`;
 
-  // Tool usage — show what Claude is doing
   if (event.type === "assistant" && event.message?.content) {
     for (const block of event.message.content) {
-      if (block.type === "tool_use" && shouldSend()) {
-        const toolName = block.name || "tool";
-        let detail = "";
-
-        if (toolName === "Read" || toolName === "Glob" || toolName === "Grep") {
-          detail = block.input?.file_path || block.input?.pattern || block.input?.path || "";
-        } else if (toolName === "Edit" || toolName === "Write") {
-          detail = block.input?.file_path || "";
-        } else if (toolName === "Bash") {
-          detail = (block.input?.command || "").substring(0, 80);
-        }
-
-        const shortDetail = detail ? `: ${detail.substring(0, 60)}` : "";
-        onProgress(`[${elapsed}s] ${toolName}${shortDetail}`);
+      // Tool usage → friendly Spanish description
+      if (block.type === "tool_use") {
+        const msg = describeToolUse(block.name, block.input);
+        if (msg) onProgress(`[${time}] ${msg}`);
+        return;
       }
 
-      if (block.type === "text" && block.text && shouldSend()) {
-        const preview = block.text.substring(0, 150).replace(/\n/g, " ");
-        if (preview.length > 20) {
-          onProgress(`[${elapsed}s] ${preview}`);
+      // Text from Claude → only show planning/reasoning, not code
+      if (block.type === "text" && block.text) {
+        const text = block.text.trim();
+        // Skip code blocks, diffs, and technical output
+        if (text.startsWith("```") || text.startsWith("diff") || text.startsWith("{") || text.startsWith("<")) return;
+        // Only show if it looks like natural language (has spaces, reasonable length)
+        if (text.length > 30 && text.length < 300 && text.includes(" ")) {
+          const clean = text.replace(/\n/g, " ").replace(/\s+/g, " ").substring(0, 200);
+          onProgress(`[${time}] ${clean}`);
         }
       }
     }
+  }
+}
+
+function describeToolUse(tool: string, input: any): string {
+  const filePath = input?.file_path || input?.path || "";
+  const shortFile = filePath.split("/").slice(-2).join("/"); // last 2 segments
+
+  switch (tool) {
+    case "Read":
+      return `Leyendo ${shortFile || "archivo"}`;
+    case "Write":
+      return `Creando ${shortFile || "archivo nuevo"}`;
+    case "Edit":
+      return `Editando ${shortFile || "archivo"}`;
+    case "Glob":
+      return `Buscando archivos: ${input?.pattern || ""}`;
+    case "Grep":
+      return `Buscando en codigo: "${input?.pattern?.substring(0, 40) || ""}"`;
+    case "Bash": {
+      const cmd = (input?.command || "").trim();
+      if (cmd.startsWith("git ")) return `Git: ${cmd.substring(0, 60)}`;
+      if (cmd.startsWith("npm ")) return `npm: ${cmd.substring(0, 60)}`;
+      if (cmd.startsWith("npx supabase")) return "Deployando edge function...";
+      if (cmd.startsWith("npx vercel") || cmd.startsWith("vercel")) return "Deployando frontend...";
+      if (cmd.includes("test")) return "Corriendo tests...";
+      return `Ejecutando comando...`;
+    }
+    case "WebSearch":
+      return `Buscando en la web: "${input?.query?.substring(0, 50) || ""}"`;
+    case "WebFetch":
+      return "Consultando pagina web...";
+    default:
+      return "";
   }
 }
