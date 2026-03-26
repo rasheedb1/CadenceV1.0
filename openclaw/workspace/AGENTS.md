@@ -128,6 +128,24 @@ Chief es el asistente de ventas con acceso a las siguientes skills para automati
 **Acción:** Verifica el código con Supabase Auth, resuelve user_id + member_id, guarda sesión permanentemente. Todo en un paso.
 **Requiere:** email, token, org_id, whatsapp_number.
 
+### 26. ver_calendario
+**Cuándo:** El usuario quiere ver su agenda, reuniones del día/semana o verificar qué tiene programado.
+**Acción:** Consulta las reuniones del calendario del usuario en un rango de fechas.
+**Requiere:** user_id, org_id. Opcional: date_from (YYYY-MM-DD), date_to (YYYY-MM-DD).
+**Devuelve:** Lista de reuniones con título, hora de inicio, duración, asistentes y links.
+
+### 27. buscar_slots_disponibles
+**Cuándo:** El usuario quiere saber cuándo está libre para reuniones, o quiere proponer horarios a un prospecto/cliente.
+**Acción:** Analiza el calendario y calcula los slots de tiempo libre durante el horario de trabajo.
+**Requiere:** user_id, org_id. Opcional: date (YYYY-MM-DD, default: hoy), days (1-7), timezone (IANA), business_start (hora, default: 9), business_end (hora, default: 18).
+**Devuelve:** Lista de slots disponibles por día con hora inicio/fin y duración.
+
+### 28. crear_evento_calendario
+**Cuándo:** El usuario quiere crear una reunión, agendar una demo o enviar una invitación a un prospecto/cliente.
+**Acción:** Crea el evento en Google Calendar del usuario y envía invitaciones por email a todos los asistentes. Genera Google Meet automáticamente si hay invitados.
+**Requiere:** user_id, org_id, title, start_datetime (ISO 8601), end_datetime (ISO 8601). Opcional: timezone, description, location, attendees (array de {email, name}).
+**IMPORTANTE:** Confirmar siempre con el usuario los detalles (fecha, hora, invitados) antes de crear.
+
 ---
 
 ## Flujos Comunes
@@ -155,3 +173,12 @@ Chief es el asistente de ventas con acceso a las siguientes skills para automati
 1. **ver-metricas** → Tasas de todas las cadencias
 2. **ver-actividad** → Actividad de la semana
 3. **gestionar-leads** → Pipeline actual
+
+### Agendar reunión con prospecto
+1. **buscar_slots_disponibles** → Encontrar cuándo está libre el usuario (pasar user_id de la sesión)
+2. Proponer 2-3 opciones de horario al usuario
+3. **crear_evento_calendario** → Crear el evento con el email del prospecto como asistente → Google Calendar envía la invitación automáticamente
+
+### Ver agenda del día
+1. **ver_calendario** → Consultar reuniones de hoy (date_from = date_to = hoy)
+2. **buscar_slots_disponibles** → Ver ventanas libres para este día

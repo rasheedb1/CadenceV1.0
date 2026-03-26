@@ -604,6 +604,9 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     { name: "ver_conexiones", description: "Ve las cuentas conectadas del usuario (LinkedIn, Gmail, etc.).", input_schema: { type: "object", properties: { org_id: { type: "string" }, user_id: { type: "string" } }, required: ["org_id", "user_id"] } },
     { name: "ver_programacion", description: "Ve las acciones programadas (schedules) — próximos envíos, estado.", input_schema: { type: "object", properties: { org_id: { type: "string" }, cadence_id: { type: "string" }, status: { type: "string", enum: ["scheduled", "executed", "failed", "canceled"] }, limit: { type: "number" } }, required: ["org_id"] } },
     { name: "capturar_pantalla", description: "Captura un screenshot del dashboard de Chief. SOLO cuando el usuario lo pide explícitamente ('mándame screenshot', 'muéstrame cómo se ve'). Genera un magic link para autenticar y captura via Firecrawl.", input_schema: { type: "object", properties: { page_path: { type: "string", description: "Ruta de la página, ej: /leads, /cadences, /ai-prompts, /templates" }, user_email: { type: "string", description: "Email del usuario para generar magic link" }, wait_ms: { type: "number", description: "Milisegundos de espera para que cargue la página (default 6000)" } }, required: ["page_path", "user_email"] } },
+    { name: "ver_calendario", description: "Ve los eventos del calendario del usuario para un rango de fechas. Útil para saber qué reuniones tiene hoy o esta semana.", input_schema: { type: "object", properties: { user_id: { type: "string", description: "user_id del usuario (de la sesión guardada)" }, org_id: { type: "string" }, date_from: { type: "string", description: "YYYY-MM-DD (default: hoy)" }, date_to: { type: "string", description: "YYYY-MM-DD (default: 6 días desde date_from)" } }, required: ["user_id", "org_id"] } },
+    { name: "buscar_slots_disponibles", description: "Busca slots de tiempo libre en el calendario del usuario. Útil para proponer horarios de reunión a prospectos o clientes.", input_schema: { type: "object", properties: { user_id: { type: "string" }, org_id: { type: "string" }, date: { type: "string", description: "YYYY-MM-DD (default: hoy)" }, days: { type: "number", description: "Días a analizar (1-7, default: 1)" }, timezone: { type: "string", description: "IANA timezone (default: America/Mexico_City)" }, business_start: { type: "number", description: "Hora inicio jornada (default: 9)" }, business_end: { type: "number", description: "Hora fin jornada (default: 18)" } }, required: ["user_id", "org_id"] } },
+    { name: "crear_evento_calendario", description: "Crea un evento en Google Calendar y envía invitaciones por email a los asistentes. Genera Google Meet automáticamente si hay invitados. CONFIRMAR con el usuario antes de crear.", input_schema: { type: "object", properties: { user_id: { type: "string" }, org_id: { type: "string" }, title: { type: "string", description: "Título del evento" }, start_datetime: { type: "string", description: "ISO 8601 (ej: 2025-03-28T10:00:00)" }, end_datetime: { type: "string", description: "ISO 8601 (ej: 2025-03-28T11:00:00)" }, timezone: { type: "string", description: "IANA timezone (default: America/Mexico_City)" }, description: { type: "string", description: "Descripción o agenda del evento" }, location: { type: "string" }, attendees: { type: "array", items: { type: "object", properties: { email: { type: "string" }, name: { type: "string" } }, required: ["email"] }, description: "Lista de invitados. Recibirán invitación por email." } }, required: ["user_id", "org_id", "title", "start_datetime", "end_datetime"] } },
   ];
 
   async function gwExecuteTool(name, args) {
@@ -941,6 +944,40 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
           }
           return { success: true, screenshot_url: scrapeData.data.screenshot, page: page_path };
         }
+
+        case "ver_calendario": {
+          const dateFrom = args.date_from || new Date().toISOString().split("T")[0];
+          const dateTo = args.date_to || (() => {
+            const d = new Date(dateFrom + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + 6);
+            return d.toISOString().split("T")[0];
+          })();
+          const data = await sbFetch(
+            `${base}/rest/v1/ae_activities?select=id,title,occurred_at,duration_seconds,participants,summary,raw_data&user_id=eq.${args.user_id}&org_id=eq.${args.org_id}&type=eq.meeting&occurred_at=gte.${dateFrom}T00:00:00.000Z&occurred_at=lte.${dateTo}T23:59:59.999Z&order=occurred_at.asc&limit=50`,
+            { headers: sbHeaders() }
+          );
+          const evs = Array.isArray(data) ? data : [];
+          return {
+            success: true, date_from: dateFrom, date_to: dateTo, total: evs.length,
+            events: evs.map(e => ({
+              id: e.id, title: e.title, start: e.occurred_at,
+              duration_min: e.duration_seconds ? Math.round(e.duration_seconds / 60) : null,
+              external_attendees: (e.participants || []).filter(p => !p.is_self).map(p => ({ name: p.name, email: p.email })),
+              location: e.raw_data?.location || null,
+              meet_link: e.raw_data?.meet_link || null,
+              html_link: e.raw_data?.html_link || null,
+            })),
+          };
+        }
+
+        case "buscar_slots_disponibles":
+          return await sbFetch(`${base}/functions/v1/ae-calendar-free-slots`, {
+            method: "POST", headers: sbHeaders(true), body: JSON.stringify(args),
+          });
+
+        case "crear_evento_calendario":
+          return await sbFetch(`${base}/functions/v1/ae-calendar-create-event`, {
+            method: "POST", headers: sbHeaders(true), body: JSON.stringify(args),
+          });
 
         default: return { success: false, error: `Tool desconocida: ${name}` };
       }

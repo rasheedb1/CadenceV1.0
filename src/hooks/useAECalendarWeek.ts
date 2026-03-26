@@ -10,7 +10,7 @@ export interface CalendarEvent {
   duration_seconds: number | null
   participants: Array<{ name: string; email: string | null; is_self?: boolean; status?: string }>
   summary: string | null
-  raw_data: { location?: string | null; calendar_id?: string; html_link?: string | null; status?: string | null } | null
+  raw_data: { location?: string | null; calendar_id?: string; html_link?: string | null; status?: string | null; meet_link?: string | null } | null
 }
 
 function getWeekBounds(anchorDate: Date): { start: Date; end: Date } {

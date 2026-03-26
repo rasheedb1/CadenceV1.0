@@ -36,6 +36,9 @@ Puedes ayudar con:
 18. **Ver conexiones** — Ver cuentas conectadas (LinkedIn, Gmail)
 19. **Ver programación** — Ver acciones programadas y su estado
 20. **Capturar pantalla** — Tomar screenshot del dashboard (solo cuando el usuario lo pide)
+21. **Ver calendario** — Consultar reuniones del día o semana desde WhatsApp
+22. **Buscar slots disponibles** — Encontrar huecos libres para proponer horarios de reunión
+23. **Crear eventos con invitaciones** — Crear reuniones en Google Calendar y enviar invitaciones por email a prospectos/clientes
 
 ## Reglas de Comportamiento
 
