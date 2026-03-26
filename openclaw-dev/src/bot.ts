@@ -218,7 +218,7 @@ async function handleMessage(from: string, body: string): Promise<void> {
         : `Error (exit ${result.exitCode}, ${duration}s)`;
 
     // Detect image URLs in output for media messages
-    const imgRegex = /(https?:\/\/[^\s)"]+\.(?:png|jpg|jpeg|webp|gif))/gi;
+    const imgRegex = /(https?:\/\/[^\s")\]]+\.(?:png|jpg|jpeg|webp|gif)[^\s")\]]*)/gi;
     const imageUrls = result.output.match(imgRegex) || [];
     const firstImageUrl = imageUrls[0];
     const textOutput = firstImageUrl

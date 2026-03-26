@@ -420,9 +420,18 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
     }
 
     // Detect image URLs in AI response for media messages
-    const imgRegex = /(https?:\/\/[^\s)"]+\.(?:png|jpg|jpeg|webp|gif))/gi;
+    // Matches full URLs with image extensions + query params (e.g., Firecrawl GCS URLs)
+    const imgRegex = /(https?:\/\/[^\s")\]]+\.(?:png|jpg|jpeg|webp|gif)[^\s")\]]*)/gi;
     const imageUrls = aiResponse.match(imgRegex) || [];
-    const textBody = imageUrls.length > 0 ? aiResponse.replace(imgRegex, "").trim() : aiResponse;
+    // Also clean up markdown link syntax around the URL: [text](URL) → text
+    let textBody = aiResponse;
+    for (const url of imageUrls) {
+      // Remove the URL and any markdown link wrapping it
+      const escaped = url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      textBody = textBody.replace(new RegExp(`\\[([^\\]]*)\\]\\(${escaped}\\)`, "g"), "$1");
+      textBody = textBody.replace(url, "");
+    }
+    textBody = textBody.replace(/\n{3,}/g, "\n\n").trim();
 
     // Send text chunks
     if (textBody.trim()) {
