@@ -1159,14 +1159,14 @@ ${args.description ? `\n${args.description}\n` : ""}
         }
 
         case "desplegar_agente": {
-          // Resolve agent
+          // Resolve agent (with skills)
           let agent = null;
           if (args.agent_id) {
-            const p = new URLSearchParams({ id: `eq.${args.agent_id}`, select: "id,name,role,soul_md,status,railway_service_id", limit: "1" });
+            const p = new URLSearchParams({ id: `eq.${args.agent_id}`, select: "*,agent_skills(*)", limit: "1" });
             const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
             if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
           } else if (args.agent_name) {
-            const p = new URLSearchParams({ org_id: `eq.${args.org_id}`, name: `ilike.%${args.agent_name}%`, status: "neq.destroyed", select: "id,name,role,soul_md,status,railway_service_id", limit: "1" });
+            const p = new URLSearchParams({ org_id: `eq.${args.org_id}`, name: `ilike.%${args.agent_name}%`, status: "neq.destroyed", select: "*,agent_skills(*)", limit: "1" });
             const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
             if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
           }
@@ -1206,17 +1206,30 @@ ${args.description ? `\n${args.description}\n` : ""}
                 projectId: RAILWAY_PROJECT_ID,
                 environmentId: RAILWAY_ENVIRONMENT_ID,
                 serviceId,
-                variables: {
-                  PORT: "8080",
-                  SOUL_MD: agent.soul_md,
-                  AGENT_ID: agent.id,
-                  ORG_ID: args.org_id,
-                  ANTHROPIC_API_KEY: ANTHROPIC_API_KEY,
-                  SUPABASE_URL: SB_URL,
-                  SUPABASE_SERVICE_ROLE_KEY: SB_KEY,
-                  AUTH_TOKEN: SB_KEY,
-                  CLAUDE_MODEL: "claude-sonnet-4-6",
-                },
+                variables: (() => {
+                  // Build AGENT_TOOLS from agent's skills
+                  const comunicarTool = { name: "comunicar_agente", description: "Comunica con otro agente de la organización. Envía un mensaje y recibe respuesta.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string" }, agent_name: { type: "string", description: "Nombre del agente destino" }, message: { type: "string" } }, required: ["message"] } };
+                  let toolsForAgent = [];
+                  try {
+                    // Match agent skills to gateway tool definitions
+                    const skillNames = (agent.agent_skills || []).filter(s => s.enabled !== false).map(s => s.skill_name);
+                    toolsForAgent = gwTools.filter(t => skillNames.includes(t.name) && !["gestionar_agentes","delegar_tarea","consultar_agente","desplegar_agente"].includes(t.name));
+                    toolsForAgent.push(comunicarTool);
+                  } catch (e) { console.error("[deploy] Error building AGENT_TOOLS:", e.message); }
+
+                  return {
+                    PORT: "8080",
+                    SOUL_MD: agent.soul_md,
+                    AGENT_ID: agent.id,
+                    ORG_ID: args.org_id,
+                    ANTHROPIC_API_KEY: ANTHROPIC_API_KEY,
+                    SUPABASE_URL: SB_URL,
+                    SUPABASE_SERVICE_ROLE_KEY: SB_KEY,
+                    AUTH_TOKEN: SB_KEY,
+                    CLAUDE_MODEL: "claude-sonnet-4-6",
+                    AGENT_TOOLS: JSON.stringify(toolsForAgent),
+                  };
+                })(),
               }}
             );
             console.log(`[deploy] Set env vars for service ${serviceId}`);
