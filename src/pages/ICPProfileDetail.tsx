@@ -172,7 +172,7 @@ export function ICPProfileDetail() {
       {/* Header */}
       <div className="mb-6">
         <Button variant="ghost" size="sm" className="mb-2" onClick={() => navigate('/account-mapping')}>
-          <ArrowLeft className="mr-1 h-4 w-4" /> Back to Account Mapping
+          <ArrowLeft className="mr-1 h-4 w-4" /> Back to Search Companies & Leads
         </Button>
         <div className="flex items-center justify-between">
           <div>

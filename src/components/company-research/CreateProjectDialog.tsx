@@ -97,9 +97,9 @@ export function CreateProjectDialog({ open, onOpenChange, onSubmit, editProject 
 
           <div className="flex items-center justify-between rounded-lg border p-3">
             <div className="space-y-0.5">
-              <Label>Auto-trigger from Account Mapping</Label>
+              <Label>Auto-trigger from Search Companies & Leads</Label>
               <p className="text-xs text-muted-foreground">
-                Automatically queue new companies discovered in Account Mapping for research
+                Automatically queue new companies discovered in Search Companies & Leads for research
               </p>
             </div>
             <Switch

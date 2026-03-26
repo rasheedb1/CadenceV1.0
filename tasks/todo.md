@@ -1,87 +1,80 @@
-# OpenClaw Dev Agent — Telegram + Claude SDK
+# Lead Search + Quick Messaging (LinkedIn & Email)
 
 ## Objetivo
-Bot de Telegram que actúa como Senior Developer + Senior QA para Chief.
-Recibe instrucciones por Telegram → ejecuta tareas en el repo usando Claude API con tools → reporta resultado.
+Crear en Chief un lugar para buscar leads y poder enviarles mensajes por LinkedIn o email directamente. Integrar esto con el bot de WhatsApp (OpenClaw) para que desde WhatsApp se pueda pedir enviar mensajes usando las cuentas conectadas en Chief.
 
-## Arquitectura
+## Contexto Actual
+- **Ya existe:** `enviar_mensaje` tool en el Gateway de OpenClaw (LinkedIn DM, InMail, connection request)
+- **Ya existe:** `buscar_prospectos` tool en el Gateway (Sales Navigator cascade search)
+- **Ya existe:** Edge functions `linkedin-send-message` y `send-email`
+- **NO existe:** Página standalone de búsqueda rápida + acción en el frontend
+- **NO existe:** Tool de envío de email en el Gateway de OpenClaw
+- **NO implementado:** `identificar_usuario` y `guardar_sesion` (referenciados en SOUL.md pero sin código)
 
-```
-Telegram (tú) → Bot Node.js (Railway)
-                    ↓
-              Claude API (Anthropic SDK)
-              con tools: read, edit, write, bash, glob, grep
-                    ↓
-              /repo/laiky-ai/ (clone del repo en el servidor)
-                    ↓
-              git commit + push + crear PR
-                    ↓
-              Respuesta resumida → Telegram
-```
+---
 
-## Stack
-- **Runtime:** Node.js 20 + TypeScript
-- **Telegram:** grammy (moderno, TypeScript-first)
-- **AI:** @anthropic-ai/sdk (Anthropic Messages API con tool use)
-- **Model:** claude-sonnet-4-5-20250514 (configurable via env)
-- **Deploy:** Railway (nuevo servicio en proyecto existente `openclaw-chief`)
+## Plan
 
-## Archivos a crear
+### Fase 1: Página de Lead Search + Quick Actions (Frontend)
 
-```
-openclaw-dev/
-├── package.json
-├── tsconfig.json
-├── Dockerfile
-├── railway.json
-├── .env.example
-├── .gitignore
-├── src/
-│   ├── index.ts           # Entry: health server + bot start
-│   ├── bot.ts             # Telegram bot - message handling + conversation mgmt
-│   ├── agent.ts           # Claude agentic loop (messages API + tool execution)
-│   ├── tools.ts           # Tool definitions (Anthropic format) + implementations
-│   └── config.ts          # Environment config + constants
-```
+- [ ] **1.1** Crear página `LeadSearch.tsx` en `/lead-search`
+  - Barra de búsqueda por nombre, empresa, título
+  - Llama a `search-sales-navigator` edge function
+  - Resultados en tabla/cards con info del lead (nombre, título, empresa, LinkedIn URL)
 
-## Tools del agente
-1. `read_file` — leer archivos del repo
-2. `write_file` — crear/sobreescribir archivos
-3. `edit_file` — editar archivos (search & replace)
-4. `bash` — ejecutar comandos shell (sandboxed al repo)
-5. `list_directory` — listar archivos/carpetas
-6. `search_files` — buscar archivos por patron glob
-7. `search_content` — buscar contenido en archivos (grep)
-8. `git_command` — operaciones git (add, commit, push, branch, PR via gh)
+- [ ] **1.2** Diálogo de "Enviar mensaje LinkedIn"
+  - Botón en cada resultado de búsqueda
+  - Abre diálogo para componer mensaje
+  - Selector de tipo: Connection Request, DM, InMail
+  - Envía via `linkedin-send-message` edge function
+  - Usa la cuenta LinkedIn conectada del usuario (`unipile_accounts`)
 
-## System Prompt
-- Incluye el CLAUDE.md del proyecto como contexto
-- Rol: Senior Developer + Senior QA para Chief (Laiky AI)
-- Capacidades: crear features, mejorar código, correr tests, revisar logs, fix bugs, QA iterativo
-- Flujo QA: probar sección → ver si funciona → si falla ver logs → corregir → re-testear
-- Respuestas en español, código en inglés
-- Siempre trabaja en feature branch, nunca push directo a main
+- [ ] **1.3** Diálogo de "Enviar email"
+  - Botón en cada resultado (si tiene email o tras enriquecer)
+  - Abre diálogo para componer email (To, Subject, Body)
+  - Envía via `send-email` edge function
+  - Usa la cuenta Gmail conectada del usuario (`ae_integrations`)
 
-## Seguridad
-- Bash sandboxed: solo ejecuta dentro de /repo
-- Telegram: solo responde a chat IDs autorizados (env var ALLOWED_CHAT_IDS)
-- API key como env var en Railway, nunca en código
-- Git push solo a branches, nunca force push a main
-- Max tokens y max turns como guardrails
+- [ ] **1.4** Agregar al Sidebar + Feature Flag
+  - Nueva entrada en Sidebar: "Lead Search" en sección "Daily Use"
+  - Feature flag: `section_lead_search`
+  - Ruta protegida con `FeatureRoute`
 
-## Deploy
-- Nuevo servicio en Railway project `openclaw-chief`
-- Dockerfile: Node.js 20 + git + gh CLI + clone repo
-- Env vars: TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY, GITHUB_PAT, ALLOWED_CHAT_IDS, etc.
+- [ ] **1.5** Botón "Enriquecer" por lead
+  - Obtener email/teléfono via edge function existente
+  - Mostrar datos enriquecidos inline
 
-## Checkboxes
-- [ ] Plan aprobado
-- [ ] Crear directorio openclaw-dev/ con package.json y tsconfig.json
-- [ ] Crear src/config.ts — environment config
-- [ ] Crear src/tools.ts — tool definitions + implementations
-- [ ] Crear src/agent.ts — Claude agentic loop
-- [ ] Crear src/bot.ts — Telegram bot con grammy
-- [ ] Crear src/index.ts — entry point (health + bot)
-- [ ] Crear Dockerfile + railway.json + .env.example + .gitignore
-- [ ] Deploy a Railway como nuevo servicio
-- [ ] Verificar que el bot responde en Telegram
+### Fase 2: WhatsApp Bot — Envío de Email
+
+- [ ] **2.1** Agregar tool `enviar_email` al Gateway de OpenClaw
+  - Parámetros: org_id, sender_user_id, to_email, subject, body
+  - Llama a `send-email` edge function
+  - Actualizar SOUL.md y AGENTS.md con la nueva tool
+
+### Fase 3: WhatsApp Bot — Identificación de Usuario
+
+- [ ] **3.1** Crear edge function `identificar-usuario`
+  - Input: org_id, email
+  - Output: user_id, member_id, display_name, connected accounts (LinkedIn, Gmail)
+  - Busca en `profiles` + `org_members` + `unipile_accounts` + `ae_integrations`
+
+- [ ] **3.2** Crear edge function `guardar-sesion-whatsapp`
+  - Input: whatsapp_number, org_id, user_id, member_id, display_name
+  - Guarda mapping en nueva tabla `whatsapp_sessions`
+  - Permite al bot recordar quién es el usuario en futuras conversaciones
+
+- [ ] **3.3** Agregar tools `identificar_usuario` y `guardar_sesion` al Gateway
+  - Conectar con los edge functions creados
+  - El bot ya tiene las instrucciones en SOUL.md, solo falta la implementación
+
+---
+
+## Notas Técnicas
+- La búsqueda usa Sales Navigator via Unipile (existente)
+- LinkedIn messaging resuelve provider_id automáticamente (cadena: lead cache → prospect → Unipile lookup)
+- Email requiere Gmail OAuth token (auto-refresh si expira)
+- Todas las operaciones logueadas en `activity_log`
+- Multi-tenancy: todo scoped por `org_id`
+
+## Review
+_Pendiente_

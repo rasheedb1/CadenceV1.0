@@ -14,10 +14,13 @@ interface AuthContextType {
   profile: ProfileState | null
   loading: boolean
   isSuperAdmin: boolean
+  isRecoveryMode: boolean
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
   signUp: (email: string, password: string, fullName?: string) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
   completeOnboarding: () => Promise<void>
+  resetPassword: (email: string) => Promise<{ error: Error | null }>
+  updatePassword: (password: string) => Promise<{ error: Error | null }>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -27,6 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<ProfileState | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const [isRecoveryMode, setIsRecoveryMode] = useState(false)
 
   // Fetch profile when user changes
   useEffect(() => {
@@ -56,10 +60,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session)
       setUser(session?.user ?? null)
       setAuthLoading(false)
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsRecoveryMode(true)
+      }
     })
 
     return () => subscription.unsubscribe()
@@ -71,18 +78,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signUp = async (email: string, password: string, fullName?: string) => {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: { full_name: fullName },
       },
     })
+    // Supabase returns a fake success with empty identities when email already exists
+    if (!error && data.user && (!data.user.identities || data.user.identities.length === 0)) {
+      return { error: new Error('An account with this email already exists. Please sign in or reset your password.') }
+    }
     return { error: error as Error | null }
   }
 
   const signOut = async () => {
     await supabase.auth.signOut()
+  }
+
+  const resetPassword = async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth`,
+    })
+    return { error: error as Error | null }
+  }
+
+  const updatePassword = async (password: string) => {
+    const { error } = await supabase.auth.updateUser({ password })
+    if (!error) {
+      setIsRecoveryMode(false)
+    }
+    return { error: error as Error | null }
   }
 
   const completeOnboarding = async () => {
@@ -101,7 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isSuperAdmin = profile?.is_super_admin ?? false
 
   return (
-    <AuthContext.Provider value={{ user, session, profile, loading, isSuperAdmin, signIn, signUp, signOut, completeOnboarding }}>
+    <AuthContext.Provider value={{ user, session, profile, loading, isSuperAdmin, isRecoveryMode, signIn, signUp, signOut, completeOnboarding, resetPassword, updatePassword }}>
       {children}
     </AuthContext.Provider>
   )

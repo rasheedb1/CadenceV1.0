@@ -248,7 +248,7 @@ export function AccountMapping() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight font-heading">
-            {activeTab === 'icp-profiles' ? 'ICP Setup' : activeTab === 'buyer-personas' ? 'Buying Personas' : 'Account Mapping'}
+            {activeTab === 'icp-profiles' ? 'ICP Setup' : activeTab === 'buyer-personas' ? 'Buying Personas' : 'Search Companies & Leads'}
           </h1>
           <p className="text-muted-foreground">
             {activeTab === 'icp-profiles' ? 'Define your Ideal Customer Profile' : activeTab === 'buyer-personas' ? 'Define the buyer personas for your outreach' : 'Find prospects and build target lists'}
