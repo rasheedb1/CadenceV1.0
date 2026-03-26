@@ -27,6 +27,7 @@ import {
   UserCircle,
   ScanSearch,
   Search,
+  Bot,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrg } from '@/contexts/OrgContext'
@@ -66,6 +67,7 @@ const sdr_sections: NavSection[] = [
       { name: 'Notifications', href: '/notifications', icon: Bell, featureFlag: 'section_notifications' },
       { name: 'LinkedIn Inbox', href: '/inbox', icon: MessageSquare, featureFlag: 'section_linkedin_inbox' },
       { name: 'Lead Search', href: '/lead-search', icon: Search, featureFlag: 'section_lead_search' },
+      { name: 'AI Agents', href: '/agents', icon: Bot, featureFlag: 'section_agents' },
       { name: 'Outreach Activity', href: '/outreach', icon: Activity, featureFlag: 'section_cadences' },
     ],
   },
