@@ -2,7 +2,12 @@ import { Router, Request, Response } from "express";
 import twilio from "twilio";
 import { config } from "./config";
 import { runClaudeTask, gitPull, TaskOptions } from "./claude-runner";
-import { startLoginFlow, completeLogin, getAuthStatus } from "./token-manager";
+import {
+  runClaudeLogin,
+  sendCodeToLogin,
+  getAuthStatus,
+  getClaudeEnv,
+} from "./token-manager";
 
 const WA_MAX_LENGTH = 4096;
 let activeTask: { from: string; startedAt: number } | null = null;
@@ -137,30 +142,41 @@ async function handleMessage(from: string, body: string): Promise<void> {
 
   if (command === "login") {
     try {
-      const authUrl = startLoginFlow();
-      await sendWhatsApp(
-        from,
-        "Abre este link en tu browser e inicia sesion con tu cuenta de Claude:\n\n" +
-          authUrl +
-          "\n\nDespues de autorizar, te dara un codigo. Mandamelo aqui con:\n/code TU_CODIGO"
-      );
+      await sendWhatsApp(from, "Iniciando claude login...");
+      const { authUrl, waitForCompletion } = await runClaudeLogin();
+
+      if (authUrl) {
+        await sendWhatsApp(
+          from,
+          "Abre este link en tu browser e inicia sesion con tu cuenta de Claude:\n\n" +
+            authUrl +
+            "\n\nSi la pagina te da un codigo, mandamelo aqui con:\ncode TU_CODIGO\n\nSi completa automaticamente, espera unos segundos."
+        );
+        waitForCompletion(async (result) => {
+          await sendWhatsApp(from, result);
+        });
+      } else {
+        await sendWhatsApp(from, "Ya estas autenticado con Claude Code.");
+      }
     } catch (err: any) {
-      await sendWhatsApp(from, `Error: ${err.message}`);
+      await sendWhatsApp(from, `Error en login: ${err.message}`);
     }
     return;
   }
 
   if (command === "code") {
     if (!task) {
-      await sendWhatsApp(from, "Falta el codigo. Uso: /code TU_CODIGO_AQUI");
+      await sendWhatsApp(from, "Falta el codigo. Uso: code TU_CODIGO_AQUI");
       return;
     }
-    try {
-      await sendWhatsApp(from, "Intercambiando codigo por token...");
-      const result = await completeLogin(task);
-      await sendWhatsApp(from, result);
-    } catch (err: any) {
-      await sendWhatsApp(from, `Error en login: ${err.message}`);
+    const sent = sendCodeToLogin(task);
+    if (sent) {
+      await sendWhatsApp(from, "Codigo enviado a Claude Code. Esperando...");
+    } else {
+      await sendWhatsApp(
+        from,
+        "No hay login en progreso. Envia 'login' primero."
+      );
     }
     return;
   }
