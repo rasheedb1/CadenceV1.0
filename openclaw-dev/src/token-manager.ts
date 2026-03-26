@@ -178,6 +178,26 @@ export async function getClaudeEnv(): Promise<Record<string, string>> {
   const hasCredentials = fs.existsSync(CREDENTIALS_PATH);
 
   if (hasCredentials) {
+    // Check if token is expired or about to expire
+    try {
+      const data = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, "utf-8"));
+      const oauth = data.claudeAiOauth;
+      const now = Date.now();
+      const expiresAt = oauth?.expiresAt || 0;
+      const minutesLeft = Math.round((expiresAt - now) / 1000 / 60);
+
+      if (minutesLeft < 5 && oauth?.refreshToken) {
+        // Try to refresh the token ourselves
+        console.log(`[auth] Token expires in ${minutesLeft} min. Attempting refresh...`);
+        const refreshed = await tryRefreshToken(oauth.refreshToken, oauth.scopes || []);
+        if (!refreshed && config.anthropicApiKey) {
+          console.log("[auth] Refresh failed. Falling back to API key.");
+          env.ANTHROPIC_API_KEY = config.anthropicApiKey;
+          return env;
+        }
+      }
+    } catch {}
+
     delete env.ANTHROPIC_API_KEY;
     delete env.ANTHROPIC_AUTH_TOKEN;
     console.log("[auth] Using credentials file (Max plan)");
@@ -189,6 +209,41 @@ export async function getClaudeEnv(): Promise<Record<string, string>> {
   }
 
   return env;
+}
+
+async function tryRefreshToken(refreshToken: string, scopes: string[]): Promise<boolean> {
+  try {
+    const response = await fetch(config.oauth.tokenEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: config.oauth.clientId,
+        scope: scopes.join(" "),
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`[auth] Refresh failed: ${response.status}`);
+      return false;
+    }
+
+    const data = await response.json();
+    const newAccessToken = data.access_token;
+    const newRefreshToken = data.refresh_token || refreshToken;
+    const newExpiresAt = data.expires_at || Date.now() + (data.expires_in || 3600) * 1000;
+    const newScopes = data.scope ? data.scope.split(" ") : scopes;
+
+    writeCredentialsFile(newAccessToken, newRefreshToken, newExpiresAt, newScopes);
+    await persistTokensToRailway(newAccessToken, newRefreshToken, newExpiresAt).catch(() => {});
+
+    console.log("[auth] Token refreshed successfully.");
+    return true;
+  } catch (err: any) {
+    console.error(`[auth] Refresh error: ${err.message}`);
+    return false;
+  }
 }
 
 export function getAuthStatus(): string {
