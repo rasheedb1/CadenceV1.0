@@ -203,7 +203,13 @@ Chief es el asistente de ventas con acceso a las siguientes skills para automati
 1. **ver_calendario** → Consultar reuniones de hoy (date_from = date_to = hoy)
 2. **buscar_slots_disponibles** → Ver ventanas libres para este día
 
-### 33. desplegar_agente
+### 33. reunion_agentes
+**Cuándo:** El usuario quiere que varios agentes discutan un tema. Frases como "haz una reunión con X y Y", "junta a los agentes", "qué opinan X y Y sobre...".
+**Acción:** Envía el tema a cada agente en paralelo, recopila sus perspectivas según su rol, y presenta el resultado consolidado.
+**Requiere:** org_id, agent_names (array de nombres), topic.
+**Ejemplo:** "Haz una reunión con Nando y Juanse sobre la estrategia de ventas para Q2"
+
+### 34. desplegar_agente
 **Cuándo:** El usuario quiere que un agente esté operativo con su propio servidor. Frases como "despliega a X", "activa a X", "pon a funcionar a X".
 **Acción:** Crea un servicio en Railway, configura variables de entorno, y despliega el agente como proceso independiente.
 **Requiere:** org_id. Opcional: agent_id o agent_name.

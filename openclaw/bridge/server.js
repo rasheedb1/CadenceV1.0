@@ -632,6 +632,7 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     { name: "delegar_tarea", description: "Delega una tarea a un agente hijo. Si el agente está desplegado, la envía directamente. Si no, la guarda como pendiente. Usa cuando el usuario dice 'dile a X que haga Y', 'pídele a X que...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente destino" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id, búsqueda por nombre)" }, instruction: { type: "string", description: "La tarea en lenguaje natural" } }, required: ["org_id", "instruction"] } },
     { name: "consultar_agente", description: "Pregunta rápida a un agente sin crear tarea formal. Ideal para '¿qué opina X?', 'pregúntale a X...', 'consulta con el CFO...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id)" }, message: { type: "string", description: "La pregunta o mensaje" } }, required: ["org_id", "message"] } },
     { name: "desplegar_agente", description: "Despliega un agente en Railway como servicio independiente. Crea el servidor, configura variables de entorno, y activa el agente. Usa cuando el usuario quiere que un agente esté operativo: 'despliega al CPO', 'activa a Nando', 'pon a funcionar al agente'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente a desplegar" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id)" } }, required: ["org_id"] } },
+    { name: "reunion_agentes", description: "Convoca una reunión con múltiples agentes sobre un tema. Cada agente da su perspectiva según su rol. Usa cuando: 'haz una reunión con X y Y sobre...', 'quiero que X y Y discutan...', 'junta a los agentes para hablar de...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_names: { type: "array", items: { type: "string" }, description: "Nombres de los agentes a convocar" }, topic: { type: "string", description: "El tema a discutir" } }, required: ["org_id", "agent_names", "topic"] } },
   ];
 
   async function gwExecuteTool(name, args) {
@@ -1158,6 +1159,62 @@ ${args.description ? `\n${args.description}\n` : ""}
           } catch (err) {
             return { success: false, agent: agent.name, error: `Error consultando al agente: ${err.message}` };
           }
+        }
+
+        case "reunion_agentes": {
+          const { org_id, agent_names, topic } = args;
+          if (!agent_names || agent_names.length === 0) return { success: false, error: "Se necesita al menos un agente." };
+
+          // Resolve all agents
+          const resolvedAgents = [];
+          for (const name of agent_names) {
+            const p = new URLSearchParams({ org_id: `eq.${org_id}`, name: `ilike.%${name}%`, status: "neq.destroyed", select: "id,name,role,status,railway_url", limit: "1" });
+            const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
+            if (Array.isArray(rows) && rows.length > 0) resolvedAgents.push(rows[0]);
+          }
+
+          if (resolvedAgents.length === 0) return { success: false, error: "No se encontraron agentes con esos nombres." };
+
+          // Send topic to each agent in parallel
+          const prompt = `El orchestrator Chief te convoca a una reunión con otros agentes. El tema es:\n\n"${topic}"\n\nDa tu perspectiva como ${"{role}"} de forma concisa (máximo 3 párrafos). Sé directo y aporta valor desde tu rol.`;
+
+          const responses = await Promise.allSettled(
+            resolvedAgents.map(async (agent) => {
+              if (agent.status !== "active" || !agent.railway_url) {
+                return { agent: agent.name, role: agent.role, reply: `[${agent.name} no está desplegado]` };
+              }
+              try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 60000);
+                const res = await fetch(`${agent.railway_url}/api/chat`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
+                  body: JSON.stringify({ message: prompt.replace("{role}", agent.role), context: { org_id, meeting: true, topic } }),
+                  signal: controller.signal,
+                });
+                clearTimeout(timeout);
+                const data = await res.json();
+                return { agent: agent.name, role: agent.role, reply: data.reply || data.result || JSON.stringify(data) };
+              } catch (err) {
+                return { agent: agent.name, role: agent.role, reply: `[Error contactando a ${agent.name}: ${err.message}]` };
+              }
+            })
+          );
+
+          const results = responses.map(r => r.status === "fulfilled" ? r.value : { agent: "unknown", role: "unknown", reply: "[Error]" });
+
+          // Log meeting in agent_messages
+          for (const r of results) {
+            const ag = resolvedAgents.find(a => a.name === r.agent);
+            if (ag) {
+              await sbFetch(`${base}/rest/v1/agent_messages`, {
+                method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                body: JSON.stringify({ org_id, from_agent_id: ag.id, role: "assistant", content: r.reply, metadata: { meeting: true, topic } }),
+              });
+            }
+          }
+
+          return { success: true, topic, participants: results.map(r => r.agent), responses: results };
         }
 
         case "desplegar_agente": {
