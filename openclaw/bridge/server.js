@@ -419,16 +419,35 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
       throw new Error("Empty response from OpenClaw");
     }
 
-    const chunks = splitMessage(aiResponse);
-    for (const chunk of chunks) {
+    // Detect image URLs in AI response for media messages
+    const imgRegex = /(https?:\/\/[^\s)"]+\.(?:png|jpg|jpeg|webp|gif))/gi;
+    const imageUrls = aiResponse.match(imgRegex) || [];
+    const textBody = imageUrls.length > 0 ? aiResponse.replace(imgRegex, "").trim() : aiResponse;
+
+    // Send text chunks
+    if (textBody.trim()) {
+      const chunks = splitMessage(textBody);
+      for (const chunk of chunks) {
+        await twilioClient.messages.create({
+          from: TWILIO_WHATSAPP_NUMBER,
+          to: From,
+          body: chunk,
+        });
+        if (chunks.length > 1) await new Promise(r => setTimeout(r, 500));
+      }
+      console.log(`[out] Sent ${chunks.length > 1 ? chunks.length + " text msgs" : "1 text msg"} to ${From}`);
+    }
+
+    // Send image URLs as media messages
+    for (const imgUrl of imageUrls) {
       await twilioClient.messages.create({
         from: TWILIO_WHATSAPP_NUMBER,
         to: From,
-        body: chunk,
+        body: "",
+        mediaUrl: [imgUrl],
       });
-      if (chunks.length > 1) await new Promise(r => setTimeout(r, 500));
+      console.log(`[out] Sent image to ${From}: ${imgUrl.substring(0, 80)}`);
     }
-    console.log(`[out] Sent ${chunks.length} message(s) to ${From}`);
 
   } catch (err) {
     console.error(`[error] ${From}:`, err.message);
@@ -528,6 +547,16 @@ if (!ANTHROPIC_API_KEY || !SB_KEY) {
     { name: "identificar_usuario", description: "Busca un usuario dentro de una organización por su email. Úsalo durante el onboarding — después de recibir el org_id, pide el email y llama esta tool para obtener user_id, member_id y nombre completo. Luego llama guardar_sesion con esos datos.", input_schema: { type: "object", properties: { org_id: { type: "string" }, email: { type: "string" } }, required: ["org_id", "email"] } },
     { name: "enviar_otp", description: "Envía un código de verificación de 6 dígitos al email del usuario via Supabase Auth. Úsalo después de recibir el email durante el onboarding para verificar que el usuario es dueño de esa cuenta.", input_schema: { type: "object", properties: { email: { type: "string" } }, required: ["email"] } },
     { name: "verificar_otp", description: "Verifica el código OTP que el usuario recibió en su email. Si es válido, identifica al usuario en la organización y guarda la sesión permanentemente. Este es el paso final del onboarding — después de esto el usuario no necesita identificarse nunca más.", input_schema: { type: "object", properties: { email: { type: "string" }, token: { type: "string", description: "Código de 6 dígitos que el usuario recibió en su email" }, org_id: { type: "string" }, whatsapp_number: { type: "string", description: "Número WhatsApp del usuario — ya lo tienes como sessionKey" } }, required: ["email", "token", "org_id", "whatsapp_number"] } },
+    { name: "enviar_email", description: "Envía un email usando la cuenta Gmail conectada del usuario. Confirmar antes de enviar.", input_schema: { type: "object", properties: { org_id: { type: "string" }, owner_id: { type: "string", description: "user_id del remitente" }, lead_id: { type: "string" }, to: { type: "string" }, subject: { type: "string" }, body: { type: "string" }, cc: { type: "string" } }, required: ["org_id", "owner_id", "to", "subject", "body"] } },
+    { name: "gestionar_prompts", description: "CRUD sobre AI prompts — listar, ver, crear, actualizar, eliminar.", input_schema: { type: "object", properties: { org_id: { type: "string" }, owner_id: { type: "string" }, operation: { type: "string", enum: ["list", "get", "create", "update", "delete"] }, prompt_id: { type: "string" }, prompt: { type: "object", properties: { name: { type: "string" }, prompt_body: { type: "string" }, step_type: { type: "string" }, tone: { type: "string" }, language: { type: "string" }, prompt_type: { type: "string" }, is_default: { type: "boolean" }, description: { type: "string" } } }, updates: { type: "object" }, filters: { type: "object", properties: { prompt_type: { type: "string" }, step_type: { type: "string" }, limit: { type: "number" } } } }, required: ["org_id", "operation"] } },
+    { name: "gestionar_templates", description: "CRUD sobre templates de mensajes — listar, ver, crear, actualizar, eliminar.", input_schema: { type: "object", properties: { org_id: { type: "string" }, owner_id: { type: "string" }, operation: { type: "string", enum: ["list", "get", "create", "update", "delete"] }, template_id: { type: "string" }, template: { type: "object", properties: { name: { type: "string" }, step_type: { type: "string" }, subject_template: { type: "string" }, body_template: { type: "string" } } }, updates: { type: "object" }, filters: { type: "object", properties: { step_type: { type: "string" }, limit: { type: "number" } } } }, required: ["org_id", "operation"] } },
+    { name: "gestionar_personas", description: "CRUD sobre buyer personas — listar, ver, crear, actualizar, eliminar.", input_schema: { type: "object", properties: { org_id: { type: "string" }, owner_id: { type: "string" }, operation: { type: "string", enum: ["list", "get", "create", "update", "delete"] }, persona_id: { type: "string" }, persona: { type: "object", properties: { name: { type: "string" }, title_keywords: { type: "array", items: { type: "string" } }, seniority: { type: "string" }, department: { type: "string" }, description: { type: "string" }, role_in_buying_committee: { type: "string" }, priority: { type: "number" }, max_per_company: { type: "number" }, icp_profile_id: { type: "string" } } }, updates: { type: "object" }, filters: { type: "object", properties: { icp_profile_id: { type: "string" }, limit: { type: "number" } } } }, required: ["org_id", "operation"] } },
+    { name: "gestionar_perfiles_icp", description: "CRUD sobre perfiles ICP — listar, ver, crear, actualizar, eliminar.", input_schema: { type: "object", properties: { org_id: { type: "string" }, owner_id: { type: "string" }, operation: { type: "string", enum: ["list", "get", "create", "update", "delete"] }, profile_id: { type: "string" }, profile: { type: "object", properties: { name: { type: "string" }, description: { type: "string" }, builder_data: { type: "object" }, discover_min_companies: { type: "number" }, discover_max_companies: { type: "number" } } }, updates: { type: "object" } }, required: ["org_id", "operation"] } },
+    { name: "ver_notificaciones", description: "Ver notificaciones (respuestas, errores, emails abiertos) y marcar como leídas.", input_schema: { type: "object", properties: { org_id: { type: "string" }, owner_id: { type: "string" }, operation: { type: "string", enum: ["list", "mark_read", "mark_all_read"] }, notification_id: { type: "string" }, filters: { type: "object", properties: { is_read: { type: "boolean" }, type: { type: "string" }, limit: { type: "number" } } } }, required: ["org_id", "operation"] } },
+    { name: "ver_cadencia_detalle", description: "Ve los detalles completos de una cadencia: pasos, leads asignados, estado.", input_schema: { type: "object", properties: { org_id: { type: "string" }, cadence_id: { type: "string" } }, required: ["org_id", "cadence_id"] } },
+    { name: "ver_conexiones", description: "Ve las cuentas conectadas del usuario (LinkedIn, Gmail, etc.).", input_schema: { type: "object", properties: { org_id: { type: "string" }, user_id: { type: "string" } }, required: ["org_id", "user_id"] } },
+    { name: "ver_programacion", description: "Ve las acciones programadas (schedules) — próximos envíos, estado.", input_schema: { type: "object", properties: { org_id: { type: "string" }, cadence_id: { type: "string" }, status: { type: "string", enum: ["scheduled", "executed", "failed", "canceled"] }, limit: { type: "number" } }, required: ["org_id"] } },
+    { name: "capturar_pantalla", description: "Captura un screenshot del dashboard de Chief. SOLO cuando el usuario lo pide explícitamente ('mándame screenshot', 'muéstrame cómo se ve'). Genera un magic link para autenticar y captura via Firecrawl.", input_schema: { type: "object", properties: { page_path: { type: "string", description: "Ruta de la página, ej: /leads, /cadences, /ai-prompts, /templates" }, user_email: { type: "string", description: "Email del usuario para generar magic link" }, wait_ms: { type: "number", description: "Milisegundos de espera para que cargue la página (default 6000)" } }, required: ["page_path", "user_email"] } },
   ];
 
   async function gwExecuteTool(name, args) {
@@ -669,6 +698,203 @@ if (!ANTHROPIC_API_KEY || !SB_KEY) {
           const r = Array.isArray(data) ? data[0] : data;
           return { success: !!r?.whatsapp_number, session: r };
         }
+        case "enviar_email":
+          return await sbFetch(`${base}/functions/v1/send-email`, { method: "POST", headers: sbHeaders(true), body: JSON.stringify({ leadId: args.lead_id, to: args.to, subject: args.subject, body: args.body, cc: args.cc, ownerId: args.owner_id, orgId: args.org_id }) });
+
+        case "gestionar_prompts": {
+          const { org_id, owner_id, operation, prompt_id, prompt, updates, filters } = args;
+          if (operation === "list") {
+            const p = new URLSearchParams({ select: "*", org_id: `eq.${org_id}`, order: "created_at.desc", limit: String(filters?.limit || 20) });
+            if (owner_id) p.set("owner_id", `eq.${owner_id}`);
+            if (filters?.prompt_type) p.set("prompt_type", `eq.${filters.prompt_type}`);
+            if (filters?.step_type) p.set("step_type", `eq.${filters.step_type}`);
+            const data = await sbFetch(`${base}/rest/v1/ai_prompts?${p}`, { headers: sbHeaders() });
+            return { success: true, prompts: data, total: Array.isArray(data) ? data.length : 0 };
+          }
+          if (operation === "get") {
+            const data = await sbFetch(`${base}/rest/v1/ai_prompts?id=eq.${prompt_id}&org_id=eq.${org_id}`, { headers: sbHeaders() });
+            return { success: true, prompt: Array.isArray(data) ? data[0] : data };
+          }
+          if (operation === "create") {
+            const data = await sbFetch(`${base}/rest/v1/ai_prompts`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" }, body: JSON.stringify({ ...prompt, org_id, owner_id }) });
+            return { success: true, prompt: Array.isArray(data) ? data[0] : data };
+          }
+          if (operation === "update") {
+            const data = await sbFetch(`${base}/rest/v1/ai_prompts?id=eq.${prompt_id}&org_id=eq.${org_id}`, { method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=representation" }, body: JSON.stringify(updates) });
+            return { success: true, prompt: Array.isArray(data) ? data[0] : data };
+          }
+          if (operation === "delete") {
+            await fetch(`${base}/rest/v1/ai_prompts?id=eq.${prompt_id}&org_id=eq.${org_id}`, { method: "DELETE", headers: sbHeaders() });
+            return { success: true };
+          }
+          return { success: false, error: `Operación desconocida: ${operation}` };
+        }
+
+        case "gestionar_templates": {
+          const { org_id, owner_id, operation, template_id, template, updates, filters } = args;
+          if (operation === "list") {
+            const p = new URLSearchParams({ select: "*", org_id: `eq.${org_id}`, order: "created_at.desc", limit: String(filters?.limit || 20) });
+            if (owner_id) p.set("owner_id", `eq.${owner_id}`);
+            if (filters?.step_type) p.set("step_type", `eq.${filters.step_type}`);
+            const data = await sbFetch(`${base}/rest/v1/templates?${p}`, { headers: sbHeaders() });
+            return { success: true, templates: data, total: Array.isArray(data) ? data.length : 0 };
+          }
+          if (operation === "get") {
+            const data = await sbFetch(`${base}/rest/v1/templates?id=eq.${template_id}&org_id=eq.${org_id}`, { headers: sbHeaders() });
+            return { success: true, template: Array.isArray(data) ? data[0] : data };
+          }
+          if (operation === "create") {
+            const data = await sbFetch(`${base}/rest/v1/templates`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" }, body: JSON.stringify({ ...template, org_id, owner_id }) });
+            return { success: true, template: Array.isArray(data) ? data[0] : data };
+          }
+          if (operation === "update") {
+            const data = await sbFetch(`${base}/rest/v1/templates?id=eq.${template_id}&org_id=eq.${org_id}`, { method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=representation" }, body: JSON.stringify(updates) });
+            return { success: true, template: Array.isArray(data) ? data[0] : data };
+          }
+          if (operation === "delete") {
+            await fetch(`${base}/rest/v1/templates?id=eq.${template_id}&org_id=eq.${org_id}`, { method: "DELETE", headers: sbHeaders() });
+            return { success: true };
+          }
+          return { success: false, error: `Operación desconocida: ${operation}` };
+        }
+
+        case "gestionar_personas": {
+          const { org_id, owner_id, operation, persona_id, persona, updates, filters } = args;
+          if (operation === "list") {
+            const p = new URLSearchParams({ select: "*", org_id: `eq.${org_id}`, order: "created_at.desc", limit: String(filters?.limit || 20) });
+            if (owner_id) p.set("owner_id", `eq.${owner_id}`);
+            if (filters?.icp_profile_id) p.set("icp_profile_id", `eq.${filters.icp_profile_id}`);
+            const data = await sbFetch(`${base}/rest/v1/buyer_personas?${p}`, { headers: sbHeaders() });
+            return { success: true, personas: data, total: Array.isArray(data) ? data.length : 0 };
+          }
+          if (operation === "get") {
+            const data = await sbFetch(`${base}/rest/v1/buyer_personas?id=eq.${persona_id}&org_id=eq.${org_id}`, { headers: sbHeaders() });
+            return { success: true, persona: Array.isArray(data) ? data[0] : data };
+          }
+          if (operation === "create") {
+            const data = await sbFetch(`${base}/rest/v1/buyer_personas`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" }, body: JSON.stringify({ ...persona, org_id, owner_id }) });
+            return { success: true, persona: Array.isArray(data) ? data[0] : data };
+          }
+          if (operation === "update") {
+            const data = await sbFetch(`${base}/rest/v1/buyer_personas?id=eq.${persona_id}&org_id=eq.${org_id}`, { method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=representation" }, body: JSON.stringify(updates) });
+            return { success: true, persona: Array.isArray(data) ? data[0] : data };
+          }
+          if (operation === "delete") {
+            await fetch(`${base}/rest/v1/buyer_personas?id=eq.${persona_id}&org_id=eq.${org_id}`, { method: "DELETE", headers: sbHeaders() });
+            return { success: true };
+          }
+          return { success: false, error: `Operación desconocida: ${operation}` };
+        }
+
+        case "gestionar_perfiles_icp": {
+          const { org_id, owner_id, operation, profile_id, profile, updates } = args;
+          if (operation === "list") {
+            const p = new URLSearchParams({ select: "*", org_id: `eq.${org_id}`, order: "created_at.desc" });
+            if (owner_id) p.set("owner_id", `eq.${owner_id}`);
+            const data = await sbFetch(`${base}/rest/v1/icp_profiles?${p}`, { headers: sbHeaders() });
+            return { success: true, profiles: data, total: Array.isArray(data) ? data.length : 0 };
+          }
+          if (operation === "get") {
+            const [prof, personas] = await Promise.all([
+              sbFetch(`${base}/rest/v1/icp_profiles?id=eq.${profile_id}&org_id=eq.${org_id}`, { headers: sbHeaders() }),
+              sbFetch(`${base}/rest/v1/buyer_personas?icp_profile_id=eq.${profile_id}&org_id=eq.${org_id}`, { headers: sbHeaders() }),
+            ]);
+            return { success: true, profile: Array.isArray(prof) ? prof[0] : prof, personas: personas };
+          }
+          if (operation === "create") {
+            const data = await sbFetch(`${base}/rest/v1/icp_profiles`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" }, body: JSON.stringify({ ...profile, org_id, owner_id }) });
+            return { success: true, profile: Array.isArray(data) ? data[0] : data };
+          }
+          if (operation === "update") {
+            const data = await sbFetch(`${base}/rest/v1/icp_profiles?id=eq.${profile_id}&org_id=eq.${org_id}`, { method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=representation" }, body: JSON.stringify(updates) });
+            return { success: true, profile: Array.isArray(data) ? data[0] : data };
+          }
+          if (operation === "delete") {
+            await fetch(`${base}/rest/v1/icp_profiles?id=eq.${profile_id}&org_id=eq.${org_id}`, { method: "DELETE", headers: sbHeaders() });
+            return { success: true };
+          }
+          return { success: false, error: `Operación desconocida: ${operation}` };
+        }
+
+        case "ver_notificaciones": {
+          const { org_id, owner_id, operation, notification_id, filters } = args;
+          if (operation === "list") {
+            const p = new URLSearchParams({ select: "*", org_id: `eq.${org_id}`, order: "created_at.desc", limit: String(filters?.limit || 20) });
+            if (owner_id) p.set("owner_id", `eq.${owner_id}`);
+            if (filters?.is_read !== undefined) p.set("is_read", `eq.${filters.is_read}`);
+            if (filters?.type) p.set("type", `eq.${filters.type}`);
+            const data = await sbFetch(`${base}/rest/v1/notifications?${p}`, { headers: sbHeaders() });
+            return { success: true, notifications: data, total: Array.isArray(data) ? data.length : 0 };
+          }
+          if (operation === "mark_read") {
+            await sbFetch(`${base}/rest/v1/notifications?id=eq.${notification_id}&org_id=eq.${org_id}`, { method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" }, body: JSON.stringify({ is_read: true }) });
+            return { success: true };
+          }
+          if (operation === "mark_all_read") {
+            const p = new URLSearchParams({ org_id: `eq.${org_id}`, is_read: "eq.false" });
+            if (owner_id) p.set("owner_id", `eq.${owner_id}`);
+            await sbFetch(`${base}/rest/v1/notifications?${p}`, { method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" }, body: JSON.stringify({ is_read: true }) });
+            return { success: true };
+          }
+          return { success: false, error: `Operación desconocida: ${operation}` };
+        }
+
+        case "ver_cadencia_detalle": {
+          const { org_id, cadence_id } = args;
+          const [cadence, steps, leads] = await Promise.all([
+            sbFetch(`${base}/rest/v1/cadences?id=eq.${cadence_id}&org_id=eq.${org_id}`, { headers: sbHeaders() }),
+            sbFetch(`${base}/rest/v1/cadence_steps?cadence_id=eq.${cadence_id}&org_id=eq.${org_id}&order=day_offset.asc,order_in_day.asc`, { headers: sbHeaders() }),
+            sbFetch(`${base}/rest/v1/cadence_leads?cadence_id=eq.${cadence_id}&org_id=eq.${org_id}&select=id,lead_id,status,current_step_id`, { headers: sbHeaders() }),
+          ]);
+          return { success: true, cadence: Array.isArray(cadence) ? cadence[0] : cadence, steps, leads, total_leads: Array.isArray(leads) ? leads.length : 0 };
+        }
+
+        case "ver_conexiones": {
+          const { org_id, user_id } = args;
+          const [linkedin, gmail] = await Promise.all([
+            sbFetch(`${base}/rest/v1/unipile_accounts?user_id=eq.${user_id}&select=id,provider,account_id,status`, { headers: sbHeaders() }),
+            sbFetch(`${base}/rest/v1/ae_integrations?user_id=eq.${user_id}&org_id=eq.${org_id}&select=id,provider,config`, { headers: sbHeaders() }),
+          ]);
+          return { success: true, linkedin: Array.isArray(linkedin) ? linkedin : [], gmail: Array.isArray(gmail) ? gmail : [] };
+        }
+
+        case "ver_programacion": {
+          const { org_id, cadence_id, status, limit } = args;
+          const p = new URLSearchParams({ select: "*", org_id: `eq.${org_id}`, order: "scheduled_at.asc", limit: String(limit || 20) });
+          if (cadence_id) p.set("cadence_id", `eq.${cadence_id}`);
+          if (status) p.set("status", `eq.${status}`);
+          const data = await sbFetch(`${base}/rest/v1/schedules?${p}`, { headers: sbHeaders() });
+          return { success: true, schedules: data, total: Array.isArray(data) ? data.length : 0 };
+        }
+
+        case "capturar_pantalla": {
+          const { page_path, user_email, wait_ms = 6000 } = args;
+          const FIRECRAWL_KEY = process.env.FIRECRAWL_API_KEY;
+          if (!FIRECRAWL_KEY) return { success: false, error: "FIRECRAWL_API_KEY no configurada en el servidor" };
+          // Step 1: Generate magic link
+          const redirectTo = `https://laiky-cadence.vercel.app${page_path}`;
+          const linkRes = await sbFetch(`${base}/auth/v1/admin/generate_link`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}`, "apikey": SB_KEY },
+            body: JSON.stringify({ type: "magiclink", email: user_email, options: { redirect_to: redirectTo } }),
+          });
+          if (!linkRes?.properties?.action_link && !linkRes?.action_link) {
+            return { success: false, error: "No se pudo generar el link de autenticación", details: linkRes };
+          }
+          const actionLink = linkRes.properties?.action_link || linkRes.action_link;
+          // Step 2: Firecrawl screenshot
+          const scrapeRes = await fetch("https://api.firecrawl.dev/v2/scrape", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${FIRECRAWL_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ url: actionLink, formats: ["screenshot"], waitFor: wait_ms }),
+          });
+          const scrapeData = await scrapeRes.json();
+          if (!scrapeData?.success || !scrapeData?.data?.screenshot) {
+            return { success: false, error: "No se pudo capturar la pantalla", details: scrapeData?.error || scrapeData };
+          }
+          return { success: true, screenshot_url: scrapeData.data.screenshot, page: page_path };
+        }
+
         default: return { success: false, error: `Tool desconocida: ${name}` };
       }
     } catch (err) {

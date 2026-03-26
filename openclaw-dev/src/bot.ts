@@ -42,14 +42,19 @@ function isAllowed(from: string): boolean {
   return config.allowedNumbers.some((n) => from.includes(n));
 }
 
-async function sendWhatsApp(to: string, body: string): Promise<void> {
+async function sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<void> {
   const chunks = splitMessage(body);
-  for (const chunk of chunks) {
-    await twilioClient.messages.create({
+  for (let i = 0; i < chunks.length; i++) {
+    const msgParams: Record<string, unknown> = {
       from: config.twilio.whatsappNumber,
       to,
-      body: chunk,
-    });
+      body: chunks[i],
+    };
+    // Attach media to the first chunk only
+    if (mediaUrl && i === 0) {
+      msgParams.mediaUrl = [mediaUrl];
+    }
+    await twilioClient.messages.create(msgParams as any);
     if (chunks.length > 1) {
       await new Promise((r) => setTimeout(r, 500));
     }
@@ -212,7 +217,15 @@ async function handleMessage(from: string, body: string): Promise<void> {
         ? `Listo (${duration}s)`
         : `Error (exit ${result.exitCode}, ${duration}s)`;
 
-    await sendWhatsApp(from, `${header}\n\n${result.output}`);
+    // Detect image URLs in output for media messages
+    const imgRegex = /(https?:\/\/[^\s)"]+\.(?:png|jpg|jpeg|webp|gif))/gi;
+    const imageUrls = result.output.match(imgRegex) || [];
+    const firstImageUrl = imageUrls[0];
+    const textOutput = firstImageUrl
+      ? result.output.replace(firstImageUrl, "").trim()
+      : result.output;
+
+    await sendWhatsApp(from, `${header}\n\n${textOutput}`, firstImageUrl);
   } catch (err: any) {
     await sendWhatsApp(from, `Error: ${err.message}`);
   } finally {

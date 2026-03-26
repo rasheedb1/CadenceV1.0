@@ -321,6 +321,15 @@ const tools = [
       required: ['whatsapp_number', 'org_id', 'user_id'],
     },
   },
+  { name: 'gestionar_prompts', description: 'CRUD sobre AI prompts — listar, ver, crear, actualizar, eliminar.', input_schema: { type: 'object', properties: { org_id: { type: 'string' }, owner_id: { type: 'string' }, operation: { type: 'string', enum: ['list', 'get', 'create', 'update', 'delete'] }, prompt_id: { type: 'string' }, prompt: { type: 'object' }, updates: { type: 'object' }, filters: { type: 'object', properties: { prompt_type: { type: 'string' }, step_type: { type: 'string' }, limit: { type: 'number' } } } }, required: ['org_id', 'operation'] } },
+  { name: 'gestionar_templates', description: 'CRUD sobre templates de mensajes.', input_schema: { type: 'object', properties: { org_id: { type: 'string' }, owner_id: { type: 'string' }, operation: { type: 'string', enum: ['list', 'get', 'create', 'update', 'delete'] }, template_id: { type: 'string' }, template: { type: 'object' }, updates: { type: 'object' }, filters: { type: 'object', properties: { step_type: { type: 'string' }, limit: { type: 'number' } } } }, required: ['org_id', 'operation'] } },
+  { name: 'gestionar_personas', description: 'CRUD sobre buyer personas.', input_schema: { type: 'object', properties: { org_id: { type: 'string' }, owner_id: { type: 'string' }, operation: { type: 'string', enum: ['list', 'get', 'create', 'update', 'delete'] }, persona_id: { type: 'string' }, persona: { type: 'object' }, updates: { type: 'object' }, filters: { type: 'object', properties: { icp_profile_id: { type: 'string' }, limit: { type: 'number' } } } }, required: ['org_id', 'operation'] } },
+  { name: 'gestionar_perfiles_icp', description: 'CRUD sobre perfiles ICP.', input_schema: { type: 'object', properties: { org_id: { type: 'string' }, owner_id: { type: 'string' }, operation: { type: 'string', enum: ['list', 'get', 'create', 'update', 'delete'] }, profile_id: { type: 'string' }, profile: { type: 'object' }, updates: { type: 'object' } }, required: ['org_id', 'operation'] } },
+  { name: 'ver_notificaciones', description: 'Ver notificaciones y marcar como leídas.', input_schema: { type: 'object', properties: { org_id: { type: 'string' }, owner_id: { type: 'string' }, operation: { type: 'string', enum: ['list', 'mark_read', 'mark_all_read'] }, notification_id: { type: 'string' }, filters: { type: 'object', properties: { is_read: { type: 'boolean' }, type: { type: 'string' }, limit: { type: 'number' } } } }, required: ['org_id', 'operation'] } },
+  { name: 'ver_cadencia_detalle', description: 'Ve detalles completos de una cadencia: pasos, leads, estado.', input_schema: { type: 'object', properties: { org_id: { type: 'string' }, cadence_id: { type: 'string' } }, required: ['org_id', 'cadence_id'] } },
+  { name: 'ver_conexiones', description: 'Ve cuentas conectadas (LinkedIn, Gmail).', input_schema: { type: 'object', properties: { org_id: { type: 'string' }, user_id: { type: 'string' } }, required: ['org_id', 'user_id'] } },
+  { name: 'ver_programacion', description: 'Ve acciones programadas (schedules).', input_schema: { type: 'object', properties: { org_id: { type: 'string' }, cadence_id: { type: 'string' }, status: { type: 'string' }, limit: { type: 'number' } }, required: ['org_id'] } },
+  { name: 'capturar_pantalla', description: 'Captura screenshot del dashboard. SOLO cuando el usuario lo pide.', input_schema: { type: 'object', properties: { page_path: { type: 'string' }, user_email: { type: 'string' }, wait_ms: { type: 'number' } }, required: ['page_path', 'user_email'] } },
 ];
 
 // ---------------------------------------------------------------------------
@@ -549,6 +558,109 @@ async function executeTool(name, args) {
         });
         const saved = Array.isArray(result) ? result[0] : result;
         return { success: !!saved, session: saved };
+      }
+
+      case 'gestionar_prompts': case 'gestionar_templates': case 'gestionar_personas': case 'gestionar_perfiles_icp': {
+        const tableMap = { gestionar_prompts: 'ai_prompts', gestionar_templates: 'templates', gestionar_personas: 'buyer_personas', gestionar_perfiles_icp: 'icp_profiles' };
+        const table = tableMap[name];
+        const idField = { gestionar_prompts: 'prompt_id', gestionar_templates: 'template_id', gestionar_personas: 'persona_id', gestionar_perfiles_icp: 'profile_id' }[name];
+        const dataField = { gestionar_prompts: 'prompt', gestionar_templates: 'template', gestionar_personas: 'persona', gestionar_perfiles_icp: 'profile' }[name];
+        const { org_id, owner_id, operation } = args;
+        const itemId = args[idField];
+        const itemData = args[dataField];
+        if (operation === 'list') {
+          const p = new URLSearchParams({ select: '*', org_id: `eq.${org_id}`, order: 'created_at.desc', limit: String(args.filters?.limit || 20) });
+          if (owner_id) p.set('owner_id', `eq.${owner_id}`);
+          if (args.filters?.prompt_type) p.set('prompt_type', `eq.${args.filters.prompt_type}`);
+          if (args.filters?.step_type) p.set('step_type', `eq.${args.filters.step_type}`);
+          if (args.filters?.icp_profile_id) p.set('icp_profile_id', `eq.${args.filters.icp_profile_id}`);
+          const data = await supabaseFetch(`${base}/rest/v1/${table}?${p}`, { headers: supabaseHeaders() });
+          return { success: true, items: data, total: Array.isArray(data) ? data.length : 0 };
+        }
+        if (operation === 'get') {
+          const data = await supabaseFetch(`${base}/rest/v1/${table}?id=eq.${itemId}&org_id=eq.${org_id}`, { headers: supabaseHeaders() });
+          return { success: true, item: Array.isArray(data) ? data[0] : data };
+        }
+        if (operation === 'create') {
+          const data = await supabaseFetch(`${base}/rest/v1/${table}`, { method: 'POST', headers: { ...supabaseHeaders(), Prefer: 'return=representation' }, body: JSON.stringify({ ...itemData, org_id, owner_id }) });
+          return { success: true, item: Array.isArray(data) ? data[0] : data };
+        }
+        if (operation === 'update') {
+          const data = await supabaseFetch(`${base}/rest/v1/${table}?id=eq.${itemId}&org_id=eq.${org_id}`, { method: 'PATCH', headers: { ...supabaseHeaders(), Prefer: 'return=representation' }, body: JSON.stringify(args.updates) });
+          return { success: true, item: Array.isArray(data) ? data[0] : data };
+        }
+        if (operation === 'delete') {
+          await fetch(`${base}/rest/v1/${table}?id=eq.${itemId}&org_id=eq.${org_id}`, { method: 'DELETE', headers: supabaseHeaders() });
+          return { success: true };
+        }
+        return { success: false, error: `Operación desconocida: ${operation}` };
+      }
+
+      case 'ver_notificaciones': {
+        const { org_id, owner_id, operation, notification_id, filters } = args;
+        if (operation === 'list') {
+          const p = new URLSearchParams({ select: '*', org_id: `eq.${org_id}`, order: 'created_at.desc', limit: String(filters?.limit || 20) });
+          if (owner_id) p.set('owner_id', `eq.${owner_id}`);
+          if (filters?.is_read !== undefined) p.set('is_read', `eq.${filters.is_read}`);
+          if (filters?.type) p.set('type', `eq.${filters.type}`);
+          return { success: true, notifications: await supabaseFetch(`${base}/rest/v1/notifications?${p}`, { headers: supabaseHeaders() }) };
+        }
+        if (operation === 'mark_read') {
+          await supabaseFetch(`${base}/rest/v1/notifications?id=eq.${notification_id}&org_id=eq.${org_id}`, { method: 'PATCH', headers: { ...supabaseHeaders(), Prefer: 'return=minimal' }, body: JSON.stringify({ is_read: true }) });
+          return { success: true };
+        }
+        if (operation === 'mark_all_read') {
+          const p = new URLSearchParams({ org_id: `eq.${org_id}`, is_read: 'eq.false' });
+          if (owner_id) p.set('owner_id', `eq.${owner_id}`);
+          await supabaseFetch(`${base}/rest/v1/notifications?${p}`, { method: 'PATCH', headers: { ...supabaseHeaders(), Prefer: 'return=minimal' }, body: JSON.stringify({ is_read: true }) });
+          return { success: true };
+        }
+        return { success: false, error: `Operación desconocida: ${operation}` };
+      }
+
+      case 'ver_cadencia_detalle': {
+        const [cadence, steps, leads] = await Promise.all([
+          supabaseFetch(`${base}/rest/v1/cadences?id=eq.${args.cadence_id}&org_id=eq.${args.org_id}`, { headers: supabaseHeaders() }),
+          supabaseFetch(`${base}/rest/v1/cadence_steps?cadence_id=eq.${args.cadence_id}&org_id=eq.${args.org_id}&order=day_offset.asc,order_in_day.asc`, { headers: supabaseHeaders() }),
+          supabaseFetch(`${base}/rest/v1/cadence_leads?cadence_id=eq.${args.cadence_id}&org_id=eq.${args.org_id}&select=id,lead_id,status,current_step_id`, { headers: supabaseHeaders() }),
+        ]);
+        return { success: true, cadence: Array.isArray(cadence) ? cadence[0] : cadence, steps, leads, total_leads: Array.isArray(leads) ? leads.length : 0 };
+      }
+
+      case 'ver_conexiones': {
+        const [linkedin, gmail] = await Promise.all([
+          supabaseFetch(`${base}/rest/v1/unipile_accounts?user_id=eq.${args.user_id}&select=id,provider,account_id,status`, { headers: supabaseHeaders() }),
+          supabaseFetch(`${base}/rest/v1/ae_integrations?user_id=eq.${args.user_id}&org_id=eq.${args.org_id}&select=id,provider,config`, { headers: supabaseHeaders() }),
+        ]);
+        return { success: true, linkedin: Array.isArray(linkedin) ? linkedin : [], gmail: Array.isArray(gmail) ? gmail : [] };
+      }
+
+      case 'ver_programacion': {
+        const p = new URLSearchParams({ select: '*', org_id: `eq.${args.org_id}`, order: 'scheduled_at.asc', limit: String(args.limit || 20) });
+        if (args.cadence_id) p.set('cadence_id', `eq.${args.cadence_id}`);
+        if (args.status) p.set('status', `eq.${args.status}`);
+        return { success: true, schedules: await supabaseFetch(`${base}/rest/v1/schedules?${p}`, { headers: supabaseHeaders() }) };
+      }
+
+      case 'capturar_pantalla': {
+        const FIRECRAWL_KEY = process.env.FIRECRAWL_API_KEY;
+        if (!FIRECRAWL_KEY) return { success: false, error: 'FIRECRAWL_API_KEY no configurada' };
+        const redirectTo = `https://laiky-cadence.vercel.app${args.page_path}`;
+        const linkRes = await supabaseFetch(`${base}/auth/v1/admin/generate_link`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, 'apikey': SUPABASE_SERVICE_ROLE_KEY },
+          body: JSON.stringify({ type: 'magiclink', email: args.user_email, options: { redirect_to: redirectTo } }),
+        });
+        const actionLink = linkRes?.properties?.action_link || linkRes?.action_link;
+        if (!actionLink) return { success: false, error: 'No se pudo generar el link', details: linkRes };
+        const scrapeRes = await fetch('https://api.firecrawl.dev/v2/scrape', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${FIRECRAWL_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: actionLink, formats: ['screenshot'], waitFor: args.wait_ms || 6000 }),
+        });
+        const scrapeData = await scrapeRes.json();
+        if (!scrapeData?.success || !scrapeData?.data?.screenshot) return { success: false, error: 'No se pudo capturar', details: scrapeData?.error };
+        return { success: true, screenshot_url: scrapeData.data.screenshot, page: args.page_path };
       }
 
       default:

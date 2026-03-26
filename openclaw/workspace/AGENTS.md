@@ -77,7 +77,53 @@ Chief es el asistente de ventas con acceso a las siguientes skills para automati
 **Acción:** Envía código de 6 dígitos al email via Supabase Auth. El usuario lo recibe en segundos.
 **Requiere:** email.
 
-### 15. verificar_otp
+### 16. gestionar_prompts
+**Cuándo:** El usuario quiere ver, crear, editar o eliminar AI prompts.
+**Acción:** CRUD en tabla ai_prompts.
+**Requiere:** org_id, operation. Según operación: prompt_id, prompt (objeto), updates, filters.
+
+### 17. gestionar_templates
+**Cuándo:** El usuario quiere ver, crear, editar o eliminar templates de mensajes.
+**Acción:** CRUD en tabla templates.
+**Requiere:** org_id, operation. Según operación: template_id, template, updates, filters.
+
+### 18. gestionar_personas
+**Cuándo:** El usuario quiere ver, crear, editar o eliminar buyer personas.
+**Acción:** CRUD en tabla buyer_personas.
+**Requiere:** org_id, operation. Según operación: persona_id, persona, updates, filters (icp_profile_id).
+
+### 19. gestionar_perfiles_icp
+**Cuándo:** El usuario quiere ver, crear, editar o eliminar perfiles ICP.
+**Acción:** CRUD en tabla icp_profiles. El "get" incluye las personas asociadas.
+**Requiere:** org_id, operation. Según operación: profile_id, profile, updates.
+
+### 20. ver_notificaciones
+**Cuándo:** El usuario quiere ver sus notificaciones o marcarlas como leídas.
+**Acción:** Lee notificaciones con filtros (tipo, leída/no leída) y puede marcar una o todas como leídas.
+**Requiere:** org_id, operation (list, mark_read, mark_all_read).
+
+### 21. ver_cadencia_detalle
+**Cuándo:** El usuario quiere ver los detalles de una cadencia específica.
+**Acción:** Lee cadencia + pasos + leads asignados en paralelo.
+**Requiere:** org_id, cadence_id.
+
+### 22. ver_conexiones
+**Cuándo:** El usuario quiere saber qué cuentas tiene conectadas.
+**Acción:** Lee unipile_accounts (LinkedIn) + ae_integrations (Gmail, etc.).
+**Requiere:** org_id, user_id.
+
+### 23. ver_programacion
+**Cuándo:** El usuario quiere ver qué acciones están programadas.
+**Acción:** Lee tabla schedules con filtros opcionales.
+**Requiere:** org_id. Opcional: cadence_id, status, limit.
+
+### 24. capturar_pantalla
+**Cuándo:** El usuario pide EXPLÍCITAMENTE un screenshot del dashboard ("mándame captura", "muéstrame cómo se ve").
+**Acción:** Genera magic link → Firecrawl toma screenshot → devuelve URL de imagen.
+**Requiere:** page_path (ej: /leads, /ai-prompts), user_email.
+**IMPORTANTE:** NUNCA usar automáticamente. Solo bajo petición explícita del usuario.
+
+### 25. verificar_otp
 **Cuándo:** Después de que el usuario comparta el código recibido en su email.
 **Acción:** Verifica el código con Supabase Auth, resuelve user_id + member_id, guarda sesión permanentemente. Todo en un paso.
 **Requiere:** email, token, org_id, whatsapp_number.
