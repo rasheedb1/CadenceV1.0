@@ -1007,12 +1007,64 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     }
   }
 
+  // --- Conversation persistence ---
+  async function loadConversationHistory(waId) {
+    try {
+      const p = new URLSearchParams({
+        whatsapp_number: `eq.${waId}`,
+        select: "role,content",
+        order: "created_at.asc",
+        limit: String(GW_MAX_HISTORY),
+      });
+      const rows = await sbFetch(`${SB_URL}/rest/v1/chief_conversation_history?${p}`, { headers: sbHeaders() });
+      if (!Array.isArray(rows) || rows.length === 0) return [];
+      // Filter out tool_result messages that reference old tool_use_ids (would cause API errors)
+      // Only keep user text + assistant text messages for continuity
+      const messages = [];
+      for (const r of rows) {
+        if (r.role === "user" && typeof r.content === "string") {
+          messages.push({ role: "user", content: r.content });
+        } else if (r.role === "assistant" && Array.isArray(r.content)) {
+          // Only keep text blocks from assistant (skip tool_use to avoid stale references)
+          const textBlocks = r.content.filter(b => b.type === "text" && b.text);
+          if (textBlocks.length > 0) {
+            messages.push({ role: "assistant", content: textBlocks });
+          }
+        }
+      }
+      console.log(`[gateway] Loaded ${messages.length} messages from history for ${waId}`);
+      return messages;
+    } catch (err) {
+      console.error("[gateway] loadConversationHistory error:", err.message);
+      return [];
+    }
+  }
+
+  async function saveMessage(waId, orgId, role, content) {
+    try {
+      await sbFetch(`${SB_URL}/rest/v1/chief_conversation_history`, {
+        method: "POST",
+        headers: { ...sbHeaders(), Prefer: "return=minimal" },
+        body: JSON.stringify({
+          whatsapp_number: waId,
+          org_id: orgId || null,
+          role,
+          content: typeof content === "string" ? content : content,
+        }),
+      });
+    } catch (err) {
+      console.error("[gateway] saveMessage error:", err.message);
+    }
+  }
+
   async function gwProcessMessage(sessionKey, message) {
     let session = gwSessions.get(sessionKey);
+    let orgId = null;
     if (!session) {
       const ctx = await loadUserContext(sessionKey);
       let sp;
       if (ctx) {
+        orgId = ctx.org_id;
         const parts = [`Número WhatsApp: ${sessionKey}`];
         if (ctx.display_name) parts.push(`Nombre: ${ctx.display_name}`);
         if (ctx.org_id) parts.push(`org_id: ${ctx.org_id}`);
@@ -1023,12 +1075,17 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
       } else {
         sp = `${SYSTEM_PROMPT}\n\n---\n\nNúmero WhatsApp de este usuario: ${sessionKey}\nUsuario nuevo — cuando te proporcione su org_id o se identifique, usa guardar_sesion para recordarlo permanentemente.`;
       }
-      session = { history: [], systemPrompt: sp };
+      // Load persistent conversation history
+      const savedHistory = await loadConversationHistory(sessionKey);
+      session = { history: savedHistory, systemPrompt: sp, orgId };
       gwSessions.set(sessionKey, session);
     }
 
     const { history, systemPrompt } = session;
     history.push({ role: "user", content: message });
+
+    // Persist user message
+    saveMessage(sessionKey, session.orgId, "user", message);
 
     for (let i = 0; i < 10; i++) {
       const response = await anthropic.messages.create({
@@ -1054,6 +1111,8 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
 
       const text = response.content.find(b => b.type === "text")?.text || "";
       if (history.length > GW_MAX_HISTORY) session.history = history.slice(-GW_MAX_HISTORY);
+      // Persist assistant response
+      saveMessage(sessionKey, session.orgId, "assistant", response.content);
       return text;
     }
     return "Hubo un problema procesando tu solicitud. Intenta de nuevo.";
