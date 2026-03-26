@@ -65,10 +65,10 @@ export async function runClaudeTask(
       timeout: 10 * 60 * 1000,
     });
 
-    let fullOutput = "";
+    const textBlocks: string[] = [];
     let lastProgressTime = 0;
     let finalResult = "";
-    const MIN_PROGRESS_INTERVAL = 12000; // Min 12s between progress updates
+    const MIN_PROGRESS_INTERVAL = 15000; // Min 15s between progress updates
 
     child.stdout.on("data", (data: Buffer) => {
       const chunk = data.toString();
@@ -89,18 +89,18 @@ export async function runClaudeTask(
             finalResult = event.result || event.text || "";
           }
 
-          // Capture assistant text messages
+          // Accumulate ALL assistant text blocks
           if (event.type === "assistant" && event.message?.content) {
             for (const block of event.message.content) {
-              if (block.type === "text") {
-                fullOutput = block.text;
+              if (block.type === "text" && block.text) {
+                textBlocks.push(block.text);
               }
             }
           }
         } catch {
-          // Non-JSON line — treat as plain text
+          // Non-JSON line — plain text output
           if (line.trim().length > 5) {
-            fullOutput += line + "\n";
+            textBlocks.push(line);
           }
         }
       }
@@ -118,7 +118,7 @@ export async function runClaudeTask(
     child.on("close", (code) => {
       const durationMs = Date.now() - startTime;
       const exitCode = code ?? 1;
-      const output = finalResult || fullOutput.trim() || stderr.trim() || "(no output)";
+      const output = finalResult || textBlocks.join("\n\n").trim() || stderr.trim() || "(no output)";
 
       console.log(
         `[claude] Done. exit=${exitCode} duration=${Math.round(durationMs / 1000)}s`
@@ -153,14 +153,14 @@ function handleStreamEvent(
         return;
       }
 
-      // Text from Claude → only show planning/reasoning, not code
+      // Text from Claude → show reasoning/planning, skip code
       if (block.type === "text" && block.text) {
         const text = block.text.trim();
-        // Skip code blocks, diffs, and technical output
-        if (text.startsWith("```") || text.startsWith("diff") || text.startsWith("{") || text.startsWith("<")) return;
-        // Only show if it looks like natural language (has spaces, reasonable length)
-        if (text.length > 30 && text.length < 300 && text.includes(" ")) {
-          const clean = text.replace(/\n/g, " ").replace(/\s+/g, " ").substring(0, 200);
+        // Skip code blocks, diffs, JSON, XML
+        if (text.startsWith("```") || text.startsWith("diff ") || text.startsWith("{") || text.startsWith("<")) return;
+        // Only show natural language paragraphs
+        if (text.length > 20 && text.includes(" ")) {
+          const clean = text.replace(/\n/g, " ").replace(/\s+/g, " ");
           onProgress(`[${time}] ${clean}`);
         }
       }
