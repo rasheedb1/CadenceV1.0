@@ -608,6 +608,10 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     { name: "buscar_slots_disponibles", description: "Busca slots de tiempo libre en el calendario del usuario. Útil para proponer horarios de reunión a prospectos o clientes.", input_schema: { type: "object", properties: { user_id: { type: "string" }, org_id: { type: "string" }, date: { type: "string", description: "YYYY-MM-DD (default: hoy)" }, days: { type: "number", description: "Días a analizar (1-7, default: 1)" }, timezone: { type: "string", description: "IANA timezone (default: America/Mexico_City)" }, business_start: { type: "number", description: "Hora inicio jornada (default: 9)" }, business_end: { type: "number", description: "Hora fin jornada (default: 18)" } }, required: ["user_id", "org_id"] } },
     { name: "crear_evento_calendario", description: "Crea un evento en Google Calendar y envía invitaciones por email a los asistentes. Genera Google Meet automáticamente si hay invitados. CONFIRMAR con el usuario antes de crear.", input_schema: { type: "object", properties: { user_id: { type: "string" }, org_id: { type: "string" }, title: { type: "string", description: "Título del evento" }, start_datetime: { type: "string", description: "ISO 8601 (ej: 2025-03-28T10:00:00)" }, end_datetime: { type: "string", description: "ISO 8601 (ej: 2025-03-28T11:00:00)" }, timezone: { type: "string", description: "IANA timezone (default: America/Mexico_City)" }, description: { type: "string", description: "Descripción o agenda del evento" }, location: { type: "string" }, attendees: { type: "array", items: { type: "object", properties: { email: { type: "string" }, name: { type: "string" } }, required: ["email"] }, description: "Lista de invitados. Recibirán invitación por email." } }, required: ["user_id", "org_id", "title", "start_datetime", "end_datetime"] } },
     { name: "sincronizar_calendario", description: "Sincroniza el calendario del usuario con Google Calendar. Útil si no ve reuniones recientes o quiere refrescar datos.", input_schema: { type: "object", properties: { user_id: { type: "string" }, org_id: { type: "string" } }, required: ["user_id", "org_id"] } },
+    // --- Agent Platform tools ---
+    { name: "gestionar_agentes", description: "Crea, lista o elimina agentes AI de la organización. Cada agente tiene un rol (CPO, Developer, CFO, HR, etc.) y habilidades específicas. Confirma detalles antes de crear.", input_schema: { type: "object", properties: { org_id: { type: "string" }, operation: { type: "string", enum: ["create", "list", "get", "delete"] }, name: { type: "string", description: "Nombre del agente (ej: 'CPO Agent')" }, role: { type: "string", description: "Rol del agente (ej: 'cpo', 'developer', 'cfo', 'hr', 'marketing', 'custom')" }, description: { type: "string", description: "Descripción de qué hace este agente" }, skills: { type: "array", items: { type: "string" }, description: "Lista de skills del skill_registry" }, agent_id: { type: "string", description: "ID del agente (para get/delete)" } }, required: ["org_id", "operation"] } },
+    { name: "delegar_tarea", description: "Delega una tarea a un agente hijo. Si el agente está desplegado, la envía directamente. Si no, la guarda como pendiente. Usa cuando el usuario dice 'dile a X que haga Y', 'pídele a X que...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente destino" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id, búsqueda por nombre)" }, instruction: { type: "string", description: "La tarea en lenguaje natural" } }, required: ["org_id", "instruction"] } },
+    { name: "consultar_agente", description: "Pregunta rápida a un agente sin crear tarea formal. Ideal para '¿qué opina X?', 'pregúntale a X...', 'consulta con el CFO...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id)" }, message: { type: "string", description: "La pregunta o mensaje" } }, required: ["org_id", "message"] } },
   ];
 
   async function gwExecuteTool(name, args) {
@@ -985,6 +989,157 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
             method: "POST", headers: sbHeaders(true), body: JSON.stringify(args),
           });
 
+        // --- Agent Platform tools ---
+        case "gestionar_agentes": {
+          const op = args.operation;
+          if (op === "create") {
+            const soulMd = args.soul_md || `# ${args.name || "Agent"}
+
+## Identidad
+Eres **${args.name || "Agent"}**, un agente AI con el rol de **${args.role || "custom"}** dentro de la organización.
+${args.description ? `\n${args.description}\n` : ""}
+
+## Idioma
+- Español es tu idioma principal. Si el usuario escribe en inglés, responde en inglés.
+
+## Personalidad
+- Profesional y directo.
+- Eficiente — vas al grano.
+- Proactivo — sugieres siguientes pasos.
+
+## Reglas
+- Sé directo, eficiente y profesional.
+- Reporta resultados de forma concisa.
+- Siempre necesitas org_id para operaciones con datos.
+- Nunca expongas tokens, keys o IDs internos al usuario.`;
+            return await sbFetch(`${base}/functions/v1/manage-agent`, {
+              method: "POST", headers: sbHeaders(true),
+              body: JSON.stringify({ org_id: args.org_id, name: args.name, role: args.role, description: args.description, soul_md: soulMd, skills: args.skills || [] }),
+            });
+          }
+          if (op === "list") {
+            return await sbFetch(`${base}/functions/v1/manage-agent?org_id=${encodeURIComponent(args.org_id)}`, {
+              method: "GET", headers: sbHeaders(true),
+            });
+          }
+          if (op === "get") {
+            return await sbFetch(`${base}/functions/v1/manage-agent?agent_id=${encodeURIComponent(args.agent_id)}`, {
+              method: "GET", headers: sbHeaders(true),
+            });
+          }
+          if (op === "delete") {
+            return await sbFetch(`${base}/functions/v1/manage-agent`, {
+              method: "DELETE", headers: sbHeaders(true),
+              body: JSON.stringify({ agent_id: args.agent_id }),
+            });
+          }
+          return { success: false, error: `Operación desconocida: ${op}` };
+        }
+
+        case "delegar_tarea": {
+          // Resolve agent by ID or name
+          let agent = null;
+          if (args.agent_id) {
+            const p = new URLSearchParams({ id: `eq.${args.agent_id}`, select: "id,name,role,status,railway_url", limit: "1" });
+            const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
+            if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
+          } else if (args.agent_name) {
+            const p = new URLSearchParams({ org_id: `eq.${args.org_id}`, name: `ilike.%${args.agent_name}%`, status: "neq.destroyed", select: "id,name,role,status,railway_url", limit: "1" });
+            const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
+            if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
+          }
+          if (!agent) return { success: false, error: "Agente no encontrado. Usa gestionar_agentes list para ver los agentes disponibles." };
+
+          // Create task record
+          const taskRes = await sbFetch(`${base}/functions/v1/agent-task`, {
+            method: "POST", headers: sbHeaders(true),
+            body: JSON.stringify({ org_id: args.org_id, agent_id: agent.id, instruction: args.instruction, delegated_by: "orchestrator" }),
+          });
+          const taskId = taskRes?.task?.id;
+
+          // If agent is deployed, send task
+          if (agent.status === "active" && agent.railway_url) {
+            try {
+              const controller = new AbortController();
+              const timeout = setTimeout(() => controller.abort(), 120000);
+              const agentRes = await fetch(`${agent.railway_url}/api/task`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
+                body: JSON.stringify({ instruction: args.instruction, context: { org_id: args.org_id }, task_id: taskId }),
+                signal: controller.signal,
+              });
+              clearTimeout(timeout);
+              const result = await agentRes.json();
+              // Update task as completed
+              if (taskId) {
+                await sbFetch(`${base}/functions/v1/agent-task`, {
+                  method: "PATCH", headers: sbHeaders(true),
+                  body: JSON.stringify({ task_id: taskId, status: "completed", result }),
+                });
+              }
+              return { success: true, agent: agent.name, task_id: taskId, result };
+            } catch (err) {
+              // Timeout or connection error — task stays in_progress
+              if (taskId) {
+                await sbFetch(`${base}/functions/v1/agent-task`, {
+                  method: "PATCH", headers: sbHeaders(true),
+                  body: JSON.stringify({ task_id: taskId, status: "failed", error: err.message }),
+                });
+              }
+              return { success: false, agent: agent.name, task_id: taskId, error: `Error contactando al agente: ${err.message}` };
+            }
+          }
+
+          // Agent not deployed
+          return { success: true, agent: agent.name, task_id: taskId, status: "pending", message: `Tarea creada para ${agent.name} (${agent.role}), pero el agente no está desplegado aún. Se ejecutará cuando el agente esté activo.` };
+        }
+
+        case "consultar_agente": {
+          // Resolve agent by ID or name (same logic)
+          let agent = null;
+          if (args.agent_id) {
+            const p = new URLSearchParams({ id: `eq.${args.agent_id}`, select: "id,name,role,status,railway_url", limit: "1" });
+            const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
+            if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
+          } else if (args.agent_name) {
+            const p = new URLSearchParams({ org_id: `eq.${args.org_id}`, name: `ilike.%${args.agent_name}%`, status: "neq.destroyed", select: "id,name,role,status,railway_url", limit: "1" });
+            const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
+            if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
+          }
+          if (!agent) return { success: false, error: "Agente no encontrado. Usa gestionar_agentes list para ver los agentes disponibles." };
+
+          if (agent.status !== "active" || !agent.railway_url) {
+            return { success: false, error: `${agent.name} no está desplegado. No puedo consultarlo hasta que esté activo.` };
+          }
+
+          try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 60000);
+            const res = await fetch(`${agent.railway_url}/api/chat`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
+              body: JSON.stringify({ message: args.message, context: { org_id: args.org_id } }),
+              signal: controller.signal,
+            });
+            clearTimeout(timeout);
+            const result = await res.json();
+
+            // Log exchange
+            await sbFetch(`${base}/rest/v1/agent_messages`, {
+              method: "POST",
+              headers: { ...sbHeaders(), Prefer: "return=minimal" },
+              body: JSON.stringify([
+                { org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.message },
+                { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: typeof result.reply === "string" ? result.reply : JSON.stringify(result) },
+              ]),
+            });
+
+            return { success: true, agent: agent.name, reply: result.reply || result };
+          } catch (err) {
+            return { success: false, agent: agent.name, error: `Error consultando al agente: ${err.message}` };
+          }
+        }
+
         default: return { success: false, error: `Tool desconocida: ${name}` };
       }
     } catch (err) {
@@ -1072,6 +1227,17 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
         if (ctx.member_id) parts.push(`member_id: ${ctx.member_id}`);
         sp = `${SYSTEM_PROMPT}\n\n---\n\nCONTEXTO GUARDADO DEL USUARIO:\n${parts.join('\n')}\n\nNO pidas org_id, user_id ni datos de identidad — ya están registrados. Úsalos directamente en tus herramientas.`;
         console.log(`[gateway] Restored context for ${sessionKey}: org_id=${ctx.org_id} user=${ctx.display_name}`);
+        // Load org's agents for orchestrator context
+        if (orgId) {
+          try {
+            const agentsParams = new URLSearchParams({ org_id: `eq.${orgId}`, status: "neq.destroyed", select: "id,name,role,description,status", order: "created_at.desc" });
+            const orgAgents = await sbFetch(`${SB_URL}/rest/v1/agents?${agentsParams}`, { headers: sbHeaders() });
+            if (Array.isArray(orgAgents) && orgAgents.length > 0) {
+              sp += `\n\nAGENTES DISPONIBLES EN ESTA ORG:\n` + orgAgents.map(a => `- **${a.name}** (${a.role}) [${a.status}] id=${a.id}${a.description ? ` — ${a.description}` : ""}`).join("\n");
+              sp += `\n\nPuedes delegar tareas o consultar a estos agentes usando delegar_tarea o consultar_agente.`;
+            }
+          } catch (e) { console.error("[gateway] loadOrgAgents error:", e.message); }
+        }
       } else {
         sp = `${SYSTEM_PROMPT}\n\n---\n\nNúmero WhatsApp de este usuario: ${sessionKey}\nUsuario nuevo — cuando te proporcione su org_id o se identifique, usa guardar_sesion para recordarlo permanentemente.`;
       }

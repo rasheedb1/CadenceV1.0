@@ -1,0 +1,17 @@
+{
+  "name": "chief-agent-runtime",
+  "version": "1.0.0",
+  "description": "Child agent runtime for the Chief Agent Platform. Each agent runs as an independent service.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.36.0",
+    "express": "^4.21.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

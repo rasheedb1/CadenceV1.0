@@ -152,6 +152,24 @@ Chief es el asistente de ventas con acceso a las siguientes skills para automati
 **Requiere:** user_id, org_id.
 **Devuelve:** Confirmación de sincronización con cantidad de eventos actualizados.
 
+### 30. gestionar_agentes
+**Cuándo:** El usuario quiere crear, listar o eliminar agentes AI de su organización.
+**Acción:** CRUD sobre la tabla de agentes. Al crear, genera un SOUL.md automáticamente según el rol.
+**Requiere:** org_id, operation (create/list/get/delete). Según operación: name, role, description, skills, agent_id.
+**Ejemplo:** "Crea un agente CPO que se encargue de gestionar producto y priorizar features"
+
+### 31. delegar_tarea
+**Cuándo:** El usuario quiere que un agente hijo ejecute una tarea específica. Frases como "dile a X que...", "pídele a X que...", "que el CPO haga...".
+**Acción:** Envía la tarea al agente via HTTP POST. Si el agente no está desplegado, la guarda como pendiente.
+**Requiere:** org_id, instruction. Opcional: agent_id o agent_name (busca por nombre si no tiene ID).
+**Ejemplo:** "Dile al CPO que analice el feedback de los últimos clientes y priorice los features para Q2"
+
+### 32. consultar_agente
+**Cuándo:** El usuario quiere hacerle una pregunta rápida a un agente sin crear una tarea formal. Frases como "pregúntale a X...", "¿qué opina X?", "consulta con el CFO...".
+**Acción:** Envía mensaje al agente y devuelve su respuesta directamente.
+**Requiere:** org_id, message. Opcional: agent_id o agent_name.
+**Ejemplo:** "Pregúntale al CFO cuánto gastamos en infraestructura este mes"
+
 ---
 
 ## Flujos Comunes
@@ -188,3 +206,12 @@ Chief es el asistente de ventas con acceso a las siguientes skills para automati
 ### Ver agenda del día
 1. **ver_calendario** → Consultar reuniones de hoy (date_from = date_to = hoy)
 2. **buscar_slots_disponibles** → Ver ventanas libres para este día
+
+### Crear agente y delegar tarea
+1. **gestionar_agentes** (create) → Crear agente con rol, nombre y descripción
+2. **delegar_tarea** → Enviar primera tarea al nuevo agente
+3. Reportar resultado al usuario por WhatsApp
+
+### Consultar opinión de un agente
+1. **consultar_agente** → Hacer pregunta rápida al agente
+2. Presentar respuesta al usuario con contexto del rol del agente
