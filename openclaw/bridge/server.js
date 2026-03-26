@@ -525,6 +525,7 @@ if (!ANTHROPIC_API_KEY || !SB_KEY) {
     { name: "ver_metricas", description: "Consulta métricas de cadencias — respuesta, conexión, conversión.", input_schema: { type: "object", properties: { org_id: { type: "string" }, cadence_id: { type: "string" }, date_from: { type: "string" }, date_to: { type: "string" } }, required: ["org_id"] } },
     { name: "gestionar_leads", description: "CRUD sobre leads — listar, crear, actualizar, asignar a cadencias.", input_schema: { type: "object", properties: { org_id: { type: "string" }, operation: { type: "string", enum: ["list","create","update","assign_to_cadence","remove_from_cadence"] }, filters: { type: "object", properties: { status: { type: "string" }, company: { type: "string" }, limit: { type: "number" } } }, lead: { type: "object", properties: { first_name: { type: "string" }, last_name: { type: "string" }, email: { type: "string" }, company: { type: "string" }, title: { type: "string" }, linkedin_url: { type: "string" }, provider_id: { type: "string" }, status: { type: "string" }, source: { type: "string" } } }, lead_id: { type: "string" }, lead_ids: { type: "array", items: { type: "string" } }, updates: { type: "object" }, cadence_id: { type: "string" } }, required: ["org_id","operation"] } },
     { name: "guardar_sesion", description: "Guarda la identidad del usuario (org_id, user_id, member_id, nombre) asociada a su número de WhatsApp. Úsalo siempre que el usuario te proporcione su org_id o se identifique, para que no tenga que repetirlo en futuras conversaciones.", input_schema: { type: "object", properties: { whatsapp_number: { type: "string", description: "Número de WhatsApp del usuario — ya lo tienes como sessionKey" }, org_id: { type: "string" }, user_id: { type: "string" }, member_id: { type: "string" }, display_name: { type: "string", description: "Nombre del usuario para saludarlo en futuras sesiones" } }, required: ["whatsapp_number"] } },
+    { name: "identificar_usuario", description: "Busca un usuario dentro de una organización por su email. Úsalo durante el onboarding — después de recibir el org_id, pide el email y llama esta tool para obtener user_id, member_id y nombre completo. Luego llama guardar_sesion con esos datos.", input_schema: { type: "object", properties: { org_id: { type: "string" }, email: { type: "string" } }, required: ["org_id", "email"] } },
   ];
 
   async function gwExecuteTool(name, args) {
@@ -601,6 +602,17 @@ if (!ANTHROPIC_API_KEY || !SB_KEY) {
             return { success: true };
           }
           return { success: false, error: `Operación desconocida: ${operation}` };
+        }
+        case "identificar_usuario": {
+          const { org_id, email } = args;
+          const data = await sbFetch(`${base}/rest/v1/rpc/search_org_member_by_email`, {
+            method: "POST",
+            headers: sbHeaders(false),
+            body: JSON.stringify({ p_org_id: org_id, p_email: email }),
+          });
+          if (Array.isArray(data) && data.length > 0) return { success: true, user: data[0] };
+          if (data?.user_id) return { success: true, user: data };
+          return { success: false, error: "Usuario no encontrado en esta organización. Verifica el email y el org_id." };
         }
         case "guardar_sesion": {
           const { whatsapp_number, org_id, user_id, member_id, display_name } = args;

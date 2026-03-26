@@ -57,6 +57,16 @@ Chief es el asistente de ventas con acceso a las siguientes skills para automati
 **Acción:** CRUD en tabla de leads, asignación a cadencias.
 **Requiere:** org_id. Operación específica determina parámetros adicionales.
 
+### 11. identificar_usuario
+**Cuándo:** Onboarding de usuario nuevo por WhatsApp — después de obtener org_id.
+**Acción:** Busca el usuario en la org por email, devuelve user_id, member_id y nombre.
+**Requiere:** org_id, email.
+
+### 12. guardar_sesion
+**Cuándo:** Inmediatamente después de identificar al usuario (o cuando actualice datos).
+**Acción:** Persiste org_id, user_id, member_id y display_name asociados al número WhatsApp.
+**Requiere:** whatsapp_number. Opcional: org_id, user_id, member_id, display_name.
+
 ---
 
 ## Flujos Comunes
