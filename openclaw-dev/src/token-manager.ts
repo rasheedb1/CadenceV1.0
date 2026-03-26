@@ -34,6 +34,7 @@ function writeCredentialsFile(): void {
       scopes: [
         "user:file_upload",
         "user:inference",
+        "user:ccr_inference",
         "user:mcp_servers",
         "user:profile",
         "user:sessions:claude_code",
