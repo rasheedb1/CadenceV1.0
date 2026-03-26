@@ -29,8 +29,29 @@ export async function gitPull(): Promise<string> {
 }
 
 /**
- * Runs a task using Claude Code CLI with streaming output.
- * Calls onProgress with intermediate updates as Claude works.
+ * Check if text is natural language (not code, not JSON, not diffs).
+ */
+function isNaturalLanguage(text: string): boolean {
+  const t = text.trim();
+  if (t.length < 15) return false;
+  if (!t.includes(" ")) return false;
+  // Skip code blocks, JSON, XML, diffs, file paths
+  if (t.startsWith("```")) return false;
+  if (t.startsWith("{") || t.startsWith("[")) return false;
+  if (t.startsWith("<")) return false;
+  if (t.startsWith("diff ") || t.startsWith("---") || t.startsWith("+++")) return false;
+  if (t.startsWith("import ") || t.startsWith("export ") || t.startsWith("const ") || t.startsWith("function ")) return false;
+  if (t.startsWith("//") || t.startsWith("/*")) return false;
+  // Must have enough word-like content (letters + spaces ratio)
+  const letterRatio = (t.match(/[a-zA-ZáéíóúñÁÉÍÓÚÑ\s]/g) || []).length / t.length;
+  if (letterRatio < 0.6) return false;
+  return true;
+}
+
+/**
+ * Runs a task using Claude Code CLI with stream-json output.
+ * Sends Claude's reasoning messages to onProgress as they arrive.
+ * Falls back to "Still working..." heartbeat when no messages.
  */
 export async function runClaudeTask(
   task: string,
@@ -48,11 +69,13 @@ export async function runClaudeTask(
     model,
     "--max-turns",
     String(maxTurns),
+    "--output-format",
+    "stream-json",
     "--allowedTools",
     "Read,Write,Edit,Bash(npm test:*),Bash(npx:*),Bash(git:*),Bash(ls:*),Bash(cat:*),Bash(find:*),Bash(grep:*),Bash(node:*),Bash(curl:*),Bash(cd:*),Bash(mkdir:*),Bash(cp:*),Bash(mv:*),Bash(echo:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(sort:*),Bash(diff:*),Bash(gh:*),Glob,Grep",
   ];
 
-  console.log(`[claude] Starting task model=${model} maxTurns=${maxTurns}`);
+  console.log(`[claude] Starting task model=${model}`);
   const startTime = Date.now();
 
   return new Promise((resolve, reject) => {
@@ -62,20 +85,58 @@ export async function runClaudeTask(
       timeout: 10 * 60 * 1000,
     });
 
-    let stdout = "";
+    let buffer = ""; // Line buffer for stream-json
+    let finalResult = "";
+    const allTextBlocks: string[] = [];
+    let lastRealMessageTime = Date.now();
 
-    // Send periodic "still working" updates
-    let progressCount = 0;
-    const progressInterval = setInterval(() => {
-      progressCount++;
-      const elapsed = Math.round((Date.now() - startTime) / 1000);
-      if (onProgress) {
-        onProgress(`[${elapsed}s] Todavia trabajando...`);
+    // Heartbeat: send "Still working..." if no real message in 30s
+    const heartbeat = setInterval(() => {
+      const now = Date.now();
+      if (onProgress && now - lastRealMessageTime > 25000) {
+        const elapsed = Math.round((now - startTime) / 1000);
+        onProgress(`[${elapsed}s] Still working...`);
       }
-    }, 30000); // Every 30 seconds
+    }, 30000);
 
     child.stdout.on("data", (data: Buffer) => {
-      stdout += data.toString();
+      buffer += data.toString();
+
+      // Process complete lines only
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || ""; // Keep incomplete last line
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const event = JSON.parse(line);
+
+          // Final result
+          if (event.type === "result") {
+            finalResult = event.result || event.text || "";
+            continue;
+          }
+
+          // Assistant message content
+          if (event.type === "assistant" && event.message?.content) {
+            for (const block of event.message.content) {
+              if (block.type === "text" && block.text) {
+                const text = block.text.trim();
+                allTextBlocks.push(text);
+
+                // Send natural language messages to WhatsApp
+                if (onProgress && isNaturalLanguage(text)) {
+                  lastRealMessageTime = Date.now();
+                  const clean = text.replace(/\n/g, " ").replace(/\s+/g, " ");
+                  onProgress(clean);
+                }
+              }
+            }
+          }
+        } catch {
+          // Not valid JSON — ignore
+        }
+      }
     });
 
     let stderr = "";
@@ -84,92 +145,27 @@ export async function runClaudeTask(
     });
 
     child.on("error", (err) => {
+      clearInterval(heartbeat);
       reject(new Error(`Failed to spawn claude: ${err.message}`));
     });
 
     child.on("close", (code) => {
-      clearInterval(progressInterval);
+      clearInterval(heartbeat);
       const durationMs = Date.now() - startTime;
       const exitCode = code ?? 1;
-      const output = stdout.trim() || stderr.trim() || "(no output)";
+
+      // Use result event, or fall back to accumulated text, or stderr
+      const output =
+        finalResult ||
+        allTextBlocks.filter((t) => t.length > 10).join("\n\n").trim() ||
+        stderr.trim() ||
+        "(no output)";
 
       console.log(
-        `[claude] Done. exit=${exitCode} duration=${Math.round(durationMs / 1000)}s`
+        `[claude] Done. exit=${exitCode} duration=${Math.round(durationMs / 1000)}s output=${output.length} chars`
       );
 
       resolve({ output, exitCode, durationMs });
     });
   });
-}
-
-/**
- * Parse stream-json events and send human-readable progress updates in Spanish.
- */
-function handleStreamEvent(
-  event: any,
-  onProgress: ((msg: string) => void) | undefined,
-  startTime: number,
-  shouldSend: () => boolean
-): void {
-  if (!onProgress) return;
-  if (!shouldSend()) return;
-
-  const elapsed = Math.round((Date.now() - startTime) / 1000);
-  const time = `${elapsed}s`;
-
-  if (event.type === "assistant" && event.message?.content) {
-    for (const block of event.message.content) {
-      // Tool usage → friendly Spanish description
-      if (block.type === "tool_use") {
-        const msg = describeToolUse(block.name, block.input);
-        if (msg) onProgress(`[${time}] ${msg}`);
-        return;
-      }
-
-      // Text from Claude → show reasoning/planning, skip code
-      if (block.type === "text" && block.text) {
-        const text = block.text.trim();
-        // Skip code blocks, diffs, JSON, XML
-        if (text.startsWith("```") || text.startsWith("diff ") || text.startsWith("{") || text.startsWith("<")) return;
-        // Only show natural language paragraphs
-        if (text.length > 20 && text.includes(" ")) {
-          const clean = text.replace(/\n/g, " ").replace(/\s+/g, " ");
-          onProgress(`[${time}] ${clean}`);
-        }
-      }
-    }
-  }
-}
-
-function describeToolUse(tool: string, input: any): string {
-  const filePath = input?.file_path || input?.path || "";
-  const shortFile = filePath.split("/").slice(-2).join("/"); // last 2 segments
-
-  switch (tool) {
-    case "Read":
-      return `Leyendo ${shortFile || "archivo"}`;
-    case "Write":
-      return `Creando ${shortFile || "archivo nuevo"}`;
-    case "Edit":
-      return `Editando ${shortFile || "archivo"}`;
-    case "Glob":
-      return `Buscando archivos: ${input?.pattern || ""}`;
-    case "Grep":
-      return `Buscando en codigo: "${input?.pattern?.substring(0, 40) || ""}"`;
-    case "Bash": {
-      const cmd = (input?.command || "").trim();
-      if (cmd.startsWith("git ")) return `Git: ${cmd.substring(0, 60)}`;
-      if (cmd.startsWith("npm ")) return `npm: ${cmd.substring(0, 60)}`;
-      if (cmd.startsWith("npx supabase")) return "Deployando edge function...";
-      if (cmd.startsWith("npx vercel") || cmd.startsWith("vercel")) return "Deployando frontend...";
-      if (cmd.includes("test")) return "Corriendo tests...";
-      return `Ejecutando comando...`;
-    }
-    case "WebSearch":
-      return `Buscando en la web: "${input?.query?.substring(0, 50) || ""}"`;
-    case "WebFetch":
-      return "Consultando pagina web...";
-    default:
-      return "";
-  }
 }
