@@ -391,6 +391,18 @@ const tools = [
       required: ['user_id', 'org_id', 'title', 'start_datetime', 'end_datetime'],
     },
   },
+  {
+    name: 'sincronizar_calendario',
+    description: 'Sincroniza el calendario del usuario con Google Calendar. Útil si el usuario dice que no ve sus reuniones recientes o quiere refrescar datos.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        user_id: { type: 'string', description: 'user_id del usuario (de la sesión)' },
+        org_id: { type: 'string' },
+      },
+      required: ['user_id', 'org_id'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -760,6 +772,11 @@ async function executeTool(name, args) {
 
       case 'crear_evento_calendario':
         return await supabaseFetch(`${base}/functions/v1/ae-calendar-create-event`, {
+          method: 'POST', headers: supabaseHeaders(true), body: JSON.stringify(args),
+        });
+
+      case 'sincronizar_calendario':
+        return await supabaseFetch(`${base}/functions/v1/ae-calendar-sync`, {
           method: 'POST', headers: supabaseHeaders(true), body: JSON.stringify(args),
         });
 

@@ -146,6 +146,12 @@ Chief es el asistente de ventas con acceso a las siguientes skills para automati
 **Requiere:** user_id, org_id, title, start_datetime (ISO 8601), end_datetime (ISO 8601). Opcional: timezone, description, location, attendees (array de {email, name}).
 **IMPORTANTE:** Confirmar siempre con el usuario los detalles (fecha, hora, invitados) antes de crear.
 
+### 29. sincronizar_calendario
+**Cuándo:** El usuario quiere refrescar/sincronizar su calendario con Google, o dice que no ve reuniones recientes.
+**Acción:** Llama a ae-calendar-sync para traer los eventos más recientes de Google Calendar.
+**Requiere:** user_id, org_id.
+**Devuelve:** Confirmación de sincronización con cantidad de eventos actualizados.
+
 ---
 
 ## Flujos Comunes
