@@ -1188,10 +1188,16 @@ ${args.description ? `\n${args.description}\n` : ""}
             const serviceName = `agent-${agent.name.toLowerCase().replace(/[^a-z0-9]/g, "-").substring(0, 30)}`;
             const createData = await railwayGQL(
               `mutation($input: ServiceCreateInput!) { serviceCreate(input: $input) { id name } }`,
-              { input: { projectId: RAILWAY_PROJECT_ID, name: serviceName, source: { repo: GITHUB_REPO }, rootDirectory: "openclaw/agent-template" } }
+              { input: { projectId: RAILWAY_PROJECT_ID, name: serviceName, source: { repo: GITHUB_REPO } } }
             );
             const serviceId = createData.serviceCreate.id;
             console.log(`[deploy] Created Railway service ${serviceId} for agent ${agent.name}`);
+
+            // 1b. Set rootDirectory via serviceInstanceUpdate
+            await railwayGQL(
+              `mutation { serviceInstanceUpdate(serviceId: "${serviceId}", environmentId: "${RAILWAY_ENVIRONMENT_ID}", input: { rootDirectory: "openclaw/agent-template" }) }`
+            );
+            console.log(`[deploy] Set rootDirectory to openclaw/agent-template`);
 
             // 2. Set environment variables
             await railwayGQL(
