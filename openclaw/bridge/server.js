@@ -510,6 +510,7 @@ if (!ANTHROPIC_API_KEY || !SB_KEY) {
 } else {
   // Load workspace context — try multiple paths for resilience
   let SYSTEM_PROMPT;
+  let AGENTS_MD = ""; // Raw AGENTS.md content — injected into child agents
   const workspaceCandidates = [
     "/app/workspace",
     path.join(__dirname, "..", "workspace"),
@@ -521,6 +522,7 @@ if (!ANTHROPIC_API_KEY || !SB_KEY) {
       const soul = readFileSync(path.join(dir, "SOUL.md"), "utf8");
       const agents = readFileSync(path.join(dir, "AGENTS.md"), "utf8");
       SYSTEM_PROMPT = `${soul}\n\n---\n\n${agents}`;
+      AGENTS_MD = agents;
       console.log(`[gateway] Loaded workspace from ${dir}`);
       break;
     } catch (_) {}
@@ -1217,9 +1219,37 @@ ${args.description ? `\n${args.description}\n` : ""}
                     toolsForAgent.push(comunicarTool);
                   } catch (e) { console.error("[deploy] Error building AGENT_TOOLS:", e.message); }
 
+                  // Build enriched SOUL_MD: agent personality + skill docs + learning instructions
+                  const skillNames = (agent.agent_skills || []).filter(s => s.enabled !== false).map(s => s.skill_name);
+                  let enrichedSoulMd = agent.soul_md;
+
+                  // Inject relevant skill documentation from AGENTS.md
+                  if (AGENTS_MD) {
+                    // Extract skill sections that match this agent's skills
+                    const skillDocs = [];
+                    for (const name of skillNames) {
+                      // Match "### N. skill_name" sections in AGENTS.md
+                      const regex = new RegExp(`### \\d+\\.\\s*${name.replace(/_/g, "[_\\\\s-]")}[\\s\\S]*?(?=### \\d+\\.|## |$)`, "i");
+                      const match = AGENTS_MD.match(regex);
+                      if (match) skillDocs.push(match[0].trim());
+                    }
+                    if (skillDocs.length > 0) {
+                      enrichedSoulMd += `\n\n---\n\n## Documentación de Skills\nUsa esta referencia para saber CÓMO y CUÁNDO usar cada herramienta:\n\n${skillDocs.join("\n\n")}`;
+                    }
+                  }
+
+                  // Add learning system instructions
+                  enrichedSoulMd += `\n\n---\n\n## Sistema de Aprendizaje
+Después de cada tarea completada, reflexiona sobre qué aprendiste y guárdalo usando la herramienta registrar_aprendizaje. Ejemplos:
+- "El cliente X prefiere comunicación por email, no LinkedIn"
+- "Para empresas de tech en Colombia, usar títulos en inglés funciona mejor"
+- "La cadencia de 5 pasos tiene mejor respuesta que la de 3"
+
+Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada vez más experto.`;
+
                   return {
                     PORT: "8080",
-                    SOUL_MD: agent.soul_md,
+                    SOUL_MD: enrichedSoulMd,
                     AGENT_ID: agent.id,
                     ORG_ID: args.org_id,
                     ANTHROPIC_API_KEY: ANTHROPIC_API_KEY,

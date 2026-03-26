@@ -24,9 +24,17 @@ const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 const app = express();
 app.use(express.json({ limit: "5mb" }));
 
-// Parse tools from env
+// Parse tools from env + add built-in tools
 let agentTools = [];
 try { agentTools = JSON.parse(AGENT_TOOLS); } catch { console.error("[agent] Failed to parse AGENT_TOOLS"); }
+
+// Always add registrar_aprendizaje tool
+agentTools.push({
+  name: "registrar_aprendizaje",
+  description: "Registra un aprendizaje o lección aprendida después de completar una tarea. Usa esto para mejorar con el tiempo — guarda patrones, preferencias del cliente, estrategias efectivas, errores a evitar.",
+  input_schema: { type: "object", properties: { category: { type: "string", description: "Categoría: prospecting, outreach, company_research, cadences, general" }, learning: { type: "string", description: "El aprendizaje en lenguaje natural" }, context: { type: "string", description: "Contexto adicional (empresa, industria, etc.)" }, task_id: { type: "string", description: "ID de la tarea relacionada" } }, required: ["learning"] },
+});
+
 console.log(`[agent] Loaded ${agentTools.length} tools`);
 
 // --- Auth middleware ---
@@ -267,6 +275,16 @@ async function agentExecuteTool(name, args) {
         }
       }
 
+      // --- Learning system ---
+      case "registrar_aprendizaje": {
+        const { category, learning, context: ctx, task_id } = args;
+        if (!learning) return { success: false, error: "Falta el campo 'learning'" };
+        const row = { agent_id: AGENT_ID, org_id: ORG_ID, category: category || "general", learning, context: ctx || null, source_task_id: task_id || null };
+        await sbFetch(`${base}/rest/v1/agent_learnings`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" }, body: JSON.stringify(row) });
+        console.log(`[agent] Learning saved: "${learning.substring(0, 80)}"`);
+        return { success: true, message: "Aprendizaje registrado." };
+      }
+
       default:
         return { success: false, error: `Tool ${name} no disponible en este agente.` };
     }
@@ -324,11 +342,36 @@ async function callClaude(systemPrompt, userMessage, sessionKey = "default") {
 // SYSTEM PROMPT
 // =====================================================
 
-function buildSystemPrompt(extraContext) {
+async function loadLearnings() {
+  try {
+    const p = new URLSearchParams({ agent_id: `eq.${AGENT_ID}`, select: "category,learning", order: "created_at.desc", limit: "30" });
+    const rows = await sbFetch(`${SB_URL}/rest/v1/agent_learnings?${p}`, { headers: sbHeaders() });
+    if (!Array.isArray(rows) || rows.length === 0) return "";
+    const grouped = {};
+    for (const r of rows) {
+      if (!grouped[r.category]) grouped[r.category] = [];
+      grouped[r.category].push(r.learning);
+    }
+    let text = "\n\n## Aprendizajes Acumulados\nEstos son tus aprendizajes de tareas anteriores. Úsalos para ser más efectivo:\n";
+    for (const [cat, items] of Object.entries(grouped)) {
+      text += `\n### ${cat}\n${items.map(i => `- ${i}`).join("\n")}`;
+    }
+    return text;
+  } catch (err) {
+    console.error("[agent] loadLearnings error:", err.message);
+    return "";
+  }
+}
+
+async function buildSystemPrompt(extraContext) {
   let sp = SOUL_MD || `# Agent ${AGENT_ID}\n\nSoy un agente AI. Respondo en español.`;
   if (agentTools.length > 0) {
     sp += `\n\n## Herramientas disponibles\nTienes ${agentTools.length} herramientas. Úsalas cuando sea necesario para ejecutar acciones reales (buscar prospectos, enviar mensajes, investigar empresas, etc.). No inventes datos — usa las herramientas.`;
   }
+  // Load accumulated learnings
+  const learnings = await loadLearnings();
+  if (learnings) sp += learnings;
+
   if (extraContext) {
     sp += `\n\n---\n\nCONTEXTO:\n${typeof extraContext === "string" ? extraContext : JSON.stringify(extraContext)}`;
   }
@@ -365,7 +408,7 @@ app.post("/api/task", requireAuth, async (req, res) => {
   }
 
   try {
-    const systemPrompt = buildSystemPrompt(context);
+    const systemPrompt = await buildSystemPrompt(context);
     const result = await callClaude(systemPrompt, instruction, sessionKey);
 
     if (task_id) {
@@ -394,7 +437,7 @@ app.post("/api/chat", requireAuth, async (req, res) => {
   console.log(`[agent] Chat (${sessionKey}): "${message.substring(0, 80)}"`);
 
   try {
-    const systemPrompt = buildSystemPrompt(context);
+    const systemPrompt = await buildSystemPrompt(context);
     const reply = await callClaude(systemPrompt, message, sessionKey);
     console.log(`[agent] Reply: "${reply.substring(0, 80)}"`);
     res.json({ success: true, reply });
@@ -421,7 +464,7 @@ async function pollPendingTasks() {
     await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id: task.id, status: "in_progress" }) });
 
     try {
-      const sp = buildSystemPrompt({ org_id: task.org_id });
+      const sp = await buildSystemPrompt({ org_id: task.org_id });
       const result = await callClaude(sp, task.instruction, `task-${task.id}`);
       await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id: task.id, status: "completed", result: { text: result } }) });
       console.log(`[agent] Completed pending task: ${task.id}`);
