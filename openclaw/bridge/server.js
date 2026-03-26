@@ -499,6 +499,10 @@ const {
   SUPABASE_SERVICE_ROLE_KEY: SB_KEY,
   GATEWAY_PORT: GW_PORT_STR = "18789",
   CLAUDE_MODEL = "claude-sonnet-4-6",
+  RAILWAY_API_TOKEN,
+  RAILWAY_PROJECT_ID = "160e649b-5baa-4a3d-b2a4-26ad4f5c74ac",
+  RAILWAY_ENVIRONMENT_ID = "df9cf24b-413b-4748-8cd3-6f69f60db99a",
+  GITHUB_REPO = "rasheedb1/CadenceV1.0",
 } = process.env;
 
 if (!ANTHROPIC_API_KEY || !SB_KEY) {
@@ -578,6 +582,19 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     try { return JSON.parse(txt); } catch { return { _raw: txt, _status: res.status }; }
   }
 
+  // Railway API helper
+  async function railwayGQL(query, variables = {}) {
+    if (!RAILWAY_API_TOKEN) throw new Error("RAILWAY_API_TOKEN not configured");
+    const res = await fetch("https://backboard.railway.app/graphql/v2", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${RAILWAY_API_TOKEN}` },
+      body: JSON.stringify({ query, variables }),
+    });
+    const json = await res.json();
+    if (json.errors) throw new Error(json.errors[0].message);
+    return json.data;
+  }
+
   // Tools (Anthropic format)
   const gwTools = [
     { name: "buscar_prospectos", description: "Busca prospectos en una empresa usando LinkedIn Sales Navigator (L1→L2→L3).", input_schema: { type: "object", properties: { org_id: { type: "string" }, company_name: { type: "string" }, company_domain: { type: "string" }, titles: { type: "array", items: { type: "string" } }, seniority_levels: { type: "array", items: { type: "string" } }, limit: { type: "number" }, buyer_persona_id: { type: "string" } }, required: ["org_id", "company_name"] } },
@@ -612,6 +629,7 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     { name: "gestionar_agentes", description: "Crea, lista o elimina agentes AI de la organización. Cada agente tiene un rol (CPO, Developer, CFO, HR, etc.) y habilidades específicas. Confirma detalles antes de crear.", input_schema: { type: "object", properties: { org_id: { type: "string" }, operation: { type: "string", enum: ["create", "list", "get", "delete"] }, name: { type: "string", description: "Nombre del agente (ej: 'CPO Agent')" }, role: { type: "string", description: "Rol del agente (ej: 'cpo', 'developer', 'cfo', 'hr', 'marketing', 'custom')" }, description: { type: "string", description: "Descripción de qué hace este agente" }, skills: { type: "array", items: { type: "string" }, description: "Lista de skills del skill_registry" }, agent_id: { type: "string", description: "ID del agente (para get/delete)" } }, required: ["org_id", "operation"] } },
     { name: "delegar_tarea", description: "Delega una tarea a un agente hijo. Si el agente está desplegado, la envía directamente. Si no, la guarda como pendiente. Usa cuando el usuario dice 'dile a X que haga Y', 'pídele a X que...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente destino" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id, búsqueda por nombre)" }, instruction: { type: "string", description: "La tarea en lenguaje natural" } }, required: ["org_id", "instruction"] } },
     { name: "consultar_agente", description: "Pregunta rápida a un agente sin crear tarea formal. Ideal para '¿qué opina X?', 'pregúntale a X...', 'consulta con el CFO...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id)" }, message: { type: "string", description: "La pregunta o mensaje" } }, required: ["org_id", "message"] } },
+    { name: "desplegar_agente", description: "Despliega un agente en Railway como servicio independiente. Crea el servidor, configura variables de entorno, y activa el agente. Usa cuando el usuario quiere que un agente esté operativo: 'despliega al CPO', 'activa a Nando', 'pon a funcionar al agente'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente a desplegar" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id)" } }, required: ["org_id"] } },
   ];
 
   async function gwExecuteTool(name, args) {
@@ -1137,6 +1155,108 @@ ${args.description ? `\n${args.description}\n` : ""}
             return { success: true, agent: agent.name, reply: result.reply || result };
           } catch (err) {
             return { success: false, agent: agent.name, error: `Error consultando al agente: ${err.message}` };
+          }
+        }
+
+        case "desplegar_agente": {
+          // Resolve agent
+          let agent = null;
+          if (args.agent_id) {
+            const p = new URLSearchParams({ id: `eq.${args.agent_id}`, select: "id,name,role,soul_md,status,railway_service_id", limit: "1" });
+            const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
+            if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
+          } else if (args.agent_name) {
+            const p = new URLSearchParams({ org_id: `eq.${args.org_id}`, name: `ilike.%${args.agent_name}%`, status: "neq.destroyed", select: "id,name,role,soul_md,status,railway_service_id", limit: "1" });
+            const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
+            if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
+          }
+          if (!agent) return { success: false, error: "Agente no encontrado." };
+          if (agent.status === "active" && agent.railway_service_id) {
+            return { success: false, error: `${agent.name} ya está desplegado y activo.` };
+          }
+
+          if (!RAILWAY_API_TOKEN) return { success: false, error: "RAILWAY_API_TOKEN no configurado. No puedo desplegar." };
+
+          try {
+            // Update status to deploying
+            await sbFetch(`${base}/functions/v1/manage-agent`, {
+              method: "PATCH", headers: sbHeaders(true),
+              body: JSON.stringify({ agent_id: agent.id, updates: { status: "deploying" } }),
+            });
+
+            // 1. Create Railway service
+            const serviceName = `agent-${agent.name.toLowerCase().replace(/[^a-z0-9]/g, "-").substring(0, 30)}`;
+            const createData = await railwayGQL(
+              `mutation($input: ServiceCreateInput!) { serviceCreate(input: $input) { id name } }`,
+              { input: { projectId: RAILWAY_PROJECT_ID, name: serviceName, source: { repo: GITHUB_REPO }, rootDirectory: "openclaw/agent-template" } }
+            );
+            const serviceId = createData.serviceCreate.id;
+            console.log(`[deploy] Created Railway service ${serviceId} for agent ${agent.name}`);
+
+            // 2. Set environment variables
+            await railwayGQL(
+              `mutation($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }`,
+              { input: {
+                projectId: RAILWAY_PROJECT_ID,
+                environmentId: RAILWAY_ENVIRONMENT_ID,
+                serviceId,
+                variables: {
+                  PORT: "8080",
+                  SOUL_MD: agent.soul_md,
+                  AGENT_ID: agent.id,
+                  ORG_ID: args.org_id,
+                  ANTHROPIC_API_KEY: ANTHROPIC_API_KEY,
+                  SUPABASE_URL: SB_URL,
+                  SUPABASE_SERVICE_ROLE_KEY: SB_KEY,
+                  AUTH_TOKEN: SB_KEY,
+                  CLAUDE_MODEL: "claude-sonnet-4-6",
+                },
+              }}
+            );
+            console.log(`[deploy] Set env vars for service ${serviceId}`);
+
+            // 3. Generate a Railway domain
+            let railwayUrl = null;
+            try {
+              const domainData = await railwayGQL(
+                `mutation($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { domain } }`,
+                { input: { serviceId, environmentId: RAILWAY_ENVIRONMENT_ID } }
+              );
+              railwayUrl = `https://${domainData.serviceDomainCreate.domain}`;
+              console.log(`[deploy] Domain created: ${railwayUrl}`);
+            } catch (domErr) {
+              console.error(`[deploy] Domain creation error:`, domErr.message);
+            }
+
+            // 4. Update agent record
+            await sbFetch(`${base}/functions/v1/manage-agent`, {
+              method: "PATCH", headers: sbHeaders(true),
+              body: JSON.stringify({
+                agent_id: agent.id,
+                updates: {
+                  railway_service_id: serviceId,
+                  railway_url: railwayUrl,
+                  status: "deploying",
+                },
+              }),
+            });
+
+            return {
+              success: true,
+              agent: agent.name,
+              service_id: serviceId,
+              railway_url: railwayUrl,
+              status: "deploying",
+              message: `${agent.name} se está desplegando en Railway. El servicio tardará ~2 minutos en estar listo. URL: ${railwayUrl || "pendiente"}`,
+            };
+          } catch (err) {
+            console.error(`[deploy] Error deploying agent ${agent.name}:`, err.message);
+            // Revert status
+            await sbFetch(`${base}/functions/v1/manage-agent`, {
+              method: "PATCH", headers: sbHeaders(true),
+              body: JSON.stringify({ agent_id: agent.id, updates: { status: "error" } }),
+            });
+            return { success: false, error: `Error desplegando: ${err.message}` };
           }
         }
 

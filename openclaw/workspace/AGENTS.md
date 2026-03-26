@@ -170,10 +170,6 @@ Chief es el asistente de ventas con acceso a las siguientes skills para automati
 **Requiere:** org_id, message. Opcional: agent_id o agent_name.
 **Ejemplo:** "Pregúntale al CFO cuánto gastamos en infraestructura este mes"
 
----
-
-## Flujos Comunes
-
 ### Nuevo prospecto de inicio a fin
 1. **descubrir-empresas** → Encontrar empresa target
 2. **investigar-empresa** → Research profundo
@@ -206,6 +202,16 @@ Chief es el asistente de ventas con acceso a las siguientes skills para automati
 ### Ver agenda del día
 1. **ver_calendario** → Consultar reuniones de hoy (date_from = date_to = hoy)
 2. **buscar_slots_disponibles** → Ver ventanas libres para este día
+
+### 33. desplegar_agente
+**Cuándo:** El usuario quiere que un agente esté operativo con su propio servidor. Frases como "despliega a X", "activa a X", "pon a funcionar a X".
+**Acción:** Crea un servicio en Railway, configura variables de entorno, y despliega el agente como proceso independiente.
+**Requiere:** org_id. Opcional: agent_id o agent_name.
+**Ejemplo:** "Despliega a Nando para que pueda trabajar de forma independiente"
+
+---
+
+## Flujos Comunes
 
 ### Crear agente y delegar tarea
 1. **gestionar_agentes** (create) → Crear agente con rol, nombre y descripción
