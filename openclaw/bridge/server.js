@@ -514,9 +514,6 @@ if (!ANTHROPIC_API_KEY || !SB_KEY) {
   }
   if (!SYSTEM_PROMPT) {
     console.log("[gateway] Workspace files not found — using embedded system prompt");
-    // Full system prompt embedded for Docker environments where workspace isn't mounted
-    const soul = readFileSync(path.join(__dirname, "..", "workspace", "SOUL.md"), "utf8").catch?.(() => null);
-    // If still can't load, use inline essential prompt
     SYSTEM_PROMPT = `# Chief — by Laiky AI
 
 ## Identidad
