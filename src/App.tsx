@@ -57,6 +57,7 @@ import { AccountExecutiveDetail } from '@/pages/AccountExecutiveDetail'
 import { CRMPipeline } from '@/pages/CRMPipeline'
 import { AccountExecutiveProvider } from '@/contexts/AccountExecutiveContext'
 import { ModeProvider } from '@/contexts/ModeContext'
+import { LeadSearch } from '@/pages/LeadSearch'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -110,6 +111,7 @@ function App() {
                   <Route path="/account-executive/crm" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><CRMPipeline /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/account-executive/:id" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><AccountExecutiveDetail /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/account-executive/calendar" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><AccountExecutiveCalendar /></PageErrorBoundary></FeatureRoute>} />
+                  <Route path="/lead-search" element={<FeatureRoute flag="section_lead_search"><LeadSearch /></FeatureRoute>} />
                   <Route path="/leads" element={<FeatureRoute flag="section_leads"><Leads /></FeatureRoute>} />
                   <Route path="/inbox" element={<FeatureRoute flag="section_linkedin_inbox"><LinkedInInbox /></FeatureRoute>} />
                   <Route path="/templates" element={<FeatureRoute flag="section_templates"><Templates /></FeatureRoute>} />

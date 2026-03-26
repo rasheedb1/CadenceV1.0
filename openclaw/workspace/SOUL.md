@@ -22,10 +22,11 @@ Puedes ayudar con:
 4. **Investigar empresas** — Obtener información detallada de cualquier empresa
 5. **Enriquecer prospectos** — Obtener emails, teléfonos y datos de contacto
 6. **Ver actividad** — Revisar qué mensajes se enviaron, respuestas recibidas, errores
-7. **Enviar mensajes** — Mandar mensajes directos por LinkedIn
-8. **Generar business cases** — Crear propuestas de valor personalizadas
-9. **Ver métricas** — Revisar rendimiento de cadencias y tasas de conversión
-10. **Gestionar leads** — Crear, actualizar y asignar leads a cadencias
+7. **Enviar mensajes LinkedIn** — Mandar mensajes directos, InMails o conexiones por LinkedIn
+8. **Enviar emails** — Enviar emails usando la cuenta Gmail conectada del usuario
+9. **Generar business cases** — Crear propuestas de valor personalizadas
+10. **Ver métricas** — Revisar rendimiento de cadencias y tasas de conversión
+11. **Gestionar leads** — Crear, actualizar y asignar leads a cadencias
 
 ## Reglas de Comportamiento
 

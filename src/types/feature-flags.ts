@@ -15,6 +15,7 @@ export interface OrgFeatureFlags {
   section_ai_prompts: boolean
   section_linkedin_inbox: boolean
   section_notifications: boolean
+  section_lead_search: boolean
   // Account Executive section
   section_account_executive: boolean
   ae_gong_integration: boolean
@@ -48,6 +49,7 @@ export const DEFAULT_FEATURE_FLAGS: OrgFeatureFlags = {
   section_ai_prompts: true,
   section_linkedin_inbox: true,
   section_notifications: true,
+  section_lead_search: true,
   section_account_executive: true,
   ae_gong_integration: true,
   ae_calendar_integration: true,
@@ -67,7 +69,7 @@ export const DEFAULT_FEATURE_FLAGS: OrgFeatureFlags = {
 export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   section_cadences: 'Cadences',
   section_workflows: 'Workflows',
-  section_account_mapping: 'Account Mapping',
+  section_account_mapping: 'Search Companies & Leads',
   section_company_registry: 'Company Registry',
   section_company_research: 'Company Research',
   section_business_cases: 'Business Cases',
@@ -76,6 +78,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   section_ai_prompts: 'AI Prompts',
   section_linkedin_inbox: 'LinkedIn Inbox',
   section_notifications: 'Notifications',
+  section_lead_search: 'Lead Search',
   section_account_executive: 'Account Executive',
   ae_gong_integration: 'Gong Integration',
   ae_calendar_integration: 'Google Calendar',
@@ -106,6 +109,7 @@ export const FEATURE_FLAG_GROUPS: { label: string; flags: FeatureFlagKey[]; pare
       'section_templates',
       'section_ai_prompts',
       'section_linkedin_inbox',
+      'section_lead_search',
       'section_account_executive',
       'section_notifications',
     ],
@@ -121,7 +125,7 @@ export const FEATURE_FLAG_GROUPS: { label: string; flags: FeatureFlagKey[]; pare
     ],
   },
   {
-    label: 'Account Mapping Sub-Features',
+    label: 'Search Companies & Leads Sub-Features',
     parentFlag: 'section_account_mapping',
     flags: [
       'acctmap_ai_discovery',

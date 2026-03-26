@@ -42,37 +42,42 @@ Chief es el asistente de ventas con acceso a las siguientes skills para automati
 **Acción:** Envía mensaje, InMail o solicitud de conexión via Unipile.
 **Requiere:** org_id, sender_account_id, recipient_provider_id, message, message_type.
 
-### 8. business-case
+### 8. enviar-email
+**Cuándo:** El usuario quiere enviar un email a un prospecto o lead.
+**Acción:** Envía email via la cuenta Gmail conectada del usuario en Chief.
+**Requiere:** org_id, owner_id (user_id del remitente), to (email destino), subject, body. Opcional: lead_id, cc.
+
+### 9. business-case
 **Cuándo:** El usuario quiere generar un business case o propuesta de valor personalizada.
 **Acción:** Genera business case con IA basado en research de la empresa.
 **Requiere:** org_id, company_name. Opcional: prospect info, pain points.
 
-### 9. ver-metricas
+### 10. ver-metricas
 **Cuándo:** El usuario quiere ver rendimiento de cadencias o estadísticas generales.
 **Acción:** Consulta y calcula métricas (tasas de respuesta, conexión, conversión).
 **Requiere:** org_id. Opcional: cadence_id, date range.
 
-### 10. gestionar-leads
+### 11. gestionar-leads
 **Cuándo:** El usuario quiere ver, crear, actualizar o asignar leads.
 **Acción:** CRUD en tabla de leads, asignación a cadencias.
 **Requiere:** org_id. Operación específica determina parámetros adicionales.
 
-### 11. identificar_usuario
+### 12. identificar_usuario
 **Cuándo:** Lookup de usuario por email dentro de una org (uso interno / admin).
-**Acción:** Busca el usuario en la org por email, devuelve user_id, member_id y nombre.
+**Acción:** Busca el usuario en la org por email, devuelve user_id, member_id, nombre y cuentas conectadas (LinkedIn, Gmail).
 **Requiere:** org_id, email.
 
-### 12. guardar_sesion
+### 13. guardar_sesion
 **Cuándo:** Inmediatamente después de verificar OTP exitosamente.
 **Acción:** Persiste org_id, user_id, member_id y display_name asociados al número WhatsApp.
 **Requiere:** whatsapp_number. Opcional: org_id, user_id, member_id, display_name.
 
-### 13. enviar_otp
+### 14. enviar_otp
 **Cuándo:** Onboarding de usuario nuevo — después de recibir su email.
 **Acción:** Envía código de 6 dígitos al email via Supabase Auth. El usuario lo recibe en segundos.
 **Requiere:** email.
 
-### 14. verificar_otp
+### 15. verificar_otp
 **Cuándo:** Después de que el usuario comparta el código recibido en su email.
 **Acción:** Verifica el código con Supabase Auth, resuelve user_id + member_id, guarda sesión permanentemente. Todo en un paso.
 **Requiere:** email, token, org_id, whatsapp_number.
@@ -92,8 +97,13 @@ Chief es el asistente de ventas con acceso a las siguientes skills para automati
 
 ### Seguimiento rápido
 1. **ver-actividad** → Ver respuestas recientes
-2. **enviar-mensaje** → Responder manualmente
+2. **enviar-mensaje** o **enviar-email** → Responder manualmente por LinkedIn o email
 3. **gestionar-leads** → Actualizar estado
+
+### Enviar mensaje rápido desde WhatsApp
+1. **buscar-prospectos** → Buscar persona por nombre/empresa
+2. **gestionar-leads** → Crear lead con los datos del prospecto
+3. **enviar-mensaje** o **enviar-email** → Enviar mensaje usando la cuenta conectada
 
 ### Reporte semanal
 1. **ver-metricas** → Tasas de todas las cadencias

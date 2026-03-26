@@ -277,6 +277,50 @@ const tools = [
       required: ['org_id', 'operation'],
     },
   },
+  {
+    name: 'enviar_email',
+    description: 'Envía un email usando la cuenta Gmail conectada del usuario. Confirmar con el usuario antes de enviar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        org_id: { type: 'string' },
+        owner_id: { type: 'string', description: 'user_id del remitente (dueño de la cuenta Gmail)' },
+        lead_id: { type: 'string', description: 'ID del lead (si existe). Si no, crear primero con gestionar_leads.' },
+        to: { type: 'string', description: 'Email del destinatario' },
+        subject: { type: 'string' },
+        body: { type: 'string', description: 'Cuerpo del email (HTML o texto plano)' },
+        cc: { type: 'string', description: 'CC emails separados por coma (opcional)' },
+      },
+      required: ['org_id', 'owner_id', 'to', 'subject', 'body'],
+    },
+  },
+  {
+    name: 'identificar_usuario',
+    description: 'Identifica un usuario de Chief por su email y org_id. Devuelve user_id, member_id, nombre y cuentas conectadas.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        org_id: { type: 'string' },
+        email: { type: 'string', description: 'Email del usuario en Supabase Auth' },
+      },
+      required: ['org_id', 'email'],
+    },
+  },
+  {
+    name: 'guardar_sesion',
+    description: 'Guarda el mapeo WhatsApp → usuario de Chief para no preguntar en cada conversación.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        whatsapp_number: { type: 'string', description: 'Número de WhatsApp (e.g., +1234567890)' },
+        org_id: { type: 'string' },
+        user_id: { type: 'string' },
+        member_id: { type: 'string' },
+        display_name: { type: 'string' },
+      },
+      required: ['whatsapp_number', 'org_id', 'user_id'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -419,6 +463,92 @@ async function executeTool(name, args) {
           default:
             return { success: false, error: `Operación desconocida: ${operation}` };
         }
+      }
+
+      case 'enviar_email':
+        return await supabaseFetch(`${base}/functions/v1/send-email`, {
+          method: 'POST', headers: supabaseHeaders(true),
+          body: JSON.stringify({
+            leadId: args.lead_id,
+            to: args.to,
+            subject: args.subject,
+            body: args.body,
+            cc: args.cc,
+            ownerId: args.owner_id,
+            orgId: args.org_id,
+          }),
+        });
+
+      case 'identificar_usuario': {
+        // 1. Find user by email in auth.users via profiles
+        const profileParams = new URLSearchParams({
+          select: 'id,email,raw_user_meta_data',
+        });
+        // Look up in profiles table which has user_id
+        const profileData = await supabaseFetch(
+          `${base}/rest/v1/profiles?select=user_id,full_name,email,unipile_account_id&user_id=not.is.null&email=eq.${encodeURIComponent(args.email)}`,
+          { headers: supabaseHeaders() }
+        );
+        const profile = Array.isArray(profileData) ? profileData[0] : null;
+        if (!profile) {
+          return { success: false, error: `No se encontró usuario con email: ${args.email}` };
+        }
+
+        // 2. Find org membership
+        const memberData = await supabaseFetch(
+          `${base}/rest/v1/organization_members?select=id,role,user_id&user_id=eq.${profile.user_id}&org_id=eq.${args.org_id}`,
+          { headers: supabaseHeaders() }
+        );
+        const member = Array.isArray(memberData) ? memberData[0] : null;
+        if (!member) {
+          return { success: false, error: `El usuario no pertenece a esta organización.` };
+        }
+
+        // 3. Check connected accounts
+        const [linkedinAccounts, gmailAccounts] = await Promise.all([
+          supabaseFetch(
+            `${base}/rest/v1/unipile_accounts?select=account_id,provider,status&user_id=eq.${profile.user_id}&status=eq.active`,
+            { headers: supabaseHeaders() }
+          ),
+          supabaseFetch(
+            `${base}/rest/v1/ae_integrations?select=id,provider,config&user_id=eq.${profile.user_id}&org_id=eq.${args.org_id}&provider=eq.gmail`,
+            { headers: supabaseHeaders() }
+          ),
+        ]);
+
+        return {
+          success: true,
+          user_id: profile.user_id,
+          member_id: member.id,
+          display_name: profile.full_name || args.email,
+          role: member.role,
+          connected_accounts: {
+            linkedin: Array.isArray(linkedinAccounts) ? linkedinAccounts.map(a => ({ account_id: a.account_id, status: a.status })) : [],
+            gmail: Array.isArray(gmailAccounts) ? gmailAccounts.map(a => ({ id: a.id, email: a.config?.email })) : [],
+          },
+        };
+      }
+
+      case 'guardar_sesion': {
+        // Upsert into whatsapp_sessions table
+        const sessionData = {
+          whatsapp_number: args.whatsapp_number,
+          org_id: args.org_id,
+          user_id: args.user_id,
+          member_id: args.member_id || null,
+          display_name: args.display_name || null,
+          updated_at: new Date().toISOString(),
+        };
+        const result = await supabaseFetch(`${base}/rest/v1/whatsapp_sessions`, {
+          method: 'POST',
+          headers: {
+            ...supabaseHeaders(),
+            'Prefer': 'return=representation,resolution=merge-duplicates',
+          },
+          body: JSON.stringify(sessionData),
+        });
+        const saved = Array.isArray(result) ? result[0] : result;
+        return { success: !!saved, session: saved };
       }
 
       default:

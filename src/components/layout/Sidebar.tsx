@@ -26,6 +26,7 @@ import {
   ChevronDown,
   UserCircle,
   ScanSearch,
+  Search,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useOrg } from '@/contexts/OrgContext'
@@ -59,11 +60,12 @@ const sdr_sections: NavSection[] = [
     label: 'Daily Use',
     items: [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard, end: true },
-      { name: 'Account Mapping', href: '/account-mapping', icon: Target, featureFlag: 'section_account_mapping' },
+      { name: 'Search Companies & Leads', href: '/account-mapping', icon: Target, featureFlag: 'section_account_mapping' },
       { name: 'Account Research', href: '/company-research', icon: Building2, featureFlag: 'section_company_research' },
       { name: 'Cadences', href: '/cadences', icon: Workflow, featureFlag: 'section_cadences' },
       { name: 'Notifications', href: '/notifications', icon: Bell, featureFlag: 'section_notifications' },
       { name: 'LinkedIn Inbox', href: '/inbox', icon: MessageSquare, featureFlag: 'section_linkedin_inbox' },
+      { name: 'Lead Search', href: '/lead-search', icon: Search, featureFlag: 'section_lead_search' },
       { name: 'Outreach Activity', href: '/outreach', icon: Activity, featureFlag: 'section_cadences' },
     ],
   },
