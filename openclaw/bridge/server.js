@@ -413,7 +413,7 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
       await ocClient.connect();
     }
 
-    const aiResponse = await ocClient.sendMessage(Body);
+    const aiResponse = await ocClient.sendMessage(Body, WaId || From);
 
     if (!aiResponse || !aiResponse.trim()) {
       throw new Error("Empty response from OpenClaw");
@@ -524,6 +524,7 @@ if (!ANTHROPIC_API_KEY || !SB_KEY) {
     { name: "business_case", description: "Genera un business case personalizado para una empresa.", input_schema: { type: "object", properties: { org_id: { type: "string" }, company_name: { type: "string" }, company_domain: { type: "string" }, prospect_name: { type: "string" }, prospect_title: { type: "string" }, pain_points: { type: "array", items: { type: "string" } }, our_solution: { type: "string" }, research_data: { type: "object" }, language: { type: "string", enum: ["es","en"] } }, required: ["org_id","company_name"] } },
     { name: "ver_metricas", description: "Consulta métricas de cadencias — respuesta, conexión, conversión.", input_schema: { type: "object", properties: { org_id: { type: "string" }, cadence_id: { type: "string" }, date_from: { type: "string" }, date_to: { type: "string" } }, required: ["org_id"] } },
     { name: "gestionar_leads", description: "CRUD sobre leads — listar, crear, actualizar, asignar a cadencias.", input_schema: { type: "object", properties: { org_id: { type: "string" }, operation: { type: "string", enum: ["list","create","update","assign_to_cadence","remove_from_cadence"] }, filters: { type: "object", properties: { status: { type: "string" }, company: { type: "string" }, limit: { type: "number" } } }, lead: { type: "object", properties: { first_name: { type: "string" }, last_name: { type: "string" }, email: { type: "string" }, company: { type: "string" }, title: { type: "string" }, linkedin_url: { type: "string" }, provider_id: { type: "string" }, status: { type: "string" }, source: { type: "string" } } }, lead_id: { type: "string" }, lead_ids: { type: "array", items: { type: "string" } }, updates: { type: "object" }, cadence_id: { type: "string" } }, required: ["org_id","operation"] } },
+    { name: "guardar_sesion", description: "Guarda la identidad del usuario (org_id, user_id, member_id, nombre) asociada a su número de WhatsApp. Úsalo siempre que el usuario te proporcione su org_id o se identifique, para que no tenga que repetirlo en futuras conversaciones.", input_schema: { type: "object", properties: { whatsapp_number: { type: "string", description: "Número de WhatsApp del usuario — ya lo tienes como sessionKey" }, org_id: { type: "string" }, user_id: { type: "string" }, member_id: { type: "string" }, display_name: { type: "string", description: "Nombre del usuario para saludarlo en futuras sesiones" } }, required: ["whatsapp_number"] } },
   ];
 
   async function gwExecuteTool(name, args) {
@@ -601,6 +602,21 @@ if (!ANTHROPIC_API_KEY || !SB_KEY) {
           }
           return { success: false, error: `Operación desconocida: ${operation}` };
         }
+        case "guardar_sesion": {
+          const { whatsapp_number, org_id, user_id, member_id, display_name } = args;
+          const payload = { whatsapp_number, updated_at: new Date().toISOString() };
+          if (org_id) payload.org_id = org_id;
+          if (user_id) payload.user_id = user_id;
+          if (member_id) payload.member_id = member_id;
+          if (display_name) payload.display_name = display_name;
+          const data = await sbFetch(`${base}/rest/v1/chief_sessions`, {
+            method: "POST",
+            headers: { ...sbHeaders(), Prefer: "resolution=merge-duplicates,return=representation" },
+            body: JSON.stringify(payload),
+          });
+          const r = Array.isArray(data) ? data[0] : data;
+          return { success: !!r?.whatsapp_number, session: r };
+        }
         default: return { success: false, error: `Tool desconocida: ${name}` };
       }
     } catch (err) {
@@ -609,19 +625,48 @@ if (!ANTHROPIC_API_KEY || !SB_KEY) {
     }
   }
 
-  const gwConversations = new Map();
+  const gwSessions = new Map(); // sessionKey -> { history: [], systemPrompt: string }
   const GW_MAX_HISTORY = 50;
 
+  async function loadUserContext(waId) {
+    try {
+      const p = new URLSearchParams({ whatsapp_number: `eq.${waId}`, select: "*", limit: "1" });
+      const rows = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?${p}`, { headers: sbHeaders() });
+      return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    } catch (err) {
+      console.error("[gateway] loadUserContext error:", err.message);
+      return null;
+    }
+  }
+
   async function gwProcessMessage(sessionKey, message) {
-    if (!gwConversations.has(sessionKey)) gwConversations.set(sessionKey, []);
-    const history = gwConversations.get(sessionKey);
+    let session = gwSessions.get(sessionKey);
+    if (!session) {
+      const ctx = await loadUserContext(sessionKey);
+      let sp;
+      if (ctx) {
+        const parts = [`Número WhatsApp: ${sessionKey}`];
+        if (ctx.display_name) parts.push(`Nombre: ${ctx.display_name}`);
+        if (ctx.org_id) parts.push(`org_id: ${ctx.org_id}`);
+        if (ctx.user_id) parts.push(`user_id: ${ctx.user_id}`);
+        if (ctx.member_id) parts.push(`member_id: ${ctx.member_id}`);
+        sp = `${SYSTEM_PROMPT}\n\n---\n\nCONTEXTO GUARDADO DEL USUARIO:\n${parts.join('\n')}\n\nNO pidas org_id, user_id ni datos de identidad — ya están registrados. Úsalos directamente en tus herramientas.`;
+        console.log(`[gateway] Restored context for ${sessionKey}: org_id=${ctx.org_id} user=${ctx.display_name}`);
+      } else {
+        sp = `${SYSTEM_PROMPT}\n\n---\n\nNúmero WhatsApp de este usuario: ${sessionKey}\nUsuario nuevo — cuando te proporcione su org_id o se identifique, usa guardar_sesion para recordarlo permanentemente.`;
+      }
+      session = { history: [], systemPrompt: sp };
+      gwSessions.set(sessionKey, session);
+    }
+
+    const { history, systemPrompt } = session;
     history.push({ role: "user", content: message });
 
     for (let i = 0; i < 10; i++) {
       const response = await anthropic.messages.create({
         model: CLAUDE_MODEL,
         max_tokens: 4096,
-        system: SYSTEM_PROMPT,
+        system: systemPrompt,
         messages: history,
         tools: gwTools,
       });
@@ -640,7 +685,7 @@ if (!ANTHROPIC_API_KEY || !SB_KEY) {
       }
 
       const text = response.content.find(b => b.type === "text")?.text || "";
-      if (history.length > GW_MAX_HISTORY) gwConversations.set(sessionKey, history.slice(-GW_MAX_HISTORY));
+      if (history.length > GW_MAX_HISTORY) session.history = history.slice(-GW_MAX_HISTORY);
       return text;
     }
     return "Hubo un problema procesando tu solicitud. Intenta de nuevo.";
