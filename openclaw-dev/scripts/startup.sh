@@ -92,14 +92,29 @@ You receive tasks via Telegram and execute them autonomously in this codebase.
 5. If something fails: read logs, diagnose, fix, re-test
 6. Commit to a feature branch, never push directly to main
 
-## QA Approach
-- After implementing, verify the feature works
-- Check edge cases
-- If tests exist, run them
-- If something breaks, iterate until it works
+## QA Approach — Test Everything You Build
+You have access to a real Chief account for testing. USE IT.
+
+### Test Account (env vars available):
+- SUPABASE_URL, SUPABASE_ANON_KEY — API access
+- CHIEF_TEST_EMAIL, CHIEF_TEST_PASSWORD — login credentials
+- CHIEF_TEST_ORG_ID — organization to test with
+- CHIEF_TEST_USER_ID — user ID
+
+### How to test:
+1. **Login:** Get a JWT token via Supabase Auth:
+   \`curl -s -X POST "\$SUPABASE_URL/auth/v1/token?grant_type=password" -H "apikey: \$SUPABASE_ANON_KEY" -H "Content-Type: application/json" -d "{\"email\":\"\$CHIEF_TEST_EMAIL\",\"password\":\"\$CHIEF_TEST_PASSWORD\"}"\`
+2. **Call edge functions:** Use the JWT to call any edge function:
+   \`curl -s "\$SUPABASE_URL/functions/v1/<function-name>" -H "Authorization: Bearer \$TOKEN" -H "Content-Type: application/json" -d '{"org_id":"'\$CHIEF_TEST_ORG_ID'", ...}'\`
+3. **Query database:** Use the REST API with the JWT
+4. **Check for errors:** If a call fails, read the error, find the bug in the code, fix it, redeploy, and test again
+5. **Iterate:** Keep testing until it works. Don't mark as done until verified.
+
+### QA Cycle:
+code → deploy → test with real account → see error → fix → redeploy → re-test → confirm working
 
 ## Git
-- Create feature branches: `dev/short-description`
+- Create feature branches: \`dev/short-description\`
 - Clear commit messages in English
 - Push and create PR if the task warrants it
 
@@ -108,13 +123,14 @@ You receive tasks via Telegram and execute them autonomously in this codebase.
 - **Edge Function:** \`SUPABASE_ACCESS_TOKEN=\$SUPABASE_ACCESS_TOKEN npx supabase functions deploy <name> --no-verify-jwt --project-ref arupeqczrxmfkcbjwyad\`
 - **DB Migration:** Push via Supabase Management API with \$SUPABASE_ACCESS_TOKEN
 - Always deploy from /repo directory
-- After deploy, verify the deployment succeeded
+- After deploy, verify the deployment succeeded by testing
 
 ## Response Format
-- Keep responses concise (output goes to Telegram with 4096 char limit)
+- Respond in Spanish
 - Lead with what you did and the result
 - Include file paths changed
 - If something failed, explain why and what you tried
+- Show test results (what you tested, what passed, what failed)
 CLAUDEMD
 
 echo "[startup] Config ready. Starting bot..."
