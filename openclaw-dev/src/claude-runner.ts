@@ -13,15 +13,11 @@ export interface TaskResult {
   durationMs: number;
 }
 
-/**
- * Pulls latest code from the repo before running a task.
- */
 export async function gitPull(): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn("git", ["pull", "origin", "main"], {
       cwd: config.repoPath,
     });
-
     let output = "";
     child.stdout.on("data", (d) => (output += d.toString()));
     child.stderr.on("data", (d) => (output += d.toString()));
@@ -33,8 +29,8 @@ export async function gitPull(): Promise<string> {
 }
 
 /**
- * Runs a task using Claude Code CLI in headless mode.
- * Returns the output text and exit code.
+ * Runs a task using Claude Code CLI with streaming output.
+ * Calls onProgress with intermediate updates as Claude works.
  */
 export async function runClaudeTask(
   task: string,
@@ -52,41 +48,67 @@ export async function runClaudeTask(
     model,
     "--max-turns",
     String(maxTurns),
+    "--output-format",
+    "stream-json",
+    "--verbose",
     "--allowedTools",
     "Read,Write,Edit,Bash(npm test:*),Bash(npx:*),Bash(git:*),Bash(ls:*),Bash(cat:*),Bash(find:*),Bash(grep:*),Bash(node:*),Bash(curl:*),Bash(cd:*),Bash(mkdir:*),Bash(cp:*),Bash(mv:*),Bash(echo:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(sort:*),Bash(diff:*),Bash(gh:*),Glob,Grep",
   ];
 
-  console.log(`[claude] Starting task with model=${model} maxTurns=${maxTurns}`);
-  console.log(`[claude] Task: ${task.substring(0, 200)}...`);
-
+  console.log(`[claude] Starting task model=${model} maxTurns=${maxTurns}`);
   const startTime = Date.now();
 
   return new Promise((resolve, reject) => {
     const child = spawn("claude", args, {
       cwd: config.repoPath,
       env,
-      timeout: 10 * 60 * 1000, // 10 min max
+      timeout: 10 * 60 * 1000,
     });
 
-    let stdout = "";
-    let stderr = "";
+    let fullOutput = "";
+    let lastProgressTime = 0;
+    let finalResult = "";
+    const MIN_PROGRESS_INTERVAL = 12000; // Min 12s between progress updates
 
     child.stdout.on("data", (data: Buffer) => {
       const chunk = data.toString();
-      stdout += chunk;
+      const lines = chunk.split("\n").filter((l) => l.trim());
 
-      // Send periodic progress if handler provided
-      if (onProgress && chunk.length > 0) {
-        const lines = chunk.split("\n").filter((l: string) => l.trim());
-        const lastLine = lines[lines.length - 1];
-        if (lastLine && lastLine.length > 10) {
-          onProgress(lastLine.substring(0, 200));
+      for (const line of lines) {
+        try {
+          const event = JSON.parse(line);
+          handleStreamEvent(event, onProgress, startTime, () => {
+            const now = Date.now();
+            if (now - lastProgressTime < MIN_PROGRESS_INTERVAL) return false;
+            lastProgressTime = now;
+            return true;
+          });
+
+          // Capture the final result
+          if (event.type === "result") {
+            finalResult = event.result || event.text || "";
+          }
+
+          // Capture assistant text messages
+          if (event.type === "assistant" && event.message?.content) {
+            for (const block of event.message.content) {
+              if (block.type === "text") {
+                fullOutput = block.text;
+              }
+            }
+          }
+        } catch {
+          // Non-JSON line — treat as plain text
+          if (line.trim().length > 5) {
+            fullOutput += line + "\n";
+          }
         }
       }
     });
 
-    child.stderr.on("data", (data: Buffer) => {
-      stderr += data.toString();
+    let stderr = "";
+    child.stderr.on("data", (d: Buffer) => {
+      stderr += d.toString();
     });
 
     child.on("error", (err) => {
@@ -96,25 +118,55 @@ export async function runClaudeTask(
     child.on("close", (code) => {
       const durationMs = Date.now() - startTime;
       const exitCode = code ?? 1;
+      const output = finalResult || fullOutput.trim() || stderr.trim() || "(no output)";
 
       console.log(
-        `[claude] Task finished. exit=${exitCode} duration=${Math.round(durationMs / 1000)}s output=${stdout.length} chars`
+        `[claude] Done. exit=${exitCode} duration=${Math.round(durationMs / 1000)}s`
       );
 
-      if (exitCode !== 0 && !stdout) {
-        resolve({
-          output: `Error (exit ${exitCode}): ${stderr || "Unknown error"}`,
-          exitCode,
-          durationMs,
-        });
-        return;
-      }
-
-      resolve({
-        output: stdout.trim() || stderr.trim() || "(no output)",
-        exitCode,
-        durationMs,
-      });
+      resolve({ output, exitCode, durationMs });
     });
   });
+}
+
+/**
+ * Parse stream-json events and send progress updates.
+ */
+function handleStreamEvent(
+  event: any,
+  onProgress: ((msg: string) => void) | undefined,
+  startTime: number,
+  shouldSend: () => boolean
+): void {
+  if (!onProgress) return;
+
+  const elapsed = Math.round((Date.now() - startTime) / 1000);
+
+  // Tool usage — show what Claude is doing
+  if (event.type === "assistant" && event.message?.content) {
+    for (const block of event.message.content) {
+      if (block.type === "tool_use" && shouldSend()) {
+        const toolName = block.name || "tool";
+        let detail = "";
+
+        if (toolName === "Read" || toolName === "Glob" || toolName === "Grep") {
+          detail = block.input?.file_path || block.input?.pattern || block.input?.path || "";
+        } else if (toolName === "Edit" || toolName === "Write") {
+          detail = block.input?.file_path || "";
+        } else if (toolName === "Bash") {
+          detail = (block.input?.command || "").substring(0, 80);
+        }
+
+        const shortDetail = detail ? `: ${detail.substring(0, 60)}` : "";
+        onProgress(`[${elapsed}s] ${toolName}${shortDetail}`);
+      }
+
+      if (block.type === "text" && block.text && shouldSend()) {
+        const preview = block.text.substring(0, 150).replace(/\n/g, " ");
+        if (preview.length > 20) {
+          onProgress(`[${elapsed}s] ${preview}`);
+        }
+      }
+    }
+  }
 }

@@ -188,15 +188,7 @@ async function handleMessage(from: string, body: string): Promise<void> {
   if (model) options.model = model;
 
   activeTask = { from, startedAt: Date.now() };
-
-  const modelName = model
-    ? model.includes("opus")
-      ? "Opus"
-      : model.includes("haiku")
-        ? "Haiku"
-        : "Sonnet"
-    : "Sonnet 4.6";
-  await sendWhatsApp(from, `Trabajando con ${modelName}...`);
+  await sendWhatsApp(from, "Thinking...");
 
   try {
     try {
@@ -205,13 +197,20 @@ async function handleMessage(from: string, body: string): Promise<void> {
       console.log(`[bot] git pull warning: ${pullErr.message}`);
     }
 
-    const result = await runClaudeTask(task, options);
+    // Progress callback — sends intermediate updates to WhatsApp
+    const onProgress = async (msg: string) => {
+      try {
+        await sendWhatsApp(from, msg);
+      } catch {}
+    };
+
+    const result = await runClaudeTask(task, options, onProgress);
 
     const duration = Math.round(result.durationMs / 1000);
     const header =
       result.exitCode === 0
         ? `Listo (${duration}s)`
-        : `Terminado con errores (exit ${result.exitCode}, ${duration}s)`;
+        : `Error (exit ${result.exitCode}, ${duration}s)`;
 
     await sendWhatsApp(from, `${header}\n\n${result.output}`);
   } catch (err: any) {
