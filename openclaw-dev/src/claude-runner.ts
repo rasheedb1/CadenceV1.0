@@ -48,9 +48,6 @@ export async function runClaudeTask(
     model,
     "--max-turns",
     String(maxTurns),
-    "--output-format",
-    "stream-json",
-    "--verbose",
     "--allowedTools",
     "Read,Write,Edit,Bash(npm test:*),Bash(npx:*),Bash(git:*),Bash(ls:*),Bash(cat:*),Bash(find:*),Bash(grep:*),Bash(node:*),Bash(curl:*),Bash(cd:*),Bash(mkdir:*),Bash(cp:*),Bash(mv:*),Bash(echo:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(sort:*),Bash(diff:*),Bash(gh:*),Glob,Grep",
   ];
@@ -65,45 +62,20 @@ export async function runClaudeTask(
       timeout: 10 * 60 * 1000,
     });
 
-    const textBlocks: string[] = [];
-    let lastProgressTime = 0;
-    let finalResult = "";
-    const MIN_PROGRESS_INTERVAL = 15000; // Min 15s between progress updates
+    let stdout = "";
+
+    // Send periodic "still working" updates
+    let progressCount = 0;
+    const progressInterval = setInterval(() => {
+      progressCount++;
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      if (onProgress) {
+        onProgress(`[${elapsed}s] Todavia trabajando...`);
+      }
+    }, 30000); // Every 30 seconds
 
     child.stdout.on("data", (data: Buffer) => {
-      const chunk = data.toString();
-      const lines = chunk.split("\n").filter((l) => l.trim());
-
-      for (const line of lines) {
-        try {
-          const event = JSON.parse(line);
-          handleStreamEvent(event, onProgress, startTime, () => {
-            const now = Date.now();
-            if (now - lastProgressTime < MIN_PROGRESS_INTERVAL) return false;
-            lastProgressTime = now;
-            return true;
-          });
-
-          // Capture the final result
-          if (event.type === "result") {
-            finalResult = event.result || event.text || "";
-          }
-
-          // Accumulate ALL assistant text blocks
-          if (event.type === "assistant" && event.message?.content) {
-            for (const block of event.message.content) {
-              if (block.type === "text" && block.text) {
-                textBlocks.push(block.text);
-              }
-            }
-          }
-        } catch {
-          // Non-JSON line — plain text output
-          if (line.trim().length > 5) {
-            textBlocks.push(line);
-          }
-        }
-      }
+      stdout += data.toString();
     });
 
     let stderr = "";
@@ -116,9 +88,10 @@ export async function runClaudeTask(
     });
 
     child.on("close", (code) => {
+      clearInterval(progressInterval);
       const durationMs = Date.now() - startTime;
       const exitCode = code ?? 1;
-      const output = finalResult || textBlocks.join("\n\n").trim() || stderr.trim() || "(no output)";
+      const output = stdout.trim() || stderr.trim() || "(no output)";
 
       console.log(
         `[claude] Done. exit=${exitCode} duration=${Math.round(durationMs / 1000)}s`
