@@ -1205,30 +1205,43 @@ ${args.description ? `\n${args.description}\n` : ""}
           }
 
           try {
+            // Get WhatsApp number for callback
+            let consultWaNum = null;
+            try {
+              const sp = new URLSearchParams({ org_id: `eq.${args.org_id}`, select: "whatsapp_number", limit: "1" });
+              const sess = await sbFetch(`${base}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
+              if (Array.isArray(sess) && sess.length > 0) consultWaNum = sess[0].whatsapp_number;
+            } catch (_) {}
+
+            const callbackUrl = "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback";
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 60000);
+            const timeout = setTimeout(() => controller.abort(), 15000); // Just confirm acceptance
             const res = await fetch(`${agent.railway_url}/api/chat`, {
               method: "POST",
               headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
-              body: JSON.stringify({ message: args.message, context: { org_id: args.org_id } }),
+              body: JSON.stringify({ message: args.message, context: { org_id: args.org_id }, callback_url: callbackUrl, whatsapp_number: consultWaNum, agent_name: agent.name }),
               signal: controller.signal,
             });
             clearTimeout(timeout);
             const result = await res.json();
 
-            // Log exchange
-            await sbFetch(`${base}/rest/v1/agent_messages`, {
-              method: "POST",
-              headers: { ...sbHeaders(), Prefer: "return=minimal" },
-              body: JSON.stringify([
-                { org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.message },
-                { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: typeof result.reply === "string" ? result.reply : JSON.stringify(result) },
-              ]),
-            });
+            // If agent returned full reply (sync/fast), show it
+            if (result.reply && !result.accepted) {
+              await sbFetch(`${base}/rest/v1/agent_messages`, {
+                method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                body: JSON.stringify([
+                  { org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.message },
+                  { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: typeof result.reply === "string" ? result.reply : JSON.stringify(result) },
+                ]),
+              });
+              return { success: true, agent: agent.name, reply: result.reply || result };
+            }
 
-            return { success: true, agent: agent.name, reply: result.reply || result };
+            // Agent accepted async — will notify via callback
+            return { success: true, agent: agent.name, message: `${agent.name} está procesando tu consulta. Te llegará la respuesta por WhatsApp.` };
           } catch (err) {
-            return { success: false, agent: agent.name, error: `Error consultando al agente: ${err.message}` };
+            // Timeout = agent is processing async, that's OK
+            return { success: true, agent: agent.name, message: `${agent.name} está procesando tu consulta. Te llegará la respuesta por WhatsApp.` };
           }
         }
 
@@ -1269,7 +1282,7 @@ ${args.description ? `\n${args.description}\n` : ""}
                 const res = await fetch(`${agent.railway_url}/api/chat`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
-                  body: JSON.stringify({ message, context: { org_id, collaboration: true } }),
+                  body: JSON.stringify({ message, context: { org_id, collaboration: true }, sync: true }),
                   signal: controller.signal,
                 });
                 clearTimeout(timeout);

@@ -496,23 +496,58 @@ app.post("/api/task", requireAuth, async (req, res) => {
   })();
 });
 
-// Chat (conversational, with memory but no formal task)
+// Chat (conversational, with memory)
+// Supports sync mode (for quick questions) and async mode (for complex work)
 app.post("/api/chat", requireAuth, async (req, res) => {
-  const { message, context } = req.body;
+  const { message, context, callback_url, whatsapp_number, agent_name, sync } = req.body;
   if (!message) return res.status(400).json({ error: "Missing message" });
 
   const sessionKey = context?.from_agent || "chat";
-  console.log(`[agent] Chat (${sessionKey}): "${message.substring(0, 80)}"`);
+  console.log(`[agent] Chat (${sessionKey}, sync=${!!sync}): "${message.substring(0, 80)}"`);
 
-  try {
-    const systemPrompt = await buildSystemPrompt(context);
-    const reply = await callClaude(systemPrompt, message, sessionKey);
-    console.log(`[agent] Reply: "${reply.substring(0, 80)}"`);
-    res.json({ success: true, reply });
-  } catch (err) {
-    console.error(`[agent] Chat error:`, err.message);
-    res.status(500).json({ success: false, error: err.message });
+  // Sync mode: wait for response (for simple/short questions)
+  if (sync) {
+    try {
+      const systemPrompt = await buildSystemPrompt(context);
+      const reply = await callClaude(systemPrompt, message, sessionKey);
+      return res.json({ success: true, reply });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
   }
+
+  // Async mode (default): respond immediately, process in background
+  res.json({ success: true, accepted: true, message: "Processing in background." });
+
+  activeTasks++;
+  (async () => {
+    try {
+      const systemPrompt = await buildSystemPrompt(context);
+      const reply = await callClaude(systemPrompt, message, sessionKey);
+      console.log(`[agent] Chat done (async): "${reply.substring(0, 80)}"`);
+
+      // Notify via callback
+      if (callback_url && whatsapp_number) {
+        try {
+          await fetch(callback_url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ agent_name: agent_name || AGENT_ID, result: { text: reply }, whatsapp_number }),
+          });
+        } catch (cbErr) {
+          console.error(`[agent] Chat callback error:`, cbErr.message);
+        }
+      }
+    } catch (err) {
+      console.error(`[agent] Chat error (async):`, err.message);
+      if (callback_url && whatsapp_number) {
+        try {
+          await fetch(callback_url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent_name: agent_name || AGENT_ID, error: err.message, whatsapp_number }) });
+        } catch (_) {}
+      }
+    }
+    activeTasks--;
+  })();
 });
 
 // =====================================================
