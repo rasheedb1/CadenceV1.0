@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, memo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ReactFlow, Background, Position, Handle, BaseEdge, getStraightPath } from '@xyflow/react'
-import type { Node, Edge, NodeProps, EdgeProps } from '@xyflow/react'
+import { ReactFlow, Background, Position, Handle } from '@xyflow/react'
+import type { Node, Edge, NodeProps } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { supabase } from '@/integrations/supabase/client'
 import { useAgents, type AgentTask, type AgentMessage } from '@/contexts/AgentContext'
@@ -137,26 +137,7 @@ const ChiefNode = memo(({ data }: NodeProps) => {
 })
 ChiefNode.displayName = 'ChiefNode'
 
-// Animated edge with particle
-const AnimatedEdge = memo(({ id, sourceX, sourceY, targetX, targetY, style, data }: EdgeProps) => {
-  const [path] = getStraightPath({ sourceX, sourceY, targetX, targetY })
-  const isActive = (data as Record<string, unknown>)?.active as boolean
-
-  return (
-    <>
-      <BaseEdge id={id} path={path} style={{ ...style, strokeWidth: isActive ? 2.5 : 1.5, transition: 'all 0.3s' }} />
-      {isActive && (
-        <circle r="4" fill="#f59e0b">
-          <animateMotion dur="1.5s" repeatCount="indefinite" path={path} />
-        </circle>
-      )}
-    </>
-  )
-})
-AnimatedEdge.displayName = 'AnimatedEdge'
-
 const nodeTypes = { agent: AgentNode, chief: ChiefNode }
-const edgeTypes = { animated: AnimatedEdge }
 
 // =====================================================
 // MISSION CONTROL
@@ -282,9 +263,9 @@ export function MissionControl() {
     const flowEdges: Edge[] = activeAgents.map(agent => {
       const act = recentActivity[agent.id]
       return {
-        id: `chief-${agent.id}`, source: 'chief', target: agent.id, type: 'animated',
-        style: { stroke: act?.isWorking ? '#6366f1' : '#6366f130' },
-        data: { active: act?.isWorking },
+        id: `chief-${agent.id}`, source: 'chief', target: agent.id,
+        animated: act?.isWorking,
+        style: { stroke: act?.isWorking ? '#6366f1' : '#6366f130', strokeWidth: act?.isWorking ? 2.5 : 1.5 },
       }
     })
 
@@ -304,9 +285,9 @@ export function MissionControl() {
     for (const [key, { recent }] of pairs) {
       const [src, tgt] = key.split('-')
       flowEdges.push({
-        id: `a2a-${key}`, source: src, target: tgt, type: 'animated',
-        style: { stroke: recent ? '#f59e0b' : '#f59e0b30', strokeDasharray: '6 4' },
-        data: { active: recent },
+        id: `a2a-${key}`, source: src, target: tgt,
+        animated: recent,
+        style: { stroke: recent ? '#f59e0b' : '#f59e0b30', strokeWidth: recent ? 2 : 1, strokeDasharray: '6 4' },
       })
     }
 
@@ -358,7 +339,7 @@ export function MissionControl() {
       <div className="flex-1 flex min-h-0">
         {/* Graph */}
         <div className="flex-1 border-r">
-          <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
+          <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes}
             fitView panOnDrag zoomOnScroll proOptions={{ hideAttribution: true }}
             style={{ background: 'var(--background)' }}>
             <Background color="var(--border)" gap={24} size={1} />
