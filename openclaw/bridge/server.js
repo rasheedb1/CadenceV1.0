@@ -56,6 +56,29 @@ function splitMessage(text) {
 
 function uid() { return crypto.randomUUID(); }
 
+// Send a WhatsApp notification to a user by org_id (looks up number from chief_sessions)
+async function notifyUserByOrg(orgId, message) {
+  try {
+    const SB_URL_N = process.env.SUPABASE_URL || "https://arupeqczrxmfkcbjwyad.supabase.co";
+    const SB_KEY_N = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!SB_KEY_N) return;
+    const res = await fetch(`${SB_URL_N}/rest/v1/chief_sessions?org_id=eq.${orgId}&select=whatsapp_number&limit=1`, {
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY_N}`, "apikey": SB_KEY_N },
+    });
+    const sessions = await res.json();
+    const waNum = Array.isArray(sessions) && sessions.length > 0 ? sessions[0].whatsapp_number : null;
+    if (!waNum) return;
+    const chunks = splitMessage(message);
+    for (const chunk of chunks) {
+      await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: `whatsapp:+${waNum}`, body: chunk });
+      if (chunks.length > 1) await new Promise(r => setTimeout(r, 500));
+    }
+    console.log(`[notify] Sent ${chunks.length} msgs to ${waNum}`);
+  } catch (err) {
+    console.error("[notify] Error:", err.message);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // OpenClaw Gateway Client (JSON-RPC protocol)
 // ---------------------------------------------------------------------------
@@ -1152,10 +1175,10 @@ ${args.description ? `\n${args.description}\n` : ""}
               }
 
               // Agent accepted the task and is processing async
-              return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `${agent.name} recibió la tarea y está trabajando en ella. El resultado se guardará automáticamente cuando termine. Puedes preguntar "¿ya terminó ${agent.name}?" en unos minutos.` };
+              return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `${agent.name} recibió la tarea y está trabajando. Te llegará el resultado por WhatsApp automáticamente cuando termine.` };
             } catch (err) {
               // Timeout just means the agent is still processing — that's OK
-              return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `Tarea enviada a ${agent.name}. Está trabajando en ella — puede tomar unos minutos. Pregunta "¿ya terminó ${agent.name}?" cuando quieras ver el resultado.` };
+              return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `Tarea enviada a ${agent.name}. Te llegará el resultado por WhatsApp automáticamente cuando termine.` };
             }
           }
 
@@ -1276,6 +1299,10 @@ ${args.description ? `\n${args.description}\n` : ""}
 
               iterations.push({ iteration: i + 1, work_summary: currentWork.substring(0, 300), feedback_summary: feedback.substring(0, 300) });
 
+              // Notify user on each iteration
+              const approved = feedback.trim().toUpperCase().startsWith("APROBADO");
+              await notifyUserByOrg(org_id, `🔄 *Colaboración — Iteración ${i + 1}/${maxIter}*\n\n*${producer.name}:*\n${currentWork.substring(0, 800)}\n\n*${reviewer.name}:*\n${feedback.substring(0, 800)}${approved ? "\n\n✅ *APROBADO*" : ""}`);
+
               await sbFetch(`${base}/rest/v1/agent_messages`, {
                 method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
                 body: JSON.stringify([
@@ -1290,32 +1317,9 @@ ${args.description ? `\n${args.description}\n` : ""}
               }
             }
 
-            // Notify user via WhatsApp when collaboration completes
-            try {
-              const sp = new URLSearchParams({ org_id: `eq.${org_id}`, select: "whatsapp_number", limit: "1" });
-              const sess = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
-              const waNum = Array.isArray(sess) && sess.length > 0 ? sess[0].whatsapp_number : null;
-              if (waNum) {
-                const approved = iterations[iterations.length - 1]?.feedback_summary?.trim().toUpperCase().startsWith("APROBADO");
-                let summary = `🤝 *Colaboración ${producer.name} ↔ ${reviewer.name} completada*\n\n`;
-                summary += `📋 Tarea: ${task.substring(0, 200)}\n`;
-                summary += `🔄 Iteraciones: ${iterations.length}\n`;
-                summary += `✅ Status: ${approved ? "Aprobado" : "Máximo de iteraciones alcanzado"}\n\n`;
-                for (const iter of iterations) {
-                  summary += `--- Iteración ${iter.iteration} ---\n`;
-                  summary += `${producer.name}: ${iter.work_summary}\n\n`;
-                  summary += `${reviewer.name}: ${iter.feedback_summary}\n\n`;
-                }
-                const chunks = splitMessage(summary);
-                for (const chunk of chunks) {
-                  await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: `whatsapp:+${waNum}`, body: chunk });
-                  if (chunks.length > 1) await new Promise(r => setTimeout(r, 500));
-                }
-                console.log(`[collab] Result sent to ${waNum}`);
-              }
-            } catch (notifyErr) {
-              console.error("[collab] Notify error:", notifyErr.message);
-            }
+            // Final notification
+            const finalApproved = iterations[iterations.length - 1]?.feedback_summary?.trim().toUpperCase().startsWith("APROBADO");
+            await notifyUserByOrg(org_id, `🤝 *Colaboración ${producer.name} ↔ ${reviewer.name} finalizada*\n\n📋 Tarea: ${task.substring(0, 200)}\n🔄 Iteraciones: ${iterations.length}\n${finalApproved ? "✅ Status: Aprobado" : "⏹️ Status: Máximo de iteraciones alcanzado"}`);
           })();
 
           return {
