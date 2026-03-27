@@ -391,6 +391,40 @@ app.post("/api/whatsapp/status", (req, res) => {
   res.sendStatus(200);
 });
 
+// Agent task completion callback — sends result to user via WhatsApp
+app.post("/api/agent-callback", express.json(), async (req, res) => {
+  const { task_id, agent_name, result, error, whatsapp_number } = req.body;
+  console.log(`[callback] Agent ${agent_name} completed task ${task_id} for ${whatsapp_number}`);
+
+  if (!whatsapp_number) return res.status(400).json({ error: "Missing whatsapp_number" });
+
+  try {
+    let message;
+    if (error) {
+      message = `❌ **${agent_name}** tuvo un error con la tarea:\n${error}`;
+    } else {
+      const resultText = typeof result === "string" ? result : (result?.text || JSON.stringify(result));
+      message = `✅ **${agent_name}** terminó la tarea:\n\n${resultText}`;
+    }
+
+    // Send via WhatsApp (split if needed)
+    const chunks = splitMessage(message);
+    for (const chunk of chunks) {
+      await twilioClient.messages.create({
+        from: TWILIO_WHATSAPP_NUMBER,
+        to: whatsapp_number,
+        body: chunk,
+      });
+      if (chunks.length > 1) await new Promise(r => setTimeout(r, 500));
+    }
+    console.log(`[callback] Sent result to ${whatsapp_number} (${chunks.length} msgs)`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(`[callback] Error sending to ${whatsapp_number}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => {
   const { From, Body, ProfileName, WaId, MessageSid } = req.body;
 
@@ -1085,10 +1119,16 @@ ${args.description ? `\n${args.description}\n` : ""}
             try {
               const controller = new AbortController();
               const timeout = setTimeout(() => controller.abort(), 15000); // Short timeout — just confirm acceptance
+              // Build callback URL so agent can notify user when done
+              const callbackUrl = `https://twilio-bridge-production-241b.up.railway.app/api/agent-callback`;
+              // Get WhatsApp number from current session
+              const sessionData = gwSessions.get(Object.keys(gwSessions).length > 0 ? [...gwSessions.keys()].find(k => gwSessions.get(k)?.orgId === args.org_id) || "" : "");
+              const waNumber = sessionData ? [...gwSessions.keys()].find(k => gwSessions.get(k)?.orgId === args.org_id) : null;
+
               const agentRes = await fetch(`${agent.railway_url}/api/task`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
-                body: JSON.stringify({ instruction: args.instruction, context: { org_id: args.org_id }, task_id: taskId }),
+                body: JSON.stringify({ instruction: args.instruction, context: { org_id: args.org_id }, task_id: taskId, callback_url: callbackUrl, whatsapp_number: waNumber, agent_name: agent.name }),
                 signal: controller.signal,
               });
               clearTimeout(timeout);

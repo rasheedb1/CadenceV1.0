@@ -446,6 +446,7 @@ app.post("/api/task", requireAuth, async (req, res) => {
   }
 
   // Async mode (default): respond immediately, process in background
+  const { callback_url, whatsapp_number, agent_name } = req.body;
   res.json({ success: true, accepted: true, task_id: sessionKey, message: "Task accepted. Processing in background." });
 
   // Process in background
@@ -461,10 +462,34 @@ app.post("/api/task", requireAuth, async (req, res) => {
         await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "completed", result: { text: result } }) });
       }
       console.log(`[agent] Task completed (async): "${result.substring(0, 80)}"`);
+
+      // Notify via callback (sends result to user's WhatsApp)
+      if (callback_url && whatsapp_number) {
+        try {
+          await fetch(callback_url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ task_id, agent_name: agent_name || AGENT_ID, result: { text: result }, whatsapp_number }),
+          });
+          console.log(`[agent] Callback sent to ${callback_url}`);
+        } catch (cbErr) {
+          console.error(`[agent] Callback error:`, cbErr.message);
+        }
+      }
     } catch (err) {
       console.error(`[agent] Task error (async):`, err.message);
       if (task_id) {
         await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "failed", error: err.message }) });
+      }
+      // Notify error via callback
+      if (callback_url && whatsapp_number) {
+        try {
+          await fetch(callback_url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ task_id, agent_name: agent_name || AGENT_ID, error: err.message, whatsapp_number }),
+          });
+        } catch (_) {}
       }
     }
     activeTasks--;
