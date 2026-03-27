@@ -666,6 +666,8 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     { name: "delegar_tarea", description: "Delega una tarea a un agente hijo. Si el agente está desplegado, la envía directamente. Si no, la guarda como pendiente. Usa cuando el usuario dice 'dile a X que haga Y', 'pídele a X que...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente destino" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id, búsqueda por nombre)" }, instruction: { type: "string", description: "La tarea en lenguaje natural" } }, required: ["org_id", "instruction"] } },
     { name: "consultar_agente", description: "Pregunta rápida a un agente sin crear tarea formal. Ideal para '¿qué opina X?', 'pregúntale a X...', 'consulta con el CFO...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id)" }, message: { type: "string", description: "La pregunta o mensaje" } }, required: ["org_id", "message"] } },
     { name: "desplegar_agente", description: "Despliega un agente en Railway como servicio independiente. Crea el servidor, configura variables de entorno, y activa el agente. Usa cuando el usuario quiere que un agente esté operativo: 'despliega al CPO', 'activa a Nando', 'pon a funcionar al agente'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente a desplegar" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id)" } }, required: ["org_id"] } },
+    { name: "guardar_memoria", description: "Guarda un hecho, decisión o contexto importante en la memoria de largo plazo. Usa cuando: el usuario menciona algo que debas recordar siempre, se toma una decisión importante, se define un objetivo o prioridad. NO guardes detalles triviales.", input_schema: { type: "object", properties: { org_id: { type: "string" }, content: { type: "string", description: "El hecho o decisión a recordar" }, category: { type: "string", description: "Categoría: proyecto, decision, objetivo, agente, preferencia, contexto" }, importance: { type: "string", enum: ["critical", "high", "normal", "low"], description: "Importancia (critical siempre se carga)" } }, required: ["org_id", "content"] } },
+    { name: "colaborar_agentes", description: "Inicia una colaboración iterativa entre 2 agentes. Un agente produce trabajo, el otro da feedback, e iteran hasta converger en un resultado final. Usa cuando: 'que Sofi y Juanse trabajen juntos en X', 'que colaboren para lograr X', 'que iteren hasta que quede bien'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, producer_name: { type: "string", description: "Agente que produce el trabajo (ej: Sofi)" }, reviewer_name: { type: "string", description: "Agente que revisa y da feedback (ej: Juanse)" }, task: { type: "string", description: "La tarea o objetivo a lograr" }, max_iterations: { type: "number", description: "Máximo de rondas de feedback (default 3)" } }, required: ["org_id", "producer_name", "reviewer_name", "task"] } },
     { name: "web_research", description: "Busca en la web y scrapea páginas para investigación. Acciones: 'search' (buscar), 'scrape' (extraer contenido de URL), 'research' (buscar + scrape combinado).", input_schema: { type: "object", properties: { action: { type: "string", enum: ["search", "scrape", "research"], description: "search=buscar en web, scrape=extraer contenido de URL, research=buscar+scrape" }, query: { type: "string", description: "Término de búsqueda (para search/research)" }, url: { type: "string", description: "URL a scrapear (para scrape)" }, limit: { type: "number", description: "Número de resultados (default 5)" }, max_chars: { type: "number", description: "Máximo de caracteres de contenido (default 2000)" } }, required: [] } },
     { name: "ver_tarea_agente", description: "Consulta el estado y resultado de la última tarea de un agente. Usa cuando el usuario pregunta '¿ya terminó X?', '¿qué encontró X?', 'resultado de la tarea de X'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string" }, agent_name: { type: "string", description: "Nombre del agente" }, task_id: { type: "string", description: "ID específico de tarea (opcional)" } }, required: ["org_id"] } },
     { name: "reunion_agentes", description: "Convoca una reunión con múltiples agentes sobre un tema. Cada agente da su perspectiva según su rol. Usa cuando: 'haz una reunión con X y Y sobre...', 'quiero que X y Y discutan...', 'junta a los agentes para hablar de...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_names: { type: "array", items: { type: "string" }, description: "Nombres de los agentes a convocar" }, topic: { type: "string", description: "El tema a discutir" } }, required: ["org_id", "agent_names", "topic"] } },
@@ -1207,6 +1209,101 @@ ${args.description ? `\n${args.description}\n` : ""}
           }
         }
 
+        case "guardar_memoria": {
+          const { org_id, content, category, importance } = args;
+          if (!content) return { success: false, error: "Falta el contenido" };
+          await sbFetch(`${base}/rest/v1/chief_memory`, {
+            method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+            body: JSON.stringify({ org_id, content, category: category || "general", importance: importance || "normal" }),
+          });
+          console.log(`[memory] Saved: "${content.substring(0, 80)}" (${category || "general"}, ${importance || "normal"})`);
+          return { success: true, message: "Memoria guardada." };
+        }
+
+        case "colaborar_agentes": {
+          const { org_id, producer_name, reviewer_name, task, max_iterations } = args;
+          const maxIter = max_iterations || 3;
+
+          // Resolve both agents
+          const resolveAgent = async (name) => {
+            const p = new URLSearchParams({ org_id: `eq.${org_id}`, name: `ilike.%${name}%`, status: "eq.active", select: "id,name,role,railway_url", limit: "1" });
+            const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
+            return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+          };
+
+          const producer = await resolveAgent(producer_name);
+          const reviewer = await resolveAgent(reviewer_name);
+          if (!producer) return { success: false, error: `Agente ${producer_name} no encontrado o no activo.` };
+          if (!reviewer) return { success: false, error: `Agente ${reviewer_name} no encontrado o no activo.` };
+          if (!producer.railway_url || !reviewer.railway_url) return { success: false, error: "Ambos agentes deben estar desplegados." };
+
+          const callAgent = async (agent, message) => {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 120000);
+            try {
+              const res = await fetch(`${agent.railway_url}/api/chat`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
+                body: JSON.stringify({ message, context: { org_id, collaboration: true } }),
+                signal: controller.signal,
+              });
+              clearTimeout(timeout);
+              const data = await res.json();
+              return data.reply || data.result || JSON.stringify(data);
+            } catch (err) {
+              clearTimeout(timeout);
+              return `[Error contactando a ${agent.name}: ${err.message}]`;
+            }
+          };
+
+          // Collaboration loop
+          let currentWork = "";
+          const iterations = [];
+
+          for (let i = 0; i < maxIter; i++) {
+            // Step 1: Producer produces/iterates
+            const producerPrompt = i === 0
+              ? `Tarea: ${task}\n\nProduce tu mejor trabajo para esta tarea.`
+              : `Tarea original: ${task}\n\nTu trabajo anterior:\n${currentWork}\n\nFeedback de ${reviewer.name} (${reviewer.role}):\n${iterations[iterations.length - 1]?.feedback}\n\nItera y mejora tu trabajo basándote en el feedback.`;
+
+            currentWork = await callAgent(producer, producerPrompt);
+            console.log(`[collab] Iter ${i + 1}: ${producer.name} produced ${currentWork.length} chars`);
+
+            // Step 2: Reviewer reviews
+            const reviewPrompt = `Eres reviewer en una colaboración. Revisa este trabajo de ${producer.name} (${producer.role}):\n\nTarea: ${task}\n\nTrabajo:\n${currentWork}\n\n${i < maxIter - 1 ? 'Da feedback constructivo y específico. Si el trabajo es satisfactorio, responde EXACTAMENTE "APROBADO" al inicio.' : 'Esta es la última iteración. Da tu feedback final.'}`;
+
+            const feedback = await callAgent(reviewer, reviewPrompt);
+            console.log(`[collab] Iter ${i + 1}: ${reviewer.name} reviewed (${feedback.length} chars)`);
+
+            iterations.push({ iteration: i + 1, work_preview: currentWork.substring(0, 200), feedback: feedback.substring(0, 500) });
+
+            // Log collaboration messages
+            await sbFetch(`${base}/rest/v1/agent_messages`, {
+              method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+              body: JSON.stringify([
+                { org_id, from_agent_id: producer.id, to_agent_id: reviewer.id, role: "assistant", content: currentWork.substring(0, 2000), metadata: { collaboration: true, iteration: i + 1, type: "work" } },
+                { org_id, from_agent_id: reviewer.id, to_agent_id: producer.id, role: "assistant", content: feedback.substring(0, 2000), metadata: { collaboration: true, iteration: i + 1, type: "feedback" } },
+              ]),
+            });
+
+            // Check if reviewer approved
+            if (feedback.trim().toUpperCase().startsWith("APROBADO")) {
+              console.log(`[collab] Approved at iteration ${i + 1}`);
+              break;
+            }
+          }
+
+          return {
+            success: true,
+            producer: producer.name,
+            reviewer: reviewer.name,
+            total_iterations: iterations.length,
+            iterations,
+            final_status: iterations[iterations.length - 1]?.feedback?.trim().toUpperCase().startsWith("APROBADO") ? "approved" : "max_iterations_reached",
+            message: `Colaboración completada: ${iterations.length} iteraciones entre ${producer.name} y ${reviewer.name}.`,
+          };
+        }
+
         case "ver_tarea_agente": {
           // Get the latest task for an agent
           let agentId = args.agent_id;
@@ -1562,6 +1659,23 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
               sp += `\n\nPuedes delegar tareas o consultar a estos agentes usando delegar_tarea o consultar_agente.`;
             }
           } catch (e) { console.error("[gateway] loadOrgAgents error:", e.message); }
+
+          // Load long-term memories
+          try {
+            const memParams = new URLSearchParams({ org_id: `eq.${orgId}`, select: "category,content,importance", order: "importance.asc,created_at.desc", limit: "30" });
+            const memories = await sbFetch(`${SB_URL}/rest/v1/chief_memory?${memParams}`, { headers: sbHeaders() });
+            if (Array.isArray(memories) && memories.length > 0) {
+              const grouped = {};
+              for (const m of memories) { if (!grouped[m.category]) grouped[m.category] = []; grouped[m.category].push(m); }
+              let memText = "\n\nMEMORIA DE LARGO PLAZO (recuerda esto siempre):";
+              for (const [cat, items] of Object.entries(grouped)) {
+                memText += `\n\n### ${cat}`;
+                for (const item of items) memText += `\n- ${item.importance === "critical" ? "⚠️ " : ""}${item.content}`;
+              }
+              sp += memText;
+              console.log(`[gateway] Loaded ${memories.length} memories for org ${orgId}`);
+            }
+          } catch (e) { console.error("[gateway] loadMemories error:", e.message); }
         }
       } else {
         sp = `${SYSTEM_PROMPT}\n\n---\n\nNúmero WhatsApp de este usuario: ${sessionKey}\nUsuario nuevo — cuando te proporcione su org_id o se identifique, usa guardar_sesion para recordarlo permanentemente.`;
