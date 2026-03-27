@@ -1771,7 +1771,7 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
       // Trim history by message count AND total character size
       if (history.length > GW_MAX_HISTORY) session.history = history.slice(-GW_MAX_HISTORY);
       // Also enforce a character limit to prevent context overflow
-      const MAX_HISTORY_CHARS = 30000;
+      const MAX_HISTORY_CHARS = 15000;
       let totalChars = history.reduce((sum, m) => sum + JSON.stringify(m.content).length, 0);
       while (totalChars > MAX_HISTORY_CHARS && history.length > 4) {
         history.shift();
