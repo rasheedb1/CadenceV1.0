@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ReactFlow, Background, type Node, type Edge, Position } from '@xyflow/react'
+import { ReactFlow, Background, Position } from '@xyflow/react'
+import type { Node, Edge } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { supabase } from '@/integrations/supabase/client'
 import { useAgents, type AgentTask, type AgentMessage } from '@/contexts/AgentContext'
