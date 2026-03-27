@@ -601,7 +601,21 @@ setInterval(pollPendingTasks, 60000);
 // START
 // =====================================================
 
-app.listen(parseInt(PORT, 10), "0.0.0.0", () => {
+app.listen(parseInt(PORT, 10), "0.0.0.0", async () => {
   console.log(`🤖 Agent ${AGENT_ID} running on http://0.0.0.0:${PORT}`);
   console.log(`   Model: ${CLAUDE_MODEL} | Tools: ${agentTools.length} | Org: ${ORG_ID || "not set"}`);
+
+  // On startup: reset any orphaned in_progress tasks back to pending
+  try {
+    const orphaned = await sbFetch(`${SB_URL}/rest/v1/agent_tasks?agent_id=eq.${AGENT_ID}&status=eq.in_progress&select=id`, { headers: sbHeaders() });
+    if (Array.isArray(orphaned) && orphaned.length > 0) {
+      for (const t of orphaned) {
+        await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id: t.id, status: "pending" }) });
+      }
+      console.log(`[agent] Reset ${orphaned.length} orphaned in_progress tasks to pending`);
+    }
+  } catch (e) { console.error("[agent] Orphan reset error:", e.message); }
+
+  // Run first poll immediately
+  pollPendingTasks();
 });
