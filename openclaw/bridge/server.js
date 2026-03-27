@@ -1237,70 +1237,90 @@ ${args.description ? `\n${args.description}\n` : ""}
           if (!reviewer) return { success: false, error: `Agente ${reviewer_name} no encontrado o no activo.` };
           if (!producer.railway_url || !reviewer.railway_url) return { success: false, error: "Ambos agentes deben estar desplegados." };
 
-          const callAgent = async (agent, message) => {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 120000);
-            try {
-              const res = await fetch(`${agent.railway_url}/api/chat`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
-                body: JSON.stringify({ message, context: { org_id, collaboration: true } }),
-                signal: controller.signal,
+          // Run collaboration in background — return immediately
+          (async () => {
+            const callAgent = async (agent, message) => {
+              const controller = new AbortController();
+              const timeout = setTimeout(() => controller.abort(), 120000);
+              try {
+                const res = await fetch(`${agent.railway_url}/api/chat`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
+                  body: JSON.stringify({ message, context: { org_id, collaboration: true } }),
+                  signal: controller.signal,
+                });
+                clearTimeout(timeout);
+                const data = await res.json();
+                return data.reply || data.result || JSON.stringify(data);
+              } catch (err) {
+                clearTimeout(timeout);
+                return `[Error contactando a ${agent.name}: ${err.message}]`;
+              }
+            };
+
+            let currentWork = "";
+            const iterations = [];
+
+            for (let i = 0; i < maxIter; i++) {
+              const producerPrompt = i === 0
+                ? `Tarea: ${task}\n\nProduce tu mejor trabajo para esta tarea.`
+                : `Tarea original: ${task}\n\nTu trabajo anterior:\n${currentWork}\n\nFeedback de ${reviewer.name} (${reviewer.role}):\n${iterations[iterations.length - 1]?.feedback}\n\nItera y mejora tu trabajo basándote en el feedback.`;
+
+              currentWork = await callAgent(producer, producerPrompt);
+              console.log(`[collab] Iter ${i + 1}: ${producer.name} produced ${currentWork.length} chars`);
+
+              const reviewPrompt = `Eres reviewer en una colaboración. Revisa este trabajo de ${producer.name} (${producer.role}):\n\nTarea: ${task}\n\nTrabajo:\n${currentWork}\n\n${i < maxIter - 1 ? 'Da feedback constructivo y específico. Si el trabajo es satisfactorio, responde EXACTAMENTE "APROBADO" al inicio.' : 'Esta es la última iteración. Da tu feedback final.'}`;
+
+              const feedback = await callAgent(reviewer, reviewPrompt);
+              console.log(`[collab] Iter ${i + 1}: ${reviewer.name} reviewed (${feedback.length} chars)`);
+
+              iterations.push({ iteration: i + 1, work_summary: currentWork.substring(0, 300), feedback_summary: feedback.substring(0, 300) });
+
+              await sbFetch(`${base}/rest/v1/agent_messages`, {
+                method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                body: JSON.stringify([
+                  { org_id, from_agent_id: producer.id, to_agent_id: reviewer.id, role: "assistant", content: currentWork.substring(0, 2000), metadata: { collaboration: true, iteration: i + 1, type: "work" } },
+                  { org_id, from_agent_id: reviewer.id, to_agent_id: producer.id, role: "assistant", content: feedback.substring(0, 2000), metadata: { collaboration: true, iteration: i + 1, type: "feedback" } },
+                ]),
               });
-              clearTimeout(timeout);
-              const data = await res.json();
-              return data.reply || data.result || JSON.stringify(data);
-            } catch (err) {
-              clearTimeout(timeout);
-              return `[Error contactando a ${agent.name}: ${err.message}]`;
+
+              if (feedback.trim().toUpperCase().startsWith("APROBADO")) {
+                console.log(`[collab] Approved at iteration ${i + 1}`);
+                break;
+              }
             }
-          };
 
-          // Collaboration loop
-          let currentWork = "";
-          const iterations = [];
-
-          for (let i = 0; i < maxIter; i++) {
-            // Step 1: Producer produces/iterates
-            const producerPrompt = i === 0
-              ? `Tarea: ${task}\n\nProduce tu mejor trabajo para esta tarea.`
-              : `Tarea original: ${task}\n\nTu trabajo anterior:\n${currentWork}\n\nFeedback de ${reviewer.name} (${reviewer.role}):\n${iterations[iterations.length - 1]?.feedback}\n\nItera y mejora tu trabajo basándote en el feedback.`;
-
-            currentWork = await callAgent(producer, producerPrompt);
-            console.log(`[collab] Iter ${i + 1}: ${producer.name} produced ${currentWork.length} chars`);
-
-            // Step 2: Reviewer reviews
-            const reviewPrompt = `Eres reviewer en una colaboración. Revisa este trabajo de ${producer.name} (${producer.role}):\n\nTarea: ${task}\n\nTrabajo:\n${currentWork}\n\n${i < maxIter - 1 ? 'Da feedback constructivo y específico. Si el trabajo es satisfactorio, responde EXACTAMENTE "APROBADO" al inicio.' : 'Esta es la última iteración. Da tu feedback final.'}`;
-
-            const feedback = await callAgent(reviewer, reviewPrompt);
-            console.log(`[collab] Iter ${i + 1}: ${reviewer.name} reviewed (${feedback.length} chars)`);
-
-            iterations.push({ iteration: i + 1, work_preview: currentWork.substring(0, 200), feedback: feedback.substring(0, 500) });
-
-            // Log collaboration messages
-            await sbFetch(`${base}/rest/v1/agent_messages`, {
-              method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
-              body: JSON.stringify([
-                { org_id, from_agent_id: producer.id, to_agent_id: reviewer.id, role: "assistant", content: currentWork.substring(0, 2000), metadata: { collaboration: true, iteration: i + 1, type: "work" } },
-                { org_id, from_agent_id: reviewer.id, to_agent_id: producer.id, role: "assistant", content: feedback.substring(0, 2000), metadata: { collaboration: true, iteration: i + 1, type: "feedback" } },
-              ]),
-            });
-
-            // Check if reviewer approved
-            if (feedback.trim().toUpperCase().startsWith("APROBADO")) {
-              console.log(`[collab] Approved at iteration ${i + 1}`);
-              break;
+            // Notify user via WhatsApp when collaboration completes
+            try {
+              const sp = new URLSearchParams({ org_id: `eq.${org_id}`, select: "whatsapp_number", limit: "1" });
+              const sess = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
+              const waNum = Array.isArray(sess) && sess.length > 0 ? sess[0].whatsapp_number : null;
+              if (waNum) {
+                const approved = iterations[iterations.length - 1]?.feedback_summary?.trim().toUpperCase().startsWith("APROBADO");
+                let summary = `🤝 *Colaboración ${producer.name} ↔ ${reviewer.name} completada*\n\n`;
+                summary += `📋 Tarea: ${task.substring(0, 200)}\n`;
+                summary += `🔄 Iteraciones: ${iterations.length}\n`;
+                summary += `✅ Status: ${approved ? "Aprobado" : "Máximo de iteraciones alcanzado"}\n\n`;
+                for (const iter of iterations) {
+                  summary += `--- Iteración ${iter.iteration} ---\n`;
+                  summary += `${producer.name}: ${iter.work_summary}\n\n`;
+                  summary += `${reviewer.name}: ${iter.feedback_summary}\n\n`;
+                }
+                const chunks = splitMessage(summary);
+                for (const chunk of chunks) {
+                  await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: `whatsapp:+${waNum}`, body: chunk });
+                  if (chunks.length > 1) await new Promise(r => setTimeout(r, 500));
+                }
+                console.log(`[collab] Result sent to ${waNum}`);
+              }
+            } catch (notifyErr) {
+              console.error("[collab] Notify error:", notifyErr.message);
             }
-          }
+          })();
 
           return {
             success: true,
-            producer: producer.name,
-            reviewer: reviewer.name,
-            total_iterations: iterations.length,
-            iterations,
-            final_status: iterations[iterations.length - 1]?.feedback?.trim().toUpperCase().startsWith("APROBADO") ? "approved" : "max_iterations_reached",
-            message: `Colaboración completada: ${iterations.length} iteraciones entre ${producer.name} y ${reviewer.name}.`,
+            message: `Colaboración iniciada entre ${producer.name} y ${reviewer.name}. Van a iterar hasta ${maxIter} veces. Te notifico por WhatsApp cuando terminen.`,
           };
         }
 
