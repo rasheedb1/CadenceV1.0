@@ -50,7 +50,7 @@ export function MissionControl() {
       for (const task of tasks.slice(0, 5)) {
         events.push({
           id: `task-${task.id}`,
-          type: 'task',
+          type: 'task' as const,
           agent_name: agent.name,
           agent_id: agent.id,
           content: task.instruction.substring(0, 120),
@@ -67,7 +67,7 @@ export function MissionControl() {
         const toAgent = agents.find(a => a.id === msg.to_agent_id)
         events.push({
           id: `msg-${msg.id}`,
-          type: 'message',
+          type: 'message' as const,
           agent_name: fromAgent?.name || 'Chief',
           agent_id: msg.from_agent_id || '',
           content: typeof msg.content === 'string' ? msg.content.substring(0, 120) : 'Message',
@@ -92,7 +92,7 @@ export function MissionControl() {
       const agent = agents.find(a => a.id === task.agent_id)
       setLiveEvents(prev => [{
         id: `task-${task.id}-${Date.now()}`,
-        type: 'task',
+        type: 'task' as const,
         agent_name: agent?.name || 'Agent',
         agent_id: task.agent_id,
         content: task.instruction.substring(0, 120),
@@ -108,7 +108,7 @@ export function MissionControl() {
       const agent = agents.find(a => a.id === task.agent_id)
       setLiveEvents(prev => [{
         id: `task-update-${task.id}-${Date.now()}`,
-        type: 'task',
+        type: 'task' as const,
         agent_name: agent?.name || 'Agent',
         agent_id: task.agent_id,
         content: task.instruction.substring(0, 120),
@@ -125,7 +125,7 @@ export function MissionControl() {
       const toAgent = agents.find(a => a.id === msg.to_agent_id)
       setLiveEvents(prev => [{
         id: `msg-${msg.id}-${Date.now()}`,
-        type: 'message',
+        type: 'message' as const,
         agent_name: fromAgent?.name || 'Chief',
         agent_id: msg.from_agent_id || '',
         content: typeof msg.content === 'string' ? msg.content.substring(0, 120) : 'Message',
