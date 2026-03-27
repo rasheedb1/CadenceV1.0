@@ -1264,7 +1264,7 @@ ${args.description ? `\n${args.description}\n` : ""}
           (async () => {
             const callAgent = async (agent, message) => {
               const controller = new AbortController();
-              const timeout = setTimeout(() => controller.abort(), 120000);
+              const timeout = setTimeout(() => controller.abort(), 300000); // 5 min for complex tasks
               try {
                 const res = await fetch(`${agent.railway_url}/api/chat`, {
                   method: "POST",
