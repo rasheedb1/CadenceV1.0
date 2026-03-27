@@ -1593,8 +1593,37 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
         const blocks = response.content.filter(b => b.type === "tool_use");
         const results = await Promise.all(blocks.map(async (b) => {
           const r = await gwExecuteTool(b.name, b.input);
-          console.log(`[gateway] tool ${b.name} →`, JSON.stringify(r).substring(0, 150));
-          return { type: "tool_result", tool_use_id: b.id, content: JSON.stringify(r) };
+          let resultStr = JSON.stringify(r);
+          console.log(`[gateway] tool ${b.name} → ${resultStr.substring(0, 150)}`);
+
+          // Safeguard: if tool result is too large for Claude's context,
+          // send it directly to WhatsApp and give Claude a short confirmation
+          const MAX_TOOL_RESULT = 3000;
+          if (resultStr.length > MAX_TOOL_RESULT) {
+            try {
+              const sp = new URLSearchParams({ org_id: `eq.${session.orgId}`, select: "whatsapp_number", limit: "1" });
+              const sess = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
+              const waNum = Array.isArray(sess) && sess.length > 0 ? sess[0].whatsapp_number : null;
+              if (waNum) {
+                // Extract readable text from result
+                const textContent = r?.result_text || r?.result?.text || r?.result || r?.reply || resultStr;
+                const msg = typeof textContent === "string" ? textContent : JSON.stringify(textContent, null, 2);
+                const chunks = splitMessage(msg);
+                for (const chunk of chunks) {
+                  await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: `whatsapp:+${waNum}`, body: chunk });
+                  if (chunks.length > 1) await new Promise(resolve => setTimeout(resolve, 500));
+                }
+                console.log(`[gateway] Large result (${resultStr.length} chars) sent directly to WhatsApp (${chunks.length} msgs)`);
+                resultStr = JSON.stringify({ success: true, message: `Resultado enviado directo a WhatsApp (${msg.length} caracteres, ${chunks.length} mensajes). Ya lo tiene el usuario.` });
+              }
+            } catch (sendErr) {
+              console.error("[gateway] Direct send error:", sendErr.message);
+              // Fallback: truncate for Claude
+              resultStr = resultStr.substring(0, MAX_TOOL_RESULT) + "... [truncado]";
+            }
+          }
+
+          return { type: "tool_result", tool_use_id: b.id, content: resultStr };
         }));
         history.push({ role: "user", content: results });
         continue;
