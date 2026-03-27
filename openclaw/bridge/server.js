@@ -1223,12 +1223,17 @@ ${args.description ? `\n${args.description}\n` : ""}
           if (!Array.isArray(tasks) || tasks.length === 0) return { success: false, error: "No hay tareas para este agente." };
 
           const task = tasks[0];
+          // Truncate result to avoid overwhelming Claude's context
+          let resultText = task.result;
+          if (resultText && typeof resultText === "object" && resultText.text) {
+            resultText = { text: resultText.text.length > 4000 ? resultText.text.substring(0, 4000) + "\n\n... [Resultado truncado — el reporte completo tiene " + resultText.text.length + " caracteres. Puedo enviarlo por partes si lo necesitas.]" : resultText.text };
+          }
           return {
             success: true,
             task_id: task.id,
             status: task.status,
-            instruction: task.instruction,
-            result: task.result,
+            instruction: task.instruction?.substring(0, 200),
+            result: resultText,
             error: task.error,
             created_at: task.created_at,
             completed_at: task.completed_at,
