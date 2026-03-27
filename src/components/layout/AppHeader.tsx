@@ -20,6 +20,7 @@ const APP_NAMES: Record<string, string> = {
   '/notifications': 'Chief Outreach',
   '/outreach': 'Chief Outreach',
   '/agents': 'AI Agents',
+  '/mission-control': 'Mission Control',
   '/settings': 'Settings',
   '/admin': 'Admin',
 }

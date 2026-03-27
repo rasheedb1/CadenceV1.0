@@ -22,6 +22,14 @@ const PLATFORM_APPS = [
     href: '/agents',
     gradient: 'from-purple-500 to-pink-600',
   },
+  {
+    id: 'mission-control',
+    name: 'Mission Control',
+    description: 'Real-time agent activity, communication graph, and performance metrics',
+    icon: '🛰️',
+    href: '/mission-control',
+    gradient: 'from-emerald-500 to-teal-600',
+  },
 ]
 
 export function AppLauncher() {

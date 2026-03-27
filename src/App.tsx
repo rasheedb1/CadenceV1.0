@@ -62,6 +62,7 @@ import { ModeProvider } from '@/contexts/ModeContext'
 import { LeadSearch } from '@/pages/LeadSearch'
 import { AgentDetail } from '@/pages/AgentDetail'
 import { AppLauncher } from '@/pages/AppLauncher'
+import { MissionControl } from '@/pages/MissionControl'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -94,6 +95,7 @@ function App() {
                 <Route path="/org-select" element={<OrgSelect />} />
                 <Route path="/invite/:token" element={<AcceptInvite />} />
                 <Route path="/" element={<AppLauncher />} />
+                <Route path="/mission-control" element={<MissionControl />} />
                 <Route element={<MainLayout />}>
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/cadences" element={<FeatureRoute flag="section_cadences"><Cadences /></FeatureRoute>} />
