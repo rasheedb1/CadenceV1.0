@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useOrg } from '@/contexts/OrgContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Sidebar } from './Sidebar'
+import { AppHeader } from './AppHeader'
 import { LogOut, Moon, Sun, Settings } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -126,6 +127,7 @@ export function MainLayout() {
           </DropdownMenu>
         </header>
 
+        <AppHeader />
         <main className="flex-1 overflow-y-auto overflow-x-hidden pl-2">
           <Outlet />
         </main>

@@ -61,6 +61,7 @@ import { AgentProvider } from '@/contexts/AgentContext'
 import { ModeProvider } from '@/contexts/ModeContext'
 import { LeadSearch } from '@/pages/LeadSearch'
 import { AgentDetail } from '@/pages/AgentDetail'
+import { AppLauncher } from '@/pages/AppLauncher'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -92,8 +93,9 @@ function App() {
                 <Route path="/onboarding" element={<Onboarding />} />
                 <Route path="/org-select" element={<OrgSelect />} />
                 <Route path="/invite/:token" element={<AcceptInvite />} />
+                <Route path="/" element={<AppLauncher />} />
                 <Route element={<MainLayout />}>
-                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/cadences" element={<FeatureRoute flag="section_cadences"><Cadences /></FeatureRoute>} />
                   <Route path="/cadences/:id" element={<FeatureRoute flag="section_cadences"><CadenceBuilder /></FeatureRoute>} />
                   <Route path="/cadences/:cadenceId/step/:stepId" element={<FeatureRoute flag="section_cadences"><LeadStepExecution /></FeatureRoute>} />

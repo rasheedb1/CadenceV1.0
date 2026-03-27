@@ -60,7 +60,7 @@ const sdr_sections: NavSection[] = [
     id: 'daily',
     label: 'Daily Use',
     items: [
-      { name: 'Dashboard', href: '/', icon: LayoutDashboard, end: true },
+      { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, end: true },
       { name: 'Search Companies & Leads', href: '/account-mapping', icon: Target, featureFlag: 'section_account_mapping' },
       { name: 'Account Research', href: '/company-research', icon: Building2, featureFlag: 'section_company_research' },
       { name: 'Cadences', href: '/cadences', icon: Workflow, featureFlag: 'section_cadences' },
