@@ -1223,23 +1223,40 @@ ${args.description ? `\n${args.description}\n` : ""}
           if (!Array.isArray(tasks) || tasks.length === 0) return { success: false, error: "No hay tareas para este agente." };
 
           const task = tasks[0];
-          // Send full result — Chief will relay it as-is to WhatsApp (splitMessage handles chunking)
-          // But we bypass Claude's processing: if result is large, return it directly
-          // so Claude just forwards it without trying to summarize
           const resultText = task.result && typeof task.result === "object" && task.result.text ? task.result.text : (task.error || "Sin resultado");
-          const isLarge = resultText.length > 3000;
 
+          // For large results: send directly to WhatsApp, bypass Claude entirely
+          if (resultText.length > 3000 && task.status === "completed") {
+            try {
+              // Look up WhatsApp number
+              const sp = new URLSearchParams({ org_id: `eq.${args.org_id}`, select: "whatsapp_number", limit: "1" });
+              const sessions = await sbFetch(`${base}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
+              const waNum = Array.isArray(sessions) && sessions.length > 0 ? sessions[0].whatsapp_number : null;
+
+              if (waNum) {
+                const fullMsg = `📋 *Reporte completo de ${args.agent_name || "agente"}:*\n\n${resultText}`;
+                const chunks = splitMessage(fullMsg);
+                for (const chunk of chunks) {
+                  await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: `whatsapp:+${waNum}`, body: chunk });
+                  if (chunks.length > 1) await new Promise(r => setTimeout(r, 500));
+                }
+                console.log(`[ver_tarea] Sent ${chunks.length} msgs directly to ${waNum} (${resultText.length} chars)`);
+                return { success: true, status: task.status, message: `Reporte completo enviado directo a tu WhatsApp (${resultText.length} caracteres, ${chunks.length} mensajes). Revísalo ahí.` };
+              }
+            } catch (sendErr) {
+              console.error("[ver_tarea] Direct send error:", sendErr.message);
+            }
+          }
+
+          // For small results or if direct send failed: return normally
           return {
             success: true,
             task_id: task.id,
             status: task.status,
             instruction: task.instruction?.substring(0, 200),
-            result_text: resultText,
+            result_text: resultText.length > 3000 ? resultText.substring(0, 3000) + "\n\n[... resultado parcial]" : resultText,
             error: task.error,
-            created_at: task.created_at,
             completed_at: task.completed_at,
-            total_chars: resultText.length,
-            _hint: isLarge ? "El resultado es largo. Envíalo COMPLETO al usuario tal cual, sin resumir ni modificar. El sistema de WhatsApp lo dividirá automáticamente en múltiples mensajes." : undefined,
           };
         }
 
