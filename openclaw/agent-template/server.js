@@ -237,6 +237,22 @@ async function agentExecuteTool(name, args) {
       case "crear_evento_calendario":
         return await sbFetch(`${base}/functions/v1/ae-calendar-create-event`, { method: "POST", headers: sbHeaders(true), body: JSON.stringify(args) });
 
+      // --- Web research ---
+      case "web_research": {
+        const { action, query, url: researchUrl, limit: resLimit, max_chars } = args;
+        return await sbFetch(`${base}/functions/v1/web-research`, {
+          method: "POST", headers: sbHeaders(true),
+          body: JSON.stringify({ action: action || "research", query, url: researchUrl, limit: resLimit || 5, max_chars: max_chars || 2000 }),
+        });
+      }
+
+      case "capturar_pantalla": {
+        return await sbFetch(`${base}/functions/v1/capture-screenshot`, {
+          method: "POST", headers: sbHeaders(true),
+          body: JSON.stringify(args),
+        });
+      }
+
       // --- Agent-to-agent ---
       case "comunicar_agente": {
         let target = null;
