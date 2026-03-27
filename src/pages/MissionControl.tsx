@@ -35,10 +35,23 @@ interface LiveEvent {
   timestamp: string
 }
 
+// Hook to force re-render every 30s for time-ago updates
+function useInterval(ms: number) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), ms)
+    return () => clearInterval(id)
+  }, [ms])
+}
+
 export function MissionControl() {
   const navigate = useNavigate()
   const { agents, getAgentTasks, getAgentMessages } = useAgents()
   const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([])
+  const [expandedEvent, setExpandedEvent] = useState<string | null>(null)
+
+  // Auto-refresh time-ago displays
+  useInterval(30000)
 
   // Build initial events from existing data
   useEffect(() => {
@@ -53,7 +66,7 @@ export function MissionControl() {
           type: 'task' as const,
           agent_name: agent.name,
           agent_id: agent.id,
-          content: task.instruction.substring(0, 120),
+          content: task.instruction.substring(0, 500),
           detail: task.status,
           status: task.status,
           timestamp: task.completed_at || task.created_at,
@@ -70,7 +83,7 @@ export function MissionControl() {
           type: 'message' as const,
           agent_name: fromAgent?.name || 'Chief',
           agent_id: msg.from_agent_id || '',
-          content: typeof msg.content === 'string' ? msg.content.substring(0, 120) : 'Message',
+          content: typeof msg.content === 'string' ? msg.content.substring(0, 500) : 'Message',
           detail: `→ ${toAgent?.name || 'Chief'}`,
           timestamp: msg.created_at,
         })
@@ -95,7 +108,7 @@ export function MissionControl() {
         type: 'task' as const,
         agent_name: agent?.name || 'Agent',
         agent_id: task.agent_id,
-        content: task.instruction.substring(0, 120),
+        content: task.instruction.substring(0, 500),
         detail: task.status,
         status: task.status,
         timestamp: task.created_at,
@@ -111,7 +124,7 @@ export function MissionControl() {
         type: 'task' as const,
         agent_name: agent?.name || 'Agent',
         agent_id: task.agent_id,
-        content: task.instruction.substring(0, 120),
+        content: task.instruction.substring(0, 500),
         detail: task.status,
         status: task.status,
         timestamp: task.completed_at || task.created_at,
@@ -128,7 +141,7 @@ export function MissionControl() {
         type: 'message' as const,
         agent_name: fromAgent?.name || 'Chief',
         agent_id: msg.from_agent_id || '',
-        content: typeof msg.content === 'string' ? msg.content.substring(0, 120) : 'Message',
+        content: typeof msg.content === 'string' ? msg.content.substring(0, 500) : 'Message',
         detail: `→ ${toAgent?.name || 'Chief'}`,
         timestamp: msg.created_at,
       }, ...prev].slice(0, 50))
@@ -330,7 +343,11 @@ export function MissionControl() {
                   const StatusIcon = event.status ? (TASK_STATUS_ICONS[event.status] || Clock) : MessageSquare
                   const isTask = event.type === 'task'
                   return (
-                    <div key={event.id} className="px-4 py-3 hover:bg-muted/30 transition-colors">
+                    <div
+                      key={event.id}
+                      className="px-4 py-3 hover:bg-muted/30 transition-colors cursor-pointer"
+                      onClick={() => setExpandedEvent(expandedEvent === event.id ? null : event.id)}
+                    >
                       <div className="flex items-start gap-2.5">
                         <div className={`mt-0.5 shrink-0 ${isTask ? (event.status === 'completed' ? 'text-green-500' : event.status === 'failed' ? 'text-red-500' : 'text-blue-500') : 'text-amber-500'}`}>
                           {isTask ? <StatusIcon className="h-3.5 w-3.5" /> : <MessageSquare className="h-3.5 w-3.5" />}
@@ -345,7 +362,9 @@ export function MissionControl() {
                               <span className="text-[10px] text-muted-foreground">{event.detail}</span>
                             )}
                           </div>
-                          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{event.content}</p>
+                          <p className={`text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap ${expandedEvent === event.id ? '' : 'line-clamp-3'}`}>
+                            {event.content}
+                          </p>
                         </div>
                         <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(event.timestamp)}</span>
                       </div>

@@ -166,6 +166,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       return (data || []) as AgentTask[]
     },
     enabled: !!user && !!orgId,
+    refetchInterval: 10000,
   })
 
   // Learnings query
@@ -195,11 +196,12 @@ export function AgentProvider({ children }: { children: ReactNode }) {
         .select('*')
         .eq('org_id', orgId)
         .order('created_at', { ascending: false })
-        .limit(200)
+        .limit(500)
       if (error) throw error
       return (data || []) as AgentMessage[]
     },
     enabled: !!user && !!orgId,
+    refetchInterval: 10000, // Auto-refresh every 10s for real-time feel
   })
 
   const createAgentMutation = useMutation({
