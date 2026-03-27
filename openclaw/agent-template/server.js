@@ -341,8 +341,21 @@ async function callClaude(systemPrompt, userMessage, sessionKey = "default") {
       const blocks = response.content.filter(b => b.type === "tool_use");
       const results = await Promise.all(blocks.map(async (b) => {
         console.log(`[agent] tool ${b.name}(${JSON.stringify(b.input).substring(0, 100)})`);
+
+        // Emit tool_call event for Mission Control
+        sbFetch(`${SB_URL}/rest/v1/agent_activity_events`, {
+          method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+          body: JSON.stringify({ agent_id: AGENT_ID, org_id: ORG_ID, event_type: "tool_call", tool_name: b.name, content: JSON.stringify(b.input).substring(0, 300) }),
+        }).catch(() => {});
+
         const r = await agentExecuteTool(b.name, b.input);
         console.log(`[agent] tool ${b.name} → ${JSON.stringify(r).substring(0, 150)}`);
+
+        // Emit tool_result event
+        sbFetch(`${SB_URL}/rest/v1/agent_activity_events`, {
+          method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+          body: JSON.stringify({ agent_id: AGENT_ID, org_id: ORG_ID, event_type: "tool_result", tool_name: b.name, content: JSON.stringify(r).substring(0, 300) }),
+        }).catch(() => {});
         return { type: "tool_result", tool_use_id: b.id, content: JSON.stringify(r) };
       }));
       history.push({ role: "user", content: results });
