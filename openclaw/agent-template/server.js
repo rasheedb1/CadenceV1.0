@@ -414,37 +414,61 @@ app.get("/api/tools", requireAuth, (_req, res) => {
 });
 
 // Task execution (formal, with tracking + memory)
+// Responds immediately with "accepted", processes in background
 app.post("/api/task", requireAuth, async (req, res) => {
-  const { instruction, context, task_id } = req.body;
+  const { instruction, context, task_id, sync } = req.body;
   if (!instruction) return res.status(400).json({ error: "Missing instruction" });
 
-  activeTasks++;
   const sessionKey = task_id || "task-" + Date.now();
-  console.log(`[agent] Task: "${instruction.substring(0, 80)}" (${sessionKey})`);
+  console.log(`[agent] Task: "${instruction.substring(0, 80)}" (${sessionKey}, sync=${!!sync})`);
 
-  if (task_id) {
-    await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "in_progress" }) });
+  // Sync mode: wait for result (for short tasks or when caller explicitly requests)
+  if (sync) {
+    activeTasks++;
+    if (task_id) {
+      await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "in_progress" }) });
+    }
+    try {
+      const systemPrompt = await buildSystemPrompt(context);
+      const result = await callClaude(systemPrompt, instruction, sessionKey);
+      if (task_id) {
+        await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "completed", result: { text: result } }) });
+      }
+      activeTasks--;
+      return res.json({ success: true, result });
+    } catch (err) {
+      if (task_id) {
+        await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "failed", error: err.message }) });
+      }
+      activeTasks--;
+      return res.status(500).json({ success: false, error: err.message });
+    }
   }
 
-  try {
-    const systemPrompt = await buildSystemPrompt(context);
-    const result = await callClaude(systemPrompt, instruction, sessionKey);
+  // Async mode (default): respond immediately, process in background
+  res.json({ success: true, accepted: true, task_id: sessionKey, message: "Task accepted. Processing in background." });
 
+  // Process in background
+  activeTasks++;
+  (async () => {
     if (task_id) {
-      await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "completed", result: { text: result } }) });
+      await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "in_progress" }) });
     }
-
-    console.log(`[agent] Done: "${result.substring(0, 80)}"`);
-    activeTasks--;
-    res.json({ success: true, result });
-  } catch (err) {
-    console.error(`[agent] Task error:`, err.message);
-    if (task_id) {
-      await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "failed", error: err.message }) });
+    try {
+      const systemPrompt = await buildSystemPrompt(context);
+      const result = await callClaude(systemPrompt, instruction, sessionKey);
+      if (task_id) {
+        await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "completed", result: { text: result } }) });
+      }
+      console.log(`[agent] Task completed (async): "${result.substring(0, 80)}"`);
+    } catch (err) {
+      console.error(`[agent] Task error (async):`, err.message);
+      if (task_id) {
+        await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "failed", error: err.message }) });
+      }
     }
     activeTasks--;
-    res.status(500).json({ success: false, error: err.message });
-  }
+  })();
 });
 
 // Chat (conversational, with memory but no formal task)

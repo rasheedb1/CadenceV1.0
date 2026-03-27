@@ -633,6 +633,7 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     { name: "consultar_agente", description: "Pregunta rápida a un agente sin crear tarea formal. Ideal para '¿qué opina X?', 'pregúntale a X...', 'consulta con el CFO...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id)" }, message: { type: "string", description: "La pregunta o mensaje" } }, required: ["org_id", "message"] } },
     { name: "desplegar_agente", description: "Despliega un agente en Railway como servicio independiente. Crea el servidor, configura variables de entorno, y activa el agente. Usa cuando el usuario quiere que un agente esté operativo: 'despliega al CPO', 'activa a Nando', 'pon a funcionar al agente'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente a desplegar" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id)" } }, required: ["org_id"] } },
     { name: "web_research", description: "Busca en la web y scrapea páginas para investigación. Acciones: 'search' (buscar), 'scrape' (extraer contenido de URL), 'research' (buscar + scrape combinado).", input_schema: { type: "object", properties: { action: { type: "string", enum: ["search", "scrape", "research"], description: "search=buscar en web, scrape=extraer contenido de URL, research=buscar+scrape" }, query: { type: "string", description: "Término de búsqueda (para search/research)" }, url: { type: "string", description: "URL a scrapear (para scrape)" }, limit: { type: "number", description: "Número de resultados (default 5)" }, max_chars: { type: "number", description: "Máximo de caracteres de contenido (default 2000)" } }, required: [] } },
+    { name: "ver_tarea_agente", description: "Consulta el estado y resultado de la última tarea de un agente. Usa cuando el usuario pregunta '¿ya terminó X?', '¿qué encontró X?', 'resultado de la tarea de X'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string" }, agent_name: { type: "string", description: "Nombre del agente" }, task_id: { type: "string", description: "ID específico de tarea (opcional)" } }, required: ["org_id"] } },
     { name: "reunion_agentes", description: "Convoca una reunión con múltiples agentes sobre un tema. Cada agente da su perspectiva según su rol. Usa cuando: 'haz una reunión con X y Y sobre...', 'quiero que X y Y discutan...', 'junta a los agentes para hablar de...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_names: { type: "array", items: { type: "string" }, description: "Nombres de los agentes a convocar" }, topic: { type: "string", description: "El tema a discutir" } }, required: ["org_id", "agent_names", "topic"] } },
   ];
 
@@ -1079,11 +1080,11 @@ ${args.description ? `\n${args.description}\n` : ""}
           });
           const taskId = taskRes?.task?.id;
 
-          // If agent is deployed, send task
+          // If agent is deployed, send task (async — agent responds immediately, processes in background)
           if (agent.status === "active" && agent.railway_url) {
             try {
               const controller = new AbortController();
-              const timeout = setTimeout(() => controller.abort(), 120000);
+              const timeout = setTimeout(() => controller.abort(), 15000); // Short timeout — just confirm acceptance
               const agentRes = await fetch(`${agent.railway_url}/api/task`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
@@ -1092,23 +1093,23 @@ ${args.description ? `\n${args.description}\n` : ""}
               });
               clearTimeout(timeout);
               const result = await agentRes.json();
-              // Update task as completed
-              if (taskId) {
-                await sbFetch(`${base}/functions/v1/agent-task`, {
-                  method: "PATCH", headers: sbHeaders(true),
-                  body: JSON.stringify({ task_id: taskId, status: "completed", result }),
-                });
+
+              // If agent returned a full result (sync mode or fast task)
+              if (result.result && !result.accepted) {
+                if (taskId) {
+                  await sbFetch(`${base}/functions/v1/agent-task`, {
+                    method: "PATCH", headers: sbHeaders(true),
+                    body: JSON.stringify({ task_id: taskId, status: "completed", result }),
+                  });
+                }
+                return { success: true, agent: agent.name, task_id: taskId, result: result.result };
               }
-              return { success: true, agent: agent.name, task_id: taskId, result };
+
+              // Agent accepted the task and is processing async
+              return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `${agent.name} recibió la tarea y está trabajando en ella. El resultado se guardará automáticamente cuando termine. Puedes preguntar "¿ya terminó ${agent.name}?" en unos minutos.` };
             } catch (err) {
-              // Timeout or connection error — task stays in_progress
-              if (taskId) {
-                await sbFetch(`${base}/functions/v1/agent-task`, {
-                  method: "PATCH", headers: sbHeaders(true),
-                  body: JSON.stringify({ task_id: taskId, status: "failed", error: err.message }),
-                });
-              }
-              return { success: false, agent: agent.name, task_id: taskId, error: `Error contactando al agente: ${err.message}` };
+              // Timeout just means the agent is still processing — that's OK
+              return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `Tarea enviada a ${agent.name}. Está trabajando en ella — puede tomar unos minutos. Pregunta "¿ya terminó ${agent.name}?" cuando quieras ver el resultado.` };
             }
           }
 
@@ -1160,6 +1161,34 @@ ${args.description ? `\n${args.description}\n` : ""}
           } catch (err) {
             return { success: false, agent: agent.name, error: `Error consultando al agente: ${err.message}` };
           }
+        }
+
+        case "ver_tarea_agente": {
+          // Get the latest task for an agent
+          let agentId = args.agent_id;
+          if (!agentId && args.agent_name) {
+            const p = new URLSearchParams({ org_id: `eq.${args.org_id}`, name: `ilike.%${args.agent_name}%`, status: "neq.destroyed", select: "id,name", limit: "1" });
+            const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
+            if (Array.isArray(rows) && rows.length > 0) agentId = rows[0].id;
+          }
+          if (!agentId) return { success: false, error: "Agente no encontrado." };
+
+          const tp = new URLSearchParams({ org_id: `eq.${args.org_id}`, agent_id: `eq.${agentId}`, order: "created_at.desc", limit: "1", select: "*" });
+          if (args.task_id) tp.set("id", `eq.${args.task_id}`);
+          const tasks = await sbFetch(`${base}/rest/v1/agent_tasks?${tp}`, { headers: sbHeaders() });
+          if (!Array.isArray(tasks) || tasks.length === 0) return { success: false, error: "No hay tareas para este agente." };
+
+          const task = tasks[0];
+          return {
+            success: true,
+            task_id: task.id,
+            status: task.status,
+            instruction: task.instruction,
+            result: task.result,
+            error: task.error,
+            created_at: task.created_at,
+            completed_at: task.completed_at,
+          };
         }
 
         case "reunion_agentes": {
