@@ -1630,7 +1630,15 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
       }
 
       const text = response.content.find(b => b.type === "text")?.text || "";
+      // Trim history by message count AND total character size
       if (history.length > GW_MAX_HISTORY) session.history = history.slice(-GW_MAX_HISTORY);
+      // Also enforce a character limit to prevent context overflow
+      const MAX_HISTORY_CHARS = 30000;
+      let totalChars = history.reduce((sum, m) => sum + JSON.stringify(m.content).length, 0);
+      while (totalChars > MAX_HISTORY_CHARS && history.length > 4) {
+        history.shift();
+        totalChars = history.reduce((sum, m) => sum + JSON.stringify(m.content).length, 0);
+      }
       // Persist assistant response
       saveMessage(sessionKey, session.orgId, "assistant", response.content);
       return text;
