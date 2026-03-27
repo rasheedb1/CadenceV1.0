@@ -1121,9 +1121,13 @@ ${args.description ? `\n${args.description}\n` : ""}
               const timeout = setTimeout(() => controller.abort(), 15000); // Short timeout — just confirm acceptance
               // Build callback URL so agent can notify user when done
               const callbackUrl = `https://twilio-bridge-production-241b.up.railway.app/api/agent-callback`;
-              // Get WhatsApp number from current session
-              const sessionData = gwSessions.get(Object.keys(gwSessions).length > 0 ? [...gwSessions.keys()].find(k => gwSessions.get(k)?.orgId === args.org_id) || "" : "");
-              const waNumber = sessionData ? [...gwSessions.keys()].find(k => gwSessions.get(k)?.orgId === args.org_id) : null;
+              // Get WhatsApp number from DB (chief_sessions)
+              let waNumber = null;
+              try {
+                const sp = new URLSearchParams({ org_id: `eq.${args.org_id}`, select: "whatsapp_number", limit: "1", order: "updated_at.desc" });
+                const sessions = await sbFetch(`${base}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
+                if (Array.isArray(sessions) && sessions.length > 0) waNumber = sessions[0].whatsapp_number;
+              } catch (_) {}
 
               const agentRes = await fetch(`${agent.railway_url}/api/task`, {
                 method: "POST",
