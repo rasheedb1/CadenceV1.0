@@ -306,14 +306,16 @@ async function main() {
 
   // Check pgmq availability (retry up to 3 times)
   let pgmqAvailable = false;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 5; attempt++) {
     try {
+      console.log(`[pgmq-consumer] Checking pgmq availability (attempt ${attempt + 1})... SB_URL=${process.env.SUPABASE_URL?.substring(0, 30)}`);
       pgmqAvailable = await pgmq.isAvailable();
-      if (pgmqAvailable) break;
+      if (pgmqAvailable) { console.log("[pgmq-consumer] pgmq is available!"); break; }
+      console.warn(`[pgmq-consumer] pgmq check returned false`);
     } catch (err) {
-      console.warn(`[pgmq-consumer] pgmq check attempt ${attempt + 1} failed:`, err.message);
+      console.warn(`[pgmq-consumer] pgmq check attempt ${attempt + 1} error:`, err.message?.substring(0, 200));
     }
-    if (attempt < 2) await new Promise(r => setTimeout(r, 5000));
+    if (attempt < 4) await new Promise(r => setTimeout(r, 5000));
   }
   if (!pgmqAvailable) {
     console.error(`[pgmq-consumer] pgmq not available after 3 attempts (SB_URL=${SB_URL ? 'set' : 'MISSING'}, SB_KEY=${SB_KEY ? 'set' : 'MISSING'}) — exiting`);
