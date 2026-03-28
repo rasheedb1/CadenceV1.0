@@ -9,7 +9,7 @@ import {
 } from "./token-manager";
 
 const WA_MAX_LENGTH = 4096;
-const MAX_TASK_DURATION_MS = 30 * 60 * 1000; // 30 min — auto-release stuck locks
+const MAX_TASK_DURATION_MS = 10 * 60 * 1000; // 10 min — auto-release stuck locks
 let activeTask: { from: string; startedAt: number } | null = null;
 
 // Auto-release stuck task lock every minute

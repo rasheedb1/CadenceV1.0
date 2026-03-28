@@ -482,22 +482,34 @@ app.post("/api/task", requireAuth, async (req, res) => {
     try {
       const systemPrompt = await buildSystemPrompt(context);
       const result = await callClaude(systemPrompt, instruction, sessionKey);
-      if (task_id) {
-        await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "completed", result: { text: result } }) });
-      }
-      console.log(`[agent] Task completed (async): "${result.substring(0, 80)}"`);
+      // Detect if the task actually failed despite producing output
+      const failurePatterns = ["agent busy", "error contactando", "operation was aborted", "no pudo responder", "no pudo completar", "application failed to respond"];
+      const resultLower = result.toLowerCase();
+      const hasFailed = failurePatterns.some(p => resultLower.includes(p));
+      const taskStatus = hasFailed ? "failed" : "completed";
 
-      // Notify via callback (sends result to user's WhatsApp)
-      if (callback_url && whatsapp_number) {
-        try {
-          await fetch(callback_url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ task_id, agent_name: agent_name || AGENT_ID, result: { text: result }, whatsapp_number }),
-          });
-          console.log(`[agent] Callback sent to ${callback_url}`);
-        } catch (cbErr) {
-          console.error(`[agent] Callback error:`, cbErr.message);
+      if (task_id) {
+        await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true),
+          body: JSON.stringify({ task_id, status: taskStatus, result: { text: result }, ...(hasFailed ? { error: "Task produced output but objective was not met" } : {}) }) });
+      }
+      console.log(`[agent] Task ${taskStatus} (async): "${result.substring(0, 80)}"`);
+
+      // Always notify — lookup WhatsApp from DB if not provided
+      {
+        const cbUrl = callback_url || "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback";
+        let waNum = whatsapp_number;
+        if (!waNum && ORG_ID) {
+          try {
+            const sess = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?org_id=eq.${ORG_ID}&select=whatsapp_number&limit=1`, { headers: sbHeaders() });
+            if (Array.isArray(sess) && sess.length > 0) waNum = sess[0].whatsapp_number;
+          } catch (_) {}
+        }
+        if (waNum) {
+          try {
+            await fetch(cbUrl, { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ task_id, agent_name: agent_name || AGENT_ID, result: { text: result }, whatsapp_number: waNum }) });
+            console.log(`[agent] Callback sent (${waNum})`);
+          } catch (cbErr) { console.error(`[agent] Callback error:`, cbErr.message); }
         }
       }
     } catch (err) {
@@ -505,15 +517,22 @@ app.post("/api/task", requireAuth, async (req, res) => {
       if (task_id) {
         await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "failed", error: err.message }) });
       }
-      // Notify error via callback
-      if (callback_url && whatsapp_number) {
-        try {
-          await fetch(callback_url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ task_id, agent_name: agent_name || AGENT_ID, error: err.message, whatsapp_number }),
-          });
-        } catch (_) {}
+      // Always notify errors
+      {
+        const cbUrl = callback_url || "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback";
+        let waNum = whatsapp_number;
+        if (!waNum && ORG_ID) {
+          try {
+            const sess = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?org_id=eq.${ORG_ID}&select=whatsapp_number&limit=1`, { headers: sbHeaders() });
+            if (Array.isArray(sess) && sess.length > 0) waNum = sess[0].whatsapp_number;
+          } catch (_) {}
+        }
+        if (waNum) {
+          try {
+            await fetch(cbUrl, { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ task_id, agent_name: agent_name || AGENT_ID, error: err.message, whatsapp_number: waNum }) });
+          } catch (_) {}
+        }
       }
     }
     activeTasks--;
