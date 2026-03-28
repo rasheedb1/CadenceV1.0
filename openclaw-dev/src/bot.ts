@@ -355,7 +355,6 @@ export function createRouter(): Router {
 
       console.log(`[api/task] Completed (${result.durationMs}ms, exit=${result.exitCode})`);
       await saveToMemory("assistant", result.output.substring(0, 1000));
-      activeTask = null;
       res.json({
         success: result.exitCode === 0,
         result: result.output,
@@ -365,8 +364,11 @@ export function createRouter(): Router {
       });
     } catch (err) {
       console.error(`[api/task] Error:`, (err as Error).message);
-      activeTask = null;
       res.status(500).json({ success: false, error: (err as Error).message });
+    } finally {
+      // ALWAYS release lock — no matter what happens
+      activeTask = null;
+      console.log(`[api/task] Lock released`);
     }
   });
 
@@ -384,11 +386,12 @@ export function createRouter(): Router {
 
     try {
       const result = await runClaudeTask(message, { model: context?.model || "claude-sonnet-4-6", maxTurns: 10 });
-      activeTask = null;
       res.json({ success: true, reply: result.output });
     } catch (err) {
-      activeTask = null;
       res.status(500).json({ success: false, error: (err as Error).message });
+    } finally {
+      activeTask = null;
+      console.log(`[api/chat] Lock released`);
     }
   });
 
