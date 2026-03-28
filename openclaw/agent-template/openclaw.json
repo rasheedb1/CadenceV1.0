@@ -3,7 +3,10 @@
 
   "gateway": {
     "port": 18789,
-    "mode": "local"
+    "mode": "local",
+    "controlUi": {
+      "dangerouslyAllowHostHeaderOriginFallback": true
+    }
   },
 
   "agents": {
