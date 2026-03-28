@@ -38,8 +38,9 @@ function sendToGateway(message, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => { child.kill(); reject(new Error("Gateway timeout")); }, timeoutMs);
 
-    // Use the OpenClaw CLI to send a single-turn chat message
-    const child = spawn("node", ["dist/index.js", "chat", "--message", message, "--no-stream"], {
+    // Use the OpenClaw CLI to send a prompt
+    // The CLI command is: openclaw prompt "message" (or: node dist/index.js prompt "message")
+    const child = spawn("node", ["dist/index.js", "prompt", message], {
       cwd: "/app",
       env: { ...process.env, TERM: "dumb", NO_COLOR: "1" },
       stdio: ["ignore", "pipe", "pipe"],
@@ -194,7 +195,7 @@ async function main() {
   // Test CLI connectivity
   try {
     console.log("[pgmq-consumer] Testing OpenClaw CLI...");
-    const testResult = await sendToGateway("ping", 15000);
+    const testResult = await sendToGateway("Respond with only the word PONG", 30000);
     console.log("[pgmq-consumer] CLI test OK:", (testResult || "").substring(0, 50));
   } catch (err) {
     console.error("[pgmq-consumer] CLI test failed:", err.message);
