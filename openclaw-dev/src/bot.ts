@@ -263,6 +263,43 @@ export function createRouter(): Router {
     res.sendStatus(200);
   });
 
+  // --- Shared memory helpers ---
+  const AGENT_ID = process.env.AGENT_ID || "juanse";
+  const SB_URL = process.env.SUPABASE_URL || "https://arupeqczrxmfkcbjwyad.supabase.co";
+  const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+  async function sbFetchMem(path: string, opts: RequestInit = {}) {
+    const res = await fetch(`${SB_URL}${path}`, {
+      ...opts,
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}`, "apikey": SB_KEY, ...opts.headers },
+    });
+    return res.json();
+  }
+
+  async function loadConversationContext(limit = 20): Promise<string> {
+    try {
+      const p = new URLSearchParams({ agent_id: `eq.${AGENT_ID}`, select: "role,content", order: "created_at.desc", limit: String(limit) });
+      const rows = await sbFetchMem(`/rest/v1/agent_conversation_history?${p}`);
+      if (!Array.isArray(rows) || rows.length === 0) return "";
+      // Reverse to chronological order and build context string
+      const msgs = rows.reverse().map((r: { role: string; content: unknown }) => {
+        const text = typeof r.content === "string" ? r.content : JSON.stringify(r.content);
+        return `[${r.role}]: ${text.substring(0, 500)}`;
+      });
+      return "\n\nCONVERSACIONES RECIENTES (contexto):\n" + msgs.join("\n");
+    } catch { return ""; }
+  }
+
+  async function saveToMemory(role: string, content: string) {
+    try {
+      await sbFetchMem("/rest/v1/agent_conversation_history", {
+        method: "POST",
+        headers: { "Prefer": "return=minimal" },
+        body: JSON.stringify({ agent_id: AGENT_ID, session_key: "shared", role, content }),
+      });
+    } catch {}
+  }
+
   // --- Agent Platform API (Chief ↔ Juanse communication) ---
 
   // Auth middleware for agent API
@@ -293,12 +330,22 @@ export function createRouter(): Router {
       // Pull latest code first
       try { await gitPull(); } catch (e) { console.log("[api/task] git pull skipped:", (e as Error).message); }
 
+      // Load conversation context so Claude Code has full context of discussions
+      const conversationContext = await loadConversationContext();
+      const enrichedInstruction = conversationContext
+        ? `${instruction}\n\n---${conversationContext}`
+        : instruction;
+
+      // Save task to memory
+      await saveToMemory("user", instruction.substring(0, 1000));
+
       const progressMessages: string[] = [];
-      const result = await runClaudeTask(instruction, { model: context?.model || "claude-sonnet-4-6" }, (msg) => {
+      const result = await runClaudeTask(enrichedInstruction, { model: context?.model || "claude-sonnet-4-6" }, (msg) => {
         progressMessages.push(msg);
       });
 
       console.log(`[api/task] Completed (${result.durationMs}ms, exit=${result.exitCode})`);
+      await saveToMemory("assistant", result.output.substring(0, 1000));
       activeTask = null;
       res.json({
         success: result.exitCode === 0,
@@ -348,10 +395,16 @@ export function createRouter(): Router {
       const Anthropic = (await import("@anthropic-ai/sdk")).default;
       const client = new Anthropic({ apiKey: config.anthropicApiKey || process.env.ANTHROPIC_API_KEY });
 
+      // Load conversation context for continuity
+      const conversationContext = await loadConversationContext(10);
+
       const systemPrompt = `Eres Juanse, CTO de Chief Platform. Respondes en español.
 Tu rol en esta conversación es dar feedback técnico: viabilidad, sugerencias de implementación, priorización.
 Eres pragmático, directo, y conoces el stack: React 19, Vite, TypeScript, Tailwind v4, shadcn/ui, Supabase, Railway.
-No necesitas ejecutar código — solo dar tu opinión experta como CTO.`;
+No necesitas ejecutar código — solo dar tu opinión experta como CTO.${conversationContext}`;
+
+      // Save incoming message to memory
+      await saveToMemory("user", message.substring(0, 1000));
 
       const response = await client.messages.create({
         model: "claude-sonnet-4-6",
@@ -361,6 +414,10 @@ No necesitas ejecutar código — solo dar tu opinión experta como CTO.`;
       });
 
       const reply = response.content.find((b: { type: string }) => b.type === "text")?.text || "";
+
+      // Save reply to memory
+      await saveToMemory("assistant", reply.substring(0, 1000));
+
       console.log(`[api/review] Reply: "${reply.substring(0, 100)}"`);
       res.json({ success: true, reply });
     } catch (err) {
