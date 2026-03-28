@@ -2,6 +2,16 @@
 name: consultar-agente
 version: "1.0"
 description: Pregunta rápida a un agente sin crear tarea formal
+command-dispatch: tool
+metadata:
+  openclaw:
+    requires:
+      env:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
+      bins:
+        - curl
+        - jq
 ---
 
 # Consultar Agente

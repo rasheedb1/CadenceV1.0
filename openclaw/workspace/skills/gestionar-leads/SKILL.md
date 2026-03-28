@@ -2,6 +2,16 @@
 name: gestionar-leads
 version: "1.0"
 description: Operaciones CRUD sobre leads — crear, listar, actualizar estado, asignar a cadencias
+command-dispatch: tool
+metadata:
+  openclaw:
+    requires:
+      env:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
+      bins:
+        - curl
+        - jq
 ---
 
 # Gestionar Leads

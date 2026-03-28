@@ -2,6 +2,16 @@
 name: descubrir-empresas
 version: "1.0"
 description: Descubre empresas que coinciden con el perfil de cliente ideal (ICP)
+command-dispatch: tool
+metadata:
+  openclaw:
+    requires:
+      env:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
+      bins:
+        - curl
+        - jq
 ---
 
 # Descubrir Empresas

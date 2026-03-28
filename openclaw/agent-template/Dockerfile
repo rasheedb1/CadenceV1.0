@@ -1,22 +1,39 @@
-FROM node:20-alpine
+# OpenClaw Agent Runtime
+# Based on official OpenClaw image with custom skills + pgmq + Claude Code CLI
+FROM ghcr.io/openclaw/openclaw:latest
 
-# Install curl for healthcheck
-RUN apk add --no-cache curl
+USER root
 
-WORKDIR /app
+# Install Claude Code CLI for code execution capabilities
+RUN npm install -g @anthropic-ai/claude-code
 
-# Install dependencies
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev
+# Install git for repo operations
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git jq openssh-client \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy application
-COPY server.js pgmq.js ./
+USER node
 
-# Expose port
-EXPOSE 8080
+# Copy OpenClaw config
+COPY --chown=node:node openclaw.json /home/node/.openclaw/openclaw.json
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD curl -f http://localhost:8080/api/health || exit 1
+# Copy workspace (SOUL.md, AGENTS.md, skills/)
+COPY --chown=node:node workspace/ /home/node/.openclaw/workspace/
 
-CMD ["node", "server.js"]
+# Copy pgmq wrapper + queue consumer
+COPY --chown=node:node pgmq.js /home/node/.openclaw/pgmq.js
+COPY --chown=node:node pgmq-consumer.js /home/node/.openclaw/pgmq-consumer.js
+
+# Copy startup script
+COPY --chown=node:node startup.sh /home/node/.openclaw/startup.sh
+
+# Legacy: keep server.js for HTTP fallback (runs alongside OpenClaw gateway)
+COPY --chown=node:node server.js /home/node/.openclaw/server-legacy.js
+COPY --chown=node:node package.json /home/node/.openclaw/package-legacy.json
+
+EXPOSE 18789
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:18789/healthz || exit 1
+
+CMD ["bash", "/home/node/.openclaw/startup.sh"]

@@ -2,6 +2,16 @@
 name: buscar-prospectos
 version: "1.0"
 description: Busca prospectos usando búsqueda en cascada (LinkedIn Sales Navigator L1→L2→L3)
+command-dispatch: tool
+metadata:
+  openclaw:
+    requires:
+      env:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
+      bins:
+        - curl
+        - jq
 ---
 
 # Buscar Prospectos

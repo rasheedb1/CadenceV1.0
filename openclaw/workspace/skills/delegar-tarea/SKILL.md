@@ -2,6 +2,16 @@
 name: delegar-tarea
 version: "1.0"
 description: Delega una tarea a un agente hijo (activo o pendiente)
+command-dispatch: tool
+metadata:
+  openclaw:
+    requires:
+      env:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
+      bins:
+        - curl
+        - jq
 ---
 
 # Delegar Tarea a Agente

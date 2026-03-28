@@ -2,6 +2,16 @@
 name: ver-actividad
 version: "1.0"
 description: Consulta el log de actividades — mensajes enviados, respuestas, conexiones, errores
+command-dispatch: tool
+metadata:
+  openclaw:
+    requires:
+      env:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
+      bins:
+        - curl
+        - jq
 ---
 
 # Ver Actividad

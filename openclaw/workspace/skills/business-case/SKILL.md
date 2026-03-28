@@ -2,6 +2,16 @@
 name: business-case
 version: "1.0"
 description: Genera un business case personalizado para una empresa objetivo
+command-dispatch: tool
+metadata:
+  openclaw:
+    requires:
+      env:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
+      bins:
+        - curl
+        - jq
 ---
 
 # Business Case

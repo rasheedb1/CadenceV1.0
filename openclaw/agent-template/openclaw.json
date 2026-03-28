@@ -1,0 +1,42 @@
+{
+  "$schema": "https://openclaw.ai/schema/config.json",
+
+  "gateway": {
+    "port": 18789,
+    "mode": "local"
+  },
+
+  "agents": {
+    "defaults": {
+      "models": {
+        "main": "anthropic/claude-sonnet-4-6"
+      }
+    }
+  },
+
+  "tools": {
+    "profile": "full",
+    "allow": [
+      "exec", "browser", "web_search", "web_fetch",
+      "read", "write", "edit", "apply_patch",
+      "image", "image_generate",
+      "sessions_status", "agents_list",
+      "cron"
+    ]
+  },
+
+  "skills": {
+    "load": {
+      "autoDiscover": true
+    }
+  },
+
+  "sandbox": {
+    "mode": "off"
+  },
+
+  "memory": {
+    "enabled": true,
+    "provider": "local"
+  }
+}

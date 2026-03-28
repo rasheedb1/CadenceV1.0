@@ -2,6 +2,16 @@
 name: enriquecer-prospectos
 version: "1.0"
 description: Enriquece prospectos con datos adicionales — email, teléfono, LinkedIn profile
+command-dispatch: tool
+metadata:
+  openclaw:
+    requires:
+      env:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
+      bins:
+        - curl
+        - jq
 ---
 
 # Enriquecer Prospectos

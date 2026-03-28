@@ -2,6 +2,16 @@
 name: investigar-empresa
 version: "1.0"
 description: Investiga una empresa a fondo — scraping web, noticias, financieros, competidores
+command-dispatch: tool
+metadata:
+  openclaw:
+    requires:
+      env:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
+      bins:
+        - curl
+        - jq
 ---
 
 # Investigar Empresa

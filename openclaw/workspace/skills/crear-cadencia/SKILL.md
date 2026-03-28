@@ -2,6 +2,16 @@
 name: crear-cadencia
 version: "1.0"
 description: Crea una cadencia de outreach con pasos secuenciales (LinkedIn, email, llamadas)
+command-dispatch: tool
+metadata:
+  openclaw:
+    requires:
+      env:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
+      bins:
+        - curl
+        - jq
 ---
 
 # Crear Cadencia

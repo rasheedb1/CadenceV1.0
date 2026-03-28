@@ -2,6 +2,16 @@
 name: ver-metricas
 version: "1.0"
 description: Consulta métricas de cadencias — tasas de respuesta, conexión, apertura, conversión
+command-dispatch: tool
+metadata:
+  openclaw:
+    requires:
+      env:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
+      bins:
+        - curl
+        - jq
 ---
 
 # Ver Métricas

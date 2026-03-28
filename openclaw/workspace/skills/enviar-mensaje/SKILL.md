@@ -2,6 +2,16 @@
 name: enviar-mensaje
 version: "1.0"
 description: Envía un mensaje directo por LinkedIn a un prospecto o lead
+command-dispatch: tool
+metadata:
+  openclaw:
+    requires:
+      env:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
+      bins:
+        - curl
+        - jq
 ---
 
 # Enviar Mensaje

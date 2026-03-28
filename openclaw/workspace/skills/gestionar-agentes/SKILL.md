@@ -2,6 +2,16 @@
 name: gestionar-agentes
 version: "1.0"
 description: Crea, lista o elimina agentes AI de la organización
+command-dispatch: tool
+metadata:
+  openclaw:
+    requires:
+      env:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
+      bins:
+        - curl
+        - jq
 ---
 
 # Gestionar Agentes AI
