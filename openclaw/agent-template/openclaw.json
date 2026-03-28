@@ -9,7 +9,10 @@
   "agents": {
     "defaults": {
       "models": {
-        "main": "anthropic/claude-sonnet-4-6"
+        "main": {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6"
+        }
       }
     }
   },
@@ -23,20 +26,5 @@
       "sessions_status", "agents_list",
       "cron"
     ]
-  },
-
-  "skills": {
-    "load": {
-      "autoDiscover": true
-    }
-  },
-
-  "sandbox": {
-    "mode": "off"
-  },
-
-  "memory": {
-    "enabled": true,
-    "provider": "local"
   }
 }

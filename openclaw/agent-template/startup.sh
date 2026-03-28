@@ -20,11 +20,24 @@ else
   echo "[startup] Using default SOUL.md from workspace"
 fi
 
-# --- Step 2: Set Anthropic API key for OpenClaw ---
+# --- Step 2: Set Anthropic API key + configure OpenClaw ---
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 if [ -z "$ANTHROPIC_API_KEY" ]; then
   echo "[startup] WARNING: ANTHROPIC_API_KEY not set"
 fi
+
+# Run onboard in local mode (non-interactive) if not already done
+if [ ! -f "/home/node/.openclaw/.onboarded" ]; then
+  echo "[startup] Running OpenClaw onboard (local mode)..."
+  node dist/index.js onboard --mode local --no-install-daemon 2>/dev/null || true
+  node dist/index.js config set gateway.mode local 2>/dev/null || true
+  node dist/index.js config set gateway.bind lan 2>/dev/null || true
+  touch /home/node/.openclaw/.onboarded
+  echo "[startup] Onboard complete"
+fi
+
+# Fix any config issues automatically
+node dist/index.js doctor --fix 2>/dev/null || true
 
 # --- Step 3: Start pgmq queue consumer in background ---
 if [ -f "/home/node/.openclaw/pgmq-consumer.js" ] && [ -n "$SUPABASE_URL" ]; then
