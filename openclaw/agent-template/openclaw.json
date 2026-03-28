@@ -6,6 +6,13 @@
     "mode": "local",
     "controlUi": {
       "dangerouslyAllowHostHeaderOriginFallback": true
+    },
+    "http": {
+      "endpoints": {
+        "chatCompletions": {
+          "enabled": true
+        }
+      }
     }
   },
 
