@@ -1275,23 +1275,36 @@ ${args.description ? `\n${args.description}\n` : ""}
 
           // Run collaboration in background — return immediately
           (async () => {
-            const callAgent = async (agent, message) => {
-              const controller = new AbortController();
-              const timeout = setTimeout(() => controller.abort(), 300000); // 5 min for complex tasks
-              try {
-                const res = await fetch(`${agent.railway_url}/api/chat`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
-                  body: JSON.stringify({ message, context: { org_id, collaboration: true }, sync: true }),
-                  signal: controller.signal,
-                });
-                clearTimeout(timeout);
-                const data = await res.json();
-                return data.reply || data.result || JSON.stringify(data);
-              } catch (err) {
-                clearTimeout(timeout);
-                return `[Error contactando a ${agent.name}: ${err.message}]`;
+            // Call agent with retry + fallback to /api/review for faster responses
+            const callAgent = async (agent, message, isReview = false) => {
+              const endpoint = isReview ? "/api/review" : "/api/chat";
+              for (let attempt = 0; attempt < 2; attempt++) {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), isReview ? 60000 : 300000);
+                try {
+                  const res = await fetch(`${agent.railway_url}${endpoint}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
+                    body: JSON.stringify({ message, context: { org_id, collaboration: true }, sync: true }),
+                    signal: controller.signal,
+                  });
+                  clearTimeout(timeout);
+                  if (!res.ok) {
+                    const errText = await res.text();
+                    console.error(`[collab] ${agent.name} ${endpoint} error ${res.status}: ${errText.substring(0, 200)}`);
+                    if (attempt === 0) { console.log(`[collab] Retrying ${agent.name}...`); continue; }
+                    return `[${agent.name} no pudo responder (${res.status})]`;
+                  }
+                  const data = await res.json();
+                  return data.reply || data.result || JSON.stringify(data);
+                } catch (err) {
+                  clearTimeout(timeout);
+                  console.error(`[collab] ${agent.name} attempt ${attempt + 1} failed:`, err.message);
+                  if (attempt === 0) { console.log(`[collab] Retrying ${agent.name}...`); continue; }
+                  return `[Error contactando a ${agent.name} después de 2 intentos: ${err.message}]`;
+                }
               }
+              return `[${agent.name} no respondió]`;
             };
 
             let currentWork = "";
@@ -1305,9 +1318,10 @@ ${args.description ? `\n${args.description}\n` : ""}
               currentWork = await callAgent(producer, producerPrompt);
               console.log(`[collab] Iter ${i + 1}: ${producer.name} produced ${currentWork.length} chars`);
 
-              const reviewPrompt = `Eres reviewer en una colaboración. Revisa este trabajo de ${producer.name} (${producer.role}):\n\nTarea: ${task}\n\nTrabajo:\n${currentWork}\n\n${i < maxIter - 1 ? 'Da feedback constructivo y específico. Si el trabajo es satisfactorio, responde EXACTAMENTE "APROBADO" al inicio.' : 'Esta es la última iteración. Da tu feedback final.'}`;
+              // Use /api/review for reviewer (faster, Claude API direct, no CLI)
+              const reviewPrompt = `Revisa este trabajo de ${producer.name} (${producer.role}):\n\nTarea: ${task}\n\nTrabajo:\n${currentWork.substring(0, 3000)}\n\n${i < maxIter - 1 ? 'Da feedback constructivo y específico. Si el trabajo es satisfactorio, responde EXACTAMENTE "APROBADO" al inicio.' : 'Esta es la última iteración. Da tu feedback final.'}`;
 
-              const feedback = await callAgent(reviewer, reviewPrompt);
+              const feedback = await callAgent(reviewer, reviewPrompt, true);
               console.log(`[collab] Iter ${i + 1}: ${reviewer.name} reviewed (${feedback.length} chars)`);
 
               iterations.push({ iteration: i + 1, work_summary: currentWork.substring(0, 300), feedback_summary: feedback.substring(0, 300) });

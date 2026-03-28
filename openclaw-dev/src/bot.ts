@@ -336,5 +336,38 @@ export function createRouter(): Router {
     }
   });
 
+  // Review endpoint — uses Claude API directly (fast, no CLI)
+  // For conversations, feedback, opinions — NOT for code changes
+  router.post("/api/review", requireApiAuth, async (req: Request, res: Response) => {
+    const { message, context } = req.body;
+    if (!message) return res.status(400).json({ error: "Missing message" });
+
+    console.log(`[api/review] Received: "${message.substring(0, 100)}"`);
+
+    try {
+      const Anthropic = (await import("@anthropic-ai/sdk")).default;
+      const client = new Anthropic({ apiKey: config.anthropicApiKey || process.env.ANTHROPIC_API_KEY });
+
+      const systemPrompt = `Eres Juanse, CTO de Chief Platform. Respondes en español.
+Tu rol en esta conversación es dar feedback técnico: viabilidad, sugerencias de implementación, priorización.
+Eres pragmático, directo, y conoces el stack: React 19, Vite, TypeScript, Tailwind v4, shadcn/ui, Supabase, Railway.
+No necesitas ejecutar código — solo dar tu opinión experta como CTO.`;
+
+      const response = await client.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [{ role: "user", content: message }],
+      });
+
+      const reply = response.content.find((b: { type: string }) => b.type === "text")?.text || "";
+      console.log(`[api/review] Reply: "${reply.substring(0, 100)}"`);
+      res.json({ success: true, reply });
+    } catch (err) {
+      console.error(`[api/review] Error:`, (err as Error).message);
+      res.status(500).json({ success: false, error: (err as Error).message });
+    }
+  });
+
   return router;
 }
