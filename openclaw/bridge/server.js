@@ -1976,7 +1976,23 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
               method: "POST",
               headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
               body: JSON.stringify({ instruction, context: { org_id: project.org_id }, task_id: taskId, callback_url: callbackUrl, whatsapp_number: waNum, agent_name: agent.name }),
-            }).catch(err => console.error(`[project-engine] Error sending to agent:`, err.message));
+            }).then(async (res) => {
+              if (res.status === 429) {
+                console.log(`[project-engine] Agent busy, will retry phase in next cycle`);
+                // Reset phase to pending so it retries
+                await sbFetch(`${SB_URL}/rest/v1/agent_project_phases?id=eq.${phase.id}`, {
+                  method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                  body: JSON.stringify({ status: "pending" }),
+                });
+              }
+            }).catch(err => {
+              console.error(`[project-engine] Error sending to agent:`, err.message);
+              // Reset to pending for retry
+              sbFetch(`${SB_URL}/rest/v1/agent_project_phases?id=eq.${phase.id}`, {
+                method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                body: JSON.stringify({ status: "pending" }),
+              }).catch(() => {});
+            });
           }
 
           await notifyUserByOrg(project.org_id, `📋 *Proyecto: ${project.name}*\n\n▶️ Fase ${phase.phase_number}: ${phase.name}\nAgente: ${agent?.name || "unknown"}\nStatus: en progreso...`);
@@ -2049,6 +2065,8 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
               }
             } catch (err) {
               console.error(`[project-engine] Review error:`, err.message);
+              // Don't fail the phase — just skip this cycle, engine will retry in 2 min
+              console.log(`[project-engine] Will retry review in next cycle`);
             }
           }
         }

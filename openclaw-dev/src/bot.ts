@@ -9,7 +9,16 @@ import {
 } from "./token-manager";
 
 const WA_MAX_LENGTH = 4096;
+const MAX_TASK_DURATION_MS = 30 * 60 * 1000; // 30 min — auto-release stuck locks
 let activeTask: { from: string; startedAt: number } | null = null;
+
+// Auto-release stuck task lock every minute
+setInterval(() => {
+  if (activeTask && Date.now() - activeTask.startedAt > MAX_TASK_DURATION_MS) {
+    console.error(`[bot] Force-releasing stuck task lock (running since ${new Date(activeTask.startedAt).toISOString()})`);
+    activeTask = null;
+  }
+}, 60000);
 
 // Twilio client for sending replies
 const twilioClient = twilio(config.twilio.accountSid, config.twilio.authToken);
