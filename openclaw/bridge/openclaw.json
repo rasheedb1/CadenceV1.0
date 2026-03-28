@@ -1,0 +1,38 @@
+{
+  "$schema": "https://openclaw.ai/schema/config.json",
+
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "controlUi": {
+      "dangerouslyAllowHostHeaderOriginFallback": true
+    },
+    "http": {
+      "endpoints": {
+        "chatCompletions": {
+          "enabled": true
+        }
+      }
+    }
+  },
+
+  "agents": {
+    "defaults": {
+      "models": {
+        "main": {
+          "provider": "anthropic",
+          "model": "claude-sonnet-4-6"
+        }
+      }
+    }
+  },
+
+  "tools": {
+    "profile": "coding",
+    "allow": [
+      "exec", "browser", "web_search", "web_fetch",
+      "read", "write", "edit",
+      "agents_list"
+    ]
+  }
+}
