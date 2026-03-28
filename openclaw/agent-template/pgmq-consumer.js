@@ -7,7 +7,6 @@
  * Protocol reference: bridge/server.js OpenClawClient (lines 86-360)
  */
 
-const { execSync, spawn } = require("child_process");
 const fs = require("fs");
 const pgmq = require("./pgmq");
 
@@ -29,44 +28,49 @@ async function sbFetch(path, opts = {}) {
 }
 
 // =====================================================
-// OpenClaw CLI Interface
-// Uses `node dist/index.js chat` to send messages to the local gateway
-// This avoids WebSocket protocol complexities (device pairing, schema validation)
+// OpenClaw HTTP API Interface (OpenAI-compatible)
+// POST /v1/chat/completions with Bearer token auth
 // =====================================================
 
-function sendToGateway(message, timeoutMs = 120000) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { child.kill(); reject(new Error("Gateway timeout")); }, timeoutMs);
+function getGatewayToken() {
+  try {
+    const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+    return config?.gateway?.auth?.token || "";
+  } catch { return ""; }
+}
 
-    // Use the OpenClaw CLI to send a prompt
-    // The CLI command is: openclaw prompt "message" (or: node dist/index.js prompt "message")
-    const child = spawn("node", ["dist/index.js", "prompt", message], {
-      cwd: "/app",
-      env: { ...process.env, TERM: "dumb", NO_COLOR: "1" },
-      stdio: ["ignore", "pipe", "pipe"],
+async function sendToGateway(message, timeoutMs = 120000) {
+  const token = getGatewayToken();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(`http://127.0.0.1:${GATEWAY_PORT}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        model: "openclaw/default",
+        messages: [{ role: "user", content: message }],
+      }),
+      signal: controller.signal,
     });
+    clearTimeout(timer);
 
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (d) => { stdout += d.toString(); });
-    child.stderr.on("data", (d) => { stderr += d.toString(); });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      throw new Error(`Gateway HTTP ${res.status}: ${errText.substring(0, 200)}`);
+    }
 
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code === 0 && stdout.trim()) {
-        resolve(stdout.trim());
-      } else if (stdout.trim()) {
-        resolve(stdout.trim()); // Some output even with non-zero exit
-      } else {
-        reject(new Error(`CLI exit ${code}: ${stderr.substring(0, 200)}`));
-      }
-    });
-
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      reject(new Error(`CLI spawn error: ${err.message}`));
-    });
-  });
+    const data = await res.json();
+    const reply = data.choices?.[0]?.message?.content || "";
+    return reply;
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
 }
 
 // =====================================================
@@ -192,23 +196,14 @@ async function main() {
     return;
   }
 
-  // List available CLI commands for debugging
+  // Test HTTP API connectivity
   try {
-    const { execFileSync } = require("child_process");
-    const helpOutput = execFileSync("node", ["dist/index.js", "--help"], { cwd: "/app", encoding: "utf8", timeout: 10000, stdio: ["ignore", "pipe", "pipe"] });
-    console.log("[pgmq-consumer] OpenClaw CLI commands:", helpOutput.substring(0, 500));
-  } catch (err) {
-    console.log("[pgmq-consumer] CLI help:", (err.stdout || err.stderr || err.message || "").substring(0, 500));
-  }
-
-  // Test CLI connectivity
-  try {
-    console.log("[pgmq-consumer] Testing OpenClaw CLI...");
+    console.log("[pgmq-consumer] Testing gateway HTTP API...");
     const testResult = await sendToGateway("Respond with only the word PONG", 30000);
-    console.log("[pgmq-consumer] CLI test OK:", (testResult || "").substring(0, 50));
+    console.log("[pgmq-consumer] Gateway API test OK:", (testResult || "").substring(0, 100));
   } catch (err) {
-    console.error("[pgmq-consumer] CLI test failed:", err.message);
-    console.log("[pgmq-consumer] Will start consuming anyway — CLI may work for real messages");
+    console.error("[pgmq-consumer] Gateway API test failed:", err.message?.substring(0, 200));
+    console.log("[pgmq-consumer] Will start consuming anyway");
   }
 
   // Main consumer loop
