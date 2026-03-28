@@ -6,6 +6,8 @@ RUN npm install
 COPY tsconfig.json ./
 COPY src/ ./src/
 RUN npx tsc
+# Copy pgmq.js (plain JS module) to dist alongside compiled TS
+RUN cp src/pgmq.js dist/pgmq.js 2>/dev/null || true
 
 # Stage 2: Runtime
 FROM node:20-bookworm-slim
