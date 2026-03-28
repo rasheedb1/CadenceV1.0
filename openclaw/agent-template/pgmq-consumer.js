@@ -35,6 +35,7 @@ async function sbFetch(path, opts = {}) {
 
 class LocalGatewayClient {
   constructor(port) {
+    this.port = port;
     this.url = `ws://127.0.0.1:${port}`;
     this.ws = null;
     this.connected = false;
@@ -48,7 +49,7 @@ class LocalGatewayClient {
     return new Promise((resolve, reject) => {
       console.log(`[pgmq-ws] Connecting to ${this.url}`);
       this.ws = new WebSocket(this.url, {
-        headers: { Origin: `http://127.0.0.1:${port}` },
+        headers: { Origin: `http://127.0.0.1:${this.port}` },
       });
 
       const timeout = setTimeout(() => {
