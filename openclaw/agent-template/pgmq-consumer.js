@@ -7,8 +7,7 @@
  * Protocol reference: bridge/server.js OpenClawClient (lines 86-360)
  */
 
-const WebSocket = require("ws");
-const crypto = require("crypto");
+const { execSync, spawn } = require("child_process");
 const fs = require("fs");
 const pgmq = require("./pgmq");
 
@@ -30,176 +29,43 @@ async function sbFetch(path, opts = {}) {
 }
 
 // =====================================================
-// OpenClaw WebSocket Client (simplified from bridge)
+// OpenClaw CLI Interface
+// Uses `node dist/index.js chat` to send messages to the local gateway
+// This avoids WebSocket protocol complexities (device pairing, schema validation)
 // =====================================================
 
-class LocalGatewayClient {
-  constructor(port) {
-    this.port = port;
-    this.url = `ws://127.0.0.1:${port}`;
-    this.ws = null;
-    this.connected = false;
-    this.pending = new Map();
-    this.streamText = "";
-    this.streamResolve = null;
-    this.reqCounter = 0;
-  }
+function sendToGateway(message, timeoutMs = 120000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { child.kill(); reject(new Error("Gateway timeout")); }, timeoutMs);
 
-  async connect() {
-    return new Promise((resolve, reject) => {
-      console.log(`[pgmq-ws] Connecting to ${this.url}`);
-      this.ws = new WebSocket(this.url, {
-        headers: { Origin: `http://127.0.0.1:${this.port}` },
-      });
-
-      const timeout = setTimeout(() => {
-        reject(new Error("Gateway connection timeout (30s)"));
-        this.ws?.close();
-      }, 30000);
-
-      this.ws.on("open", () => {
-        console.log("[pgmq-ws] WebSocket open, waiting for challenge...");
-      });
-
-      this.ws.on("message", (data) => {
-        let msg;
-        try { msg = JSON.parse(data.toString()); } catch { return; }
-
-        // Handle connect.challenge
-        if (msg.type === "event" && msg.event === "connect.challenge") {
-          const nonce = msg.payload?.nonce || "";
-          this._sendConnect(nonce).then(() => {
-            clearTimeout(timeout);
-            this.connected = true;
-            resolve();
-          }).catch((err) => {
-            clearTimeout(timeout);
-            reject(err);
-          });
-          return;
-        }
-
-        // Handle RPC responses
-        if (msg.type === "res") {
-          const handler = this.pending.get(msg.id);
-          if (handler) {
-            this.pending.delete(msg.id);
-            if (msg.error) handler.reject(new Error(msg.error.message || JSON.stringify(msg.error)));
-            else handler.resolve(msg.result ?? msg.data ?? msg);
-          }
-          return;
-        }
-
-        // Handle streaming events
-        if (msg.type === "event") {
-          this._handleStreamEvent(msg);
-          return;
-        }
-      });
-
-      this.ws.on("close", () => {
-        this.connected = false;
-        this.ws = null;
-        for (const [, handler] of this.pending) handler.reject(new Error("Connection closed"));
-        this.pending.clear();
-      });
-
-      this.ws.on("error", (err) => {
-        console.error("[pgmq-ws] Error:", err.message);
-      });
-
-      // Fallback: if no challenge in 5s, try connecting directly
-      setTimeout(() => {
-        if (!this.connected && this.ws?.readyState === WebSocket.OPEN) {
-          this._sendConnect("").then(() => { clearTimeout(timeout); this.connected = true; resolve(); }).catch(() => {});
-        }
-      }, 5000);
+    // Use the OpenClaw CLI to send a single-turn chat message
+    const child = spawn("node", ["dist/index.js", "chat", "--message", message, "--no-stream"], {
+      cwd: "/app",
+      env: { ...process.env, TERM: "dumb", NO_COLOR: "1" },
+      stdio: ["ignore", "pipe", "pipe"],
     });
-  }
 
-  async _sendConnect(nonce) {
-    // Read auth token from config file (gateway writes it on startup)
-    let authToken = "";
-    try {
-      const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
-      authToken = config?.gateway?.auth?.token || "";
-    } catch { console.warn("[pgmq-ws] Could not read auth token from config"); }
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => { stdout += d.toString(); });
+    child.stderr.on("data", (d) => { stderr += d.toString(); });
 
-    // Use the same client ID format as the official OpenClaw CLI
-    const params = {
-      minProtocol: 3,
-      maxProtocol: 3,
-      client: { id: "openclaw", platform: "node", mode: "repl", version: "2026.3.28" },
-      role: "owner",
-      scopes: ["owner"],
-      auth: { token: authToken },
-      caps: ["tool-events"],
-      userAgent: "pgmq-consumer/1.0",
-      locale: "es",
-    };
-
-    const result = await this._request("connect", params);
-    console.log("[pgmq-ws] Connected! Protocol:", result?.protocol);
-    return result;
-  }
-
-  _request(method, params = {}) {
-    return new Promise((resolve, reject) => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        return reject(new Error("Not connected"));
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0 && stdout.trim()) {
+        resolve(stdout.trim());
+      } else if (stdout.trim()) {
+        resolve(stdout.trim()); // Some output even with non-zero exit
+      } else {
+        reject(new Error(`CLI exit ${code}: ${stderr.substring(0, 200)}`));
       }
-      const id = `pgmq-${++this.reqCounter}`;
-      this.pending.set(id, { resolve, reject });
-      setTimeout(() => {
-        if (this.pending.has(id)) { this.pending.delete(id); reject(new Error(`RPC timeout: ${method}`)); }
-      }, 120000);
-      this.ws.send(JSON.stringify({ type: "req", id, method, params }));
-    });
-  }
-
-  _handleStreamEvent(msg) {
-    if (msg.stream === "text" || msg.stream === "content") {
-      const text = msg.data?.text || msg.data?.content || msg.data || "";
-      if (typeof text === "string") this.streamText += text;
-      return;
-    }
-    if (msg.stream === "done" || msg.stream === "end" || msg.event === "chat.done" || msg.event === "chat.complete") {
-      if (this.streamResolve) { this.streamResolve(this.streamText); this.streamResolve = null; this.streamText = ""; }
-      return;
-    }
-    if (msg.event === "chat.message" || msg.event === "chat.response") {
-      const text = msg.data?.content || msg.data?.text || msg.payload?.content || msg.payload?.text || "";
-      if (text && this.streamResolve) { this.streamResolve(text); this.streamResolve = null; this.streamText = ""; }
-      return;
-    }
-  }
-
-  async sendChat(message, sessionKey = "pgmq") {
-    this.streamText = "";
-    const responsePromise = new Promise((resolve, reject) => {
-      this.streamResolve = resolve;
-      setTimeout(() => {
-        if (this.streamResolve === resolve) {
-          this.streamResolve = null;
-          if (this.streamText.trim()) { resolve(this.streamText); this.streamText = ""; }
-          else reject(new Error("Response timeout (120s)"));
-        }
-      }, 120000);
     });
 
-    await this._request("chat.send", {
-      sessionKey,
-      message,
-      deliver: false,
-      idempotencyKey: `pgmq-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(new Error(`CLI spawn error: ${err.message}`));
     });
-
-    return responsePromise;
-  }
-
-  isReady() {
-    return this.ws?.readyState === WebSocket.OPEN && this.connected;
-  }
+  });
 }
 
 // =====================================================
@@ -218,7 +84,7 @@ async function waitForGateway(maxWaitMs = 90000) {
   return false;
 }
 
-async function processMessage(gateway, envelope) {
+async function processMessage(envelope) {
   const { type, payload, task_id, reply_to, correlation_id, org_id, from_agent_id } = envelope;
   console.log(`[pgmq-consumer] Processing: type=${type} from=${from_agent_id} task=${task_id}`);
 
@@ -233,10 +99,9 @@ async function processMessage(gateway, envelope) {
 
     // Build message for the gateway
     const instruction = payload?.instruction || payload?.message || "";
-    const sessionKey = task_id ? `task-${task_id}` : `chat-${correlation_id || Date.now()}`;
 
-    // Send to OpenClaw gateway via WebSocket
-    const result = await gateway.sendChat(instruction, sessionKey);
+    // Send to OpenClaw gateway via CLI
+    const result = await sendToGateway(instruction);
     console.log(`[pgmq-consumer] Gateway responded: "${(result || "").substring(0, 80)}"`);
 
     // Update task status
@@ -326,19 +191,14 @@ async function main() {
     return;
   }
 
-  // Connect to local OpenClaw gateway via WebSocket
-  const gateway = new LocalGatewayClient(GATEWAY_PORT);
+  // Test CLI connectivity
   try {
-    await gateway.connect();
-    console.log("[pgmq-consumer] Connected to OpenClaw gateway");
+    console.log("[pgmq-consumer] Testing OpenClaw CLI...");
+    const testResult = await sendToGateway("ping", 15000);
+    console.log("[pgmq-consumer] CLI test OK:", (testResult || "").substring(0, 50));
   } catch (err) {
-    console.error("[pgmq-consumer] Gateway WebSocket connection failed:", err.message);
-    console.log("[pgmq-consumer] Will retry in 30s...");
-    await new Promise(r => setTimeout(r, 30000));
-    try { await gateway.connect(); } catch (err2) {
-      console.error("[pgmq-consumer] Second attempt failed:", err2.message, "— exiting");
-      return;
-    }
+    console.error("[pgmq-consumer] CLI test failed:", err.message);
+    console.log("[pgmq-consumer] Will start consuming anyway — CLI may work for real messages");
   }
 
   // Main consumer loop
@@ -347,13 +207,6 @@ async function main() {
 
   while (true) {
     try {
-      // Reconnect if needed
-      if (!gateway.isReady()) {
-        console.log("[pgmq-consumer] Gateway disconnected, reconnecting...");
-        await gateway.connect().catch(err => console.error("[pgmq-consumer] Reconnect failed:", err.message));
-        if (!gateway.isReady()) { await new Promise(r => setTimeout(r, 10000)); continue; }
-      }
-
       const messages = await pgmq.pollMessages(queueName, 300, 1, 5);
       if (!messages || messages.length === 0) continue;
 
@@ -361,7 +214,7 @@ async function main() {
       const envelope = pgmq.parseMessage(msg);
       if (!envelope) { await pgmq.archiveMessage(queueName, msg.msg_id); continue; }
 
-      await processMessage(gateway, envelope);
+      await processMessage(envelope);
       await pgmq.archiveMessage(queueName, envelope._msg_id);
     } catch (err) {
       console.error("[pgmq-consumer] Loop error:", err.message);
