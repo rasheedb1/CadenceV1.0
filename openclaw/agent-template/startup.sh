@@ -40,10 +40,12 @@ fi
 node dist/index.js doctor --fix 2>/dev/null || true
 
 # --- Step 3: Start pgmq queue consumer in background ---
+# Run from /app so Node.js can find ws module in OpenClaw's node_modules
 if [ -f "/home/node/.openclaw/pgmq-consumer.js" ] && [ -n "$SUPABASE_URL" ]; then
   echo "[startup] Starting pgmq queue consumer..."
-  node /home/node/.openclaw/pgmq-consumer.js &
+  cd /app && NODE_PATH=/app/node_modules node /home/node/.openclaw/pgmq-consumer.js &
   PGMQ_PID=$!
+  cd /home/node/.openclaw
   echo "[startup] pgmq consumer started (PID=$PGMQ_PID)"
 else
   echo "[startup] pgmq consumer skipped (missing config or SUPABASE_URL)"
