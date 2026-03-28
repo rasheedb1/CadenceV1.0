@@ -439,7 +439,7 @@ export function createRouter(): Router {
     console.log(`[api/review] Received: "${message.substring(0, 100)}"`);
 
     try {
-      const Anthropic = (await import("@anthropic-ai/sdk")).default;
+      const Anthropic = require("@anthropic-ai/sdk").default;
       const client = new Anthropic({ apiKey: config.anthropicApiKey || process.env.ANTHROPIC_API_KEY });
 
       // Load conversation context for continuity
