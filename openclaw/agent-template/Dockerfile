@@ -10,7 +10,7 @@ COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 
 # Copy application
-COPY server.js .
+COPY server.js pgmq.js ./
 
 # Expose port
 EXPOSE 8080
