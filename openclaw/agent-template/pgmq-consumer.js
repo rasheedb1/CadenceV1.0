@@ -304,10 +304,19 @@ async function main() {
     return;
   }
 
-  // Check pgmq availability
-  const pgmqAvailable = await pgmq.isAvailable().catch(() => false);
+  // Check pgmq availability (retry up to 3 times)
+  let pgmqAvailable = false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      pgmqAvailable = await pgmq.isAvailable();
+      if (pgmqAvailable) break;
+    } catch (err) {
+      console.warn(`[pgmq-consumer] pgmq check attempt ${attempt + 1} failed:`, err.message);
+    }
+    if (attempt < 2) await new Promise(r => setTimeout(r, 5000));
+  }
   if (!pgmqAvailable) {
-    console.error("[pgmq-consumer] pgmq not available — exiting");
+    console.error(`[pgmq-consumer] pgmq not available after 3 attempts (SB_URL=${SB_URL ? 'set' : 'MISSING'}, SB_KEY=${SB_KEY ? 'set' : 'MISSING'}) — exiting`);
     return;
   }
 

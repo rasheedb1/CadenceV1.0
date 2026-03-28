@@ -125,6 +125,7 @@ function parseMessage(row) {
  * Check if pgmq is available (for fallback logic)
  */
 async function isAvailable() {
+  if (!SB_URL || !SB_KEY) return false;
   try {
     await rpc("pgmq_metrics", { queue_name: "agent_chief" });
     return true;
