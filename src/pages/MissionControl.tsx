@@ -7,7 +7,8 @@ import { supabase } from '@/integrations/supabase/client'
 import { useAgents, type AgentTask, type AgentMessage } from '@/contexts/AgentContext'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Home, Zap, MessageSquare, CheckCircle, XCircle, Clock, Bot } from 'lucide-react'
+import { Home, Zap, MessageSquare, CheckCircle, XCircle, Clock, Bot, Filter } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 const STATUS_COLORS: Record<string, string> = {
   active: '#22c55e', draft: '#9ca3af', deploying: '#eab308', paused: '#f97316', error: '#ef4444',
@@ -40,6 +41,7 @@ export function MissionControl() {
   const { agents, getAgentTasks, getAgentMessages } = useAgents()
   const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([])
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null)
+  const [roleFilter, setRoleFilter] = useState<string>('all')
 
   useInterval(10000)
 
@@ -133,7 +135,9 @@ export function MissionControl() {
       }
 
       const statusDot = isWorking ? '🟢' : agent.status === 'active' ? '🟢' : '⚪'
-      const label = `${toolIcon ? toolIcon + ' ' : ''}${agent.name}\n${agent.role}\n${statusDot} ${isWorking ? 'working...' : agent.status}`
+      const activeTask = tasks.find(t => t.status === 'in_progress')
+      const taskPreview = activeTask ? activeTask.instruction.substring(0, 40) + (activeTask.instruction.length > 40 ? '…' : '') : ''
+      const label = `${toolIcon ? toolIcon + ' ' : ''}${agent.name}\n${agent.role}\n${statusDot} ${isWorking ? 'working...' : agent.status}${taskPreview ? `\n📋 ${taskPreview}` : ''}`
 
       flowNodes.push({
         id: agent.id, position: { x: centerX + radius * Math.cos(angle), y: centerY + radius * Math.sin(angle) },
@@ -184,12 +188,30 @@ export function MissionControl() {
     return { nodes: flowNodes, edges: flowEdges }
   }, [agents, getAgentTasks, getAgentMessages, liveEvents])
 
+  // Unique roles for filter
+  const roles = useMemo(() => {
+    const r = new Set(agents.filter(a => a.status !== 'destroyed').map(a => a.role))
+    return Array.from(r).sort()
+  }, [agents])
+
+  // Filtered agents by role
+  const filteredAgentIds = useMemo(() => {
+    if (roleFilter === 'all') return new Set(agents.map(a => a.id))
+    return new Set(agents.filter(a => a.role === roleFilter).map(a => a.id))
+  }, [agents, roleFilter])
+
+  // Filtered events
+  const filteredEvents = useMemo(() => {
+    if (roleFilter === 'all') return liveEvents
+    return liveEvents.filter(e => filteredAgentIds.has(e.agent_id))
+  }, [liveEvents, roleFilter, filteredAgentIds])
+
   // Stats
-  const allTasks = agents.flatMap(a => getAgentTasks(a.id))
+  const allTasks = agents.filter(a => filteredAgentIds.has(a.id)).flatMap(a => getAgentTasks(a.id))
   const completedTasks = allTasks.filter(t => t.status === 'completed').length
   const failedTasks = allTasks.filter(t => t.status === 'failed').length
   const inProgressTasks = allTasks.filter(t => t.status === 'in_progress').length
-  const allMessages = agents.flatMap(a => getAgentMessages(a.id))
+  const allMessages = agents.filter(a => filteredAgentIds.has(a.id)).flatMap(a => getAgentMessages(a.id))
 
   const timeAgo = useCallback((ts: string) => {
     const diff = Date.now() - new Date(ts).getTime()
@@ -210,7 +232,19 @@ export function MissionControl() {
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5 animate-pulse" />LIVE
             </Badge>
           </div>
-          <div className="flex items-center gap-1.5 text-sm text-muted-foreground"><Bot className="h-4 w-4" />{agents.filter(a => a.status === 'active').length} active</div>
+          <div className="flex items-center gap-3">
+            <Select value={roleFilter} onValueChange={setRoleFilter}>
+              <SelectTrigger className="w-[160px] h-8 text-xs">
+                <Filter className="h-3 w-3 mr-1.5" />
+                <SelectValue placeholder="All roles" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All roles</SelectItem>
+                {roles.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground"><Bot className="h-4 w-4" />{agents.filter(a => a.status === 'active').length} active</div>
+          </div>
         </div>
       </header>
 
@@ -234,13 +268,13 @@ export function MissionControl() {
             <h2 className="font-medium text-sm flex items-center gap-2"><Zap className="h-3.5 w-3.5 text-amber-500" />Live Activity</h2>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {liveEvents.length === 0 ? (
+            {filteredEvents.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                <Bot className="h-8 w-8 mb-2 opacity-50" /><p className="text-sm">No activity yet</p>
+                <Bot className="h-8 w-8 mb-2 opacity-50" /><p className="text-sm">{roleFilter !== 'all' ? `No activity for ${roleFilter} agents` : 'No activity yet'}</p>
               </div>
             ) : (
               <div className="divide-y">
-                {liveEvents.map(event => {
+                {filteredEvents.map(event => {
                   const isRecent = Date.now() - new Date(event.timestamp).getTime() < 120000
                   const isActivity = event.type === 'activity'
                   const isTask = event.type === 'task'

@@ -1158,10 +1158,29 @@ ${args.description ? `\n${args.description}\n` : ""}
               const agentRes = await fetch(`${agent.railway_url}/api/task`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
-                body: JSON.stringify({ instruction: args.instruction, context: { org_id: args.org_id }, task_id: taskId, callback_url: callbackUrl, whatsapp_number: waNumber, agent_name: agent.name }),
+                body: JSON.stringify({ instruction: args.instruction, context: { org_id: args.org_id, from_agent: "chief" }, task_id: taskId, callback_url: callbackUrl, whatsapp_number: waNumber, agent_name: agent.name }),
                 signal: controller.signal,
               });
               clearTimeout(timeout);
+
+              // Handle busy agent
+              if (agentRes.status === 429) {
+                const busyInfo = await agentRes.json().catch(() => ({}));
+                const elapsed = busyInfo.elapsed_seconds || "?";
+                const currentTask = busyInfo.current_task || {};
+                const taskDesc = currentTask.instruction ? currentTask.instruction.substring(0, 100) : "tarea en progreso";
+                const delegator = currentTask.delegated_by || "desconocido";
+                // Mark our task as pending so it can be retried
+                if (taskId) {
+                  await sbFetch(`${base}/functions/v1/agent-task`, {
+                    method: "PATCH", headers: sbHeaders(true),
+                    body: JSON.stringify({ task_id: taskId, status: "pending", error: `Agent busy (${elapsed}s)` }),
+                  });
+                }
+                return { success: false, agent_busy: true, agent: agent.name, task_id: taskId,
+                  error: `${agent.name} está ocupado (${elapsed}s). Está trabajando en: "${taskDesc}" (delegado por: ${delegator}). La tarea queda pendiente y se ejecutará cuando esté libre.` };
+              }
+
               const result = await agentRes.json();
 
               // If agent returned a full result (sync mode or fast task)
@@ -1220,10 +1239,21 @@ ${args.description ? `\n${args.description}\n` : ""}
             const res = await fetch(`${agent.railway_url}/api/chat`, {
               method: "POST",
               headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
-              body: JSON.stringify({ message: args.message, context: { org_id: args.org_id }, callback_url: callbackUrl, whatsapp_number: consultWaNum, agent_name: agent.name }),
+              body: JSON.stringify({ message: args.message, context: { org_id: args.org_id, from_agent: "chief" }, callback_url: callbackUrl, whatsapp_number: consultWaNum, agent_name: agent.name }),
               signal: controller.signal,
             });
             clearTimeout(timeout);
+
+            // Handle busy agent
+            if (res.status === 429) {
+              const busyInfo = await res.json().catch(() => ({}));
+              const elapsed = busyInfo.elapsed_seconds || "?";
+              const currentTask = busyInfo.current_task || {};
+              const taskDesc = currentTask.instruction ? currentTask.instruction.substring(0, 100) : "tarea en progreso";
+              return { success: false, agent_busy: true, agent: agent.name,
+                error: `${agent.name} está ocupado (${elapsed}s) trabajando en: "${taskDesc}". Intenta de nuevo en un momento.` };
+            }
+
             const result = await res.json();
 
             // If agent returned full reply (sync/fast), show it

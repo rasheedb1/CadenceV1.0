@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
-import { ArrowLeft, Bot, Save, Loader2, Trash2, Brain, MessageSquare } from 'lucide-react'
+import { ArrowLeft, Bot, Save, Loader2, Trash2, Brain, MessageSquare, Clock, Activity } from 'lucide-react'
 import { toast } from 'sonner'
 
 const STATUS_COLORS: Record<string, string> = {
@@ -124,6 +124,32 @@ export function AgentDetail() {
 
         {/* Overview */}
         <TabsContent value="overview" className="space-y-4 mt-4">
+          {/* Active Task Banner */}
+          {tasks.filter(t => t.status === 'in_progress').map(activeTask => (
+            <Card key={activeTask.id} className="border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/30">
+              <CardContent className="py-4 px-5">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 shrink-0">
+                    <Activity className="h-5 w-5 text-blue-500 animate-pulse" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">Working on task</span>
+                      <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 text-[10px]">
+                        <Clock className="h-2.5 w-2.5 mr-1" />
+                        {activeTask.started_at ? `${Math.round((Date.now() - new Date(activeTask.started_at).getTime()) / 1000)}s` : 'starting...'}
+                      </Badge>
+                    </div>
+                    <p className="text-sm">{activeTask.instruction}</p>
+                    {activeTask.delegated_by && (
+                      <p className="text-xs text-muted-foreground mt-1">Delegated by: {activeTask.delegated_by}</p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
               <CardHeader><CardTitle className="text-sm font-medium">Details</CardTitle></CardHeader>
