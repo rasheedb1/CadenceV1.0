@@ -271,12 +271,23 @@ async function agentExecuteTool(name, args) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 60000);
         try {
-          const res = await fetch(`${target.railway_url}/api/chat`, {
+          // Use /api/review (fast, no lock) for agent-to-agent communication
+          // Falls back to /api/chat if /api/review returns 404
+          let res = await fetch(`${target.railway_url}/api/review`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
             body: JSON.stringify({ message: args.message, context: { org_id: ORG_ID, from_agent: AGENT_ID } }),
             signal: controller.signal,
           });
+          // Fallback to /api/chat if /api/review not found
+          if (res.status === 404) {
+            res = await fetch(`${target.railway_url}/api/chat`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
+              body: JSON.stringify({ message: args.message, context: { org_id: ORG_ID, from_agent: AGENT_ID }, sync: true }),
+              signal: controller.signal,
+            });
+          }
           clearTimeout(timeout);
           const result = await res.json();
           // Log exchange

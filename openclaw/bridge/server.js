@@ -1486,7 +1486,8 @@ ${args.description ? `\n${args.description}\n` : ""}
               try {
                 const controller = new AbortController();
                 const timeout = setTimeout(() => controller.abort(), 60000);
-                const res = await fetch(`${agent.railway_url}/api/chat`, {
+                // Use /api/review for meetings (fast, no lock)
+                let res = await fetch(`${agent.railway_url}/api/review`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
                   body: JSON.stringify({ message: prompt.replace("{role}", agent.role), context: { org_id, meeting: true, topic } }),
