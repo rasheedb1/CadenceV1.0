@@ -689,6 +689,7 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     { name: "delegar_tarea", description: "Delega una tarea a un agente hijo. Si el agente está desplegado, la envía directamente. Si no, la guarda como pendiente. Usa cuando el usuario dice 'dile a X que haga Y', 'pídele a X que...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente destino" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id, búsqueda por nombre)" }, instruction: { type: "string", description: "La tarea en lenguaje natural" } }, required: ["org_id", "instruction"] } },
     { name: "consultar_agente", description: "Pregunta rápida a un agente sin crear tarea formal. Ideal para '¿qué opina X?', 'pregúntale a X...', 'consulta con el CFO...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id)" }, message: { type: "string", description: "La pregunta o mensaje" } }, required: ["org_id", "message"] } },
     { name: "desplegar_agente", description: "Despliega un agente en Railway como servicio independiente. Crea el servidor, configura variables de entorno, y activa el agente. Usa cuando el usuario quiere que un agente esté operativo: 'despliega al CPO', 'activa a Nando', 'pon a funcionar al agente'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente a desplegar" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id)" } }, required: ["org_id"] } },
+    { name: "crear_proyecto", description: "Crea un proyecto multi-fase que los agentes ejecutan autónomamente. Las fases se ejecutan secuencialmente, con revisiones opcionales. El proyecto sobrevive reinicios. Usa cuando: 'que Sofi mejore toda la UX', 'proyecto grande entre X y Y', 'quiero que hagan esto por fases'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, name: { type: "string", description: "Nombre del proyecto" }, description: { type: "string" }, phases: { type: "array", items: { type: "object", properties: { name: { type: "string" }, description: { type: "string" }, agent_name: { type: "string" }, reviewer_name: { type: "string" } }, required: ["name", "description", "agent_name"] } } }, required: ["org_id", "name", "phases"] } },
     { name: "guardar_memoria", description: "Guarda un hecho, decisión o contexto importante en la memoria de largo plazo. Usa cuando: el usuario menciona algo que debas recordar siempre, se toma una decisión importante, se define un objetivo o prioridad. NO guardes detalles triviales.", input_schema: { type: "object", properties: { org_id: { type: "string" }, content: { type: "string", description: "El hecho o decisión a recordar" }, category: { type: "string", description: "Categoría: proyecto, decision, objetivo, agente, preferencia, contexto" }, importance: { type: "string", enum: ["critical", "high", "normal", "low"], description: "Importancia (critical siempre se carga)" } }, required: ["org_id", "content"] } },
     { name: "colaborar_agentes", description: "Inicia una colaboración iterativa entre 2 agentes. Un agente produce trabajo, el otro da feedback, e iteran hasta converger en un resultado final. Usa cuando: 'que Sofi y Juanse trabajen juntos en X', 'que colaboren para lograr X', 'que iteren hasta que quede bien'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, producer_name: { type: "string", description: "Agente que produce el trabajo (ej: Sofi)" }, reviewer_name: { type: "string", description: "Agente que revisa y da feedback (ej: Juanse)" }, task: { type: "string", description: "La tarea o objetivo a lograr" }, max_iterations: { type: "number", description: "Máximo de rondas de feedback (default 3)" } }, required: ["org_id", "producer_name", "reviewer_name", "task"] } },
     { name: "web_research", description: "Busca en la web y scrapea páginas para investigación. Acciones: 'search' (buscar), 'scrape' (extraer contenido de URL), 'research' (buscar + scrape combinado).", input_schema: { type: "object", properties: { action: { type: "string", enum: ["search", "scrape", "research"], description: "search=buscar en web, scrape=extraer contenido de URL, research=buscar+scrape" }, query: { type: "string", description: "Término de búsqueda (para search/research)" }, url: { type: "string", description: "URL a scrapear (para scrape)" }, limit: { type: "number", description: "Número de resultados (default 5)" }, max_chars: { type: "number", description: "Máximo de caracteres de contenido (default 2000)" } }, required: [] } },
@@ -1243,6 +1244,58 @@ ${args.description ? `\n${args.description}\n` : ""}
             // Timeout = agent is processing async, that's OK
             return { success: true, agent: agent.name, message: `${agent.name} está procesando tu consulta. Te llegará la respuesta por WhatsApp.` };
           }
+        }
+
+        case "crear_proyecto": {
+          const { org_id, name: projName, description: projDesc, phases } = args;
+          if (!phases || phases.length === 0) return { success: false, error: "Se necesita al menos una fase." };
+
+          // Resolve agent names to IDs
+          const resolveAgentId = async (agentName) => {
+            const p = new URLSearchParams({ org_id: `eq.${org_id}`, name: `ilike.%${agentName}%`, status: "neq.destroyed", select: "id,name", limit: "1" });
+            const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
+            return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+          };
+
+          // Create project
+          const projRows = await sbFetch(`${base}/rest/v1/agent_projects`, {
+            method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" },
+            body: JSON.stringify({ org_id, name: projName, description: projDesc || null, status: "active" }),
+          });
+          const project = Array.isArray(projRows) ? projRows[0] : projRows;
+          if (!project?.id) return { success: false, error: "No se pudo crear el proyecto." };
+
+          // Create phases
+          const phaseRows = [];
+          for (let i = 0; i < phases.length; i++) {
+            const ph = phases[i];
+            const agent = await resolveAgentId(ph.agent_name);
+            if (!agent) return { success: false, error: `Agente ${ph.agent_name} no encontrado.` };
+            let reviewerId = null;
+            if (ph.reviewer_name) {
+              const reviewer = await resolveAgentId(ph.reviewer_name);
+              if (reviewer) reviewerId = reviewer.id;
+            }
+            phaseRows.push({
+              project_id: project.id, phase_number: i + 1, name: ph.name,
+              description: ph.description, agent_id: agent.id,
+              reviewer_agent_id: reviewerId, status: "pending",
+            });
+          }
+
+          await sbFetch(`${base}/rest/v1/agent_project_phases`, {
+            method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+            body: JSON.stringify(phaseRows),
+          });
+
+          console.log(`[project] Created "${projName}" with ${phases.length} phases`);
+          return {
+            success: true,
+            project_id: project.id,
+            name: projName,
+            phases: phases.map((p, i) => `${i + 1}. ${p.name} (${p.agent_name}${p.reviewer_name ? ` → review: ${p.reviewer_name}` : ""})`),
+            message: `Proyecto "${projName}" creado con ${phases.length} fases. Se ejecutará automáticamente. Te notifico en cada fase.`,
+          };
         }
 
         case "guardar_memoria": {
@@ -1856,6 +1909,159 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
   });
 
   console.log(`🤖 Gateway embedded on ws://0.0.0.0:${GW_PORT} (${CLAUDE_MODEL})`);
+
+  // =====================================================
+  // PROJECT ENGINE — polls every 2 min, advances project phases
+  // =====================================================
+  async function processProjects() {
+    try {
+      // Get all active projects
+      const projects = await sbFetch(`${SB_URL}/rest/v1/agent_projects?status=eq.active&select=id,org_id,name`, { headers: sbHeaders() });
+      if (!Array.isArray(projects) || projects.length === 0) return;
+
+      for (const project of projects) {
+        // Get current phase (first non-completed, ordered by phase_number)
+        const phases = await sbFetch(`${SB_URL}/rest/v1/agent_project_phases?project_id=eq.${project.id}&status=neq.completed&order=phase_number.asc&limit=1&select=*`, { headers: sbHeaders() });
+        if (!Array.isArray(phases) || phases.length === 0) {
+          // All phases completed — mark project done
+          await sbFetch(`${SB_URL}/rest/v1/agent_projects?id=eq.${project.id}`, {
+            method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+            body: JSON.stringify({ status: "completed", updated_at: new Date().toISOString() }),
+          });
+          await notifyUserByOrg(project.org_id, `🎉 *Proyecto "${project.name}" completado!*\n\nTodas las fases se ejecutaron exitosamente.`);
+          console.log(`[project-engine] Project "${project.name}" completed!`);
+          continue;
+        }
+
+        const phase = phases[0];
+
+        // PENDING → create task and start
+        if (phase.status === "pending") {
+          // Get previous phase result for context
+          const prevPhases = await sbFetch(`${SB_URL}/rest/v1/agent_project_phases?project_id=eq.${project.id}&status=eq.completed&order=phase_number.desc&limit=1&select=name,result`, { headers: sbHeaders() });
+          const prevContext = Array.isArray(prevPhases) && prevPhases.length > 0
+            ? `\n\nContexto de la fase anterior (${prevPhases[0].name}):\n${(prevPhases[0].result || "").substring(0, 2000)}`
+            : "";
+
+          const instruction = `Proyecto: ${project.name}\nFase ${phase.phase_number}: ${phase.name}\n\n${phase.description}${prevContext}${phase.feedback ? `\n\nFeedback del reviewer:\n${phase.feedback}` : ""}`;
+
+          // Create task for the agent
+          const taskRes = await sbFetch(`${SB_URL}/functions/v1/agent-task`, {
+            method: "POST", headers: sbHeaders(true),
+            body: JSON.stringify({ org_id: project.org_id, agent_id: phase.agent_id, instruction, delegated_by: "project-engine" }),
+          });
+          const taskId = taskRes?.task?.id;
+
+          // Update phase status
+          await sbFetch(`${SB_URL}/rest/v1/agent_project_phases?id=eq.${phase.id}`, {
+            method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+            body: JSON.stringify({ status: "in_progress", task_id: taskId }),
+          });
+
+          // Get agent name for notification
+          const agentRows = await sbFetch(`${SB_URL}/rest/v1/agents?id=eq.${phase.agent_id}&select=name,railway_url`, { headers: sbHeaders() });
+          const agent = Array.isArray(agentRows) ? agentRows[0] : null;
+
+          // Send task to agent if deployed
+          if (agent?.railway_url) {
+            const callbackUrl = "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback";
+            let waNum = null;
+            try {
+              const sp = new URLSearchParams({ org_id: `eq.${project.org_id}`, select: "whatsapp_number", limit: "1" });
+              const sess = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
+              if (Array.isArray(sess) && sess.length > 0) waNum = sess[0].whatsapp_number;
+            } catch (_) {}
+
+            fetch(`${agent.railway_url}/api/task`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
+              body: JSON.stringify({ instruction, context: { org_id: project.org_id }, task_id: taskId, callback_url: callbackUrl, whatsapp_number: waNum, agent_name: agent.name }),
+            }).catch(err => console.error(`[project-engine] Error sending to agent:`, err.message));
+          }
+
+          await notifyUserByOrg(project.org_id, `📋 *Proyecto: ${project.name}*\n\n▶️ Fase ${phase.phase_number}: ${phase.name}\nAgente: ${agent?.name || "unknown"}\nStatus: en progreso...`);
+          console.log(`[project-engine] Started phase ${phase.phase_number} of "${project.name}"`);
+        }
+
+        // IN_PROGRESS → check if task completed
+        else if (phase.status === "in_progress" && phase.task_id) {
+          const taskRows = await sbFetch(`${SB_URL}/rest/v1/agent_tasks?id=eq.${phase.task_id}&select=status,result`, { headers: sbHeaders() });
+          const task = Array.isArray(taskRows) ? taskRows[0] : null;
+
+          if (task?.status === "completed") {
+            const result = task.result?.text || JSON.stringify(task.result);
+
+            if (phase.reviewer_agent_id) {
+              // Move to review
+              await sbFetch(`${SB_URL}/rest/v1/agent_project_phases?id=eq.${phase.id}`, {
+                method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                body: JSON.stringify({ status: "review", result }),
+              });
+              console.log(`[project-engine] Phase ${phase.phase_number} → review`);
+            } else {
+              // No reviewer — mark completed
+              await sbFetch(`${SB_URL}/rest/v1/agent_project_phases?id=eq.${phase.id}`, {
+                method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                body: JSON.stringify({ status: "completed", result, completed_at: new Date().toISOString() }),
+              });
+              await notifyUserByOrg(project.org_id, `✅ *Proyecto: ${project.name}*\n\nFase ${phase.phase_number} "${phase.name}" completada.`);
+              console.log(`[project-engine] Phase ${phase.phase_number} completed`);
+            }
+          } else if (task?.status === "failed") {
+            await sbFetch(`${SB_URL}/rest/v1/agent_project_phases?id=eq.${phase.id}`, {
+              method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+              body: JSON.stringify({ status: "failed" }),
+            });
+            await notifyUserByOrg(project.org_id, `❌ *Proyecto: ${project.name}*\n\nFase ${phase.phase_number} "${phase.name}" falló. El proyecto está pausado.`);
+          }
+        }
+
+        // REVIEW → send to reviewer
+        else if (phase.status === "review") {
+          const reviewerRows = await sbFetch(`${SB_URL}/rest/v1/agents?id=eq.${phase.reviewer_agent_id}&select=name,railway_url`, { headers: sbHeaders() });
+          const reviewer = Array.isArray(reviewerRows) ? reviewerRows[0] : null;
+
+          if (reviewer?.railway_url) {
+            try {
+              const reviewMsg = `Revisa este trabajo:\n\nProyecto: ${project.name}\nFase: ${phase.name}\n\nTrabajo:\n${(phase.result || "").substring(0, 3000)}\n\n${phase.current_review_iteration < phase.max_review_iterations - 1 ? 'Si está bien, responde "APROBADO" al inicio. Si no, da feedback específico.' : 'Última revisión. Da feedback final.'}`;
+
+              const res = await fetch(`${reviewer.railway_url}/api/review`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
+                body: JSON.stringify({ message: reviewMsg, context: { org_id: project.org_id } }),
+              });
+              const data = await res.json();
+              const feedback = data.reply || data.result || "";
+
+              if (feedback.trim().toUpperCase().startsWith("APROBADO") || phase.current_review_iteration >= phase.max_review_iterations - 1) {
+                await sbFetch(`${SB_URL}/rest/v1/agent_project_phases?id=eq.${phase.id}`, {
+                  method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                  body: JSON.stringify({ status: "completed", feedback, completed_at: new Date().toISOString() }),
+                });
+                await notifyUserByOrg(project.org_id, `✅ *Proyecto: ${project.name}*\n\nFase ${phase.phase_number} "${phase.name}" aprobada por ${reviewer.name}.`);
+              } else {
+                // Send back for iteration
+                await sbFetch(`${SB_URL}/rest/v1/agent_project_phases?id=eq.${phase.id}`, {
+                  method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                  body: JSON.stringify({ status: "pending", feedback, current_review_iteration: phase.current_review_iteration + 1 }),
+                });
+                await notifyUserByOrg(project.org_id, `🔄 *Proyecto: ${project.name}*\n\nFase ${phase.phase_number}: ${reviewer.name} dio feedback. Iteración ${phase.current_review_iteration + 2}/${phase.max_review_iterations}.`);
+              }
+            } catch (err) {
+              console.error(`[project-engine] Review error:`, err.message);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[project-engine] Error:", err.message);
+    }
+  }
+
+  // Run project engine every 2 minutes
+  setInterval(processProjects, 120000);
+  // First run after 30 seconds (let everything initialize)
+  setTimeout(processProjects, 30000);
   // Note: the original IIFE (ocClient.connect()) already handles initial connection.
   // The gateway WS server is synchronously registered before the event loop processes
   // the TCP connection, so the IIFE's connect() will succeed.

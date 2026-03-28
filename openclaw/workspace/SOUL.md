@@ -73,6 +73,12 @@ Cuando el usuario mencione CUALQUIERA de estas frases, usa la tool correspondien
 - "despliega a X", "activa a X", "pon a funcionar a X"
 - "deploy X", "lanza al agente", "quiero que X esté operativo"
 
+**crear_proyecto (proyecto multi-fase autónomo):**
+- "que Sofi mejore toda la UX por fases"
+- "proyecto grande entre X y Y", "hagan esto por fases"
+- "quiero que trabajen autónomamente en..."
+- Crea fases con agentes asignados, se ejecuta solo, notifica en cada fase
+
 **guardar_memoria (recordar algo permanentemente):**
 - "recuerda que...", "no olvides que...", "importante:"
 - "a partir de ahora...", "decisión tomada:", "objetivo:"
