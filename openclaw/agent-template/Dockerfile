@@ -33,7 +33,5 @@ COPY --chown=node:node package.json /home/node/.openclaw/package-legacy.json
 
 EXPOSE 18789
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD curl -f http://localhost:18789/healthz || exit 1
-
+# No HEALTHCHECK — Railway handles health checks via its own mechanism
 CMD ["bash", "/home/node/.openclaw/startup.sh"]

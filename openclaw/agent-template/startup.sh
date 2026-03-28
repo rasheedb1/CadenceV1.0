@@ -50,5 +50,7 @@ else
 fi
 
 # --- Step 4: Start OpenClaw gateway ---
-echo "[startup] Starting OpenClaw gateway on port 18789..."
-exec node dist/index.js gateway --bind lan --port 18789
+# Railway injects $PORT — OpenClaw must listen on it
+GATEWAY_PORT="${PORT:-18789}"
+echo "[startup] Starting OpenClaw gateway on port ${GATEWAY_PORT}..."
+exec node dist/index.js gateway --bind lan --port "${GATEWAY_PORT}"
