@@ -20,4 +20,5 @@ node dist/index.js doctor --fix 2>/dev/null || true
 BRIDGE_PORT="${PORT:-3100}"
 echo "[startup] Starting bridge on port ${BRIDGE_PORT}..."
 cd /home/node/bridge
-exec PORT="${BRIDGE_PORT}" node server.js
+export PORT="${BRIDGE_PORT}"
+exec node server.js
