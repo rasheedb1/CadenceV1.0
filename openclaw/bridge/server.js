@@ -11,6 +11,7 @@ const express = require("express");
 const twilio = require("twilio");
 const WebSocket = require("ws");
 const crypto = require("crypto");
+const pgmq = require("./pgmq");
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -1140,21 +1141,37 @@ ${args.description ? `\n${args.description}\n` : ""}
           });
           const taskId = taskRes?.task?.id;
 
-          // If agent is deployed, send task (async — agent responds immediately, processes in background)
+          // Get WhatsApp number for callback
+          const callbackUrl = `https://twilio-bridge-production-241b.up.railway.app/api/agent-callback`;
+          let waNumber = null;
+          try {
+            const sp = new URLSearchParams({ org_id: `eq.${args.org_id}`, select: "whatsapp_number", limit: "1", order: "updated_at.desc" });
+            const sessions = await sbFetch(`${base}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
+            if (Array.isArray(sessions) && sessions.length > 0) waNumber = sessions[0].whatsapp_number;
+          } catch (_) {}
+
+          // PRIMARY: Send via pgmq queue (async, never blocks, never 429)
+          try {
+            const envelope = pgmq.createEnvelope({
+              type: "task",
+              fromAgentId: "chief",
+              orgId: args.org_id,
+              taskId,
+              replyTo: "agent_chief",
+              payload: { instruction: args.instruction, callback_url: callbackUrl, whatsapp_number: waNumber, agent_name: agent.name },
+            });
+            await pgmq.sendMessage(pgmq.getQueueName(agent.id), envelope);
+            console.log(`[delegar_tarea] Queued task for ${agent.name} via pgmq (task=${taskId})`);
+            return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `Tarea enviada a ${agent.name} por cola. Te llegará el resultado por WhatsApp automáticamente cuando termine.` };
+          } catch (queueErr) {
+            console.warn(`[delegar_tarea] pgmq failed, falling back to HTTP:`, queueErr.message);
+          }
+
+          // FALLBACK: Direct HTTP (original behavior)
           if (agent.status === "active" && agent.railway_url) {
             try {
               const controller = new AbortController();
-              const timeout = setTimeout(() => controller.abort(), 15000); // Short timeout — just confirm acceptance
-              // Build callback URL so agent can notify user when done
-              const callbackUrl = `https://twilio-bridge-production-241b.up.railway.app/api/agent-callback`;
-              // Get WhatsApp number from DB (chief_sessions)
-              let waNumber = null;
-              try {
-                const sp = new URLSearchParams({ org_id: `eq.${args.org_id}`, select: "whatsapp_number", limit: "1", order: "updated_at.desc" });
-                const sessions = await sbFetch(`${base}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
-                if (Array.isArray(sessions) && sessions.length > 0) waNumber = sessions[0].whatsapp_number;
-              } catch (_) {}
-
+              const timeout = setTimeout(() => controller.abort(), 15000);
               const agentRes = await fetch(`${agent.railway_url}/api/task`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
@@ -1162,48 +1179,24 @@ ${args.description ? `\n${args.description}\n` : ""}
                 signal: controller.signal,
               });
               clearTimeout(timeout);
-
-              // Handle busy agent
               if (agentRes.status === 429) {
                 const busyInfo = await agentRes.json().catch(() => ({}));
-                const elapsed = busyInfo.elapsed_seconds || "?";
-                const currentTask = busyInfo.current_task || {};
-                const taskDesc = currentTask.instruction ? currentTask.instruction.substring(0, 100) : "tarea en progreso";
-                const delegator = currentTask.delegated_by || "desconocido";
-                // Mark our task as pending so it can be retried
-                if (taskId) {
-                  await sbFetch(`${base}/functions/v1/agent-task`, {
-                    method: "PATCH", headers: sbHeaders(true),
-                    body: JSON.stringify({ task_id: taskId, status: "pending", error: `Agent busy (${elapsed}s)` }),
-                  });
-                }
                 return { success: false, agent_busy: true, agent: agent.name, task_id: taskId,
-                  error: `${agent.name} está ocupado (${elapsed}s). Está trabajando en: "${taskDesc}" (delegado por: ${delegator}). La tarea queda pendiente y se ejecutará cuando esté libre.` };
+                  error: `${agent.name} está ocupado (${busyInfo.elapsed_seconds || "?"}s). La tarea queda pendiente.` };
               }
-
               const result = await agentRes.json();
-
-              // If agent returned a full result (sync mode or fast task)
               if (result.result && !result.accepted) {
-                if (taskId) {
-                  await sbFetch(`${base}/functions/v1/agent-task`, {
-                    method: "PATCH", headers: sbHeaders(true),
-                    body: JSON.stringify({ task_id: taskId, status: "completed", result }),
-                  });
-                }
+                if (taskId) await sbFetch(`${base}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id: taskId, status: "completed", result }) });
                 return { success: true, agent: agent.name, task_id: taskId, result: result.result };
               }
-
-              // Agent accepted the task and is processing async
-              return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `${agent.name} recibió la tarea y está trabajando. Te llegará el resultado por WhatsApp automáticamente cuando termine.` };
+              return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `${agent.name} recibió la tarea. Te llegará el resultado por WhatsApp.` };
             } catch (err) {
-              // Timeout just means the agent is still processing — that's OK
-              return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `Tarea enviada a ${agent.name}. Te llegará el resultado por WhatsApp automáticamente cuando termine.` };
+              return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `Tarea enviada a ${agent.name}. Te llegará el resultado por WhatsApp.` };
             }
           }
 
-          // Agent not deployed
-          return { success: true, agent: agent.name, task_id: taskId, status: "pending", message: `Tarea creada para ${agent.name} (${agent.role}), pero el agente no está desplegado aún. Se ejecutará cuando el agente esté activo.` };
+          // Agent not deployed — task stays pending in DB, agent picks it up when active
+          return { success: true, agent: agent.name, task_id: taskId, status: "pending", message: `Tarea creada para ${agent.name} (${agent.role}), pero el agente no está desplegado aún. Se ejecutará cuando esté activo.` };
         }
 
         case "consultar_agente": {
@@ -1220,59 +1213,78 @@ ${args.description ? `\n${args.description}\n` : ""}
           }
           if (!agent) return { success: false, error: "Agente no encontrado. Usa gestionar_agentes list para ver los agentes disponibles." };
 
-          if (agent.status !== "active" || !agent.railway_url) {
-            return { success: false, error: `${agent.name} no está desplegado. No puedo consultarlo hasta que esté activo.` };
+          // PRIMARY: Send via pgmq queue + poll for reply
+          try {
+            const envelope = pgmq.createEnvelope({
+              type: "chat",
+              fromAgentId: "chief",
+              orgId: args.org_id,
+              replyTo: "agent_chief",
+              payload: { message: args.message, context: { from_agent: "chief" } },
+            });
+            await pgmq.sendMessage(pgmq.getQueueName(agent.id), envelope);
+            console.log(`[consultar_agente] Queued chat to ${agent.name} (corr=${envelope.correlation_id})`);
+
+            // Poll Chief reply queue for response (up to 30s)
+            const deadline = Date.now() + 30000;
+            while (Date.now() < deadline) {
+              const msgs = await pgmq.pollMessages("agent_chief", 30, 5, 5);
+              for (const msg of msgs) {
+                const parsed = pgmq.parseMessage(msg);
+                if (parsed && parsed.type === "reply" && parsed.correlation_id === envelope.correlation_id) {
+                  await pgmq.archiveMessage("agent_chief", parsed._msg_id);
+                  const reply = parsed.payload?.message || parsed.payload?.reply || JSON.stringify(parsed.payload);
+                  await sbFetch(`${base}/rest/v1/agent_messages`, {
+                    method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                    body: JSON.stringify([
+                      { org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.message },
+                      { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: reply },
+                    ]),
+                  });
+                  return { success: true, agent: agent.name, reply };
+                }
+                // Not our reply — leave it (VT will make it visible again)
+              }
+            }
+            // Timeout — agent hasn't replied yet via queue
+            return { success: true, agent: agent.name, message: `${agent.name} recibió la consulta pero está procesándola. Te llegará la respuesta por WhatsApp.` };
+          } catch (queueErr) {
+            console.warn(`[consultar_agente] pgmq failed, falling back to HTTP:`, queueErr.message);
           }
 
+          // FALLBACK: Direct HTTP
+          if (agent.status !== "active" || !agent.railway_url) {
+            return { success: false, error: `${agent.name} no está desplegado y la cola no está disponible.` };
+          }
           try {
-            // Get WhatsApp number for callback
             let consultWaNum = null;
             try {
               const sp = new URLSearchParams({ org_id: `eq.${args.org_id}`, select: "whatsapp_number", limit: "1" });
               const sess = await sbFetch(`${base}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
               if (Array.isArray(sess) && sess.length > 0) consultWaNum = sess[0].whatsapp_number;
             } catch (_) {}
-
-            const callbackUrl = "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback";
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 15000); // Just confirm acceptance
+            const timeout = setTimeout(() => controller.abort(), 15000);
             const res = await fetch(`${agent.railway_url}/api/chat`, {
               method: "POST",
               headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
-              body: JSON.stringify({ message: args.message, context: { org_id: args.org_id, from_agent: "chief" }, callback_url: callbackUrl, whatsapp_number: consultWaNum, agent_name: agent.name }),
+              body: JSON.stringify({ message: args.message, context: { org_id: args.org_id, from_agent: "chief" }, callback_url: "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback", whatsapp_number: consultWaNum, agent_name: agent.name }),
               signal: controller.signal,
             });
             clearTimeout(timeout);
-
-            // Handle busy agent
             if (res.status === 429) {
               const busyInfo = await res.json().catch(() => ({}));
-              const elapsed = busyInfo.elapsed_seconds || "?";
-              const currentTask = busyInfo.current_task || {};
-              const taskDesc = currentTask.instruction ? currentTask.instruction.substring(0, 100) : "tarea en progreso";
-              return { success: false, agent_busy: true, agent: agent.name,
-                error: `${agent.name} está ocupado (${elapsed}s) trabajando en: "${taskDesc}". Intenta de nuevo en un momento.` };
+              return { success: false, agent_busy: true, agent: agent.name, error: `${agent.name} está ocupado. Intenta de nuevo.` };
             }
-
             const result = await res.json();
-
-            // If agent returned full reply (sync/fast), show it
             if (result.reply && !result.accepted) {
-              await sbFetch(`${base}/rest/v1/agent_messages`, {
-                method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
-                body: JSON.stringify([
-                  { org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.message },
-                  { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: typeof result.reply === "string" ? result.reply : JSON.stringify(result) },
-                ]),
-              });
+              await sbFetch(`${base}/rest/v1/agent_messages`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                body: JSON.stringify([{ org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.message }, { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: typeof result.reply === "string" ? result.reply : JSON.stringify(result) }]) });
               return { success: true, agent: agent.name, reply: result.reply || result };
             }
-
-            // Agent accepted async — will notify via callback
-            return { success: true, agent: agent.name, message: `${agent.name} está procesando tu consulta. Te llegará la respuesta por WhatsApp.` };
+            return { success: true, agent: agent.name, message: `${agent.name} está procesando tu consulta. Te llegará por WhatsApp.` };
           } catch (err) {
-            // Timeout = agent is processing async, that's OK
-            return { success: true, agent: agent.name, message: `${agent.name} está procesando tu consulta. Te llegará la respuesta por WhatsApp.` };
+            return { success: true, agent: agent.name, message: `${agent.name} está procesando tu consulta. Te llegará por WhatsApp.` };
           }
         }
 
@@ -1993,8 +2005,8 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
           const agentRows = await sbFetch(`${SB_URL}/rest/v1/agents?id=eq.${phase.agent_id}&select=name,railway_url`, { headers: sbHeaders() });
           const agent = Array.isArray(agentRows) ? agentRows[0] : null;
 
-          // Send task to agent if deployed
-          if (agent?.railway_url) {
+          // Send task to agent via pgmq queue (primary) or HTTP (fallback)
+          {
             const callbackUrl = "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback";
             let waNum = null;
             try {
@@ -2003,27 +2015,42 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
               if (Array.isArray(sess) && sess.length > 0) waNum = sess[0].whatsapp_number;
             } catch (_) {}
 
-            fetch(`${agent.railway_url}/api/task`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
-              body: JSON.stringify({ instruction, context: { org_id: project.org_id }, task_id: taskId, callback_url: callbackUrl, whatsapp_number: waNum, agent_name: agent.name }),
-            }).then(async (res) => {
-              if (res.status === 429) {
-                console.log(`[project-engine] Agent busy, will retry phase in next cycle`);
-                // Reset phase to pending so it retries
-                await sbFetch(`${SB_URL}/rest/v1/agent_project_phases?id=eq.${phase.id}`, {
+            let sentViaQueue = false;
+            try {
+              const envelope = pgmq.createEnvelope({
+                type: "task", fromAgentId: "project-engine", orgId: project.org_id, taskId,
+                replyTo: "agent_chief",
+                payload: { instruction, callback_url: callbackUrl, whatsapp_number: waNum, agent_name: agent?.name || "agent" },
+              });
+              await pgmq.sendMessage(pgmq.getQueueName(phase.agent_id), envelope);
+              sentViaQueue = true;
+              console.log(`[project-engine] Queued task for phase ${phase.phase_number} via pgmq`);
+            } catch (qErr) {
+              console.warn(`[project-engine] pgmq failed, trying HTTP:`, qErr.message);
+            }
+
+            // HTTP fallback if queue failed
+            if (!sentViaQueue && agent?.railway_url) {
+              fetch(`${agent.railway_url}/api/task`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
+                body: JSON.stringify({ instruction, context: { org_id: project.org_id }, task_id: taskId, callback_url: callbackUrl, whatsapp_number: waNum, agent_name: agent.name }),
+              }).then(async (res) => {
+                if (res.status === 429) {
+                  console.log(`[project-engine] Agent busy, will retry phase in next cycle`);
+                  await sbFetch(`${SB_URL}/rest/v1/agent_project_phases?id=eq.${phase.id}`, {
+                    method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                    body: JSON.stringify({ status: "pending" }),
+                  });
+                }
+              }).catch(err => {
+                console.error(`[project-engine] Error sending to agent:`, err.message);
+                sbFetch(`${SB_URL}/rest/v1/agent_project_phases?id=eq.${phase.id}`, {
                   method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
                   body: JSON.stringify({ status: "pending" }),
-                });
-              }
-            }).catch(err => {
-              console.error(`[project-engine] Error sending to agent:`, err.message);
-              // Reset to pending for retry
-              sbFetch(`${SB_URL}/rest/v1/agent_project_phases?id=eq.${phase.id}`, {
-                method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
-                body: JSON.stringify({ status: "pending" }),
-              }).catch(() => {});
-            });
+                }).catch(() => {});
+              });
+            }
           }
 
           await notifyUserByOrg(project.org_id, `📋 *Proyecto: ${project.name}*\n\n▶️ Fase ${phase.phase_number}: ${phase.name}\nAgente: ${agent?.name || "unknown"}\nStatus: en progreso...`);

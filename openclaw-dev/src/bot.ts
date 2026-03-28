@@ -473,5 +473,117 @@ No necesitas ejecutar código — solo dar tu opinión experta como CTO.${conver
     }
   });
 
+  // =====================================================
+  // QUEUE CONSUMER (pgmq) — processes tasks from queue
+  // =====================================================
+
+  const pgmq = require("./pgmq");
+
+  async function consumeJuanseQueue() {
+    const queueName = pgmq.getQueueName(AGENT_ID);
+    const available = await pgmq.isAvailable().catch(() => false);
+    if (!available) {
+      console.warn(`[bot] pgmq not available — queue consumer disabled`);
+      return;
+    }
+    console.log(`[bot] Starting queue consumer on: ${queueName}`);
+
+    while (true) {
+      try {
+        const messages = await pgmq.pollMessages(queueName, 600, 1, 5); // VT=600s (10min, matches MAX_TASK_DURATION)
+        if (!messages || messages.length === 0) continue;
+
+        const msg = messages[0];
+        const envelope = pgmq.parseMessage(msg);
+        if (!envelope) { await pgmq.archiveMessage(queueName, msg.msg_id); continue; }
+
+        console.log(`[bot] Queue message: type=${envelope.type} from=${envelope.from_agent_id}`);
+
+        // Check if already busy (queue consumer runs in parallel with HTTP endpoints)
+        if (activeTask) {
+          console.log(`[bot] Busy, message will retry after VT expires`);
+          continue; // VT will make it visible again after 10min
+        }
+
+        const { type, payload, task_id, reply_to, correlation_id } = envelope;
+
+        if (type === "task") {
+          // Full task via Claude Code CLI
+          activeTask = { from: "queue", startedAt: Date.now(), task_id, instruction: (payload.instruction || "").substring(0, 200), delegated_by: envelope.from_agent_id || "queue" };
+          try {
+            try { await gitPull(); } catch (e) { console.log("[bot/queue] git pull skipped:", (e as Error).message); }
+            const conversationContext = await loadConversationContext();
+            const enrichedInstruction = conversationContext ? `${payload.instruction}\n\n---${conversationContext}` : payload.instruction;
+            await saveToMemory("user", (payload.instruction || "").substring(0, 1000));
+            const result = await runClaudeTask(enrichedInstruction, { model: payload.context?.model || "claude-sonnet-4-6" });
+            await saveToMemory("assistant", result.output.substring(0, 1000));
+
+            // Send reply to reply_to queue
+            if (reply_to) {
+              await pgmq.sendMessage(reply_to, {
+                type: "reply", correlation_id, from_agent_id: AGENT_ID,
+                org_id: envelope.org_id, task_id,
+                payload: { message: result.output, success: result.exitCode === 0 },
+                sent_at: new Date().toISOString(),
+              });
+            }
+
+            // Update task status in DB
+            if (task_id) {
+              await sbFetchMem(`/functions/v1/agent-task`, {
+                method: "PATCH", headers: { Prefer: "return=minimal" },
+                body: JSON.stringify({ task_id, status: result.exitCode === 0 ? "completed" : "failed", result: { text: result.output } }),
+              }).catch(() => {});
+            }
+
+            // WhatsApp callback
+            if (payload.whatsapp_number) {
+              const cbUrl = payload.callback_url || "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback";
+              try {
+                await fetch(cbUrl, { method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ task_id, agent_name: payload.agent_name || AGENT_ID, result: { text: result.output }, whatsapp_number: payload.whatsapp_number }) });
+              } catch (_) {}
+            }
+          } catch (err) {
+            if (reply_to) {
+              await pgmq.sendMessage(reply_to, { type: "reply", correlation_id, from_agent_id: AGENT_ID, payload: { error: (err as Error).message }, sent_at: new Date().toISOString() }).catch(() => {});
+            }
+          } finally {
+            activeTask = null;
+          }
+
+        } else if (type === "chat" || type === "review") {
+          // Quick review via Claude API (no CLI, no lock needed)
+          try {
+            const Anthropic = require("@anthropic-ai/sdk").default;
+            const client = new Anthropic({ apiKey: config.anthropicApiKey || process.env.ANTHROPIC_API_KEY });
+            const conversationContext = await loadConversationContext(10);
+            const systemPrompt = `Eres Juanse, CTO de Chief Platform. Respondes en español.\nTu rol es dar feedback técnico: viabilidad, sugerencias, priorización.${conversationContext}`;
+            await saveToMemory("user", (payload.message || "").substring(0, 1000));
+            const response = await client.messages.create({ model: "claude-sonnet-4-6", max_tokens: 4096, system: systemPrompt, messages: [{ role: "user", content: payload.message }] });
+            const reply = (response.content.find((b: { type: string }) => b.type === "text") as { text: string })?.text || "";
+            await saveToMemory("assistant", reply.substring(0, 1000));
+
+            if (reply_to) {
+              await pgmq.sendMessage(reply_to, { type: "reply", correlation_id, from_agent_id: AGENT_ID, payload: { message: reply }, sent_at: new Date().toISOString() });
+            }
+          } catch (err) {
+            if (reply_to) {
+              await pgmq.sendMessage(reply_to, { type: "reply", correlation_id, from_agent_id: AGENT_ID, payload: { error: (err as Error).message }, sent_at: new Date().toISOString() }).catch(() => {});
+            }
+          }
+        }
+
+        await pgmq.archiveMessage(queueName, envelope._msg_id);
+      } catch (err) {
+        console.error("[bot] Queue consumer error:", (err as Error).message);
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
+  }
+
+  // Start queue consumer in background (non-blocking)
+  setTimeout(() => consumeJuanseQueue(), 3000);
+
   return router;
 }
