@@ -125,7 +125,7 @@ class LocalGatewayClient {
     const params = {
       minProtocol: 3,
       maxProtocol: 3,
-      client: { id: "pgmq-consumer", platform: "server", mode: "api", version: "1.0" },
+      client: { id: "openclaw-control-ui", platform: "web", mode: "webchat", version: "2026.3.28" },
       role: "operator",
       scopes: ["operator.read", "operator.write"],
       auth: authToken ? { token: authToken } : {},
