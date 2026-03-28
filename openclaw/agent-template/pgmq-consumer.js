@@ -192,6 +192,15 @@ async function main() {
     return;
   }
 
+  // List available CLI commands for debugging
+  try {
+    const { execFileSync } = require("child_process");
+    const helpOutput = execFileSync("node", ["dist/index.js", "--help"], { cwd: "/app", encoding: "utf8", timeout: 10000, stdio: ["ignore", "pipe", "pipe"] });
+    console.log("[pgmq-consumer] OpenClaw CLI commands:", helpOutput.substring(0, 500));
+  } catch (err) {
+    console.log("[pgmq-consumer] CLI help:", (err.stdout || err.stderr || err.message || "").substring(0, 500));
+  }
+
   // Test CLI connectivity
   try {
     console.log("[pgmq-consumer] Testing OpenClaw CLI...");
