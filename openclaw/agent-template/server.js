@@ -1,5 +1,6 @@
 const express = require("express");
 const Anthropic = require("@anthropic-ai/sdk").default;
+const pgmq = require("./pgmq");
 
 // --- Environment ---
 const {
@@ -253,7 +254,7 @@ async function agentExecuteTool(name, args) {
         });
       }
 
-      // --- Agent-to-agent ---
+      // --- Agent-to-agent (pgmq-first, HTTP fallback) ---
       case "comunicar_agente": {
         let target = null;
         if (args.agent_id) {
@@ -266,20 +267,59 @@ async function agentExecuteTool(name, args) {
           if (Array.isArray(rows) && rows.length > 0) target = rows[0];
         }
         if (!target) return { success: false, error: "Agente destino no encontrado." };
-        if (!target.railway_url) return { success: false, error: `${target.name} no está desplegado.` };
 
+        // Try pgmq queue-based communication first
+        try {
+          const envelope = pgmq.createEnvelope({
+            type: "chat",
+            fromAgentId: AGENT_ID,
+            orgId: ORG_ID,
+            replyTo: pgmq.getQueueName(AGENT_ID),
+            payload: { message: args.message, context: { from_agent: AGENT_ID } },
+          });
+          await pgmq.sendMessage(pgmq.getQueueName(target.id), envelope);
+          console.log(`[agent] Sent queue message to ${target.name} (corr=${envelope.correlation_id})`);
+
+          // Wait for reply on our own queue (up to 60s)
+          const deadline = Date.now() + 60000;
+          while (Date.now() < deadline) {
+            const msgs = await pgmq.pollMessages(pgmq.getQueueName(AGENT_ID), 30, 5, 5);
+            for (const msg of msgs) {
+              const parsed = pgmq.parseMessage(msg);
+              if (parsed && parsed.type === "reply" && parsed.correlation_id === envelope.correlation_id) {
+                await pgmq.archiveMessage(pgmq.getQueueName(AGENT_ID), parsed._msg_id);
+                const reply = parsed.payload?.message || parsed.payload?.reply || JSON.stringify(parsed.payload);
+                // Log exchange
+                await sbFetch(`${base}/rest/v1/agent_messages`, {
+                  method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                  body: JSON.stringify([
+                    { org_id: ORG_ID, from_agent_id: AGENT_ID, to_agent_id: target.id, role: "user", content: args.message },
+                    { org_id: ORG_ID, from_agent_id: target.id, to_agent_id: AGENT_ID, role: "assistant", content: reply },
+                  ]),
+                });
+                return { success: true, agent: target.name, reply };
+              }
+              // Not our reply — re-enqueue it (make visible again) by archiving and resending
+              // Actually just let the VT expire naturally — it will become visible again
+            }
+          }
+          // Timeout — message was sent but no reply yet
+          return { success: true, agent: target.name, reply: `${target.name} recibió el mensaje pero no respondió en 60s. La respuesta llegará cuando termine.` };
+        } catch (queueErr) {
+          console.warn(`[agent] Queue communication failed, falling back to HTTP:`, queueErr.message);
+        }
+
+        // HTTP fallback (original behavior)
+        if (!target.railway_url) return { success: false, error: `${target.name} no está desplegado y la cola no está disponible.` };
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 60000);
         try {
-          // Use /api/review (fast, no lock) for agent-to-agent communication
-          // Falls back to /api/chat if /api/review returns 404
           let res = await fetch(`${target.railway_url}/api/review`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
             body: JSON.stringify({ message: args.message, context: { org_id: ORG_ID, from_agent: AGENT_ID } }),
             signal: controller.signal,
           });
-          // Fallback to /api/chat if /api/review not found
           if (res.status === 404) {
             res = await fetch(`${target.railway_url}/api/chat`, {
               method: "POST",
@@ -289,28 +329,14 @@ async function agentExecuteTool(name, args) {
             });
           }
           clearTimeout(timeout);
-
-          // Handle busy agent (429) with detailed info
           if (res.status === 429) {
             const busyInfo = await res.json().catch(() => ({}));
             const elapsed = busyInfo.elapsed_seconds || "?";
             const currentTask = busyInfo.current_task || {};
-            const taskDesc = currentTask.instruction || "tarea desconocida";
-            const delegator = currentTask.delegated_by || "desconocido";
-            return {
-              success: false,
-              agent_busy: true,
-              error: `${target.name} está ocupado (${elapsed}s). Tarea actual: "${taskDesc}". Delegado por: ${delegator}. Intenta de nuevo más tarde.`,
-            };
+            return { success: false, agent_busy: true, error: `${target.name} está ocupado (${elapsed}s). Tarea: "${currentTask.instruction || "?"}". Delegado por: ${currentTask.delegated_by || "?"}` };
           }
-
-          if (!res.ok) {
-            const errText = await res.text().catch(() => "");
-            return { success: false, error: `${target.name} respondió con error ${res.status}: ${errText.substring(0, 200)}` };
-          }
-
+          if (!res.ok) return { success: false, error: `${target.name} error ${res.status}` };
           const result = await res.json();
-          // Log exchange
           await sbFetch(`${base}/rest/v1/agent_messages`, {
             method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
             body: JSON.stringify([
@@ -650,9 +676,110 @@ app.post("/api/chat", requireAuth, async (req, res) => {
 });
 
 // =====================================================
-// BACKGROUND TASK POLLING
+// QUEUE CONSUMER (pgmq) + DB POLLING FALLBACK
 // =====================================================
 
+// Process a single queue message by type
+async function processQueueMessage(envelope) {
+  const { type, payload, task_id, from_agent_id, reply_to, correlation_id, org_id } = envelope;
+  console.log(`[agent] Processing queue message type=${type} from=${from_agent_id} task=${task_id}`);
+
+  try {
+    if (type === "task") {
+      // Full task execution (same as /api/task sync handler)
+      if (task_id) {
+        await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "in_progress" }) });
+      }
+      const systemPrompt = await buildSystemPrompt({ org_id });
+      const result = await callClaude(systemPrompt, payload.instruction, task_id ? `task-${task_id}` : "queue-task");
+
+      // Detect failure patterns
+      const failurePatterns = ["agent busy", "está ocupado", "error contactando", "operation was aborted", "no pudo responder", "no pudo completar", "application failed to respond"];
+      const hasFailed = failurePatterns.some(p => result.toLowerCase().includes(p));
+      const taskStatus = hasFailed ? "failed" : "completed";
+
+      if (task_id) {
+        await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true),
+          body: JSON.stringify({ task_id, status: taskStatus, result: { text: result }, ...(hasFailed ? { error: "Task produced output but objective was not met" } : {}) }) });
+      }
+
+      // Send reply to reply_to queue
+      if (reply_to) {
+        await pgmq.sendMessage(reply_to, { type: "reply", correlation_id, from_agent_id: AGENT_ID, org_id, task_id, payload: { message: result }, sent_at: new Date().toISOString() });
+      }
+
+      // WhatsApp callback
+      const cbUrl = payload.callback_url || "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback";
+      let waNum = payload.whatsapp_number;
+      if (!waNum && (org_id || ORG_ID)) {
+        try {
+          const sess = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?org_id=eq.${org_id || ORG_ID}&select=whatsapp_number&limit=1`, { headers: sbHeaders() });
+          if (Array.isArray(sess) && sess.length > 0) waNum = sess[0].whatsapp_number;
+        } catch (_) {}
+      }
+      if (waNum) {
+        try { await fetch(cbUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task_id, agent_name: payload.agent_name || AGENT_ID, result: { text: result }, whatsapp_number: waNum }) }); } catch (_) {}
+      }
+
+    } else if (type === "chat" || type === "review") {
+      // Conversational response (fast)
+      const sessionKey = from_agent_id || "queue-chat";
+      const systemPrompt = await buildSystemPrompt({ org_id });
+      const reply = await callClaude(systemPrompt, payload.message, sessionKey);
+
+      // Send reply back
+      if (reply_to) {
+        await pgmq.sendMessage(reply_to, { type: "reply", correlation_id, from_agent_id: AGENT_ID, org_id, payload: { message: reply }, sent_at: new Date().toISOString() });
+      }
+
+    } else if (type === "collaboration") {
+      // Same as chat but with collaboration context
+      const systemPrompt = await buildSystemPrompt({ org_id });
+      const reply = await callClaude(systemPrompt, payload.message, "collaboration");
+      if (reply_to) {
+        await pgmq.sendMessage(reply_to, { type: "reply", correlation_id, from_agent_id: AGENT_ID, org_id, payload: { message: reply }, sent_at: new Date().toISOString() });
+      }
+    }
+  } catch (err) {
+    console.error(`[agent] Queue message processing error:`, err.message);
+    // Send error reply
+    if (reply_to) {
+      try { await pgmq.sendMessage(reply_to, { type: "reply", correlation_id, from_agent_id: AGENT_ID, org_id, task_id, payload: { error: err.message }, sent_at: new Date().toISOString() }); } catch (_) {}
+    }
+    if (task_id) {
+      try { await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id, status: "failed", error: err.message }) }); } catch (_) {}
+    }
+  }
+}
+
+// Main queue consumer loop
+async function consumeQueue() {
+  const queueName = pgmq.getQueueName(AGENT_ID);
+  console.log(`[agent] Starting queue consumer on: ${queueName}`);
+
+  while (true) {
+    try {
+      // read_with_poll: block up to 5 seconds waiting for a message
+      // VT=300s: if we crash, message reappears after 5 minutes
+      const messages = await pgmq.pollMessages(queueName, 300, 1, 5);
+      if (!messages || messages.length === 0) continue;
+
+      const msg = messages[0];
+      const envelope = pgmq.parseMessage(msg);
+      if (!envelope) { await pgmq.archiveMessage(queueName, msg.msg_id); continue; }
+
+      activeTasks++;
+      await processQueueMessage(envelope);
+      await pgmq.archiveMessage(queueName, envelope._msg_id);
+      activeTasks--;
+    } catch (err) {
+      console.error("[agent] Queue consumer error:", err.message);
+      await new Promise(r => setTimeout(r, 5000)); // backoff on error
+    }
+  }
+}
+
+// DB polling fallback (runs less frequently when queue is active)
 async function pollPendingTasks() {
   try {
     const p = new URLSearchParams({ agent_id: `eq.${AGENT_ID}`, status: "eq.pending", order: "created_at.asc", limit: "1" });
@@ -660,19 +787,15 @@ async function pollPendingTasks() {
     if (!Array.isArray(tasks) || tasks.length === 0) return;
 
     const task = tasks[0];
-    console.log(`[agent] Picked up pending task: ${task.id}`);
+    console.log(`[agent] Picked up pending task from DB: ${task.id}`);
     activeTasks++;
-
     await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id: task.id, status: "in_progress" }) });
-
     try {
       const sp = await buildSystemPrompt({ org_id: task.org_id });
       const result = await callClaude(sp, task.instruction, `task-${task.id}`);
       await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id: task.id, status: "completed", result: { text: result } }) });
-      console.log(`[agent] Completed pending task: ${task.id}`);
     } catch (err) {
       await sbFetch(`${SB_URL}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id: task.id, status: "failed", error: err.message }) });
-      console.error(`[agent] Failed pending task ${task.id}:`, err.message);
     }
     activeTasks--;
   } catch (err) {
@@ -680,8 +803,8 @@ async function pollPendingTasks() {
   }
 }
 
-// Poll every 60 seconds
-setInterval(pollPendingTasks, 60000);
+// DB poll as fallback — every 120s (less frequent since queue handles most traffic)
+setInterval(pollPendingTasks, 120000);
 
 // =====================================================
 // START
@@ -702,6 +825,13 @@ app.listen(parseInt(PORT, 10), "0.0.0.0", async () => {
     }
   } catch (e) { console.error("[agent] Orphan reset error:", e.message); }
 
-  // Run first poll immediately
-  pollPendingTasks();
+  // Start queue consumer (primary) + run one DB poll (fallback for pre-existing pending tasks)
+  const queueAvailable = await pgmq.isAvailable().catch(() => false);
+  if (queueAvailable) {
+    consumeQueue(); // runs forever in background
+    console.log(`[agent] Queue consumer started`);
+  } else {
+    console.warn(`[agent] pgmq not available — using DB polling only`);
+  }
+  pollPendingTasks(); // pick up any pre-existing pending tasks
 });
