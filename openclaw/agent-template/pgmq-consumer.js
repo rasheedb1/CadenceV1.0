@@ -125,14 +125,13 @@ class LocalGatewayClient {
       authToken = config?.gateway?.auth?.token || "";
     } catch { console.warn("[pgmq-ws] Could not read auth token from config"); }
 
-    // Use token-based auth (no device pairing needed)
-    // The gateway generates auth.token on startup and writes it to config
+    // Use the same client ID format as the official OpenClaw CLI
     const params = {
       minProtocol: 3,
       maxProtocol: 3,
-      client: { id: "openclaw-cli", platform: "node", mode: "cli", version: "2026.3.28" },
-      role: "operator",
-      scopes: ["operator.read", "operator.write"],
+      client: { id: "openclaw", platform: "node", mode: "repl", version: "2026.3.28" },
+      role: "owner",
+      scopes: ["owner"],
       auth: { token: authToken },
       caps: ["tool-events"],
       userAgent: "pgmq-consumer/1.0",
