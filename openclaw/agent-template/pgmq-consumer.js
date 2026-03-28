@@ -47,7 +47,9 @@ class LocalGatewayClient {
   async connect() {
     return new Promise((resolve, reject) => {
       console.log(`[pgmq-ws] Connecting to ${this.url}`);
-      this.ws = new WebSocket(this.url);
+      this.ws = new WebSocket(this.url, {
+        headers: { Origin: `http://127.0.0.1:${port}` },
+      });
 
       const timeout = setTimeout(() => {
         reject(new Error("Gateway connection timeout (30s)"));
