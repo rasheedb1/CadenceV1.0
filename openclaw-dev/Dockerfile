@@ -9,10 +9,12 @@ RUN npx tsc
 # Copy pgmq.js (plain JS module) to dist alongside compiled TS
 RUN cp src/pgmq.js dist/pgmq.js 2>/dev/null || true
 
-# Stage 2: Runtime
-FROM node:20-bookworm-slim
+# Stage 2: OpenClaw Runtime + Juanse custom code
+FROM ghcr.io/openclaw/openclaw:latest
 
-# System dependencies
+USER root
+
+# System dependencies (git, gh CLI, etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl jq ca-certificates openssh-client \
     && rm -rf /var/lib/apt/lists/*
@@ -28,14 +30,24 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# App setup
-WORKDIR /app
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./
-COPY scripts/ ./scripts/
-RUN chmod +x ./scripts/*.sh
+USER node
 
-EXPOSE 8080
+# OpenClaw config
+COPY --chown=node:node openclaw.json /home/node/.openclaw/openclaw.json
 
-CMD ["./scripts/startup.sh"]
+# OpenClaw workspace (SOUL.md for Juanse)
+COPY --chown=node:node workspace/ /home/node/.openclaw/workspace/
+
+# Juanse's compiled TypeScript app
+COPY --from=builder --chown=node:node /app/dist /home/node/juanse/dist
+COPY --from=builder --chown=node:node /app/node_modules /home/node/juanse/node_modules
+COPY --from=builder --chown=node:node /app/package.json /home/node/juanse/package.json
+
+# pgmq consumer
+COPY --chown=node:node src/pgmq.js /home/node/juanse/dist/pgmq.js
+
+# Startup scripts
+COPY --chown=node:node scripts/ /home/node/juanse/scripts/
+COPY --chown=node:node startup-openclaw.sh /home/node/juanse/startup-openclaw.sh
+
+CMD ["bash", "/home/node/juanse/startup-openclaw.sh"]
