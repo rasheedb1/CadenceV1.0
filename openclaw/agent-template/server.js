@@ -289,6 +289,26 @@ async function agentExecuteTool(name, args) {
             });
           }
           clearTimeout(timeout);
+
+          // Handle busy agent (429) with detailed info
+          if (res.status === 429) {
+            const busyInfo = await res.json().catch(() => ({}));
+            const elapsed = busyInfo.elapsed_seconds || "?";
+            const currentTask = busyInfo.current_task || {};
+            const taskDesc = currentTask.instruction || "tarea desconocida";
+            const delegator = currentTask.delegated_by || "desconocido";
+            return {
+              success: false,
+              agent_busy: true,
+              error: `${target.name} está ocupado (${elapsed}s). Tarea actual: "${taskDesc}". Delegado por: ${delegator}. Intenta de nuevo más tarde.`,
+            };
+          }
+
+          if (!res.ok) {
+            const errText = await res.text().catch(() => "");
+            return { success: false, error: `${target.name} respondió con error ${res.status}: ${errText.substring(0, 200)}` };
+          }
+
           const result = await res.json();
           // Log exchange
           await sbFetch(`${base}/rest/v1/agent_messages`, {
@@ -483,7 +503,7 @@ app.post("/api/task", requireAuth, async (req, res) => {
       const systemPrompt = await buildSystemPrompt(context);
       const result = await callClaude(systemPrompt, instruction, sessionKey);
       // Detect if the task actually failed despite producing output
-      const failurePatterns = ["agent busy", "error contactando", "operation was aborted", "no pudo responder", "no pudo completar", "application failed to respond"];
+      const failurePatterns = ["agent busy", "está ocupado", "error contactando", "operation was aborted", "no pudo responder", "no pudo completar", "application failed to respond"];
       const resultLower = result.toLowerCase();
       const hasFailed = failurePatterns.some(p => resultLower.includes(p));
       const taskStatus = hasFailed ? "failed" : "completed";
@@ -502,14 +522,24 @@ app.post("/api/task", requireAuth, async (req, res) => {
           try {
             const sess = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?org_id=eq.${ORG_ID}&select=whatsapp_number&limit=1`, { headers: sbHeaders() });
             if (Array.isArray(sess) && sess.length > 0) waNum = sess[0].whatsapp_number;
-          } catch (_) {}
+          } catch (lookupErr) {
+            console.error(`[agent] WhatsApp lookup failed for org ${ORG_ID}:`, lookupErr.message);
+          }
         }
         if (waNum) {
-          try {
-            await fetch(cbUrl, { method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ task_id, agent_name: agent_name || AGENT_ID, result: { text: result }, whatsapp_number: waNum }) });
-            console.log(`[agent] Callback sent (${waNum})`);
-          } catch (cbErr) { console.error(`[agent] Callback error:`, cbErr.message); }
+          const cbBody = JSON.stringify({ task_id, agent_name: agent_name || AGENT_ID, result: { text: result }, whatsapp_number: waNum });
+          let cbSent = false;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              const cbRes = await fetch(cbUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: cbBody });
+              if (cbRes.ok) { cbSent = true; console.log(`[agent] Callback sent (${waNum})`); break; }
+              console.error(`[agent] Callback HTTP ${cbRes.status} (attempt ${attempt + 1})`);
+            } catch (cbErr) { console.error(`[agent] Callback error (attempt ${attempt + 1}):`, cbErr.message); }
+            if (attempt === 0) await new Promise(r => setTimeout(r, 2000));
+          }
+          if (!cbSent) console.error(`[agent] CALLBACK FAILED after 2 attempts — task_id=${task_id}, waNum=${waNum}`);
+        } else {
+          console.error(`[agent] NO WhatsApp number found — cannot notify user. task_id=${task_id}, org_id=${ORG_ID}`);
         }
       }
     } catch (err) {
@@ -525,13 +555,22 @@ app.post("/api/task", requireAuth, async (req, res) => {
           try {
             const sess = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?org_id=eq.${ORG_ID}&select=whatsapp_number&limit=1`, { headers: sbHeaders() });
             if (Array.isArray(sess) && sess.length > 0) waNum = sess[0].whatsapp_number;
-          } catch (_) {}
+          } catch (lookupErr) {
+            console.error(`[agent] WhatsApp lookup failed for org ${ORG_ID}:`, lookupErr.message);
+          }
         }
         if (waNum) {
-          try {
-            await fetch(cbUrl, { method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ task_id, agent_name: agent_name || AGENT_ID, error: err.message, whatsapp_number: waNum }) });
-          } catch (_) {}
+          const cbBody = JSON.stringify({ task_id, agent_name: agent_name || AGENT_ID, error: err.message, whatsapp_number: waNum });
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              const cbRes = await fetch(cbUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: cbBody });
+              if (cbRes.ok) { console.log(`[agent] Error callback sent (${waNum})`); break; }
+              console.error(`[agent] Error callback HTTP ${cbRes.status} (attempt ${attempt + 1})`);
+            } catch (cbErr) { console.error(`[agent] Error callback failed (attempt ${attempt + 1}):`, cbErr.message); }
+            if (attempt === 0) await new Promise(r => setTimeout(r, 2000));
+          }
+        } else {
+          console.error(`[agent] NO WhatsApp number — cannot notify error. task_id=${task_id}, org_id=${ORG_ID}`);
         }
       }
     }
@@ -569,24 +608,41 @@ app.post("/api/chat", requireAuth, async (req, res) => {
       const reply = await callClaude(systemPrompt, message, sessionKey);
       console.log(`[agent] Chat done (async): "${reply.substring(0, 80)}"`);
 
-      // Notify via callback
-      if (callback_url && whatsapp_number) {
-        try {
-          await fetch(callback_url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ agent_name: agent_name || AGENT_ID, result: { text: reply }, whatsapp_number }),
-          });
-        } catch (cbErr) {
-          console.error(`[agent] Chat callback error:`, cbErr.message);
+      // Notify via callback — use same lookup pattern as /api/task
+      {
+        const cbUrl = callback_url || "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback";
+        let waNum = whatsapp_number;
+        if (!waNum && ORG_ID) {
+          try {
+            const sess = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?org_id=eq.${ORG_ID}&select=whatsapp_number&limit=1`, { headers: sbHeaders() });
+            if (Array.isArray(sess) && sess.length > 0) waNum = sess[0].whatsapp_number;
+          } catch (lookupErr) { console.error(`[agent] Chat WhatsApp lookup failed:`, lookupErr.message); }
+        }
+        if (waNum) {
+          try {
+            await fetch(cbUrl, { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ agent_name: agent_name || AGENT_ID, result: { text: reply }, whatsapp_number: waNum }) });
+            console.log(`[agent] Chat callback sent (${waNum})`);
+          } catch (cbErr) { console.error(`[agent] Chat callback error:`, cbErr.message); }
         }
       }
     } catch (err) {
       console.error(`[agent] Chat error (async):`, err.message);
-      if (callback_url && whatsapp_number) {
-        try {
-          await fetch(callback_url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent_name: agent_name || AGENT_ID, error: err.message, whatsapp_number }) });
-        } catch (_) {}
+      {
+        const cbUrl = callback_url || "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback";
+        let waNum = whatsapp_number;
+        if (!waNum && ORG_ID) {
+          try {
+            const sess = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?org_id=eq.${ORG_ID}&select=whatsapp_number&limit=1`, { headers: sbHeaders() });
+            if (Array.isArray(sess) && sess.length > 0) waNum = sess[0].whatsapp_number;
+          } catch (_lookupErr) { console.error(`[agent] Chat error WhatsApp lookup failed:`, _lookupErr.message); }
+        }
+        if (waNum) {
+          try {
+            await fetch(cbUrl, { method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ agent_name: agent_name || AGENT_ID, error: err.message, whatsapp_number: waNum }) });
+          } catch (cbErr) { console.error(`[agent] Chat error callback failed:`, cbErr.message); }
+        }
       }
     }
     activeTasks--;

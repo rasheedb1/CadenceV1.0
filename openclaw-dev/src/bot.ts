@@ -10,7 +10,13 @@ import {
 
 const WA_MAX_LENGTH = 4096;
 const MAX_TASK_DURATION_MS = 10 * 60 * 1000; // 10 min — auto-release stuck locks
-let activeTask: { from: string; startedAt: number } | null = null;
+let activeTask: {
+  from: string;
+  startedAt: number;
+  task_id?: string;
+  instruction?: string;
+  delegated_by?: string;
+} | null = null;
 
 // Auto-release stuck task lock every minute
 setInterval(() => {
@@ -128,9 +134,15 @@ async function handleMessage(from: string, body: string): Promise<void> {
   }
 
   if (command === "status") {
-    const status = activeTask
-      ? `Trabajando en tarea desde hace ${Math.round((Date.now() - activeTask.startedAt) / 1000)}s`
-      : "Libre, esperando tarea";
+    let status: string;
+    if (activeTask) {
+      const elapsed = Math.round((Date.now() - activeTask.startedAt) / 1000);
+      status = `Trabajando (${elapsed}s)`;
+      if (activeTask.instruction) status += `\nTarea: ${activeTask.instruction.substring(0, 100)}`;
+      if (activeTask.delegated_by) status += `\nDelegado por: ${activeTask.delegated_by}`;
+    } else {
+      status = "Libre, esperando tarea";
+    }
     await sendWhatsApp(
       from,
       `Estado: ${status}\nModelo: ${config.defaultModel}\nAuth: ${getAuthStatus()}`
@@ -191,17 +203,18 @@ async function handleMessage(from: string, body: string): Promise<void> {
 
   if (activeTask) {
     const elapsed = Math.round((Date.now() - activeTask.startedAt) / 1000);
-    await sendWhatsApp(
-      from,
-      `Ya estoy trabajando en una tarea (${elapsed}s). Espera a que termine.`
-    );
+    let busyMsg = `Ya estoy trabajando en una tarea (${elapsed}s).`;
+    if (activeTask.instruction) busyMsg += `\nTarea: ${activeTask.instruction.substring(0, 100)}`;
+    if (activeTask.delegated_by && activeTask.delegated_by !== "whatsapp") busyMsg += `\nDelegado por: ${activeTask.delegated_by}`;
+    busyMsg += `\nEspera a que termine.`;
+    await sendWhatsApp(from, busyMsg);
     return;
   }
 
   const options: TaskOptions = {};
   if (model) options.model = model;
 
-  activeTask = { from, startedAt: Date.now() };
+  activeTask = { from, startedAt: Date.now(), instruction: task.substring(0, 200), delegated_by: "whatsapp" };
   await sendWhatsApp(from, "Thinking...");
 
   try {
@@ -329,11 +342,22 @@ export function createRouter(): Router {
     if (!instruction) return res.status(400).json({ error: "Missing instruction" });
 
     if (activeTask) {
-      return res.status(429).json({ error: "Agent busy with another task", active_since: activeTask.startedAt });
+      const elapsed = Math.round((Date.now() - activeTask.startedAt) / 1000);
+      return res.status(429).json({
+        error: "Agent busy with another task",
+        active_since: activeTask.startedAt,
+        elapsed_seconds: elapsed,
+        current_task: {
+          task_id: activeTask.task_id,
+          instruction: activeTask.instruction,
+          delegated_by: activeTask.delegated_by,
+        },
+      });
     }
 
-    console.log(`[api/task] Received: "${instruction.substring(0, 100)}" (task_id=${task_id})`);
-    activeTask = { from: "api", startedAt: Date.now() };
+    const delegatedBy = context?.from_agent || context?.delegated_by || "api";
+    console.log(`[api/task] Received: "${instruction.substring(0, 100)}" (task_id=${task_id}, from=${delegatedBy})`);
+    activeTask = { from: "api", startedAt: Date.now(), task_id, instruction: instruction.substring(0, 200), delegated_by: delegatedBy };
 
     try {
       // Pull latest code first
@@ -378,11 +402,22 @@ export function createRouter(): Router {
     if (!message) return res.status(400).json({ error: "Missing message" });
 
     if (activeTask) {
-      return res.status(429).json({ error: "Agent busy", active_since: activeTask.startedAt });
+      const elapsed = Math.round((Date.now() - activeTask.startedAt) / 1000);
+      return res.status(429).json({
+        error: "Agent busy",
+        active_since: activeTask.startedAt,
+        elapsed_seconds: elapsed,
+        current_task: {
+          task_id: activeTask.task_id,
+          instruction: activeTask.instruction,
+          delegated_by: activeTask.delegated_by,
+        },
+      });
     }
 
-    console.log(`[api/chat] Received: "${message.substring(0, 100)}"`);
-    activeTask = { from: "api", startedAt: Date.now() };
+    const delegatedBy = context?.from_agent || "api";
+    console.log(`[api/chat] Received: "${message.substring(0, 100)}" (from=${delegatedBy})`);
+    activeTask = { from: "api", startedAt: Date.now(), instruction: message.substring(0, 200), delegated_by: delegatedBy };
 
     try {
       const result = await runClaudeTask(message, { model: context?.model || "claude-sonnet-4-6", maxTurns: 10 });
