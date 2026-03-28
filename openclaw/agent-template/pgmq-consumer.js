@@ -125,35 +125,15 @@ class LocalGatewayClient {
       authToken = config?.gateway?.auth?.token || "";
     } catch { console.warn("[pgmq-ws] Could not read auth token from config"); }
 
-    // Generate or load ED25519 device keypair for gateway authentication
-    if (!this.deviceKeys) {
-      const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
-      const pubHex = publicKey.export({ type: "spki", format: "der" }).subarray(-32).toString("hex");
-      const deviceId = crypto.randomBytes(8).toString("hex");
-      this.deviceKeys = { publicKey: pubHex, privateKeyObj: privateKey, deviceId };
-      console.log(`[pgmq-ws] Generated device: ${deviceId}`);
-    }
-
-    const { publicKey: pubHex, privateKeyObj, deviceId } = this.deviceKeys;
-    const signedAt = Date.now();
-    const clientId = "openclaw-control-ui";
-    const clientMode = "webchat";
-    const role = "operator";
-    const scopes = ["operator.read", "operator.write"];
-    const token = authToken || "";
-
-    // Sign: v2|deviceId|clientId|clientMode|role|scopes|signedAtMs|token|nonce
-    const signPayload = ["v2", deviceId, clientId, clientMode, role, scopes.join(","), String(signedAt), token, nonce].join("|");
-    const signature = crypto.sign(null, Buffer.from(signPayload), privateKeyObj).toString("hex");
-
+    // Use token-based auth (no device pairing needed)
+    // The gateway generates auth.token on startup and writes it to config
     const params = {
       minProtocol: 3,
       maxProtocol: 3,
-      client: { id: clientId, platform: "web", mode: clientMode, version: "2026.3.28" },
-      role,
-      scopes,
-      device: { id: deviceId, publicKey: pubHex, signature, signedAt, nonce },
-      auth: authToken ? { token: authToken } : {},
+      client: { id: "openclaw-cli", platform: "node", mode: "cli", version: "2026.3.28" },
+      role: "operator",
+      scopes: ["operator.read", "operator.write"],
+      auth: { token: authToken },
       caps: ["tool-events"],
       userAgent: "pgmq-consumer/1.0",
       locale: "es",
