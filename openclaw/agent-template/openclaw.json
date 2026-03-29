@@ -26,10 +26,7 @@
   "agents": {
     "defaults": {
       "models": {
-        "main": {
-          "provider": "anthropic",
-          "model": "claude-sonnet-4-6"
-        }
+        "main": "anthropic:claude-sonnet-4-6"
       }
     }
   },

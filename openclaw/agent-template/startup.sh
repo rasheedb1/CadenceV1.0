@@ -62,10 +62,20 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# --- Step 4: Pass setup password for gateway auth ---
-# The A2A server will use this to authenticate with the gateway
-export OPENCLAW_SETUP_PASSWORD="${SETUP_PASSWORD:-}"
-echo "[startup] Setup password: ${OPENCLAW_SETUP_PASSWORD:+set}"
+# --- Step 4: Clone repo in background (survives redeploys) ---
+(
+  if [ -n "$GITHUB_PAT" ]; then
+    if [ ! -d "$HOME/repo/.git" ]; then
+      echo "[bg] Cloning repo..."
+      git config --global user.name "Chief Agent" 2>/dev/null
+      git config --global user.email "agent@laiky.ai" 2>/dev/null
+      git clone "https://${GITHUB_PAT}@github.com/rasheedb1/CadenceV1.0.git" "$HOME/repo" 2>/dev/null && echo "[bg] Repo cloned" || echo "[bg] Clone failed"
+    fi
+    if [ -d "$HOME/repo" ]; then
+      cd "$HOME/repo" && npm install --include=dev 2>/dev/null && echo "[bg] npm install done" || echo "[bg] npm install failed"
+    fi
+  fi
+) &
 
 # --- Step 5: Start A2A server on $PORT (Railway-exposed) ---
 echo "[startup] Starting A2A server on port ${PORT:-8080}..."
