@@ -26,7 +26,7 @@
   "agents": {
     "defaults": {
       "models": {
-        "main": "anthropic:claude-sonnet-4-6"
+        "main": {}
       }
     }
   },
