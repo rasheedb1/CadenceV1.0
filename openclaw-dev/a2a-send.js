@@ -20,7 +20,9 @@ const SB_URL = process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const AGENT_ID = process.env.AGENT_ID || "unknown";
 const ORG_ID = process.env.ORG_ID || "";
-const DEFAULT_TOKEN = process.env.A2A_TOKEN || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+// Use SUPABASE_SERVICE_ROLE_KEY for inter-agent auth (shared across all agents).
+// A2A_TOKEN is per-agent and won't authenticate with OTHER agents.
+const DEFAULT_TOKEN = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.A2A_TOKEN || "";
 
 // --- Supabase helper ---
 async function sbFetch(path, opts = {}) {
