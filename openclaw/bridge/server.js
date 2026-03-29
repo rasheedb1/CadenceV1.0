@@ -12,6 +12,7 @@ const twilio = require("twilio");
 const WebSocket = require("ws");
 const crypto = require("crypto");
 const pgmq = require("./pgmq");
+const a2a = require("./a2a-client");
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -1141,66 +1142,92 @@ ${args.description ? `\n${args.description}\n` : ""}
           });
           const taskId = taskRes?.task?.id;
 
-          // Get WhatsApp number for callback
-          const callbackUrl = `https://twilio-bridge-production-241b.up.railway.app/api/agent-callback`;
-          let waNumber = null;
-          try {
-            const sp = new URLSearchParams({ org_id: `eq.${args.org_id}`, select: "whatsapp_number", limit: "1", order: "updated_at.desc" });
-            const sessions = await sbFetch(`${base}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
-            if (Array.isArray(sessions) && sessions.length > 0) waNumber = sessions[0].whatsapp_number;
-          } catch (_) {}
-
-          // PRIMARY: Send via pgmq queue (async, never blocks, never 429)
-          try {
-            const envelope = pgmq.createEnvelope({
-              type: "task",
+          // PRIMARY: A2A Protocol (HTTP direct, no queue, no lock)
+          if (agent.status === "active" && agent.railway_url) {
+            console.log(`[delegar_tarea] Sending to ${agent.name} via A2A (task=${taskId})`);
+            const a2aResult = await a2a.sendA2AMessage(agent.railway_url, args.instruction, {
+              token: SB_KEY,
               fromAgentId: "chief",
               orgId: args.org_id,
-              taskId,
-              replyTo: "agent_chief",
-              payload: { instruction: args.instruction, callback_url: callbackUrl, whatsapp_number: waNumber, agent_name: agent.name },
+              timeoutMs: 120000,
             });
-            await pgmq.sendMessage(pgmq.getQueueName(agent.id), envelope);
-            console.log(`[delegar_tarea] Queued task for ${agent.name} via pgmq (task=${taskId})`);
-            return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `Tarea enviada a ${agent.name} por cola. Te llegará el resultado por WhatsApp automáticamente cuando termine.` };
-          } catch (queueErr) {
-            console.warn(`[delegar_tarea] pgmq failed, falling back to HTTP:`, queueErr.message);
-          }
 
-          // FALLBACK: Direct HTTP (original behavior)
-          if (agent.status === "active" && agent.railway_url) {
-            try {
-              const controller = new AbortController();
-              const timeout = setTimeout(() => controller.abort(), 15000);
-              const agentRes = await fetch(`${agent.railway_url}/api/task`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
-                body: JSON.stringify({ instruction: args.instruction, context: { org_id: args.org_id, from_agent: "chief" }, task_id: taskId, callback_url: callbackUrl, whatsapp_number: waNumber, agent_name: agent.name }),
-                signal: controller.signal,
-              });
-              clearTimeout(timeout);
-              if (agentRes.status === 429) {
-                const busyInfo = await agentRes.json().catch(() => ({}));
-                return { success: false, agent_busy: true, agent: agent.name, task_id: taskId,
-                  error: `${agent.name} está ocupado (${busyInfo.elapsed_seconds || "?"}s). La tarea queda pendiente.` };
+            if (a2aResult.success && a2aResult.reply) {
+              // Sync response — task completed
+              if (taskId) {
+                await sbFetch(`${base}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true),
+                  body: JSON.stringify({ task_id: taskId, status: "completed", result: { text: a2aResult.reply } }) });
               }
-              const result = await agentRes.json();
-              if (result.result && !result.accepted) {
-                if (taskId) await sbFetch(`${base}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id: taskId, status: "completed", result }) });
-                return { success: true, agent: agent.name, task_id: taskId, result: result.result };
-              }
-              return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `${agent.name} recibió la tarea. Te llegará el resultado por WhatsApp.` };
-            } catch (err) {
-              return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `Tarea enviada a ${agent.name}. Te llegará el resultado por WhatsApp.` };
+              // Log exchange
+              await sbFetch(`${base}/rest/v1/agent_messages`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                body: JSON.stringify([
+                  { org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.instruction, metadata: { a2a: true, task_id: taskId } },
+                  { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: a2aResult.reply, metadata: { a2a: true, task_id: taskId } },
+                ]) });
+              return { success: true, agent: agent.name, task_id: taskId, result: a2aResult.reply };
+            }
+
+            if (a2aResult.success && a2aResult.taskId && !a2aResult.reply) {
+              // Async — task is still working, will complete later
+              // Get WhatsApp number for notification when done
+              let waNumber = null;
+              try {
+                const sp = new URLSearchParams({ org_id: `eq.${args.org_id}`, select: "whatsapp_number", limit: "1", order: "updated_at.desc" });
+                const sessions = await sbFetch(`${base}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
+                if (Array.isArray(sessions) && sessions.length > 0) waNumber = sessions[0].whatsapp_number;
+              } catch (_) {}
+
+              // Poll in background, notify via WhatsApp when done
+              (async () => {
+                try {
+                  const pollResult = await a2a.pollA2ATask(agent.railway_url, a2aResult.taskId, { token: SB_KEY, maxWaitMs: 300000 });
+                  if (pollResult.success && pollResult.reply) {
+                    if (taskId) await sbFetch(`${base}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id: taskId, status: "completed", result: { text: pollResult.reply } }) });
+                    if (waNumber) {
+                      await fetch("https://twilio-bridge-production-241b.up.railway.app/api/agent-callback", {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ task_id: taskId, agent_name: agent.name, result: { text: pollResult.reply }, whatsapp_number: waNumber }),
+                      }).catch(() => {});
+                    }
+                  }
+                } catch (_) {}
+              })();
+
+              return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `Tarea enviada a ${agent.name} via A2A. Te llegará el resultado por WhatsApp cuando termine.` };
+            }
+
+            // A2A failed — fall through to pgmq/DB fallback
+            if (!a2aResult.success) {
+              console.warn(`[delegar_tarea] A2A failed for ${agent.name}:`, a2aResult.error);
             }
           }
 
-          // Agent not deployed — task stays pending in DB, agent picks it up when active
+          // FALLBACK: pgmq queue (for agents without A2A yet or A2A failure)
+          try {
+            let waNumber = null;
+            try {
+              const sp = new URLSearchParams({ org_id: `eq.${args.org_id}`, select: "whatsapp_number", limit: "1", order: "updated_at.desc" });
+              const sessions = await sbFetch(`${base}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
+              if (Array.isArray(sessions) && sessions.length > 0) waNumber = sessions[0].whatsapp_number;
+            } catch (_) {}
+
+            const envelope = pgmq.createEnvelope({
+              type: "task", fromAgentId: "chief", orgId: args.org_id, taskId, replyTo: "agent_chief",
+              payload: { instruction: args.instruction, callback_url: "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback", whatsapp_number: waNumber, agent_name: agent.name },
+            });
+            await pgmq.sendMessage(pgmq.getQueueName(agent.id), envelope);
+            console.log(`[delegar_tarea] Queued task for ${agent.name} via pgmq fallback (task=${taskId})`);
+            return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `Tarea enviada a ${agent.name}. Te llegará el resultado por WhatsApp.` };
+          } catch (queueErr) {
+            console.warn(`[delegar_tarea] pgmq also failed:`, queueErr.message);
+          }
+
+          // Agent not deployed — task stays pending in DB
           return { success: true, agent: agent.name, task_id: taskId, status: "pending", message: `Tarea creada para ${agent.name} (${agent.role}), pero el agente no está desplegado aún. Se ejecutará cuando esté activo.` };
         }
 
         case "consultar_agente": {
-          // Resolve agent by ID or name (same logic)
+          // Resolve agent by ID or name
           let agent = null;
           if (args.agent_id) {
             const p = new URLSearchParams({ id: `eq.${args.agent_id}`, select: "id,name,role,status,railway_url", limit: "1" });
@@ -1213,19 +1240,53 @@ ${args.description ? `\n${args.description}\n` : ""}
           }
           if (!agent) return { success: false, error: "Agente no encontrado. Usa gestionar_agentes list para ver los agentes disponibles." };
 
-          // PRIMARY: Send via pgmq queue + poll for reply
-          try {
-            const envelope = pgmq.createEnvelope({
-              type: "chat",
+          // PRIMARY: A2A Protocol (sync, blocking)
+          if (agent.status === "active" && agent.railway_url) {
+            console.log(`[consultar_agente] Sending to ${agent.name} via A2A`);
+            const a2aResult = await a2a.sendA2AMessage(agent.railway_url, args.message, {
+              token: SB_KEY,
               fromAgentId: "chief",
               orgId: args.org_id,
-              replyTo: "agent_chief",
+              timeoutMs: 60000,
+            });
+
+            if (a2aResult.success && a2aResult.reply) {
+              // Log exchange
+              await sbFetch(`${base}/rest/v1/agent_messages`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                body: JSON.stringify([
+                  { org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.message, metadata: { a2a: true } },
+                  { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: a2aResult.reply, metadata: { a2a: true } },
+                ]) });
+              return { success: true, agent: agent.name, reply: a2aResult.reply };
+            }
+
+            if (a2aResult.success && a2aResult.taskId && !a2aResult.reply) {
+              // Still working — poll briefly
+              const pollResult = await a2a.pollA2ATask(agent.railway_url, a2aResult.taskId, { token: SB_KEY, maxWaitMs: 60000 });
+              if (pollResult.success && pollResult.reply) {
+                await sbFetch(`${base}/rest/v1/agent_messages`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                  body: JSON.stringify([
+                    { org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.message, metadata: { a2a: true } },
+                    { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: pollResult.reply, metadata: { a2a: true } },
+                  ]) });
+                return { success: true, agent: agent.name, reply: pollResult.reply };
+              }
+              return { success: true, agent: agent.name, message: `${agent.name} está procesando tu consulta. Te llegará por WhatsApp.` };
+            }
+
+            if (!a2aResult.success) {
+              console.warn(`[consultar_agente] A2A failed for ${agent.name}:`, a2aResult.error);
+            }
+          }
+
+          // FALLBACK: pgmq queue
+          try {
+            const envelope = pgmq.createEnvelope({
+              type: "chat", fromAgentId: "chief", orgId: args.org_id, replyTo: "agent_chief",
               payload: { message: args.message, context: { from_agent: "chief" } },
             });
             await pgmq.sendMessage(pgmq.getQueueName(agent.id), envelope);
-            console.log(`[consultar_agente] Queued chat to ${agent.name} (corr=${envelope.correlation_id})`);
 
-            // Poll Chief reply queue for response (up to 30s)
             const deadline = Date.now() + 30000;
             while (Date.now() < deadline) {
               const msgs = await pgmq.pollMessages("agent_chief", 30, 5, 5);
@@ -1234,58 +1295,16 @@ ${args.description ? `\n${args.description}\n` : ""}
                 if (parsed && parsed.type === "reply" && parsed.correlation_id === envelope.correlation_id) {
                   await pgmq.archiveMessage("agent_chief", parsed._msg_id);
                   const reply = parsed.payload?.message || parsed.payload?.reply || JSON.stringify(parsed.payload);
-                  await sbFetch(`${base}/rest/v1/agent_messages`, {
-                    method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
-                    body: JSON.stringify([
-                      { org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.message },
-                      { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: reply },
-                    ]),
-                  });
                   return { success: true, agent: agent.name, reply };
                 }
-                // Not our reply — leave it (VT will make it visible again)
               }
             }
-            // Timeout — agent hasn't replied yet via queue
-            return { success: true, agent: agent.name, message: `${agent.name} recibió la consulta pero está procesándola. Te llegará la respuesta por WhatsApp.` };
+            return { success: true, agent: agent.name, message: `${agent.name} está procesando. Te llegará por WhatsApp.` };
           } catch (queueErr) {
-            console.warn(`[consultar_agente] pgmq failed, falling back to HTTP:`, queueErr.message);
+            console.warn(`[consultar_agente] pgmq also failed:`, queueErr.message);
           }
 
-          // FALLBACK: Direct HTTP
-          if (agent.status !== "active" || !agent.railway_url) {
-            return { success: false, error: `${agent.name} no está desplegado y la cola no está disponible.` };
-          }
-          try {
-            let consultWaNum = null;
-            try {
-              const sp = new URLSearchParams({ org_id: `eq.${args.org_id}`, select: "whatsapp_number", limit: "1" });
-              const sess = await sbFetch(`${base}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
-              if (Array.isArray(sess) && sess.length > 0) consultWaNum = sess[0].whatsapp_number;
-            } catch (_) {}
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 15000);
-            const res = await fetch(`${agent.railway_url}/api/chat`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
-              body: JSON.stringify({ message: args.message, context: { org_id: args.org_id, from_agent: "chief" }, callback_url: "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback", whatsapp_number: consultWaNum, agent_name: agent.name }),
-              signal: controller.signal,
-            });
-            clearTimeout(timeout);
-            if (res.status === 429) {
-              const busyInfo = await res.json().catch(() => ({}));
-              return { success: false, agent_busy: true, agent: agent.name, error: `${agent.name} está ocupado. Intenta de nuevo.` };
-            }
-            const result = await res.json();
-            if (result.reply && !result.accepted) {
-              await sbFetch(`${base}/rest/v1/agent_messages`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
-                body: JSON.stringify([{ org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.message }, { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: typeof result.reply === "string" ? result.reply : JSON.stringify(result) }]) });
-              return { success: true, agent: agent.name, reply: result.reply || result };
-            }
-            return { success: true, agent: agent.name, message: `${agent.name} está procesando tu consulta. Te llegará por WhatsApp.` };
-          } catch (err) {
-            return { success: true, agent: agent.name, message: `${agent.name} está procesando tu consulta. Te llegará por WhatsApp.` };
-          }
+          return { success: false, error: `${agent.name} no está disponible (ni A2A ni cola funcionan).` };
         }
 
         case "crear_proyecto": {
@@ -1517,30 +1536,25 @@ ${args.description ? `\n${args.description}\n` : ""}
 
           if (resolvedAgents.length === 0) return { success: false, error: "No se encontraron agentes con esos nombres." };
 
-          // Send topic to each agent in parallel
-          const prompt = `El orchestrator Chief te convoca a una reunión con otros agentes. El tema es:\n\n"${topic}"\n\nDa tu perspectiva como ${"{role}"} de forma concisa (máximo 3 párrafos). Sé directo y aporta valor desde tu rol.`;
-
+          // Send topic to each agent in parallel via A2A
           const responses = await Promise.allSettled(
             resolvedAgents.map(async (agent) => {
               if (agent.status !== "active" || !agent.railway_url) {
                 return { agent: agent.name, role: agent.role, reply: `[${agent.name} no está desplegado]` };
               }
-              try {
-                const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 60000);
-                // Use /api/review for meetings (fast, no lock)
-                let res = await fetch(`${agent.railway_url}/api/review`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
-                  body: JSON.stringify({ message: prompt.replace("{role}", agent.role), context: { org_id, meeting: true, topic } }),
-                  signal: controller.signal,
-                });
-                clearTimeout(timeout);
-                const data = await res.json();
-                return { agent: agent.name, role: agent.role, reply: data.reply || data.result || JSON.stringify(data) };
-              } catch (err) {
-                return { agent: agent.name, role: agent.role, reply: `[Error contactando a ${agent.name}: ${err.message}]` };
+              const meetingPrompt = `El orchestrator Chief te convoca a una reunión con otros agentes. El tema es:\n\n"${topic}"\n\nDa tu perspectiva como ${agent.role} de forma concisa (máximo 3 párrafos). Sé directo y aporta valor desde tu rol.`;
+              const a2aResult = await a2a.sendA2AMessage(agent.railway_url, meetingPrompt, {
+                token: SB_KEY, fromAgentId: "chief", orgId: org_id, timeoutMs: 120000,
+              });
+              if (a2aResult.success && a2aResult.reply) {
+                return { agent: agent.name, role: agent.role, reply: a2aResult.reply };
               }
+              // If async, poll
+              if (a2aResult.success && a2aResult.taskId) {
+                const pollResult = await a2a.pollA2ATask(agent.railway_url, a2aResult.taskId, { token: SB_KEY, maxWaitMs: 120000 });
+                if (pollResult.success && pollResult.reply) return { agent: agent.name, role: agent.role, reply: pollResult.reply };
+              }
+              return { agent: agent.name, role: agent.role, reply: `[Error: ${a2aResult.error || "sin respuesta"}]` };
             })
           );
 

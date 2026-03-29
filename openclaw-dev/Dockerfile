@@ -43,8 +43,16 @@ COPY --from=builder --chown=node:node /app/dist /home/node/juanse/dist
 COPY --from=builder --chown=node:node /app/node_modules /home/node/juanse/node_modules
 COPY --from=builder --chown=node:node /app/package.json /home/node/juanse/package.json
 
-# pgmq consumer
+# pgmq (kept for audit trail)
 COPY --chown=node:node src/pgmq.js /home/node/juanse/dist/pgmq.js
+
+# A2A server + send script
+COPY --chown=node:node a2a-server.js /home/node/.openclaw/a2a-server.js
+COPY --chown=node:node a2a-send.js /home/node/.openclaw/a2a-send.js
+COPY --chown=node:node a2a-package.json /home/node/.openclaw/package.json
+
+# Install A2A dependencies at build time
+RUN cd /home/node/.openclaw && npm install --omit=dev --no-audit --no-fund
 
 # Startup scripts
 COPY --chown=node:node scripts/ /home/node/juanse/scripts/

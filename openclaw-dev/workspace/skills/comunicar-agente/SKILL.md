@@ -1,7 +1,7 @@
 ---
 name: comunicar-agente
-version: "3.0"
-description: Envía mensajes directos a otros agentes del equipo. Comunicación peer-to-peer sin depender de Chief.
+version: "4.0"
+description: Envía mensajes directos a otros agentes usando A2A Protocol. Comunicación HTTP directa sin colas ni polling.
 command-dispatch: tool
 metadata:
   openclaw:
@@ -12,42 +12,36 @@ metadata:
         - SUPABASE_SERVICE_ROLE_KEY
         - AGENT_ID
       bins:
-        - curl
-        - bash
+        - node
 ---
 
-# Comunicar con Agente
+# Comunicar con Agente (A2A Protocol)
 
-## IMPORTANTE — Usa estos scripts
+## Cómo enviar un mensaje a otro agente
 
-Tienes dos scripts en tu workspace para comunicarte con otros agentes:
+Usa el script `a2a-send.js` para enviar mensajes A2A directos:
 
-### Enviar mensaje
 ```bash
-bash ~/. openclaw/workspace/tools/send-to-agent.sh "Nombre del agente" "Tu mensaje aquí"
+node /home/node/.openclaw/a2a-send.js "Nombre del agente" "Tu mensaje aquí"
 ```
 
-### Leer mensajes recibidos
-```bash
-bash ~/.openclaw/workspace/tools/read-messages.sh 30
-```
-(espera hasta 30 segundos por mensajes)
+El mensaje se envía por HTTP directo (no hay cola ni polling). El agente responde inmediatamente o te avisa cuando termina.
 
 ## Ejemplos
 
 ### Sofía envía spec a Juanse:
 ```bash
-bash ~/.openclaw/workspace/tools/send-to-agent.sh "Juanse" "Spec de mejora UX: Cambiar el grid de métricas a staggered entrance con framer-motion. Usa motion.div con staggerChildren: 0.06. Archivo: src/pages/Dashboard.tsx. Clases: gap-4 rounded-xl border p-5. Envíame screenshot cuando implementes."
+node /home/node/.openclaw/a2a-send.js "Juanse" "Spec de mejora UX: Cambiar el grid de métricas a staggered entrance con framer-motion. Usa motion.div con staggerChildren: 0.06. Archivo: src/pages/Dashboard.tsx. Clases: gap-4 rounded-xl border p-5. Envíame screenshot cuando implementes."
 ```
 
 ### Juanse envía resultado a Sofía:
 ```bash
-bash ~/.openclaw/workspace/tools/send-to-agent.sh "Sofi" "Implementado el staggered grid en Dashboard.tsx. Build OK. Los cards entran con 60ms delay y ease-out. ¿Quieres que tome screenshot?"
+node /home/node/.openclaw/a2a-send.js "Sofi" "Implementado el staggered grid en Dashboard.tsx. Build OK. Los cards entran con 60ms delay y ease-out. ¿Quieres que tome screenshot?"
 ```
 
-### Leer respuestas:
+### Enviar por ID de agente:
 ```bash
-bash ~/.openclaw/workspace/tools/read-messages.sh 30
+node /home/node/.openclaw/a2a-send.js --id "uuid-del-agente" "Tu mensaje"
 ```
 
 ## Cuándo usar
@@ -56,5 +50,15 @@ bash ~/.openclaw/workspace/tools/read-messages.sh 30
 - Cuando estés iterando con otro agente
 - Cuando quieras coordinar sin esperar a Chief
 
-## Los mensajes NUNCA se pierden
-Si el otro agente está ocupado, el mensaje queda en su cola y lo procesará cuando esté libre.
+## Cómo funciona (A2A Protocol v0.3.0)
+1. El script busca al agente por nombre en la base de datos
+2. Hace POST HTTP al endpoint A2A del agente (`/a2a/jsonrpc`)
+3. El agente procesa con su LLM y responde directamente
+4. Si la tarea es larga, el agente responde "working" y puedes consultar después
+5. La respuesta aparece en tu stdout para que la leas
+
+## Ventajas sobre el método anterior
+- **Sin colas**: HTTP directo, sin pgmq ni polling
+- **Sin bloqueos**: No hay "Agent busy" — cada petición es independiente
+- **Rápido**: La respuesta llega en la misma conexión HTTP
+- **Los mensajes NUNCA se pierden**: Si el agente está caído, recibes error inmediato (no esperas eternamente)
