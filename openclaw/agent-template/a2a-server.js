@@ -19,21 +19,23 @@
  *   SUPABASE_SERVICE_ROLE_KEY — For audit trail logging
  */
 
-const express = require("express");
-const { createProxyMiddleware } = require("http-proxy-middleware");
 const { randomUUID } = require("crypto");
 
-// A2A SDK imports
-const {
-  DefaultRequestHandler,
-  InMemoryTaskStore,
-  DefaultExecutionEventBusManager,
-} = require("@a2a-js/sdk/server");
-const {
-  jsonRpcHandler,
-  agentCardHandler,
-  UserBuilder,
-} = require("@a2a-js/sdk/server/express");
+// Load dependencies with error handling
+let express, createProxyMiddleware, DefaultRequestHandler, InMemoryTaskStore, DefaultExecutionEventBusManager, jsonRpcHandler, agentCardHandler, UserBuilder;
+try {
+  express = require("express");
+  ({ createProxyMiddleware } = require("http-proxy-middleware"));
+  ({ DefaultRequestHandler, InMemoryTaskStore, DefaultExecutionEventBusManager } = require("@a2a-js/sdk/server"));
+  ({ jsonRpcHandler, agentCardHandler, UserBuilder } = require("@a2a-js/sdk/server/express"));
+  console.log("[a2a] All dependencies loaded successfully");
+} catch (err) {
+  console.error("[a2a] FATAL: Failed to load dependencies:", err.message);
+  console.error("[a2a] NODE_PATH:", process.env.NODE_PATH);
+  console.error("[a2a] cwd:", process.cwd());
+  console.error("[a2a] __dirname:", __dirname);
+  process.exit(1);
+}
 
 // --- Environment ---
 const PORT = parseInt(process.env.PORT || "8080", 10);
