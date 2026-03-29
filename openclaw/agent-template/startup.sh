@@ -62,31 +62,20 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# --- Step 4: Create gateway API key for A2A server ---
-echo "[startup] Creating gateway API key..."
-cd /app
-
-# Use the OpenClaw CLI to create an API key with operator.write scope
-GW_TOKEN=$(node dist/index.js gateway api-key create --name a2a-internal 2>/dev/null | tail -1 | tr -d '[:space:]')
-
-# Fallback: try reading from config
-if [ -z "$GW_TOKEN" ] || [ ${#GW_TOKEN} -lt 10 ]; then
-  echo "[startup] CLI api-key create failed, trying config..."
-  GW_TOKEN=$(node -e "try { const c=JSON.parse(require('fs').readFileSync('/home/node/.openclaw/openclaw.json','utf8')); console.log(c?.gateway?.auth?.token||''); } catch { console.log(''); }" 2>/dev/null)
+# --- Step 4: Extract gateway token ---
+# After onboard + gateway start, the token is in the config file
+echo "[startup] Reading gateway token..."
+GW_TOKEN=$(cat /home/node/.openclaw/openclaw.json 2>/dev/null | grep -o '"token":"[^"]*"' | head -1 | cut -d'"' -f4)
+if [ -z "$GW_TOKEN" ]; then
+  GW_TOKEN=$(find /home/node/.openclaw /home/node/.config -name "*.json" -exec grep -l "token" {} \; 2>/dev/null | head -1 | xargs grep -o '"token":"[^"]*"' 2>/dev/null | head -1 | cut -d'"' -f4)
 fi
-
-# Fallback: try to extract from gateway's internal state files
-if [ -z "$GW_TOKEN" ] || [ ${#GW_TOKEN} -lt 10 ]; then
-  echo "[startup] Searching for token in openclaw data..."
-  GW_TOKEN=$(grep -roh '"token":"[^"]*"' /home/node/.openclaw/ 2>/dev/null | head -1 | sed 's/"token":"//;s/"//' || true)
-fi
-
-if [ -n "$GW_TOKEN" ] && [ ${#GW_TOKEN} -ge 10 ]; then
-  echo "[startup] Gateway token obtained (${#GW_TOKEN} chars)"
+if [ -n "$GW_TOKEN" ]; then
+  echo "[startup] Gateway token found (${#GW_TOKEN} chars)"
   export OPENCLAW_GATEWAY_TOKEN="$GW_TOKEN"
 else
-  echo "[startup] WARNING: No gateway token — trying with setup password..."
-  export OPENCLAW_GATEWAY_TOKEN="${SETUP_PASSWORD:-Chief2026!Secure}"
+  echo "[startup] WARNING: No gateway token found, dumping config for debug:"
+  cat /home/node/.openclaw/openclaw.json 2>/dev/null
+  find /home/node/.openclaw /home/node/.config -name "*.json" 2>/dev/null
 fi
 
 # --- Step 5: Start A2A server on $PORT (Railway-exposed) ---

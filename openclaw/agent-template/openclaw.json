@@ -4,9 +4,6 @@
   "gateway": {
     "port": 18789,
     "mode": "local",
-    "auth": {
-      "token": "a2a-internal-gateway-token-2026"
-    },
     "controlUi": {
       "dangerouslyAllowHostHeaderOriginFallback": true
     },
