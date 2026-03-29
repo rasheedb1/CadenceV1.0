@@ -169,7 +169,7 @@ class GatewayWSClient {
 
     const result = await this.request("connect", {
       minProtocol: 3, maxProtocol: 3,
-      client: { id: "openclaw-control-ui", platform: "web", mode: "webchat", version: "2026.3.28" },
+      client: { id: "openclaw-cli", platform: "cli", mode: "cli", version: "2026.3.28" },
       role, scopes,
       caps: ["tool-events"],
       auth: gatewayToken ? { token: gatewayToken } : {},
