@@ -379,6 +379,18 @@ app.get("/healthz", (_req, res) => {
   });
 });
 
+// TEMP: debug endpoint
+app.get("/debug/ws-auth", async (_req, res) => {
+  const { execFileSync } = require("child_process");
+  const info = {};
+  try { info.identity = JSON.parse(fs.readFileSync("/home/node/.openclaw/identity/device.json", "utf8")); info.identity.privateKeyPem = "(hidden)"; } catch (e) { info.identity_error = e.message; }
+  try { info.paired = execFileSync("find", ["/home/node/.openclaw", "-name", "paired*", "-o", "-name", "device*", "-o", "-name", "trust*"], { encoding: "utf8" }).trim(); } catch { info.paired = "none"; }
+  try { info.agents_dir = execFileSync("ls", ["-la", "/home/node/.openclaw/agents/"], { encoding: "utf8" }).trim(); } catch { info.agents_dir = "empty"; }
+  try { info.gateway_paired = execFileSync("find", ["/app", "-name", "paired*", "-maxdepth", "4"], { encoding: "utf8" }).trim(); } catch { info.gateway_paired = "none"; }
+  try { info.all_data_dirs = execFileSync("find", ["/home/node/.openclaw", "-type", "d", "-not", "-path", "*/node_modules/*"], { encoding: "utf8" }).trim(); } catch {}
+  res.json(info);
+});
+
 // Bearer token auth middleware for A2A endpoints
 function a2aAuth(req, res, next) {
   if (!A2A_TOKEN) return next(); // No token configured = open access
