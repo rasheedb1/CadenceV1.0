@@ -62,31 +62,31 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# --- Step 4: Extract gateway token after boot ---
-# The gateway generates an auth token during startup.
-# We need to find it and pass it to the A2A server.
-echo "[startup] Extracting gateway token..."
+# --- Step 4: Create gateway API key for A2A server ---
+echo "[startup] Creating gateway API key..."
+cd /app
 
-# Method 1: Check openclaw.json for the token (onboard may have written it)
-GW_TOKEN=$(node -e "try { const c=JSON.parse(require('fs').readFileSync('/home/node/.openclaw/openclaw.json','utf8')); console.log(c?.gateway?.auth?.token||''); } catch { console.log(''); }" 2>/dev/null)
+# Use the OpenClaw CLI to create an API key with operator.write scope
+GW_TOKEN=$(node dist/index.js gateway api-key create --name a2a-internal 2>/dev/null | tail -1 | tr -d '[:space:]')
 
-# Method 2: Try to get a token via the setup API
-if [ -z "$GW_TOKEN" ]; then
-  echo "[startup] No token in config, trying setup API..."
-  GW_TOKEN=$(curl -sf http://127.0.0.1:18789/v1/setup/password -X POST -H "Content-Type: application/json" -d '{"password":"Chief2026!Secure"}' 2>/dev/null | jq -r '.token // empty' 2>/dev/null)
+# Fallback: try reading from config
+if [ -z "$GW_TOKEN" ] || [ ${#GW_TOKEN} -lt 10 ]; then
+  echo "[startup] CLI api-key create failed, trying config..."
+  GW_TOKEN=$(node -e "try { const c=JSON.parse(require('fs').readFileSync('/home/node/.openclaw/openclaw.json','utf8')); console.log(c?.gateway?.auth?.token||''); } catch { console.log(''); }" 2>/dev/null)
 fi
 
-# Method 3: Create an API key
-if [ -z "$GW_TOKEN" ]; then
-  echo "[startup] Trying API key creation..."
-  GW_TOKEN=$(cd /app && node dist/index.js gateway api-key create --name a2a-server --scope operator.write 2>/dev/null | grep -oE '[a-zA-Z0-9_.-]+$' || true)
+# Fallback: try to extract from gateway's internal state files
+if [ -z "$GW_TOKEN" ] || [ ${#GW_TOKEN} -lt 10 ]; then
+  echo "[startup] Searching for token in openclaw data..."
+  GW_TOKEN=$(grep -roh '"token":"[^"]*"' /home/node/.openclaw/ 2>/dev/null | head -1 | sed 's/"token":"//;s/"//' || true)
 fi
 
-if [ -n "$GW_TOKEN" ]; then
-  echo "[startup] Gateway token found (${#GW_TOKEN} chars)"
+if [ -n "$GW_TOKEN" ] && [ ${#GW_TOKEN} -ge 10 ]; then
+  echo "[startup] Gateway token obtained (${#GW_TOKEN} chars)"
   export OPENCLAW_GATEWAY_TOKEN="$GW_TOKEN"
 else
-  echo "[startup] WARNING: No gateway token found — LLM calls may fail"
+  echo "[startup] WARNING: No gateway token — trying with setup password..."
+  export OPENCLAW_GATEWAY_TOKEN="${SETUP_PASSWORD:-Chief2026!Secure}"
 fi
 
 # --- Step 5: Start A2A server on $PORT (Railway-exposed) ---
