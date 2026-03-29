@@ -293,6 +293,60 @@ app.get("/healthz", (_req, res) => {
   });
 });
 
+// TEMPORARY: Debug endpoint to investigate gateway auth (no user input, safe static commands)
+app.get("/debug/gateway-auth", async (_req, res) => {
+  const { execFileSync } = require("child_process");
+  const info = {};
+
+  // 1. List files in .openclaw
+  try {
+    info.openclaw_files = execFileSync("find", ["/home/node/.openclaw", "-type", "f", "-name", "*.json"], { encoding: "utf8" }).trim().split("\n");
+  } catch { info.openclaw_files = []; }
+
+  // 2. Read openclaw.json
+  try {
+    info.openclaw_json = JSON.parse(fs.readFileSync("/home/node/.openclaw/openclaw.json", "utf8"));
+  } catch (e) { info.openclaw_json_error = e.message; }
+
+  // 3. List .config files
+  try {
+    info.config_files = execFileSync("find", ["/home/node/.config", "-type", "f"], { encoding: "utf8" }).trim().split("\n");
+  } catch { info.config_files = []; }
+
+  // 4. List all in .openclaw dir
+  try {
+    info.openclaw_dir = execFileSync("ls", ["-la", "/home/node/.openclaw/"], { encoding: "utf8" }).trim();
+  } catch { info.openclaw_dir = "error"; }
+
+  // 5. Read any other json files found
+  try {
+    for (const f of (info.openclaw_files || [])) {
+      if (f && f !== "/home/node/.openclaw/openclaw.json" && f.endsWith(".json")) {
+        info["file:" + f] = JSON.parse(fs.readFileSync(f, "utf8"));
+      }
+    }
+  } catch {}
+
+  // 6. Env vars
+  info.env = {
+    OPENCLAW_GATEWAY_TOKEN: process.env.OPENCLAW_GATEWAY_TOKEN ? `SET(${process.env.OPENCLAW_GATEWAY_TOKEN.length})` : "NOT SET",
+    SETUP_PASSWORD: process.env.SETUP_PASSWORD ? "SET" : "NOT SET",
+    PORT: process.env.PORT,
+    GATEWAY_PORT: process.env.GATEWAY_PORT,
+  };
+
+  // 7. Test gateway no-auth
+  try {
+    const r = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "openclaw/default", messages: [{ role: "user", content: "PONG" }] }),
+    });
+    info.gw_noauth = { status: r.status, body: (await r.text()).substring(0, 200) };
+  } catch (e) { info.gw_noauth = e.message; }
+
+  res.json(info);
+});
+
 // Bearer token auth middleware for A2A endpoints
 function a2aAuth(req, res, next) {
   if (!A2A_TOKEN) return next(); // No token configured = open access
