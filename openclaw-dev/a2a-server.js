@@ -82,16 +82,45 @@ async function logToAgentMessages(fromAgentId, toAgentId, role, content, metadat
 const fs = require("fs");
 const { execFile } = require("child_process");
 
-function sendToGateway(message, timeoutMs = 120000) {
+// Load recent conversation history from agent_messages for context
+async function loadConversationHistory(fromAgentId, limit = 10) {
+  if (!SB_URL || !SB_KEY || !fromAgentId) return "";
+  try {
+    // Get recent messages between this agent and the sender
+    const params = new URLSearchParams({
+      or: `(and(from_agent_id.eq.${fromAgentId},to_agent_id.eq.${AGENT_ID}),and(from_agent_id.eq.${AGENT_ID},to_agent_id.eq.${fromAgentId}))`,
+      order: "created_at.desc",
+      limit: String(limit),
+      select: "from_agent_id,role,content,created_at",
+    });
+    const res = await fetch(`${SB_URL}/rest/v1/agent_messages?${params}`, {
+      headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+    });
+    if (!res.ok) return "";
+    const msgs = await res.json();
+    if (!Array.isArray(msgs) || msgs.length === 0) return "";
+
+    // Build context string (oldest first)
+    const history = msgs.reverse().map(m => {
+      const who = m.from_agent_id === AGENT_ID ? "Tú" : "Otro agente";
+      return `[${who}]: ${m.content?.substring(0, 300)}`;
+    }).join("\n");
+
+    return `\n\n--- Historial reciente de esta conversación ---\n${history}\n--- Fin del historial ---\n\nContinúa la conversación considerando el contexto anterior.\n\n`;
+  } catch { return ""; }
+}
+
+function sendToGateway(message, sessionKey = "default", timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("CLI timeout")), timeoutMs);
 
     // Use OpenClaw CLI "agent" command — runs one agent turn via the Gateway
-    // The CLI handles all auth (device pairing, WebSocket, etc.)
+    // --session-id keeps conversation context between calls from the same sender
     execFile("node", [
       "/app/dist/index.js", "agent",
       "--message", message,
       "--agent", "main",
+      "--session-id", sessionKey,
     ], {
       cwd: "/app",
       timeout: timeoutMs,
@@ -172,8 +201,16 @@ const openClawExecutor = {
       context_id: requestContext.contextId,
     });
 
+    // Build session key for persistent conversation context
+    // contextId (from A2A Protocol) or fromAgentId keeps conversations threaded
+    const sessionKey = requestContext.contextId || (fromAgentId ? `a2a-${fromAgentId}` : `a2a-${Date.now()}`);
+
+    // Load conversation history for context continuity
+    const history = await loadConversationHistory(fromAgentId);
+    const messageWithContext = history ? history + instruction : instruction;
+
     try {
-      const result = await sendToGateway(instruction);
+      const result = await sendToGateway(messageWithContext, sessionKey);
 
       console.log(
         `[a2a] Result: "${(result || "").substring(0, 80)}" (task=${taskId})`
