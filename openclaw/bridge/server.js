@@ -1149,7 +1149,7 @@ ${args.description ? `\n${args.description}\n` : ""}
               token: SB_KEY,
               fromAgentId: "chief",
               orgId: args.org_id,
-              timeoutMs: 120000,
+              timeoutMs: 300000,
             });
 
             if (a2aResult.success && a2aResult.reply) {
@@ -1585,7 +1585,7 @@ ${args.description ? `\n${args.description}\n` : ""}
               }
               const meetingPrompt = `El orchestrator Chief te convoca a una reunión con otros agentes. El tema es:\n\n"${topic}"\n\nDa tu perspectiva como ${agent.role} de forma concisa (máximo 3 párrafos). Sé directo y aporta valor desde tu rol.`;
               const a2aResult = await a2a.sendA2AMessage(agent.railway_url, meetingPrompt, {
-                token: SB_KEY, fromAgentId: "chief", orgId: org_id, timeoutMs: 120000,
+                token: SB_KEY, fromAgentId: "chief", orgId: org_id, timeoutMs: 300000,
               });
               if (a2aResult.success && a2aResult.reply) {
                 return { agent: agent.name, role: agent.role, reply: a2aResult.reply };
@@ -2085,7 +2085,7 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
       console.log(`[collab] Iteration ${project.current_iteration + 1}: ${agent.name} (${action})`);
       const startMs = Date.now();
       const a2aResult = await a2a.sendA2AMessage(agent.railway_url, prompt, {
-        token: SB_KEY, fromAgentId: "project-engine", orgId: project.org_id, timeoutMs: 120000,
+        token: SB_KEY, fromAgentId: "project-engine", orgId: project.org_id, timeoutMs: 300000,
       });
 
       let output = "";

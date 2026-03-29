@@ -26,7 +26,7 @@ async function sendA2AMessage(agentUrl, message, opts = {}) {
     fromAgentId = "chief",
     orgId = "",
     contextId,
-    timeoutMs = 120000,
+    timeoutMs = 300000,
   } = opts;
 
   const endpoint = `${agentUrl}/a2a/jsonrpc`;
