@@ -8,6 +8,9 @@
       "dangerouslyAllowHostHeaderOriginFallback": true
     },
     "http": {
+      "auth": {
+        "enabled": false
+      },
       "endpoints": {
         "chatCompletions": {
           "enabled": true
