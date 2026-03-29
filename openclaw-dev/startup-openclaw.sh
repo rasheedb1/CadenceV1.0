@@ -1,7 +1,6 @@
 #!/bin/bash
-set -e
-
-echo "=== Juanse (OpenClaw + Dev Bot) — Starting ==="
+# Don't use set -e — individual failures shouldn't kill the whole startup
+echo "=== Juanse (OpenClaw + A2A) — Starting ==="
 
 # --- Step 1: System setup (same as original startup.sh) ---
 
@@ -47,11 +46,12 @@ if [ ! -f "/home/node/.openclaw/.onboarded" ]; then
 fi
 node dist/index.js doctor --fix 2>/dev/null || true
 
-# --- Step 3: Start Juanse Express server (Telegram bot handler) ---
-echo "[startup] Starting Juanse Express server..."
-node /home/node/juanse/dist/index.js &
+# --- Step 3: Start Juanse Express server (WhatsApp bot — optional) ---
+# Runs on port 3100 internally (not $PORT — A2A server uses $PORT)
+echo "[startup] Starting Juanse Express server on port 3100..."
+PORT=3100 node /home/node/juanse/dist/index.js &
 JUANSE_PID=$!
-echo "[startup] Juanse Express server started (PID=$JUANSE_PID)"
+echo "[startup] Juanse Express server started (PID=$JUANSE_PID) or failed (non-blocking)"
 
 # --- Step 4: Start OpenClaw gateway on INTERNAL port 18789 ---
 export GATEWAY_PORT=18789
