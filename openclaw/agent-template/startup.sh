@@ -62,21 +62,10 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# --- Step 4: Extract gateway token ---
-# After onboard + gateway start, the token is in the config file
-echo "[startup] Reading gateway token..."
-GW_TOKEN=$(cat /home/node/.openclaw/openclaw.json 2>/dev/null | grep -o '"token":"[^"]*"' | head -1 | cut -d'"' -f4)
-if [ -z "$GW_TOKEN" ]; then
-  GW_TOKEN=$(find /home/node/.openclaw /home/node/.config -name "*.json" -exec grep -l "token" {} \; 2>/dev/null | head -1 | xargs grep -o '"token":"[^"]*"' 2>/dev/null | head -1 | cut -d'"' -f4)
-fi
-if [ -n "$GW_TOKEN" ]; then
-  echo "[startup] Gateway token found (${#GW_TOKEN} chars)"
-  export OPENCLAW_GATEWAY_TOKEN="$GW_TOKEN"
-else
-  echo "[startup] WARNING: No gateway token found, dumping config for debug:"
-  cat /home/node/.openclaw/openclaw.json 2>/dev/null
-  find /home/node/.openclaw /home/node/.config -name "*.json" 2>/dev/null
-fi
+# --- Step 4: Pass setup password for gateway auth ---
+# The A2A server will use this to authenticate with the gateway
+export OPENCLAW_SETUP_PASSWORD="${SETUP_PASSWORD:-}"
+echo "[startup] Setup password: ${OPENCLAW_SETUP_PASSWORD:+set}"
 
 # --- Step 5: Start A2A server on $PORT (Railway-exposed) ---
 echo "[startup] Starting A2A server on port ${PORT:-8080}..."

@@ -78,60 +78,83 @@ async function logToAgentMessages(fromAgentId, toAgentId, role, content, metadat
 
 // --- OpenClaw Gateway integration ---
 const fs = require("fs");
-function getGatewayToken() {
-  // Priority: env var (set by startup.sh) > config file
-  if (process.env.OPENCLAW_GATEWAY_TOKEN) return process.env.OPENCLAW_GATEWAY_TOKEN;
+// --- Gateway auth ---
+// OpenClaw gateway requires a session token obtained via setup password
+let cachedSessionToken = null;
+
+async function getGatewaySessionToken() {
+  if (cachedSessionToken) return cachedSessionToken;
+
+  // Try env var first (set by startup.sh or Railway)
+  if (process.env.OPENCLAW_GATEWAY_TOKEN) {
+    cachedSessionToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+    return cachedSessionToken;
+  }
+
+  // Try config file
   try {
     const config = JSON.parse(fs.readFileSync("/home/node/.openclaw/openclaw.json", "utf8"));
-    return config?.gateway?.auth?.token || "";
-  } catch { return ""; }
+    if (config?.gateway?.auth?.token) {
+      cachedSessionToken = config.gateway.auth.token;
+      return cachedSessionToken;
+    }
+  } catch {}
+
+  // Try setup password to get a proper session token
+  const setupPwd = process.env.OPENCLAW_SETUP_PASSWORD || process.env.SETUP_PASSWORD;
+  if (setupPwd) {
+    try {
+      const res = await fetch(`${GATEWAY_URL}/v1/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: setupPwd }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.token) {
+          cachedSessionToken = data.token;
+          console.log("[a2a] Got gateway session token via setup password");
+          return cachedSessionToken;
+        }
+      }
+    } catch {}
+  }
+
+  return null;
 }
 
 async function sendToGateway(message, timeoutMs = 120000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  // Try without auth first (internal gateway), then with token if that fails
-  const gwToken = getGatewayToken();
-  const attempts = [
-    {}, // No auth (internal localhost)
-    gwToken ? { Authorization: `Bearer ${gwToken}` } : null, // Config file token
-  ].filter(Boolean);
+  const token = await getGatewaySessionToken();
 
-  for (const authHeaders of attempts) {
-    try {
-      const res = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({
-          model: "openclaw/default",
-          messages: [{ role: "user", content: message }],
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
+  try {
+    const res = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        model: "openclaw/default",
+        messages: [{ role: "user", content: message }],
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
 
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      // If auth failed, clear cache so next call tries again
       if (res.status === 401 || res.status === 403) {
-        console.warn(`[a2a] Gateway auth failed (${res.status}), trying next...`);
-        continue; // Try next auth method
+        cachedSessionToken = null;
       }
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        throw new Error(`Gateway HTTP ${res.status}: ${errText.substring(0, 200)}`);
-      }
-
-      const data = await res.json();
-      return data.choices?.[0]?.message?.content || "";
-    } catch (err) {
-      if (err.message.includes("Gateway HTTP 401") || err.message.includes("Gateway HTTP 403")) continue;
-      clearTimeout(timer);
-      throw err;
+      throw new Error(`Gateway HTTP ${res.status}: ${errText.substring(0, 200)}`);
     }
-  }
 
-  throw new Error("Gateway auth failed with all methods");
-}
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "";
 
 // --- Agent Card ---
 const agentCard = {
