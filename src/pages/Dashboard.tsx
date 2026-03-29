@@ -1,6 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'motion/react'
+import { Fade, Zoom } from 'react-awesome-reveal'
+import { useAutoAnimate } from '@formkit/auto-animate/react'
 import { cn } from '@/lib/utils'
 import { useQuery } from '@tanstack/react-query'
 import { useCadence } from '@/contexts/CadenceContext'
@@ -45,6 +47,47 @@ import {
 } from 'lucide-react'
 import { LinkedInUsageWidget } from '@/components/dashboard/LinkedInUsageWidget'
 import { AgentsWidget } from '@/components/dashboard/AgentsWidget'
+
+/* ── Micro-animation #7: Hover-glow card wrapper ─────────────────────── */
+function GlowCard({ children, className, onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) {
+  return (
+    <motion.div
+      className={cn('relative group', className)}
+      whileHover={{ scale: 1.015, boxShadow: '0 0 24px rgba(99,102,241,0.15)' }}
+      whileTap={{ scale: 0.99 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+      onClick={onClick}
+    >
+      {children}
+    </motion.div>
+  )
+}
+
+/* ── Micro-animation #8: Counting number animation ───────────────────── */
+function AnimatedNumber({ value }: { value: number | string }) {
+  const numVal = typeof value === 'string' ? parseInt(value) || 0 : value
+  const [display, setDisplay] = useState(0)
+  const ref = useRef<number>(0)
+
+  useEffect(() => {
+    const start = ref.current
+    const end = numVal
+    if (start === end) { setDisplay(end); return }
+    const duration = 600
+    const startTime = performance.now()
+    const animate = (now: number) => {
+      const elapsed = now - startTime
+      const progress = Math.min(elapsed / duration, 1)
+      const eased = 1 - Math.pow(1 - progress, 3) // easeOutCubic
+      setDisplay(Math.round(start + (end - start) * eased))
+      if (progress < 1) requestAnimationFrame(animate)
+      else ref.current = end
+    }
+    requestAnimationFrame(animate)
+  }, [numVal])
+
+  return <>{typeof value === 'string' && value.includes('%') ? `${display}%` : display}</>
+}
 import type { Cadence, ActivityLogEntry, StepType } from '@/types'
 import { STEP_TYPE_CONFIG, CADENCE_LEAD_STATUS_CONFIG } from '@/types'
 
@@ -87,6 +130,7 @@ export function Dashboard() {
 
   const [selectedCadence, setSelectedCadence] = useState<Cadence | null>(null)
   const [isCadenceDetailOpen, setIsCadenceDetailOpen] = useState(false)
+  const [activityListRef] = useAutoAnimate()
 
   // Fetch activity logs
   const { data: activityLogs = [] } = useQuery({
@@ -358,12 +402,12 @@ export function Dashboard() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 + index * 0.08, duration: 0.35, ease: 'easeOut' }}
           >
+          <GlowCard onClick={stat.onClick}>
           <Card
             className={cn(
               'cursor-pointer transition-shadow hover:shadow-md',
               index === 0 && 'featured-card-gradient text-white border-0'
             )}
-            onClick={stat.onClick}
           >
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className={cn("text-sm font-medium", index === 0 ? "text-white/80" : "text-muted-foreground")}>
@@ -373,7 +417,7 @@ export function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className={cn("text-2xl font-bold", index === 0 && "text-white")}>
-                {stat.value}
+                <AnimatedNumber value={stat.value} />
                 {stat.total !== undefined && (
                   <span className={cn("text-sm font-normal", index === 0 ? "text-white/70" : "text-muted-foreground")}>
                     /{stat.total}
@@ -383,14 +427,21 @@ export function Dashboard() {
               <p className={cn("text-xs", index === 0 ? "text-white/70" : "text-muted-foreground")}>{stat.description}</p>
             </CardContent>
           </Card>
+          </GlowCard>
           </motion.div>
         ))}
       </div>
 
-      {/* Agents + LinkedIn Usage Widgets */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+      {/* ── Agentes IA — Hero Section ──────────────────────────────── */}
+      <Fade triggerOnce duration={500} className="mt-6">
         <AgentsWidget />
-        <LinkedInUsageWidget />
+      </Fade>
+
+      {/* LinkedIn Usage */}
+      <div className="mt-6">
+        <Zoom triggerOnce duration={400} delay={100}>
+          <LinkedInUsageWidget />
+        </Zoom>
       </div>
 
       {/* Quick Links */}
@@ -456,9 +507,9 @@ export function Dashboard() {
                           </Badge>
                         </div>
                         <div className="mt-1 flex items-center gap-4 text-sm text-muted-foreground">
-                          <span>{cadence.steps?.length || 0} steps</span>
-                          <span>{stats.activeLeads} active leads</span>
-                          <span>{stats.messagesSent} messages sent</span>
+                          <span>{cadence.steps?.length || 0} pasos</span>
+                          <span>{stats.activeLeads} leads activos</span>
+                          <span>{stats.messagesSent} mensajes enviados</span>
                         </div>
                       </div>
                       <ChevronRight className="h-5 w-5 text-muted-foreground" />
@@ -475,10 +526,10 @@ export function Dashboard() {
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>Actividad Reciente</CardTitle>
-              <CardDescription>Last 10 actions across all cadences</CardDescription>
+              <CardDescription>Últimas 10 acciones en todas las cadencias</CardDescription>
             </div>
             <Button variant="ghost" size="sm" onClick={() => navigate('/admin/logs')}>
-              View All
+              Ver Todo
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </CardHeader>
@@ -488,13 +539,13 @@ export function Dashboard() {
                 <Activity className="mb-4 h-12 w-12 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">Aún no hay actividad</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Activity will appear here when you start using cadences
+                  La actividad aparecerá aquí cuando empieces a usar cadencias
                 </p>
               </div>
             ) : (
               <div className="relative">
               <ScrollArea className="h-[400px]">
-                <div className="space-y-3 pb-6">
+                <div ref={activityListRef} className="space-y-3 pb-6">
                   {recentActivities.map((activity) => {
                     const ActionIcon =
                       ACTION_ICONS[activity.action] || ACTION_ICONS.default
@@ -570,11 +621,11 @@ export function Dashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
-              <CardTitle>Recent Leads</CardTitle>
-              <CardDescription>Latest added contacts</CardDescription>
+              <CardTitle>Leads Recientes</CardTitle>
+              <CardDescription>Últimos contactos agregados</CardDescription>
             </div>
             <Button variant="ghost" size="sm" onClick={() => navigate('/leads')}>
-              View All
+              Ver Todo
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </CardHeader>
@@ -624,7 +675,7 @@ export function Dashboard() {
                             {cadence ? (
                               <Badge variant="outline">{cadence.name}</Badge>
                             ) : (
-                              <span className="text-muted-foreground">Not assigned</span>
+                              <span className="text-muted-foreground">Sin asignar</span>
                             )}
                           </td>
                           <td className="py-3">
@@ -774,7 +825,7 @@ export function Dashboard() {
               variant="outline"
               onClick={() => setIsCadenceDetailOpen(false)}
             >
-              Close
+              Cerrar
             </Button>
             <Button
               onClick={() => {
