@@ -65,5 +65,6 @@ done
 # --- Step 4: Start A2A server on $PORT (Railway-exposed) ---
 # A2A server handles: Agent Card, message/send, and proxies the rest to gateway
 echo "[startup] Starting A2A server on port ${PORT:-8080}..."
-cd /app
-exec NODE_PATH=/app/node_modules:${A2A_DIR}/node_modules node "${A2A_DIR}/a2a-server.js"
+echo "[startup] A2A node_modules: $(ls ${A2A_DIR}/node_modules/ 2>/dev/null | head -5 || echo 'MISSING')"
+cd "${A2A_DIR}"
+exec node a2a-server.js

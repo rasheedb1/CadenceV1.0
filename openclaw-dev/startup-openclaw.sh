@@ -73,5 +73,6 @@ done
 
 # --- Step 5: Start A2A server on $PORT (Railway-exposed) ---
 echo "[startup] Starting A2A server on port ${PORT:-8080}..."
-cd /app
-exec NODE_PATH=/app/node_modules:/home/node/.openclaw/node_modules node /home/node/.openclaw/a2a-server.js
+echo "[startup] A2A node_modules: $(ls /home/node/.openclaw/node_modules/ 2>/dev/null | head -5 || echo 'MISSING')"
+cd /home/node/.openclaw
+exec node a2a-server.js
