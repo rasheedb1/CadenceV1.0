@@ -88,34 +88,47 @@ function getGatewayToken() {
 async function sendToGateway(message, timeoutMs = 120000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  // Try without auth first (internal gateway), then with token if that fails
   const gwToken = getGatewayToken();
+  const attempts = [
+    {}, // No auth (internal localhost)
+    gwToken ? { Authorization: `Bearer ${gwToken}` } : null, // Config file token
+  ].filter(Boolean);
 
-  try {
-    const res = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(gwToken ? { Authorization: `Bearer ${gwToken}` } : {}),
-      },
-      body: JSON.stringify({
-        model: "openclaw/default",
-        messages: [{ role: "user", content: message }],
-      }),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
+  for (const authHeaders of attempts) {
+    try {
+      const res = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({
+          model: "openclaw/default",
+          messages: [{ role: "user", content: message }],
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      throw new Error(`Gateway HTTP ${res.status}: ${errText.substring(0, 200)}`);
+      if (res.status === 401 || res.status === 403) {
+        console.warn(`[a2a] Gateway auth failed (${res.status}), trying next...`);
+        continue; // Try next auth method
+      }
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(`Gateway HTTP ${res.status}: ${errText.substring(0, 200)}`);
+      }
+
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || "";
+    } catch (err) {
+      if (err.message.includes("Gateway HTTP 401") || err.message.includes("Gateway HTTP 403")) continue;
+      clearTimeout(timer);
+      throw err;
     }
-
-    const data = await res.json();
-    return data.choices?.[0]?.message?.content || "";
-  } catch (err) {
-    clearTimeout(timer);
-    throw err;
   }
+
+  throw new Error("Gateway auth failed with all methods");
 }
 
 // --- Agent Card ---
