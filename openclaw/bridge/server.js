@@ -2148,10 +2148,10 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
         }
       }
 
-      // --- Escalation: agent asks for help ---
-      const needsInput = /necesito (tu |su )?(input|ayuda|decisión|dirección)/i.test(output)
-        || /no puedo continuar/i.test(output)
-        || /bloqueado|blocked|stuck/i.test(output);
+      // --- Escalation: agent asks HUMAN for help (not another agent) ---
+      const needsInput = /necesito (tu |su |del usuario |del humano )(input|ayuda|decisión|dirección)/i.test(output)
+        || /no puedo continuar sin (tu |su )/i.test(output)
+        || /(bloqueado|blocked|stuck) (sin|without|need) (dirección|direction|human)/i.test(output);
 
       const shouldPause = isStuck || needsInput;
 
