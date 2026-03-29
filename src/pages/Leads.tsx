@@ -694,7 +694,7 @@ export function Leads() {
       <Dialog open={isAddLeadOpen} onOpenChange={setIsAddLeadOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Create New Lead</DialogTitle>
+            <DialogTitle>Crear Nuevo Lead</DialogTitle>
             <DialogDescription>
               Enter the lead's information. Required fields are marked with *.
             </DialogDescription>
@@ -795,7 +795,7 @@ export function Leads() {
       <Dialog open={isEditLeadOpen} onOpenChange={setIsEditLeadOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Edit Lead</DialogTitle>
+            <DialogTitle>Editar Lead</DialogTitle>
             <DialogDescription>
               Update the lead's information. Required fields are marked with *.
             </DialogDescription>
@@ -890,7 +890,7 @@ export function Leads() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Assign to Cadence</DialogTitle>
-            <DialogDescription>Select a cadence for this lead</DialogDescription>
+            <DialogDescription>Selecciona una cadencia para este lead</DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <Select onValueChange={handleAssign}>

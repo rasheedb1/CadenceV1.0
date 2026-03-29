@@ -1,3 +1,4 @@
+import { PageTransition } from '@/components/PageTransition'
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useOrg } from '@/contexts/OrgContext'
@@ -87,10 +88,10 @@ export function OrgSettings() {
   }
 
   return (
-    <div className="p-8">
+    <PageTransition className="p-8">
       <div className="mb-8">
-        <h1 className="text-[28px] font-bold tracking-tight font-heading">Settings</h1>
-        <p className="text-muted-foreground">Manage your account settings</p>
+        <h1 className="text-[28px] font-bold tracking-tight font-heading">Configuración</h1>
+        <p className="text-muted-foreground">Gestiona la configuración de tu cuenta</p>
         <div className="flex gap-2 mt-4">
           <Link to="/settings" className="px-3 py-1.5 text-sm font-medium rounded-md text-muted-foreground hover:bg-accent">
             Account
@@ -217,6 +218,6 @@ export function OrgSettings() {
         </CardContent>
       </Card>
       </div>
-    </div>
+    </PageTransition>
   )
 }

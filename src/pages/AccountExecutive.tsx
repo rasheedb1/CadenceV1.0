@@ -1,3 +1,4 @@
+import { PageTransition } from '@/components/PageTransition'
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -181,7 +182,7 @@ function NewAccountDialog({ open, onClose }: { open: boolean; onClose: () => voi
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>New Account</DialogTitle>
+          <DialogTitle>Nueva Cuenta</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
@@ -204,7 +205,7 @@ function NewAccountDialog({ open, onClose }: { open: boolean; onClose: () => voi
               <Input type="number" value={contractValue} onChange={e => setContractValue(e.target.value)} placeholder="50000" />
             </div>
             <div className="space-y-1.5">
-              <Label>Renewal Date</Label>
+              <Label>Fecha de Renovación</Label>
               <Input type="date" value={renewalDate} onChange={e => setRenewalDate(e.target.value)} />
             </div>
           </div>
@@ -312,7 +313,7 @@ export function AccountExecutive() {
   const DAYS_SHORT = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 
   return (
-    <div className="p-8 space-y-6">
+    <PageTransition className="p-8 space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -353,7 +354,7 @@ export function AccountExecutive() {
             </div>
             <p className="text-xs text-muted-foreground mt-1">Total Accounts</p>
             {jobRole === 'bdm' && !sfOwnerName && (
-              <p className="text-[10px] text-orange-500 mt-0.5">Configure Salesforce name in Settings</p>
+              <p className="text-[10px] text-orange-500 mt-0.5">Configura el nombre de Salesforce en Configuración</p>
             )}
           </CardContent>
         </Card>
@@ -366,13 +367,13 @@ export function AccountExecutive() {
         <Card>
           <CardContent className="pt-6">
             <div className="text-2xl font-bold text-orange-600">{thisMonth}</div>
-            <p className="text-xs text-muted-foreground mt-1">Renewals this month</p>
+            <p className="text-xs text-muted-foreground mt-1">Renovaciones este mes</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
             <div className="text-2xl font-bold text-blue-600">{pendingReminders}</div>
-            <p className="text-xs text-muted-foreground mt-1">Pending Reminders</p>
+            <p className="text-xs text-muted-foreground mt-1">Recordatorios Pendientes</p>
           </CardContent>
         </Card>
       </div>
@@ -430,7 +431,7 @@ export function AccountExecutive() {
           </div>
         </CardHeader>
         <CardContent className="pt-0">
-          <p className="text-[10px] text-muted-foreground mb-2">Click on a day to select it and copy your availability</p>
+          <p className="text-[10px] text-muted-foreground mb-2">Haz clic en un día para seleccionarlo y copiar tu disponibilidad</p>
           <div className="grid grid-cols-7 gap-1.5">
             {weekDays.map((day, i) => {
               const iso = localDateStr(day)
@@ -694,6 +695,6 @@ export function AccountExecutive() {
 
       {/* New Account Dialog */}
       <NewAccountDialog open={showNewAccount} onClose={() => setShowNewAccount(false)} />
-    </div>
+    </PageTransition>
   )
 }

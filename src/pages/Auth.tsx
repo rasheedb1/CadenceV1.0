@@ -31,8 +31,8 @@ export function Auth() {
                 C
               </div>
             </div>
-            <CardTitle className="text-2xl font-heading">New Password</CardTitle>
-            <CardDescription>Enter your new password</CardDescription>
+            <CardTitle className="text-2xl font-heading">Nueva Contraseña</CardTitle>
+            <CardDescription>Ingresa tu nueva contraseña</CardDescription>
           </CardHeader>
           <CardContent>
             <form
@@ -64,11 +64,11 @@ export function Auth() {
               className="space-y-4"
             >
               <div className="space-y-2">
-                <Label htmlFor="new-password">New Password</Label>
+                <Label htmlFor="new-password">Nueva Contraseña</Label>
                 <Input id="new-password" name="password" type="password" placeholder="••••••••" minLength={6} required />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="confirm-password">Confirm Password</Label>
+                <Label htmlFor="confirm-password">Confirmar Contraseña</Label>
                 <Input id="confirm-password" name="confirmPassword" type="password" placeholder="••••••••" minLength={6} required />
               </div>
               {error && <p className="text-sm text-destructive">{error}</p>}

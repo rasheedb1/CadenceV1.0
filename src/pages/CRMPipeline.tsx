@@ -1,3 +1,4 @@
+import { PageTransition } from '@/components/PageTransition'
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
@@ -358,7 +359,7 @@ export function CRMPipeline() {
   }
 
   return (
-    <div className="p-8">
+    <PageTransition className="p-8">
       {/* ── Header ── */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
@@ -710,6 +711,6 @@ export function CRMPipeline() {
           </p>
         </div>
       )}
-    </div>
+    </PageTransition>
   )
 }

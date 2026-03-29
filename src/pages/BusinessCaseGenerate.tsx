@@ -181,7 +181,7 @@ function ReviewPanelAi({
       </div>
       {bc.signals_used && bc.signals_used.length > 0 && (
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Research Signals Used</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Señales de Investigación Usadas</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             {bc.signals_used.map((sig, i) => (
               <div key={i} className="text-sm">
@@ -193,7 +193,7 @@ function ReviewPanelAi({
         </Card>
       )}
       <div className="space-y-2">
-        <h3 className="font-semibold text-sm">Slide Content Preview</h3>
+        <h3 className="font-semibold text-sm">Vista Previa del Contenido</h3>
         {slides.map((slide) => {
           const hasContent = slide.fixed_content || slide.fields.some((f) => content[`${slide.slide_number}_${f.key}`])
           return (
@@ -277,7 +277,7 @@ function ReviewPanelPptx({
       </div>
       {signals.length > 0 && (
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Research Signals Used</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Señales de Investigación Usadas</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             {signals.map((sig, i) => (
               <div key={i} className="text-sm">
@@ -289,7 +289,7 @@ function ReviewPanelPptx({
         </Card>
       )}
       <div className="space-y-2">
-        <h3 className="font-semibold text-sm">Generated Content Preview</h3>
+        <h3 className="font-semibold text-sm">Vista Previa del Contenido Generado</h3>
         {entries.map(([key, value]) => (
           <Card key={key}>
             <CardContent className="pt-3 pb-3">
@@ -461,15 +461,15 @@ export function BusinessCaseGenerate() {
       {activeTemplates.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center">
-            <p className="text-muted-foreground mb-4">No active templates found. Create a template first.</p>
-            <Button onClick={() => navigate('/business-cases/new')}>Create Template</Button>
+            <p className="text-muted-foreground mb-4">No se encontraron templates activos. Crea uno primero.</p>
+            <Button onClick={() => navigate('/business-cases/new')}>Crear Template</Button>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Generation Settings</CardTitle>
+              <CardTitle>Configuración de Generación</CardTitle>
               <CardDescription>
                 {isPptxTemplate
                   ? 'AI will fill all {{variables}} in your uploaded PPTX template'

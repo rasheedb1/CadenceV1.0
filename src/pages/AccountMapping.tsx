@@ -298,7 +298,7 @@ export function AccountMapping() {
                   Cancelar
                 </Button>
                 <Button onClick={handleCreate} disabled={creating || !newName.trim()}>
-                  {creating ? 'Creating...' : 'Create'}
+                  {creating ? 'Creando...' : 'Crear'}
                 </Button>
               </DialogFooter>
             </DialogContent>

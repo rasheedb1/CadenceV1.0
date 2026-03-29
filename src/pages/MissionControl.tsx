@@ -105,7 +105,7 @@ export function MissionControl() {
 
     const flowNodes: Node[] = [{
       id: 'chief', position: { x: centerX, y: centerY },
-      data: { label: '⚡ Chief\nOrchestrator' },
+      data: { label: '⚡ Chief\nOrquestador' },
       style: {
         background: 'linear-gradient(135deg, #3b82f6, #6366f1)', color: 'white',
         border: 'none', borderRadius: '16px', padding: '14px 24px',
@@ -137,7 +137,7 @@ export function MissionControl() {
       const statusDot = isWorking ? '🟢' : agent.status === 'active' ? '🟢' : '⚪'
       const activeTask = tasks.find(t => t.status === 'in_progress')
       const taskPreview = activeTask ? activeTask.instruction.substring(0, 40) + (activeTask.instruction.length > 40 ? '…' : '') : ''
-      const label = `${toolIcon ? toolIcon + ' ' : ''}${agent.name}\n${agent.role}\n${statusDot} ${isWorking ? 'working...' : agent.status}${taskPreview ? `\n📋 ${taskPreview}` : ''}`
+      const label = `${toolIcon ? toolIcon + ' ' : ''}${agent.name}\n${agent.role}\n${statusDot} ${isWorking ? 'trabajando...' : ({'active':'activo','draft':'borrador','deploying':'desplegando','paused':'pausado','error':'error'}[agent.status] || agent.status)}${taskPreview ? `\n📋 ${taskPreview}` : ''}`
 
       flowNodes.push({
         id: agent.id, position: { x: centerX + radius * Math.cos(angle), y: centerY + radius * Math.sin(angle) },
@@ -227,32 +227,32 @@ export function MissionControl() {
         <div className="px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" onClick={() => navigate('/')}><Home className="h-4 w-4" /></Button>
-            <h1 className="font-heading font-semibold text-lg">Mission Control</h1>
+            <h1 className="font-heading font-semibold text-lg">Control de Misión</h1>
             <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5 animate-pulse" />LIVE
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5 animate-pulse" />EN VIVO
             </Badge>
           </div>
           <div className="flex items-center gap-3">
             <Select value={roleFilter} onValueChange={setRoleFilter}>
               <SelectTrigger className="w-[160px] h-8 text-xs">
                 <Filter className="h-3 w-3 mr-1.5" />
-                <SelectValue placeholder="All roles" />
+                <SelectValue placeholder="Todos los roles" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All roles</SelectItem>
+                <SelectItem value="all">Todos los roles</SelectItem>
                 {roles.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
               </SelectContent>
             </Select>
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground"><Bot className="h-4 w-4" />{agents.filter(a => a.status === 'active').length} active</div>
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground"><Bot className="h-4 w-4" />{agents.filter(a => a.status === 'active').length} activos</div>
           </div>
         </div>
       </header>
 
       <div className="border-b px-6 py-2 flex items-center gap-6 shrink-0 bg-muted/30">
-        <div className="flex items-center gap-1.5 text-sm"><CheckCircle className="h-3.5 w-3.5 text-green-500" /><span className="font-medium">{completedTasks}</span><span className="text-muted-foreground">completed</span></div>
-        <div className="flex items-center gap-1.5 text-sm"><Clock className="h-3.5 w-3.5 text-blue-500" /><span className="font-medium">{inProgressTasks}</span><span className="text-muted-foreground">in progress</span></div>
-        <div className="flex items-center gap-1.5 text-sm"><XCircle className="h-3.5 w-3.5 text-red-500" /><span className="font-medium">{failedTasks}</span><span className="text-muted-foreground">failed</span></div>
-        <div className="flex items-center gap-1.5 text-sm"><MessageSquare className="h-3.5 w-3.5 text-amber-500" /><span className="font-medium">{allMessages.length}</span><span className="text-muted-foreground">messages</span></div>
+        <div className="flex items-center gap-1.5 text-sm"><CheckCircle className="h-3.5 w-3.5 text-green-500" /><span className="font-medium">{completedTasks}</span><span className="text-muted-foreground">completadas</span></div>
+        <div className="flex items-center gap-1.5 text-sm"><Clock className="h-3.5 w-3.5 text-blue-500" /><span className="font-medium">{inProgressTasks}</span><span className="text-muted-foreground">en progreso</span></div>
+        <div className="flex items-center gap-1.5 text-sm"><XCircle className="h-3.5 w-3.5 text-red-500" /><span className="font-medium">{failedTasks}</span><span className="text-muted-foreground">fallidas</span></div>
+        <div className="flex items-center gap-1.5 text-sm"><MessageSquare className="h-3.5 w-3.5 text-amber-500" /><span className="font-medium">{allMessages.length}</span><span className="text-muted-foreground">mensajes</span></div>
       </div>
 
       <div className="flex-1 flex min-h-0">
@@ -265,12 +265,12 @@ export function MissionControl() {
 
         <div className="w-[400px] flex flex-col min-h-0">
           <div className="px-4 py-3 border-b shrink-0">
-            <h2 className="font-medium text-sm flex items-center gap-2"><Zap className="h-3.5 w-3.5 text-amber-500" />Live Activity</h2>
+            <h2 className="font-medium text-sm flex items-center gap-2"><Zap className="h-3.5 w-3.5 text-amber-500" />Actividad en Vivo</h2>
           </div>
           <div className="flex-1 overflow-y-auto">
             {filteredEvents.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                <Bot className="h-8 w-8 mb-2 opacity-50" /><p className="text-sm">{roleFilter !== 'all' ? `No activity for ${roleFilter} agents` : 'No activity yet'}</p>
+                <Bot className="h-8 w-8 mb-2 opacity-50" /><p className="text-sm">{roleFilter !== 'all' ? `Sin actividad para agentes ${roleFilter}` : 'Sin actividad aún'}</p>
               </div>
             ) : (
               <div className="divide-y">
@@ -290,7 +290,7 @@ export function MissionControl() {
                             <span className="font-medium text-xs">{event.agent_name}</span>
                             {event.status && <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4">{event.status}</Badge>}
                             {!isTask && !isActivity && <span className="text-[10px] text-muted-foreground">{event.detail}</span>}
-                            {isRecent && <span className="text-[9px] text-amber-600 font-medium">NEW</span>}
+                            {isRecent && <span className="text-[9px] text-amber-600 font-medium">NUEVO</span>}
                           </div>
                           <p className={`text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap ${expandedEvent === event.id ? '' : 'line-clamp-3'}`}>{event.content}</p>
                         </div>

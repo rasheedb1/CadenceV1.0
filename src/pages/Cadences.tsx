@@ -161,7 +161,7 @@ export function Cadences() {
                 Cancel
               </Button>
               <Button onClick={handleCreate} disabled={creating || !newCadenceName.trim()}>
-                {creating ? 'Creating...' : 'Create'}
+                {creating ? 'Creando...' : 'Crear'}
               </Button>
             </DialogFooter>
           </DialogContent>

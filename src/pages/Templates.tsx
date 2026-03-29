@@ -419,8 +419,8 @@ export function Templates() {
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Edit Template</DialogTitle>
-            <DialogDescription>Update your message template</DialogDescription>
+            <DialogTitle>Editar Template</DialogTitle>
+            <DialogDescription>Actualiza tu plantilla de mensaje</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">

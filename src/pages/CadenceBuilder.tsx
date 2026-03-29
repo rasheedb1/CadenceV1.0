@@ -494,7 +494,7 @@ export function CadenceBuilder() {
   if (!cadence) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-muted-foreground">Cadence not found</p>
+        <p className="text-muted-foreground">Cadencia no encontrada</p>
       </div>
     )
   }
@@ -949,7 +949,7 @@ export function CadenceBuilder() {
               onClick={() => setIsEditMode(!isEditMode)}
             >
               <Settings className="mr-1.5 h-4 w-4" />
-              {isEditMode ? 'Exit Edit' : 'Edit'}
+              {isEditMode ? 'Salir de Edición' : 'Editar'}
             </Button>
             <FeatureGate flag="cadence_automate">
               <Button
@@ -1810,8 +1810,8 @@ export function CadenceBuilder() {
       }}>
         <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle>{editingStepId ? 'Edit Step' : 'Add Step'}</DialogTitle>
-            <DialogDescription>{editingStepId ? 'Modify this step configuration' : 'Configure a new step for your cadence'}</DialogDescription>
+            <DialogTitle>{editingStepId ? 'Editar Paso' : 'Agregar Paso'}</DialogTitle>
+            <DialogDescription>{editingStepId ? 'Modificar la configuración de este paso' : 'Configura un nuevo paso para tu cadencia'}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4 overflow-y-auto flex-1">
             <div className="grid grid-cols-2 gap-4">
@@ -2062,7 +2062,7 @@ export function CadenceBuilder() {
               Cancelar
             </Button>
             <Button onClick={editingStepId ? handleSaveEditStep : handleAddStep} disabled={saving}>
-              {saving ? (editingStepId ? 'Saving...' : 'Adding...') : (editingStepId ? 'Save Changes' : 'Add Step')}
+              {saving ? (editingStepId ? 'Saving...' : 'Adding...') : (editingStepId ? 'Save Changes' : 'Agregar Paso')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2081,7 +2081,7 @@ export function CadenceBuilder() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Select Lead</Label>
+              <Label>Seleccionar Lead</Label>
               <Select
                 value={testStepConfig.leadId}
                 onValueChange={(value) =>
@@ -2183,7 +2183,7 @@ export function CadenceBuilder() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove from Cadence</AlertDialogTitle>
+            <AlertDialogTitle>Quitar de Cadencia</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to remove{' '}
               <strong>

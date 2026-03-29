@@ -1,3 +1,4 @@
+import { PageTransition } from '@/components/PageTransition'
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -262,7 +263,7 @@ export function BusinessCases() {
 
   // ── Standard view ─────────────────────────────────────────────────────────
   return (
-    <div className="p-8">
+    <PageTransition className="p-8">
       {/* Header */}
       <div className="mb-8 flex items-center justify-between">
         <div>
@@ -497,6 +498,6 @@ export function BusinessCases() {
           )}
         </TabsContent>
       </Tabs>
-    </div>
+    </PageTransition>
   )
 }

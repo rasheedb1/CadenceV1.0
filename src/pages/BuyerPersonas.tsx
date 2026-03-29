@@ -101,7 +101,7 @@ function GroupDialog({ open, onOpenChange, initial, onSave }: GroupDialogProps) 
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{initial ? 'Edit Group' : 'New Persona Group'}</DialogTitle>
+          <DialogTitle>{initial ? 'Editar Grupo' : 'Nuevo Grupo de Persona'}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
@@ -162,7 +162,7 @@ function GroupDialog({ open, onOpenChange, initial, onSave }: GroupDialogProps) 
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button onClick={handleSave} disabled={!name.trim() || saving}>
             {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-            {initial ? 'Save' : 'Create Group'}
+            {initial ? 'Guardar' : 'Crear Grupo'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -663,7 +663,7 @@ export function BuyerPersonas() {
       <AlertDialog open={!!deletingGroupId} onOpenChange={(v) => !v && setDeletingGroupId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete persona group?</AlertDialogTitle>
+            <AlertDialogTitle>¿Eliminar grupo de persona?</AlertDialogTitle>
             <AlertDialogDescription>
               This will permanently delete the group and all personas inside it. This action cannot be undone.
             </AlertDialogDescription>

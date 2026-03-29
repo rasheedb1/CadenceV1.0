@@ -1,3 +1,4 @@
+import { PageTransition } from '@/components/PageTransition'
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAgents, type AgentTask, type AgentLearning, type AgentMessage } from '@/contexts/AgentContext'
@@ -45,8 +46,8 @@ export function AgentDetail() {
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
           <Bot className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-          <h2 className="text-lg font-medium mb-2">Agent not found</h2>
-          <Button variant="outline" onClick={() => navigate('/agents')}><ArrowLeft className="mr-2 h-4 w-4" />Back to Agents</Button>
+          <h2 className="text-lg font-medium mb-2">Agente no encontrado</h2>
+          <Button variant="outline" onClick={() => navigate('/agents')}><ArrowLeft className="mr-2 h-4 w-4" />Volver a Agentes</Button>
         </div>
       </div>
     )
@@ -59,8 +60,8 @@ export function AgentDetail() {
     try {
       await updateAgent(agent.id, { soul_md: soulMd } as never)
       setEditingSoulMd(false)
-      toast.success('Agent configuration saved')
-    } catch { toast.error('Failed to save') } finally { setSaving(false) }
+      toast.success('Configuración del agente guardada')
+    } catch { toast.error('Error al guardar') } finally { setSaving(false) }
   }
 
   const handleToggleSkill = async (skillName: string) => {
@@ -70,15 +71,15 @@ export function AgentDetail() {
       : [...agentSkillNames, skillName]
     try {
       await updateAgentSkills(agent.id, newSkills)
-      toast.success(`Skill ${agentSkillNames.has(skillName) ? 'removed' : 'added'}`)
-    } catch { toast.error('Failed to update skills') } finally { setSavingSkills(false) }
+      toast.success(`Skill ${agentSkillNames.has(skillName) ? 'eliminado' : 'agregado'}`)
+    } catch { toast.error('Error al actualizar skills') } finally { setSavingSkills(false) }
   }
 
   const handleDeleteLearning = async (learningId: string) => {
     try {
       await deleteAgentLearning(learningId)
-      toast.success('Learning deleted')
-    } catch { toast.error('Failed to delete') }
+      toast.success('Aprendizaje eliminado')
+    } catch { toast.error('Error al eliminar') }
   }
 
   // Group skills by category
@@ -98,7 +99,7 @@ export function AgentDetail() {
   }, {} as Record<string, AgentLearning[]>)
 
   return (
-    <div className="p-8">
+    <PageTransition className="p-8">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <Button variant="ghost" size="icon" onClick={() => navigate('/agents')}><ArrowLeft className="h-4 w-4" /></Button>
@@ -114,12 +115,12 @@ export function AgentDetail() {
 
       <Tabs defaultValue="overview">
         <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="overview">General</TabsTrigger>
           <TabsTrigger value="skills">Skills ({agent.agent_skills?.length || 0})</TabsTrigger>
-          <TabsTrigger value="tasks">Tasks ({tasks.length})</TabsTrigger>
-          <TabsTrigger value="learnings">Learnings ({learnings.length})</TabsTrigger>
-          <TabsTrigger value="messages">Messages ({messages.length})</TabsTrigger>
-          <TabsTrigger value="config">Config</TabsTrigger>
+          <TabsTrigger value="tasks">Tareas ({tasks.length})</TabsTrigger>
+          <TabsTrigger value="learnings">Aprendizajes ({learnings.length})</TabsTrigger>
+          <TabsTrigger value="messages">Mensajes ({messages.length})</TabsTrigger>
+          <TabsTrigger value="config">Configuración</TabsTrigger>
         </TabsList>
 
         {/* Overview */}
@@ -134,15 +135,15 @@ export function AgentDetail() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">Working on task</span>
+                      <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">Trabajando en tarea</span>
                       <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 text-[10px]">
                         <Clock className="h-2.5 w-2.5 mr-1" />
-                        {activeTask.started_at ? `${Math.round((Date.now() - new Date(activeTask.started_at).getTime()) / 1000)}s` : 'starting...'}
+                        {activeTask.started_at ? `${Math.round((Date.now() - new Date(activeTask.started_at).getTime()) / 1000)}s` : 'iniciando...'}
                       </Badge>
                     </div>
                     <p className="text-sm">{activeTask.instruction}</p>
                     {activeTask.delegated_by && (
-                      <p className="text-xs text-muted-foreground mt-1">Delegated by: {activeTask.delegated_by}</p>
+                      <p className="text-xs text-muted-foreground mt-1">Delegado por: {activeTask.delegated_by}</p>
                     )}
                   </div>
                 </div>
@@ -152,26 +153,26 @@ export function AgentDetail() {
 
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
-              <CardHeader><CardTitle className="text-sm font-medium">Details</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm font-medium">Detalles</CardTitle></CardHeader>
               <CardContent className="space-y-3 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Status</span><Badge className={STATUS_COLORS[agent.status]}>{agent.status}</Badge></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Role</span><span>{agent.role}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Estado</span><Badge className={STATUS_COLORS[agent.status]}>{agent.status}</Badge></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Rol</span><span>{agent.role}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Skills</span><span>{agent.agent_skills?.length || 0}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Learnings</span><span>{learnings.length}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Created</span><span>{new Date(agent.created_at).toLocaleDateString()}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Creado</span><span>{new Date(agent.created_at).toLocaleDateString()}</span></div>
                 {agent.railway_url && (
                   <div className="flex justify-between"><span className="text-muted-foreground">URL</span><span className="text-xs truncate max-w-[200px]">{agent.railway_url}</span></div>
                 )}
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle className="text-sm font-medium">Quick Skills</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm font-medium">Skills Activos</CardTitle></CardHeader>
               <CardContent>
                 {agent.agent_skills?.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
                     {agent.agent_skills.map(s => <Badge key={s.id} variant="secondary" className="text-xs">{s.skill_name}</Badge>)}
                   </div>
-                ) : <p className="text-sm text-muted-foreground">No skills assigned</p>}
+                ) : <p className="text-sm text-muted-foreground">Sin skills asignados</p>}
               </CardContent>
             </Card>
           </div>
@@ -206,7 +207,7 @@ export function AgentDetail() {
         {/* Tasks */}
         <TabsContent value="tasks" className="mt-4">
           {tasks.length === 0 ? (
-            <Card><CardContent className="flex flex-col items-center justify-center py-12"><p className="text-muted-foreground text-sm">No tasks yet</p></CardContent></Card>
+            <Card><CardContent className="flex flex-col items-center justify-center py-12"><p className="text-muted-foreground text-sm">Sin tareas aún</p></CardContent></Card>
           ) : (
             <div className="space-y-2">
               {tasks.map((task: AgentTask) => (
@@ -235,7 +236,7 @@ export function AgentDetail() {
           {learnings.length === 0 ? (
             <Card><CardContent className="flex flex-col items-center justify-center py-12">
               <Brain className="h-8 w-8 text-muted-foreground mb-2" />
-              <p className="text-muted-foreground text-sm">No learnings yet. The agent will accumulate knowledge as it completes tasks.</p>
+              <p className="text-muted-foreground text-sm">Sin aprendizajes aún. El agente acumulará conocimiento al completar tareas.</p>
             </CardContent></Card>
           ) : (
             <div className="space-y-4">
@@ -263,7 +264,7 @@ export function AgentDetail() {
           {messages.length === 0 ? (
             <Card><CardContent className="flex flex-col items-center justify-center py-12">
               <MessageSquare className="h-8 w-8 text-muted-foreground mb-2" />
-              <p className="text-muted-foreground text-sm">No inter-agent messages yet</p>
+              <p className="text-muted-foreground text-sm">Sin mensajes entre agentes aún</p>
             </CardContent></Card>
           ) : (
             <div className="space-y-2">
@@ -289,14 +290,14 @@ export function AgentDetail() {
         {/* Config */}
         <TabsContent value="config" className="mt-4">
           <Card>
-            <CardHeader><CardTitle className="text-sm font-medium">Agent Personality (SOUL.md)</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-sm font-medium">Personalidad del Agente (SOUL.md)</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               {editingSoulMd ? (
                 <>
                   <Textarea value={soulMd} onChange={e => setSoulMd(e.target.value)} rows={20} className="font-mono text-xs" />
                   <div className="flex gap-2">
                     <Button onClick={handleSaveSoulMd} disabled={saving}>
-                      {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save
+                      {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Guardar
                     </Button>
                     <Button variant="outline" onClick={() => setEditingSoulMd(false)}>Cancelar</Button>
                   </div>
@@ -304,13 +305,13 @@ export function AgentDetail() {
               ) : (
                 <>
                   <pre className="text-xs bg-muted p-4 rounded-md overflow-auto max-h-[400px] whitespace-pre-wrap">{agent.soul_md}</pre>
-                  <Button variant="outline" onClick={() => { setSoulMd(agent.soul_md); setEditingSoulMd(true) }}>Edit Personality</Button>
+                  <Button variant="outline" onClick={() => { setSoulMd(agent.soul_md); setEditingSoulMd(true) }}>Editar Personalidad</Button>
                 </>
               )}
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
-    </div>
+    </PageTransition>
   )
 }

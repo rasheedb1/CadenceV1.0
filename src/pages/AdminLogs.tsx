@@ -42,7 +42,7 @@ const ACTION_TYPES = [
 
 const STATUS_TYPES = [
   { value: 'all', label: 'All Statuses' },
-  { value: 'ok', label: 'Success' },
+  { value: 'ok', label: 'Éxito' },
   { value: 'failed', label: 'Failed' },
 ]
 
@@ -357,7 +357,7 @@ export function AdminLogs() {
                               <XCircle className="h-4 w-4 text-red-500" />
                             )}
                             <Badge variant={log.status === 'ok' ? 'success' : 'destructive'}>
-                              {log.status === 'ok' ? 'Success' : 'Failed'}
+                              {log.status === 'ok' ? 'Éxito' : 'Fallido'}
                             </Badge>
                           </div>
                         </td>

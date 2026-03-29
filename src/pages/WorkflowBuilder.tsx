@@ -249,7 +249,7 @@ export function WorkflowBuilder() {
           )}
           <Button size="sm" onClick={handleSave} disabled={saving}>
             <Save className="mr-2 h-4 w-4" />
-            {saving ? 'Saving...' : 'Save'}
+            {saving ? 'Guardando...' : 'Guardar'}
           </Button>
         </div>
       </div>

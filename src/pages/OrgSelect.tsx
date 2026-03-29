@@ -111,7 +111,7 @@ export function OrgSelect() {
                   onClick={handleCreateOrg}
                   disabled={!newOrgName.trim() || creating}
                 >
-                  {creating ? 'Creating...' : 'Create'}
+                  {creating ? 'Creando...' : 'Crear'}
                 </Button>
               </div>
             </CardContent>

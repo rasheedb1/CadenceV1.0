@@ -19,7 +19,7 @@ export function WorkflowRuns() {
   if (!workflow) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-muted-foreground">Workflow not found</p>
+        <p className="text-muted-foreground">Workflow no encontrado</p>
       </div>
     )
   }

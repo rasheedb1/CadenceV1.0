@@ -1,3 +1,4 @@
+import { PageTransition } from '@/components/PageTransition'
 import { useState, useCallback } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -163,7 +164,7 @@ export function LeadSearch() {
   }
 
   return (
-    <div className="flex-1 space-y-6 p-6">
+    <PageTransition className="flex-1 space-y-6 p-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Lead Search</h1>
@@ -341,6 +342,6 @@ export function LeadSearch() {
         onOpenChange={(open) => !open && setEmailTarget(null)}
         prospect={emailTarget}
       />
-    </div>
+    </PageTransition>
   )
 }

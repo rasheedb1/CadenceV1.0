@@ -215,8 +215,8 @@ export function AccountExecutiveDetail() {
   if (!account) {
     return (
       <div className="p-8">
-        <p className="text-muted-foreground">Account not found.</p>
-        <Button variant="link" onClick={() => navigate('/account-executive')}>← Back</Button>
+        <p className="text-muted-foreground">Cuenta no encontrada.</p>
+        <Button variant="link" onClick={() => navigate('/account-executive')}>← Volver</Button>
       </div>
     )
   }
@@ -323,7 +323,7 @@ export function AccountExecutiveDetail() {
           <TabsTrigger value="reminders">
             Reminders {reminders.length > 0 && <Badge variant="secondary" className="ml-1.5 text-[10px]">{reminders.length}</Badge>}
           </TabsTrigger>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="overview">General</TabsTrigger>
         </TabsList>
 
         {/* TIMELINE TAB */}
@@ -338,7 +338,7 @@ export function AccountExecutiveDetail() {
               <div className="text-center py-8">
                 <Clock className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                 <p className="text-sm text-muted-foreground">No activities yet.</p>
-                <p className="text-xs text-muted-foreground mt-1">Sync Gong to import calls from this account.</p>
+                <p className="text-xs text-muted-foreground mt-1">Sincroniza Gong para importar llamadas de esta cuenta.</p>
               </div>
             )}
             {activities.map(a => (
@@ -441,7 +441,7 @@ export function AccountExecutiveDetail() {
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Renewal Date</p>
+                    <p className="text-xs text-muted-foreground">Fecha de Renovación</p>
                     <p className="font-medium">
                       {account.renewal_date ? new Date(account.renewal_date).toLocaleDateString() : '—'}
                     </p>

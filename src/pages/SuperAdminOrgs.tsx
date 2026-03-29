@@ -450,7 +450,7 @@ export function SuperAdminOrgs() {
                 </Button>
                 {!inviteResult && (
                   <Button onClick={handleCreate} disabled={creating || !newName.trim() || !newSlug.trim()}>
-                    {creating ? 'Creating...' : 'Create'}
+                    {creating ? 'Creando...' : 'Crear'}
                   </Button>
                 )}
               </DialogFooter>
