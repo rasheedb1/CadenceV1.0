@@ -242,15 +242,6 @@ app.get("/healthz", (_req, res) => {
   });
 });
 
-// TEMP: debug endpoint
-app.get("/debug/cli-commands", async (_req, res) => {
-  const { execFileSync } = require("child_process");
-  const info = {};
-  try { info.help = execFileSync("node", ["/app/dist/index.js", "--help"], { encoding: "utf8", cwd: "/app", timeout: 10000 }).trim(); } catch (e) { info.help_error = e.message; info.help_stderr = e.stderr?.substring(0, 500); }
-  try { info.gateway_help = execFileSync("node", ["/app/dist/index.js", "gateway", "--help"], { encoding: "utf8", cwd: "/app", timeout: 10000 }).trim(); } catch (e) { info.gateway_help = e.stderr?.substring(0, 500) || e.message; }
-  res.json(info);
-});
-
 // Bearer token auth middleware for A2A endpoints
 function a2aAuth(req, res, next) {
   if (!A2A_TOKEN) return next(); // No token configured = open access
