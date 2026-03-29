@@ -91,6 +91,7 @@ function sendToGateway(message, timeoutMs = 120000) {
     execFile("node", [
       "/app/dist/index.js", "agent",
       "--message", message,
+      "--agent", "main",
     ], {
       cwd: "/app",
       timeout: timeoutMs,
