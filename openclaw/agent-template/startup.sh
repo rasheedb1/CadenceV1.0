@@ -62,16 +62,32 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# --- Step 4: Debug gateway config ---
-echo "[startup] Gateway config after boot:"
-cat /home/node/.openclaw/openclaw.json 2>/dev/null | grep -A5 auth || echo "No auth in config"
-echo "[startup] Files in .openclaw:"
-ls -la /home/node/.openclaw/*.json 2>/dev/null || echo "No json files"
+# --- Step 4: Extract gateway token after boot ---
+# The gateway generates an auth token during startup.
+# We need to find it and pass it to the A2A server.
+echo "[startup] Extracting gateway token..."
 
-# Quick test: can we reach the gateway without auth?
-echo "[startup] Testing gateway auth..."
-curl -s http://127.0.0.1:18789/v1/chat/completions -X POST -H "Content-Type: application/json" -d '{"model":"openclaw/default","messages":[{"role":"user","content":"PONG"}]}' 2>&1 | head -c 200
-echo ""
+# Method 1: Check openclaw.json for the token (onboard may have written it)
+GW_TOKEN=$(node -e "try { const c=JSON.parse(require('fs').readFileSync('/home/node/.openclaw/openclaw.json','utf8')); console.log(c?.gateway?.auth?.token||''); } catch { console.log(''); }" 2>/dev/null)
+
+# Method 2: Try to get a token via the setup API
+if [ -z "$GW_TOKEN" ]; then
+  echo "[startup] No token in config, trying setup API..."
+  GW_TOKEN=$(curl -sf http://127.0.0.1:18789/v1/setup/password -X POST -H "Content-Type: application/json" -d '{"password":"Chief2026!Secure"}' 2>/dev/null | jq -r '.token // empty' 2>/dev/null)
+fi
+
+# Method 3: Create an API key
+if [ -z "$GW_TOKEN" ]; then
+  echo "[startup] Trying API key creation..."
+  GW_TOKEN=$(cd /app && node dist/index.js gateway api-key create --name a2a-server --scope operator.write 2>/dev/null | grep -oE '[a-zA-Z0-9_.-]+$' || true)
+fi
+
+if [ -n "$GW_TOKEN" ]; then
+  echo "[startup] Gateway token found (${#GW_TOKEN} chars)"
+  export OPENCLAW_GATEWAY_TOKEN="$GW_TOKEN"
+else
+  echo "[startup] WARNING: No gateway token found — LLM calls may fail"
+fi
 
 # --- Step 5: Start A2A server on $PORT (Railway-exposed) ---
 echo "[startup] Starting A2A server on port ${PORT:-8080}..."

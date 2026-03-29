@@ -79,6 +79,8 @@ async function logToAgentMessages(fromAgentId, toAgentId, role, content, metadat
 // --- OpenClaw Gateway integration ---
 const fs = require("fs");
 function getGatewayToken() {
+  // Priority: env var (set by startup.sh) > config file
+  if (process.env.OPENCLAW_GATEWAY_TOKEN) return process.env.OPENCLAW_GATEWAY_TOKEN;
   try {
     const config = JSON.parse(fs.readFileSync("/home/node/.openclaw/openclaw.json", "utf8"));
     return config?.gateway?.auth?.token || "";
