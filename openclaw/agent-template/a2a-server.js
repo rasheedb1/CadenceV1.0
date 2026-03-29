@@ -157,23 +157,23 @@ class GatewayWSClient {
   }
 
   async _sendConnect() {
-    const keys = loadDeviceKeys();
-    if (!keys) throw new Error("No device keys");
+    // Read gateway token from config for token-based auth
+    let gatewayToken = "";
+    try {
+      const config = JSON.parse(fs.readFileSync("/home/node/.openclaw/openclaw.json", "utf8"));
+      gatewayToken = config?.gateway?.auth?.token || "";
+    } catch {}
 
-    const { deviceId, pubHex, privateKeyObj } = keys;
-    const signedAt = Date.now();
-    const nonce = this.connectNonce || "";
     const role = "operator";
     const scopes = ["operator.read", "operator.write"];
-    const signPayload = ["v2", deviceId, "openclaw-control-ui", "webchat", role, scopes.join(","), String(signedAt), "", nonce].join("|");
-    const signature = crypto.sign(null, Buffer.from(signPayload), privateKeyObj).toString("hex");
 
     const result = await this.request("connect", {
       minProtocol: 3, maxProtocol: 3,
-      client: { id: "openclaw-control-ui", platform: "web", mode: "webchat", version: "2026.3.28" },
+      client: { id: "a2a-server", platform: "server", mode: "webchat", version: "2026.3.28" },
       role, scopes,
-      device: { id: deviceId, publicKey: pubHex, signature, signedAt, nonce },
-      caps: ["tool-events"], auth: {}, userAgent: "A2AServer/1.0", locale: "es",
+      caps: ["tool-events"],
+      auth: gatewayToken ? { token: gatewayToken } : {},
+      userAgent: "A2AServer/1.0", locale: "es",
     });
     console.log("[a2a-ws] Connected! Protocol:", result?.protocol, "Auth:", result?.auth?.role);
     this.connected = true;
