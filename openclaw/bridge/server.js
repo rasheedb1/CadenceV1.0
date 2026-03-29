@@ -1308,17 +1308,59 @@ ${args.description ? `\n${args.description}\n` : ""}
         }
 
         case "crear_proyecto": {
-          const { org_id, name: projName, description: projDesc, phases } = args;
-          if (!phases || phases.length === 0) return { success: false, error: "Se necesita al menos una fase." };
+          const { org_id, name: projName, description: projDesc, phases,
+                  workflow_type, agent_names, max_iterations, checkpoint_every, success_criteria } = args;
 
-          // Resolve agent names to IDs
+          // Resolve agent names to IDs helper
           const resolveAgentId = async (agentName) => {
             const p = new URLSearchParams({ org_id: `eq.${org_id}`, name: `ilike.%${agentName}%`, status: "neq.destroyed", select: "id,name", limit: "1" });
             const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
             return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
           };
 
-          // Create project
+          // === COLLABORATION MODE ===
+          if (workflow_type === "collaboration") {
+            if (!agent_names || agent_names.length < 2) return { success: false, error: "Se necesitan al menos 2 agentes para colaboración." };
+
+            // Resolve all agents
+            const resolvedAgents = [];
+            for (const name of agent_names) {
+              const agent = await resolveAgentId(name);
+              if (!agent) return { success: false, error: `Agente "${name}" no encontrado.` };
+              resolvedAgents.push(agent);
+            }
+
+            const projRows = await sbFetch(`${base}/rest/v1/agent_projects`, {
+              method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" },
+              body: JSON.stringify({
+                org_id, name: projName, description: projDesc || null, status: "active",
+                workflow_type: "collaboration",
+                assigned_agents: resolvedAgents.map(a => a.id),
+                max_iterations: max_iterations || 20,
+                checkpoint_every: checkpoint_every || 3,
+                current_iteration: 0,
+                success_criteria: success_criteria || null,
+                project_memory: `# Proyecto: ${projName}\n## Criterios de éxito: ${success_criteria || "Definidos por los agentes"}\n## Descripción: ${projDesc || projName}\n\n### Inicio del proyecto\nAgentes asignados: ${resolvedAgents.map(a => a.name).join(", ")}\n`,
+              }),
+            });
+            const project = Array.isArray(projRows) ? projRows[0] : projRows;
+            if (!project?.id) return { success: false, error: "No se pudo crear el proyecto." };
+
+            console.log(`[project] Created collaboration "${projName}" with ${resolvedAgents.length} agents, max ${max_iterations || 20} iterations`);
+            return {
+              success: true,
+              project_id: project.id,
+              name: projName,
+              workflow_type: "collaboration",
+              agents: resolvedAgents.map(a => a.name),
+              max_iterations: max_iterations || 20,
+              message: `Proyecto colaborativo "${projName}" creado. ${resolvedAgents.map(a => a.name).join(" y ")} van a iterar automáticamente. Te notifico cada ${checkpoint_every || 3} iteraciones.`,
+            };
+          }
+
+          // === SEQUENTIAL MODE (original) ===
+          if (!phases || phases.length === 0) return { success: false, error: "Se necesita al menos una fase." };
+
           const projRows = await sbFetch(`${base}/rest/v1/agent_projects`, {
             method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" },
             body: JSON.stringify({ org_id, name: projName, description: projDesc || null, status: "active" }),
@@ -1326,7 +1368,6 @@ ${args.description ? `\n${args.description}\n` : ""}
           const project = Array.isArray(projRows) ? projRows[0] : projRows;
           if (!project?.id) return { success: false, error: "No se pudo crear el proyecto." };
 
-          // Create phases
           const phaseRows = [];
           for (let i = 0; i < phases.length; i++) {
             const ph = phases[i];
@@ -1970,13 +2011,187 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
   // =====================================================
   // PROJECT ENGINE — polls every 2 min, advances project phases
   // =====================================================
+  // === COLLABORATION ENGINE ===
+  // Iterates between assigned agents, maintaining project memory
+  async function processCollaborationProject(project) {
+    try {
+      if (project.current_iteration >= project.max_iterations) {
+        await sbFetch(`${SB_URL}/rest/v1/agent_projects?id=eq.${project.id}`, {
+          method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+          body: JSON.stringify({ status: "completed", updated_at: new Date().toISOString() }),
+        });
+        await notifyUserByOrg(project.org_id, `🏁 *Proyecto "${project.name}" completado*\n\nSe alcanzó el máximo de ${project.max_iterations} iteraciones.\n\nResumen final:\n${(project.project_memory || "").substring(project.project_memory?.lastIndexOf("### Iteración") || 0).substring(0, 1000)}`);
+        return;
+      }
+
+      const agents = project.assigned_agents || [];
+      if (agents.length < 2) return;
+
+      // Determine whose turn it is (alternate between agents)
+      const currentAgentIdx = project.current_iteration % agents.length;
+      const currentAgentId = agents[currentAgentIdx];
+
+      // Get agent info
+      const agentRows = await sbFetch(`${SB_URL}/rest/v1/agents?id=eq.${currentAgentId}&select=id,name,role,railway_url`, { headers: sbHeaders() });
+      const agent = Array.isArray(agentRows) ? agentRows[0] : null;
+      if (!agent || !agent.railway_url) {
+        console.error(`[collab] Agent ${currentAgentId} not found or not deployed`);
+        return;
+      }
+
+      // Get last iteration output for context
+      const lastIterRows = await sbFetch(`${SB_URL}/rest/v1/agent_project_iterations?project_id=eq.${project.id}&order=iteration_number.desc&limit=1&select=agent_id,output_full,action`, { headers: sbHeaders() });
+      const lastIter = Array.isArray(lastIterRows) && lastIterRows.length > 0 ? lastIterRows[0] : null;
+
+      // Get the other agent's name for context
+      const otherAgentId = agents[(currentAgentIdx + 1) % agents.length];
+      const otherRows = await sbFetch(`${SB_URL}/rest/v1/agents?id=eq.${otherAgentId}&select=name,role`, { headers: sbHeaders() });
+      const otherAgent = Array.isArray(otherRows) ? otherRows[0] : { name: "otro agente", role: "unknown" };
+
+      // Determine action type
+      const isFirst = project.current_iteration === 0;
+      const action = isFirst ? "produce" : (currentAgentIdx === 0 ? "refine" : "review");
+
+      // Build the prompt
+      let prompt = `## Proyecto Colaborativo: ${project.name}\n`;
+      prompt += `**Iteración ${project.current_iteration + 1}/${project.max_iterations}**\n`;
+      prompt += `**Tu rol:** ${agent.role} | **Colaboras con:** ${otherAgent.name} (${otherAgent.role})\n`;
+      if (project.success_criteria) prompt += `**Criterios de éxito:** ${project.success_criteria}\n`;
+      prompt += `\n### Descripción del proyecto:\n${project.description}\n`;
+
+      // Add project memory (cumulative summary)
+      if (project.project_memory) {
+        prompt += `\n### Memoria del proyecto (historial acumulado):\n${project.project_memory.substring(Math.max(0, project.project_memory.length - 3000))}\n`;
+      }
+
+      // Add last iteration result
+      if (lastIter?.output_full) {
+        const lastAgentRows = await sbFetch(`${SB_URL}/rest/v1/agents?id=eq.${lastIter.agent_id}&select=name`, { headers: sbHeaders() });
+        const lastAgentName = Array.isArray(lastAgentRows) && lastAgentRows.length > 0 ? lastAgentRows[0].name : "agente";
+        prompt += `\n### Último resultado de ${lastAgentName}:\n${lastIter.output_full.substring(0, 2000)}\n`;
+      }
+
+      // Action-specific instructions
+      if (isFirst) {
+        prompt += `\n### Tu tarea:\nEres el primero en trabajar. Investiga, analiza, y produce un primer entregable. ${otherAgent.name} lo revisará después.\n`;
+      } else if (action === "review") {
+        prompt += `\n### Tu tarea:\nRevisa el trabajo anterior. Da feedback específico y actionable. Si hay que implementar algo, hazlo. Si está bien, di "COMPLETADO" al inicio de tu respuesta.\n`;
+      } else {
+        prompt += `\n### Tu tarea:\nConsidera el feedback anterior y mejora tu trabajo. Itera y produce una versión mejorada.\n`;
+      }
+      prompt += `\nResponde con tu trabajo/feedback. Sé concreto y enfocado.`;
+
+      // Send to agent via A2A
+      console.log(`[collab] Iteration ${project.current_iteration + 1}: ${agent.name} (${action})`);
+      const startMs = Date.now();
+      const a2aResult = await a2a.sendA2AMessage(agent.railway_url, prompt, {
+        token: SB_KEY, fromAgentId: "project-engine", orgId: project.org_id, timeoutMs: 120000,
+      });
+
+      let output = "";
+      if (a2aResult.success && a2aResult.reply) {
+        output = a2aResult.reply;
+      } else if (a2aResult.success && a2aResult.taskId) {
+        const pollResult = await a2a.pollA2ATask(agent.railway_url, a2aResult.taskId, { token: SB_KEY, maxWaitMs: 120000 });
+        output = pollResult.reply || "(sin respuesta)";
+      } else {
+        output = `Error: ${a2aResult.error || "sin respuesta"}`;
+      }
+
+      const durationMs = Date.now() - startMs;
+      const outputSummary = output.substring(0, 300);
+
+      // Save iteration
+      await sbFetch(`${SB_URL}/rest/v1/agent_project_iterations`, {
+        method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+        body: JSON.stringify({
+          project_id: project.id,
+          iteration_number: project.current_iteration + 1,
+          agent_id: currentAgentId,
+          action,
+          input_summary: prompt.substring(0, 300),
+          output_summary: outputSummary,
+          output_full: output.substring(0, 10000),
+          duration_ms: durationMs,
+        }),
+      });
+
+      // Update project memory (append summary)
+      const memoryUpdate = `\n### Iteración ${project.current_iteration + 1} (${agent.name} — ${action})\n${outputSummary}\n`;
+      let newMemory = (project.project_memory || "") + memoryUpdate;
+
+      // If memory > 6000 chars, truncate older entries but keep header + last 4000 chars
+      if (newMemory.length > 6000) {
+        const headerEnd = newMemory.indexOf("### Iteración");
+        const header = headerEnd > 0 ? newMemory.substring(0, headerEnd) : "";
+        newMemory = header + "\n[... iteraciones anteriores resumidas ...]\n" + newMemory.substring(newMemory.length - 4000);
+      }
+
+      // Check if agent said "COMPLETADO"
+      const isCompleted = output.trim().toUpperCase().startsWith("COMPLETADO") || output.trim().toUpperCase().startsWith("DONE");
+
+      // Update project
+      const newIteration = project.current_iteration + 1;
+      await sbFetch(`${SB_URL}/rest/v1/agent_projects?id=eq.${project.id}`, {
+        method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+        body: JSON.stringify({
+          current_iteration: newIteration,
+          project_memory: newMemory,
+          updated_at: new Date().toISOString(),
+          ...(isCompleted ? { status: "completed" } : {}),
+        }),
+      });
+
+      console.log(`[collab] ${agent.name} responded (${durationMs}ms, ${output.length} chars) ${isCompleted ? "→ COMPLETED" : ""}`);
+
+      // Checkpoint notification
+      if (isCompleted) {
+        await notifyUserByOrg(project.org_id, `🎉 *Proyecto "${project.name}" COMPLETADO*\n\n${agent.name} indicó que el trabajo está listo.\n\n📊 Iteraciones: ${newIteration}\n\nÚltimo resultado:\n${outputSummary}`);
+      } else if (newIteration % (project.checkpoint_every || 3) === 0) {
+        // Get recent iterations for summary
+        const recentRows = await sbFetch(`${SB_URL}/rest/v1/agent_project_iterations?project_id=eq.${project.id}&order=iteration_number.desc&limit=${project.checkpoint_every || 3}&select=iteration_number,agent_id,output_summary`, { headers: sbHeaders() });
+        const recent = Array.isArray(recentRows) ? recentRows : [];
+
+        // Get agent names
+        const agentNamesMap = {};
+        for (const r of recent) {
+          if (!agentNamesMap[r.agent_id]) {
+            const ar = await sbFetch(`${SB_URL}/rest/v1/agents?id=eq.${r.agent_id}&select=name`, { headers: sbHeaders() });
+            agentNamesMap[r.agent_id] = Array.isArray(ar) && ar.length > 0 ? ar[0].name : "agente";
+          }
+        }
+
+        const summary = recent.reverse().map(r =>
+          `${r.iteration_number}. *${agentNamesMap[r.agent_id]}*: ${(r.output_summary || "").substring(0, 200)}`
+        ).join("\n\n");
+
+        await notifyUserByOrg(project.org_id,
+          `📋 *Proyecto: ${project.name}*\n` +
+          `🔄 Iteración ${newIteration}/${project.max_iterations}\n\n` +
+          `Últimos avances:\n${summary}\n\n` +
+          `Responde "pausar proyecto" para detener.`
+        );
+      }
+    } catch (err) {
+      console.error(`[collab] Error in project ${project.id}:`, err.message);
+    }
+  }
+
   async function processProjects() {
     try {
       // Get all active projects
-      const projects = await sbFetch(`${SB_URL}/rest/v1/agent_projects?status=eq.active&select=id,org_id,name`, { headers: sbHeaders() });
+      const projects = await sbFetch(`${SB_URL}/rest/v1/agent_projects?status=eq.active&select=*`, { headers: sbHeaders() });
       if (!Array.isArray(projects) || projects.length === 0) return;
 
       for (const project of projects) {
+
+        // === COLLABORATION MODE ENGINE ===
+        if (project.workflow_type === "collaboration") {
+          await processCollaborationProject(project);
+          continue;
+        }
+
+        // === SEQUENTIAL MODE (original) ===
         // Get current phase (first non-completed, ordered by phase_number)
         const phases = await sbFetch(`${SB_URL}/rest/v1/agent_project_phases?project_id=eq.${project.id}&status=neq.completed&order=phase_number.asc&limit=1&select=*`, { headers: sbHeaders() });
         if (!Array.isArray(phases) || phases.length === 0) {
