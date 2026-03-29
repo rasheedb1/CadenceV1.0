@@ -1,41 +1,11 @@
 #!/bin/bash
-# Don't use set -e — individual failures shouldn't kill the whole startup
+# Juanse (OpenClaw + A2A) Startup
+# Key: A2A server starts FIRST on $PORT so Railway sees the port quickly.
+# Gateway + Express start in background after.
+
 echo "=== Juanse (OpenClaw + A2A) — Starting ==="
 
-# --- Step 1: System setup (same as original startup.sh) ---
-
-# Configure git
-git config --global user.name "Chief Dev Bot"
-git config --global user.email "dev@laiky.ai"
-git config --global --add safe.directory /repo
-
-# Clone or update repo
-if [ ! -d "/repo/.git" ]; then
-  if [ -n "$GITHUB_PAT" ]; then
-    echo "[startup] Cloning repository..."
-    git clone "https://${GITHUB_PAT}@github.com/rasheedb1/CadenceV1.0.git" /repo 2>/dev/null || echo "[startup] Clone failed, continuing"
-  fi
-else
-  echo "[startup] Updating repository..."
-  cd /repo && git pull origin main 2>/dev/null || echo "[startup] git pull failed, continuing"
-fi
-
-# Configure gh CLI
-if [ -n "$GITHUB_PAT" ]; then
-  echo "$GITHUB_PAT" | gh auth login --with-token 2>/dev/null || true
-fi
-
-# Create Claude Code config
-mkdir -p /home/node/.claude
-cat > /home/node/.claude/settings.json << 'SETTINGS'
-{
-  "permissions": {
-    "allow": ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"]
-  }
-}
-SETTINGS
-
-# --- Step 2: OpenClaw onboard ---
+# --- Step 1: OpenClaw onboard (fast, non-blocking) ---
 cd /app
 if [ ! -f "/home/node/.openclaw/.onboarded" ]; then
   echo "[startup] Running OpenClaw onboard..."
@@ -46,33 +16,50 @@ if [ ! -f "/home/node/.openclaw/.onboarded" ]; then
 fi
 node dist/index.js doctor --fix 2>/dev/null || true
 
-# --- Step 3: Start Juanse Express server (WhatsApp bot — optional) ---
-# Runs on port 3100 internally (not $PORT — A2A server uses $PORT)
-echo "[startup] Starting Juanse Express server on port 3100..."
-PORT=3100 node /home/node/juanse/dist/index.js &
-JUANSE_PID=$!
-echo "[startup] Juanse Express server started (PID=$JUANSE_PID) or failed (non-blocking)"
-
-# --- Step 4: Start OpenClaw gateway on INTERNAL port 18789 ---
+# --- Step 2: Start OpenClaw gateway on INTERNAL port 18789 ---
 export GATEWAY_PORT=18789
-echo "[startup] Starting OpenClaw gateway on internal port ${GATEWAY_PORT}..."
+echo "[startup] Starting OpenClaw gateway on port ${GATEWAY_PORT}..."
 cd /app
 node dist/index.js gateway --bind lan --port "${GATEWAY_PORT}" &
-GATEWAY_PID=$!
-echo "[startup] OpenClaw gateway started (PID=$GATEWAY_PID)"
+echo "[startup] Gateway starting in background..."
 
-# Wait for gateway to be ready (up to 30s)
-echo "[startup] Waiting for gateway..."
-for i in $(seq 1 30); do
-  if curl -sf "http://127.0.0.1:${GATEWAY_PORT}/healthz" > /dev/null 2>&1; then
-    echo "[startup] Gateway ready!"
-    break
+# --- Step 3: Git + Juanse Express (all in background, non-blocking) ---
+(
+  # Configure git
+  git config --global user.name "Chief Dev Bot" 2>/dev/null
+  git config --global user.email "dev@laiky.ai" 2>/dev/null
+  git config --global --add safe.directory /repo 2>/dev/null
+
+  # Clone or update repo
+  if [ ! -d "/repo/.git" ]; then
+    if [ -n "$GITHUB_PAT" ]; then
+      git clone "https://${GITHUB_PAT}@github.com/rasheedb1/CadenceV1.0.git" /repo 2>/dev/null || true
+    fi
+  else
+    cd /repo && git pull origin main 2>/dev/null || true
   fi
-  sleep 1
-done
 
-# --- Step 5: Start A2A server on $PORT (Railway-exposed) ---
+  # Configure gh CLI
+  if [ -n "$GITHUB_PAT" ]; then
+    echo "$GITHUB_PAT" | gh auth login --with-token 2>/dev/null || true
+  fi
+
+  # Claude Code config
+  mkdir -p /home/node/.claude
+  cat > /home/node/.claude/settings.json << 'SETTINGS'
+{
+  "permissions": {
+    "allow": ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"]
+  }
+}
+SETTINGS
+
+  # Start Juanse Express on port 3100 (optional — may fail without Twilio env vars)
+  PORT=3100 node /home/node/juanse/dist/index.js 2>/dev/null || echo "[startup] Juanse Express failed (non-critical)"
+) &
+echo "[startup] Background setup started (git + express)"
+
+# --- Step 4: Start A2A server on $PORT (Railway-exposed) — MUST START FAST ---
 echo "[startup] Starting A2A server on port ${PORT:-8080}..."
-echo "[startup] A2A node_modules: $(ls /home/node/.openclaw/node_modules/ 2>/dev/null | head -5 || echo 'MISSING')"
 cd /home/node/.openclaw
 exec node a2a-server.js
