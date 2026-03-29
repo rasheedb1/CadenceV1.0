@@ -5,7 +5,14 @@
     "port": 18789,
     "mode": "local",
     "controlUi": {
-      "dangerouslyAllowHostHeaderOriginFallback": true
+      "dangerouslyAllowHostHeaderOriginFallback": true,
+      "allowedOrigins": [
+        "https://agent-sofi-production.up.railway.app",
+        "https://agent-nando-production.up.railway.app",
+        "https://chief-dev-bot-production.up.railway.app",
+        "https://openclaw-production-1352.up.railway.app",
+        "https://twilio-bridge-production-241b.up.railway.app"
+      ]
     },
     "http": {
       "endpoints": {
