@@ -168,13 +168,6 @@ const openClawExecutor = {
       context_id: requestContext.contextId,
     });
 
-    // Publish "working" status
-    eventBus.publish({
-      kind: "status-update",
-      taskId,
-      status: { state: "working", message: { parts: [{ kind: "text", text: "Processing..." }] } },
-    });
-
     try {
       const result = await sendToGateway(instruction);
 
@@ -188,7 +181,7 @@ const openClawExecutor = {
         task_id: taskId,
       });
 
-      // Publish result as message
+      // Publish result as message (always use message kind for blocking responses)
       eventBus.publish({
         kind: "message",
         messageId: randomUUID(),
@@ -198,15 +191,12 @@ const openClawExecutor = {
     } catch (err) {
       console.error(`[a2a] Execution error:`, err.message);
 
+      // Return error as a message (not a task status update — avoids "no task context" error)
       eventBus.publish({
-        kind: "status-update",
-        taskId,
-        status: {
-          state: "failed",
-          message: {
-            parts: [{ kind: "text", text: `Error: ${err.message}` }],
-          },
-        },
+        kind: "message",
+        messageId: randomUUID(),
+        role: "agent",
+        parts: [{ kind: "text", text: `Error: ${err.message}` }],
       });
     }
 
