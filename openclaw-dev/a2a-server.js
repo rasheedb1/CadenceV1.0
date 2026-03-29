@@ -157,23 +157,45 @@ class GatewayWSClient {
   }
 
   async _sendConnect() {
-    // Read gateway token from config for token-based auth
-    let gatewayToken = "";
-    try {
-      const config = JSON.parse(fs.readFileSync("/home/node/.openclaw/openclaw.json", "utf8"));
-      gatewayToken = config?.gateway?.auth?.token || "";
-    } catch {}
+    // Generate a SEPARATE device key pair for the A2A server client
+    // (can't use the gateway's own identity — that causes "device identity mismatch")
+    if (!this.deviceKeys) {
+      const keyPath = "/home/node/.openclaw/a2a-device.json";
+      try {
+        const saved = JSON.parse(fs.readFileSync(keyPath, "utf8"));
+        this.deviceKeys = {
+          deviceId: saved.deviceId,
+          pubHex: saved.pubHex,
+          privateKeyObj: crypto.createPrivateKey(saved.privPem),
+        };
+        console.log("[a2a-ws] Loaded A2A device:", saved.deviceId.substring(0, 16));
+      } catch {
+        // Generate new Ed25519 key pair
+        const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+        const pubDer = publicKey.export({ type: "spki", format: "der" });
+        const pubHex = pubDer.subarray(-32).toString("hex");
+        const deviceId = crypto.randomBytes(16).toString("hex");
+        const privPem = privateKey.export({ type: "pkcs8", format: "pem" });
+        fs.writeFileSync(keyPath, JSON.stringify({ deviceId, pubHex, privPem }));
+        this.deviceKeys = { deviceId, pubHex, privateKeyObj: privateKey };
+        console.log("[a2a-ws] Generated new A2A device:", deviceId.substring(0, 16));
+      }
+    }
 
+    const { deviceId, pubHex, privateKeyObj } = this.deviceKeys;
+    const signedAt = Date.now();
+    const nonce = this.connectNonce || "";
     const role = "operator";
     const scopes = ["operator.read", "operator.write"];
+    const signPayload = ["v2", deviceId, "openclaw-control-ui", "webchat", role, scopes.join(","), String(signedAt), "", nonce].join("|");
+    const signature = crypto.sign(null, Buffer.from(signPayload), privateKeyObj).toString("hex");
 
     const result = await this.request("connect", {
       minProtocol: 3, maxProtocol: 3,
-      client: { id: "openclaw-cli", platform: "cli", mode: "cli", version: "2026.3.28" },
+      client: { id: "openclaw-control-ui", platform: "web", mode: "webchat", version: "2026.3.28" },
       role, scopes,
-      caps: ["tool-events"],
-      auth: gatewayToken ? { token: gatewayToken } : {},
-      userAgent: "A2AServer/1.0", locale: "es",
+      device: { id: deviceId, publicKey: pubHex, signature, signedAt, nonce },
+      caps: ["tool-events"], auth: {}, userAgent: "A2AServer/1.0", locale: "es",
     });
     console.log("[a2a-ws] Connected! Protocol:", result?.protocol, "Auth:", result?.auth?.role);
     this.connected = true;
