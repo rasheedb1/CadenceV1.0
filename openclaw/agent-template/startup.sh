@@ -62,9 +62,18 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# --- Step 4: Start A2A server on $PORT (Railway-exposed) ---
-# A2A server handles: Agent Card, message/send, and proxies the rest to gateway
+# --- Step 4: Debug gateway config ---
+echo "[startup] Gateway config after boot:"
+cat /home/node/.openclaw/openclaw.json 2>/dev/null | grep -A5 auth || echo "No auth in config"
+echo "[startup] Files in .openclaw:"
+ls -la /home/node/.openclaw/*.json 2>/dev/null || echo "No json files"
+
+# Quick test: can we reach the gateway without auth?
+echo "[startup] Testing gateway auth..."
+curl -s http://127.0.0.1:18789/v1/chat/completions -X POST -H "Content-Type: application/json" -d '{"model":"openclaw/default","messages":[{"role":"user","content":"PONG"}]}' 2>&1 | head -c 200
+echo ""
+
+# --- Step 5: Start A2A server on $PORT (Railway-exposed) ---
 echo "[startup] Starting A2A server on port ${PORT:-8080}..."
-echo "[startup] A2A node_modules: $(ls ${A2A_DIR}/node_modules/ 2>/dev/null | head -5 || echo 'MISSING')"
 cd "${A2A_DIR}"
 exec node a2a-server.js
