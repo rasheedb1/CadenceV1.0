@@ -77,14 +77,26 @@ async function logToAgentMessages(fromAgentId, toAgentId, role, content, metadat
 }
 
 // --- OpenClaw Gateway integration ---
+const fs = require("fs");
+function getGatewayToken() {
+  try {
+    const config = JSON.parse(fs.readFileSync("/home/node/.openclaw/openclaw.json", "utf8"));
+    return config?.gateway?.auth?.token || "";
+  } catch { return ""; }
+}
+
 async function sendToGateway(message, timeoutMs = 120000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const gwToken = getGatewayToken();
 
   try {
     const res = await fetch(`${GATEWAY_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(gwToken ? { Authorization: `Bearer ${gwToken}` } : {}),
+      },
       body: JSON.stringify({
         model: "openclaw/default",
         messages: [{ role: "user", content: message }],
