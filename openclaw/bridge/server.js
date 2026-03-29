@@ -2130,6 +2130,31 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
       // Check if agent said "COMPLETADO"
       const isCompleted = output.trim().toUpperCase().startsWith("COMPLETADO") || output.trim().toUpperCase().startsWith("DONE");
 
+      // --- Loop detection: compare last 3 iteration summaries ---
+      let isStuck = false;
+      if (project.current_iteration >= 3) {
+        const recentIterRows = await sbFetch(`${SB_URL}/rest/v1/agent_project_iterations?project_id=eq.${project.id}&order=iteration_number.desc&limit=3&select=output_summary`, { headers: sbHeaders() });
+        if (Array.isArray(recentIterRows) && recentIterRows.length >= 3) {
+          const summaries = recentIterRows.map(r => (r.output_summary || "").toLowerCase().trim());
+          // Check similarity: if all 3 summaries share >60% of words, it's a loop
+          const wordSets = summaries.map(s => new Set(s.split(/\s+/).filter(w => w.length > 3)));
+          const commonWords01 = [...wordSets[0]].filter(w => wordSets[1].has(w)).length;
+          const commonWords12 = [...wordSets[1]].filter(w => wordSets[2].has(w)).length;
+          const avgSize = (wordSets[0].size + wordSets[1].size + wordSets[2].size) / 3;
+          if (avgSize > 5 && commonWords01 / avgSize > 0.6 && commonWords12 / avgSize > 0.6) {
+            isStuck = true;
+            console.log(`[collab] Loop detected in "${project.name}" — pausing for human input`);
+          }
+        }
+      }
+
+      // --- Escalation: agent asks for help ---
+      const needsInput = /necesito (tu |su )?(input|ayuda|decisión|dirección)/i.test(output)
+        || /no puedo continuar/i.test(output)
+        || /bloqueado|blocked|stuck/i.test(output);
+
+      const shouldPause = isStuck || needsInput;
+
       // Update project
       const newIteration = project.current_iteration + 1;
       await sbFetch(`${SB_URL}/rest/v1/agent_projects?id=eq.${project.id}`, {
@@ -2139,14 +2164,28 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
           project_memory: newMemory,
           updated_at: new Date().toISOString(),
           ...(isCompleted ? { status: "completed" } : {}),
+          ...(shouldPause && !isCompleted ? { status: "paused" } : {}),
         }),
       });
 
-      console.log(`[collab] ${agent.name} responded (${durationMs}ms, ${output.length} chars) ${isCompleted ? "→ COMPLETED" : ""}`);
+      console.log(`[collab] ${agent.name} responded (${durationMs}ms, ${output.length} chars) ${isCompleted ? "→ COMPLETED" : shouldPause ? "→ PAUSED" : ""}`);
 
-      // Checkpoint notification
+      // Notifications
       if (isCompleted) {
         await notifyUserByOrg(project.org_id, `🎉 *Proyecto "${project.name}" COMPLETADO*\n\n${agent.name} indicó que el trabajo está listo.\n\n📊 Iteraciones: ${newIteration}\n\nÚltimo resultado:\n${outputSummary}`);
+      } else if (isStuck) {
+        await notifyUserByOrg(project.org_id,
+          `⚠️ *Proyecto "${project.name}" — necesito tu ayuda*\n\n` +
+          `Los agentes llevan ${newIteration} iteraciones y parece que están repitiendo lo mismo.\n\n` +
+          `Último resultado de ${agent.name}:\n${outputSummary}\n\n` +
+          `*¿Qué quieres que hagan?* Responde con instrucciones específicas y digo "continuar proyecto".`
+        );
+      } else if (needsInput) {
+        await notifyUserByOrg(project.org_id,
+          `🤚 *Proyecto "${project.name}" — ${agent.name} necesita tu input*\n\n` +
+          `${outputSummary}\n\n` +
+          `Responde con tu decisión y digo "continuar proyecto".`
+        );
       } else if (newIteration % (project.checkpoint_every || 3) === 0) {
         // Get recent iterations for summary
         const recentRows = await sbFetch(`${SB_URL}/rest/v1/agent_project_iterations?project_id=eq.${project.id}&order=iteration_number.desc&limit=${project.checkpoint_every || 3}&select=iteration_number,agent_id,output_summary`, { headers: sbHeaders() });
