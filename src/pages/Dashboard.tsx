@@ -44,6 +44,7 @@ import {
   Target,
 } from 'lucide-react'
 import { LinkedInUsageWidget } from '@/components/dashboard/LinkedInUsageWidget'
+import { AgentsWidget } from '@/components/dashboard/AgentsWidget'
 import type { Cadence, ActivityLogEntry, StepType } from '@/types'
 import { STEP_TYPE_CONFIG, CADENCE_LEAD_STATUS_CONFIG } from '@/types'
 
@@ -197,9 +198,9 @@ export function Dashboard() {
 
   // Get lead name by ID
   const getLeadName = (leadId: string | null) => {
-    if (!leadId) return 'Unknown Lead'
+    if (!leadId) return 'Lead Desconocido'
     const lead = leads.find((l) => l.id === leadId)
-    return lead ? `${lead.first_name} ${lead.last_name}` : 'Unknown Lead'
+    return lead ? `${lead.first_name} ${lead.last_name}` : 'Lead Desconocido'
   }
 
   // Get cadence name by ID
@@ -212,17 +213,17 @@ export function Dashboard() {
   // Format action for display
   const formatAction = (action: string) => {
     const actionMap: Record<string, string> = {
-      linkedin_message: 'LinkedIn Message',
-      linkedin_connect: 'Connection Request',
-      linkedin_like: 'LinkedIn Like',
-      linkedin_comment: 'LinkedIn Comment',
+      linkedin_message: 'Mensaje LinkedIn',
+      linkedin_connect: 'Solicitud de Conexión',
+      linkedin_like: 'Like en LinkedIn',
+      linkedin_comment: 'Comentario LinkedIn',
       send_email: 'Email',
       whatsapp: 'WhatsApp',
-      cold_call: 'Cold Call',
-      task: 'Task',
-      lead_created: 'Lead Created',
-      lead_assigned: 'Lead Assigned',
-      cadence_activated: 'Cadence Activated',
+      cold_call: 'Llamada en Frío',
+      task: 'Tarea',
+      lead_created: 'Lead Creado',
+      lead_assigned: 'Lead Asignado',
+      cadence_activated: 'Cadencia Activada',
     }
     return actionMap[action] || action.replace(/_/g, ' ')
   }
@@ -236,10 +237,10 @@ export function Dashboard() {
     const diffHours = Math.floor(diffMs / 3600000)
     const diffDays = Math.floor(diffMs / 86400000)
 
-    if (diffMins < 1) return 'Just now'
-    if (diffMins < 60) return `${diffMins}m ago`
-    if (diffHours < 24) return `${diffHours}h ago`
-    if (diffDays < 7) return `${diffDays}d ago`
+    if (diffMins < 1) return 'Ahora mismo'
+    if (diffMins < 60) return `hace ${diffMins}m`
+    if (diffHours < 24) return `hace ${diffHours}h`
+    if (diffDays < 7) return `hace ${diffDays}d`
     return date.toLocaleDateString()
   }
 
@@ -386,8 +387,9 @@ export function Dashboard() {
         ))}
       </div>
 
-      {/* LinkedIn Usage Widget */}
-      <div className="mt-6">
+      {/* Agents + LinkedIn Usage Widgets */}
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <AgentsWidget />
         <LinkedInUsageWidget />
       </div>
 
@@ -431,7 +433,7 @@ export function Dashboard() {
                 <p className="mb-2 text-sm text-muted-foreground">Aún no hay cadencias</p>
                 <Button onClick={() => navigate('/cadences')}>
                   <Plus className="mr-2 h-4 w-4" />
-                  Create Your First Cadence
+                  Crear Primera Cadencia
                 </Button>
               </div>
             ) : (
@@ -580,10 +582,10 @@ export function Dashboard() {
             {leads.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8">
                 <Users className="mb-4 h-12 w-12 text-muted-foreground" />
-                <p className="mb-2 text-sm text-muted-foreground">No leads yet</p>
+                <p className="mb-2 text-sm text-muted-foreground">Aún no hay leads</p>
                 <Button onClick={() => navigate('/leads')}>
                   <Plus className="mr-2 h-4 w-4" />
-                  Add Your First Lead
+                  Agregar Primer Lead
                 </Button>
               </div>
             ) : (
@@ -591,11 +593,11 @@ export function Dashboard() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b text-left text-sm text-muted-foreground">
-                      <th className="pb-3 font-medium">Name</th>
-                      <th className="pb-3 font-medium">Company</th>
-                      <th className="pb-3 font-medium">Cadence</th>
-                      <th className="pb-3 font-medium">Status</th>
-                      <th className="pb-3 font-medium">Added</th>
+                      <th className="pb-3 font-medium">Nombre</th>
+                      <th className="pb-3 font-medium">Empresa</th>
+                      <th className="pb-3 font-medium">Cadencia</th>
+                      <th className="pb-3 font-medium">Estado</th>
+                      <th className="pb-3 font-medium">Agregado</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -612,7 +614,7 @@ export function Dashboard() {
                               {lead.first_name} {lead.last_name}
                             </p>
                             <p className="text-sm text-muted-foreground">
-                              {lead.email || 'No email'}
+                              {lead.email || 'Sin email'}
                             </p>
                           </td>
                           <td className="py-3 text-sm">
@@ -672,7 +674,7 @@ export function Dashboard() {
                   </Badge>
                 </DialogTitle>
                 <DialogDescription>
-                  {selectedCadence?.description || 'Cadence details and statistics'}
+                  {selectedCadence?.description || 'Detalles y estadísticas de la cadencia'}
                 </DialogDescription>
               </div>
             </div>
@@ -696,7 +698,7 @@ export function Dashboard() {
                       </div>
                       <div className="rounded-lg border p-3 text-center">
                         <p className="text-2xl font-bold">{stats.connectionsSent}</p>
-                        <p className="text-xs text-muted-foreground">Connections</p>
+                        <p className="text-xs text-muted-foreground">Conexiones</p>
                       </div>
                       <div className="rounded-lg border p-3 text-center">
                         <p className="text-2xl font-bold">{stats.successRate}%</p>
@@ -707,7 +709,7 @@ export function Dashboard() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="rounded-lg border p-3 text-center">
                         <p className="text-xl font-bold">{stats.likesComments}</p>
-                        <p className="text-xs text-muted-foreground">Likes/Comments</p>
+                        <p className="text-xs text-muted-foreground">Likes/Comentarios</p>
                       </div>
                       <div className="rounded-lg border p-3 text-center">
                         <p className="text-xl font-bold">{stats.activeLeads}</p>
@@ -717,7 +719,7 @@ export function Dashboard() {
 
                     {/* Steps with Lead Counts */}
                     <div>
-                      <h3 className="font-medium mb-3">Steps ({selectedCadence.steps?.length || 0})</h3>
+                      <h3 className="font-medium mb-3"> Pasos ({selectedCadence.steps?.length || 0})</h3>
                       {selectedCadence.steps && selectedCadence.steps.length > 0 ? (
                         <div className="space-y-2">
                           {[...selectedCadence.steps]
@@ -745,7 +747,7 @@ export function Dashboard() {
                                   <div className="flex-1">
                                     <p className="font-medium text-sm">{step.step_label}</p>
                                     <p className="text-xs text-muted-foreground">
-                                      Day {step.day_offset} | {config.channel}
+                                      Día {step.day_offset} | {config.channel}
                                     </p>
                                   </div>
                                   <Badge variant="outline">
@@ -757,7 +759,7 @@ export function Dashboard() {
                         </div>
                       ) : (
                         <p className="text-sm text-muted-foreground">
-                          No steps defined yet
+                          Aún no hay pasos definidos
                         </p>
                       )}
                     </div>
@@ -781,7 +783,7 @@ export function Dashboard() {
                 }
               }}
             >
-              Edit Cadence
+              Editar Cadencia
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </div>

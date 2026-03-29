@@ -188,7 +188,7 @@ export function Settings() {
     const confirmPassword = formData.get('confirmPassword') as string
 
     if (newPassword !== confirmPassword) {
-      setMessage({ type: 'error', text: 'Passwords do not match' })
+      setMessage({ type: 'error', text: 'Las contraseñas no coinciden' })
       setLoading(false)
       return
     }
@@ -198,7 +198,7 @@ export function Settings() {
     if (error) {
       setMessage({ type: 'error', text: error.message })
     } else {
-      setMessage({ type: 'success', text: 'Password updated successfully' })
+      setMessage({ type: 'success', text: 'Contraseña actualizada correctamente' })
       e.currentTarget.reset()
     }
     setLoading(false)
@@ -218,8 +218,8 @@ export function Settings() {
   return (
     <div className="p-8">
       <div className="mb-8">
-        <h1 className="text-[28px] font-bold tracking-tight font-heading">Settings</h1>
-        <p className="text-muted-foreground">Manage your account settings</p>
+        <h1 className="text-[28px] font-bold tracking-tight font-heading">Configuración</h1>
+        <p className="text-muted-foreground">Administra la configuración de tu cuenta</p>
         <div className="flex gap-2 mt-4">
           <Link to="/settings" className="px-3 py-1.5 text-sm font-medium rounded-md bg-primary text-primary-foreground">
             Account
@@ -259,7 +259,7 @@ export function Settings() {
           <CardContent>
             <form onSubmit={handleUpdatePassword} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="newPassword">New Password</Label>
+                <Label htmlFor="newPassword">Nueva Contraseña</Label>
                 <Input
                   id="newPassword"
                   name="newPassword"
@@ -269,7 +269,7 @@ export function Settings() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Label htmlFor="confirmPassword">Confirmar Contraseña</Label>
                 <Input
                   id="confirmPassword"
                   name="confirmPassword"
@@ -288,7 +288,7 @@ export function Settings() {
                 </p>
               )}
               <Button type="submit" disabled={loading}>
-                {loading ? 'Updating...' : 'Update Password'}
+                {loading ? 'Updating...' : 'Actualizar Contraseña'}
               </Button>
             </form>
           </CardContent>
@@ -539,7 +539,7 @@ export function Settings() {
                         setSfOwnerDropdownOpen(true)
                       }}
                       onFocus={() => setSfOwnerDropdownOpen(true)}
-                      placeholder="Search by name..."
+                      placeholder="Buscar por nombre..."
                       className="pl-8 pr-8"
                     />
                     {sfOwnerSearch && (
@@ -588,7 +588,7 @@ export function Settings() {
               </p>
             )}
             <Button onClick={handleSaveSalesProfile} disabled={salesProfileSaving || !jobRole}>
-              {salesProfileSaving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : 'Save Sales Profile'}
+              {salesProfileSaving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : 'Guardar Perfil de Ventas'}
             </Button>
           </CardContent>
         </Card>

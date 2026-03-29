@@ -5,6 +5,7 @@ import { useOrg } from '@/contexts/OrgContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Sidebar } from './Sidebar'
 import { AppHeader } from './AppHeader'
+import { FloatingActionButton } from '@/components/FloatingActionButton'
 import { LogOut, Moon, Sun, Settings } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -45,7 +46,7 @@ export function MainLayout() {
     const origin = sessionStorage.getItem('gmailOAuthOrigin') || '/settings'
     sessionStorage.removeItem('gmailOAuthOrigin')
 
-    toast.loading('Connecting Google account...')
+    toast.loading('Conectando cuenta de Google...')
     fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ae-google-callback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -55,15 +56,15 @@ export function MainLayout() {
       .then(result => {
         toast.dismiss()
         if (result.error) {
-          toast.error('Google connection failed: ' + result.error)
+          toast.error('Error al conectar Google: ' + result.error)
         } else {
-          toast.success('Google connected' + (result.email ? ' as ' + result.email : '') + '!')
+          toast.success('Google conectado' + (result.email ? ' como ' + result.email : '') + '!')
         }
         navigate(origin)
       })
       .catch(() => {
         toast.dismiss()
-        toast.error('Google connection failed')
+        toast.error('Error al conectar Google')
         navigate(origin)
       })
   }, [session?.access_token, navigate])
@@ -97,7 +98,7 @@ export function MainLayout() {
           <button
             onClick={toggleTheme}
             className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-            aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+            aria-label={`Cambiar a modo ${theme === 'light' ? 'oscuro' : 'claro'}`}
           >
             {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
           </button>
@@ -116,12 +117,12 @@ export function MainLayout() {
             <DropdownMenuContent align="end" className="w-[200px]">
               <DropdownMenuItem onClick={() => navigate('/settings')}>
                 <Settings className="h-4 w-4 mr-2" />
-                Settings
+                Configuración
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={signOut} className="text-red-600 focus:text-red-600">
                 <LogOut className="h-4 w-4 mr-2" />
-                Sign out
+                Cerrar sesión
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -131,6 +132,7 @@ export function MainLayout() {
         <main className="flex-1 overflow-y-auto overflow-x-hidden pl-2">
           <Outlet />
         </main>
+        <FloatingActionButton />
       </div>
     </div>
   )

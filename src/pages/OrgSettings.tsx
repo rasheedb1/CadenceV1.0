@@ -56,7 +56,7 @@ export function OrgSettings() {
 
       if (error) throw error
       refreshOrgs()
-      toast.success('Organization updated')
+      toast.success('Organización actualizada')
     } catch {
       toast.error('Failed to update organization')
     } finally {
