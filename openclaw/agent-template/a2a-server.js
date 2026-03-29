@@ -86,14 +86,11 @@ function sendToGateway(message, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("CLI timeout")), timeoutMs);
 
-    // Use OpenClaw CLI to send the message
+    // Use OpenClaw CLI "agent" command — runs one agent turn via the Gateway
     // The CLI handles all auth (device pairing, WebSocket, etc.)
     execFile("node", [
-      "/app/dist/index.js", "chat",
+      "/app/dist/index.js", "agent",
       "--message", message,
-      "--session", "a2a-" + Date.now(),
-      "--no-interactive",
-      "--format", "text",
     ], {
       cwd: "/app",
       timeout: timeoutMs,
