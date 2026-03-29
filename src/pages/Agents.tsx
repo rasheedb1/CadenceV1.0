@@ -144,13 +144,13 @@ export function Agents() {
             </DialogHeader>
             <div className="space-y-4 py-2">
               <div className="space-y-2">
-                <Label htmlFor="agent-name">Name</Label>
-                <Input id="agent-name" placeholder="e.g., CPO Agent" value={name} onChange={e => setName(e.target.value)} />
+                <Label htmlFor="agent-name">Nombre</Label>
+                <Input id="agent-name" placeholder="ej. Agente CPO" value={name} onChange={e => setName(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="agent-role">Role</Label>
+                <Label htmlFor="agent-role">Rol</Label>
                 <Select value={role} onValueChange={setRole}>
-                  <SelectTrigger><SelectValue placeholder="Select a role" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Selecciona un rol" /></SelectTrigger>
                   <SelectContent>
                     {ROLE_OPTIONS.map(opt => (
                       <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
@@ -162,14 +162,14 @@ export function Agents() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="agent-desc">Description</Label>
-                <Textarea id="agent-desc" placeholder="What should this agent do?" value={description} onChange={e => setDescription(e.target.value)} rows={2} />
+                <Label htmlFor="agent-desc">Descripción</Label>
+                <Textarea id="agent-desc" placeholder="¿Qué debería hacer este agente?" value={description} onChange={e => setDescription(e.target.value)} rows={2} />
               </div>
 
               {/* Skills Selection */}
               <div>
                 <Button variant="outline" size="sm" className="w-full justify-between" type="button" onClick={() => setSkillsOpen(!skillsOpen)}>
-                  Skills ({selectedSkills.length} selected)
+                  Skills ({selectedSkills.length} seleccionados)
                   <ChevronDown className={`h-4 w-4 transition-transform ${skillsOpen ? 'rotate-180' : ''}`} />
                 </Button>
                 {skillsOpen && (
@@ -195,9 +195,9 @@ export function Agents() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancelar</Button>
               <Button onClick={handleCreate} disabled={creating || !name || !role}>
-                {creating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creating...</> : 'Create Agent'}
+                {creating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creando...</> : 'Crear Agente'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -209,7 +209,7 @@ export function Agents() {
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Bot className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-1">Aún no hay agentes</h3>
-            <p className="text-muted-foreground text-sm mb-4">Create your first AI agent to get started</p>
+            <p className="text-muted-foreground text-sm mb-4">Crea tu primer agente de IA para comenzar</p>
             <Button onClick={() => setIsCreateOpen(true)}><Plus className="mr-2 h-4 w-4" />Crear Agente</Button>
           </CardContent>
         </Card>
@@ -221,6 +221,10 @@ export function Agents() {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.08 * idx, duration: 0.35, ease: 'easeOut' }}
+            >
+            <motion.div
+              whileHover={{ scale: 1.02, y: -4 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 20 }}
             >
             <Card className="cursor-pointer transition-shadow hover:shadow-md" onClick={() => navigate(`/agents/${agent.id}`)}>
               <CardHeader className="flex flex-row items-start justify-between space-y-0">
@@ -234,7 +238,7 @@ export function Agents() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem className="text-destructive" disabled={deleting === agent.id} onClick={e => handleDelete(agent.id, e)}>
-                      <Trash2 className="mr-2 h-4 w-4" />Delete
+                      <Trash2 className="mr-2 h-4 w-4" />Eliminar
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -257,6 +261,7 @@ export function Agents() {
                 <p className="text-xs text-muted-foreground mt-2">Creado el {new Date(agent.created_at).toLocaleDateString()}</p>
               </CardContent>
             </Card>
+            </motion.div>
             </motion.div>
           ))}
         </div>
