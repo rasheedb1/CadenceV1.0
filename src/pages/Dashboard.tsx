@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { motion } from 'motion/react'
 import { cn } from '@/lib/utils'
 import { useQuery } from '@tanstack/react-query'
 import { useCadence } from '@/contexts/CadenceContext'
@@ -251,32 +252,32 @@ export function Dashboard() {
   // Stats cards configuration
   const stats = [
     {
-      title: 'Active Cadences',
+      title: 'Cadencias Activas',
       value: activeCadences,
       total: cadences.length,
       icon: Workflow,
-      description: 'Running sequences',
+      description: 'Secuencias en ejecución',
       onClick: () => navigate('/cadences'),
     },
     {
       title: 'Total Leads',
       value: totalLeads,
       icon: Users,
-      description: `${activeLeads} active, ${pendingLeads} pending`,
+      description: `${activeLeads} activos, ${pendingLeads} pendientes`,
       onClick: () => navigate('/leads'),
     },
     {
-      title: 'Messages Sent',
+      title: 'Mensajes Enviados',
       value: messagesSentThisWeek,
       icon: MessageSquare,
-      description: 'This week',
+      description: 'Esta semana',
       onClick: () => navigate('/admin/logs'),
     },
     {
-      title: 'Response Rate',
+      title: 'Tasa de Respuesta',
       value: responseRate,
       icon: TrendingUp,
-      description: 'Average across cadences',
+      description: 'Promedio entre cadencias',
       onClick: () => navigate('/admin/metrics'),
     },
   ]
@@ -290,7 +291,12 @@ export function Dashboard() {
   }
 
   return (
-    <div className="p-8">
+    <motion.div
+      className="p-8"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: 'easeOut' }}
+    >
       {/* ── World Switcher ─────────────────────────────────────────────── */}
       <div className="mb-8 grid grid-cols-2 gap-4">
         {/* SDR / Prospecting — active world */}
@@ -300,10 +306,10 @@ export function Dashboard() {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <p className="font-semibold text-sm">SDR / Prospecting</p>
-              <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">Active</span>
+              <p className="font-semibold text-sm">SDR / Prospección</p>
+              <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">Activo</span>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">Cadences, leads, account mapping, outreach</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Cadencias, leads, mapeo de cuentas, outreach</p>
           </div>
         </div>
 
@@ -316,8 +322,8 @@ export function Dashboard() {
             <Star className="h-6 w-6 text-muted-foreground group-hover:text-amber-500 transition-colors" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-sm group-hover:text-amber-600 transition-colors">Account Executive</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Gong calls, calendar, email follow-ups</p>
+            <p className="font-semibold text-sm group-hover:text-amber-600 transition-colors">Ejecutivo de Cuenta</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Llamadas, calendario, seguimiento por email</p>
           </div>
           <ArrowRight className="h-5 w-5 text-muted-foreground group-hover:text-amber-500 shrink-0 transition-colors" />
         </div>
@@ -326,18 +332,18 @@ export function Dashboard() {
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight font-heading">Dashboard</h1>
-          <p className="text-muted-foreground">Overview of your sales automation</p>
+          <p className="text-muted-foreground">Resumen de tu automatización de ventas</p>
         </div>
 
         {/* Quick Actions */}
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => navigate('/leads')}>
             <Upload className="mr-2 h-4 w-4" />
-            Import Leads
+            Importar Leads
           </Button>
           <Button onClick={() => navigate('/cadences')}>
             <Plus className="mr-2 h-4 w-4" />
-            Create Cadence
+            Crear Cadencia
           </Button>
         </div>
       </div>
@@ -345,8 +351,13 @@ export function Dashboard() {
       {/* Stats Cards */}
       <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
         {stats.map((stat, index) => (
-          <Card
+          <motion.div
             key={stat.title}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 + index * 0.08, duration: 0.35, ease: 'easeOut' }}
+          >
+          <Card
             className={cn(
               'cursor-pointer transition-shadow hover:shadow-md',
               index === 0 && 'featured-card-gradient text-white border-0'
@@ -371,6 +382,7 @@ export function Dashboard() {
               <p className={cn("text-xs", index === 0 ? "text-white/70" : "text-muted-foreground")}>{stat.description}</p>
             </CardContent>
           </Card>
+          </motion.div>
         ))}
       </div>
 
@@ -382,19 +394,19 @@ export function Dashboard() {
       {/* Quick Links */}
       <div className="mt-6 flex gap-4">
         <Button variant="link" className="p-0" onClick={() => navigate('/cadences')}>
-          View All Cadences
+          Ver Todas las Cadencias
           <ChevronRight className="ml-1 h-4 w-4" />
         </Button>
         <Button variant="link" className="p-0" onClick={() => navigate('/leads')}>
-          View All Leads
+          Ver Todos los Leads
           <ChevronRight className="ml-1 h-4 w-4" />
         </Button>
         <Button variant="link" className="p-0" onClick={() => navigate('/inbox')}>
-          LinkedIn Inbox
+          Inbox LinkedIn
           <ChevronRight className="ml-1 h-4 w-4" />
         </Button>
         <Button variant="link" className="p-0" onClick={() => navigate('/outreach')}>
-          Outreach Activity
+          Actividad de Outreach
           <ChevronRight className="ml-1 h-4 w-4" />
         </Button>
       </div>
@@ -404,11 +416,11 @@ export function Dashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
-              <CardTitle>Recent Cadences</CardTitle>
-              <CardDescription>Click to view details and statistics</CardDescription>
+              <CardTitle>Cadencias Recientes</CardTitle>
+              <CardDescription>Haz clic para ver detalles y estadísticas</CardDescription>
             </div>
             <Button variant="ghost" size="sm" onClick={() => navigate('/cadences')}>
-              View All
+              Ver Todas
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </CardHeader>
@@ -416,7 +428,7 @@ export function Dashboard() {
             {cadences.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8">
                 <Workflow className="mb-4 h-12 w-12 text-muted-foreground" />
-                <p className="mb-2 text-sm text-muted-foreground">No cadences yet</p>
+                <p className="mb-2 text-sm text-muted-foreground">Aún no hay cadencias</p>
                 <Button onClick={() => navigate('/cadences')}>
                   <Plus className="mr-2 h-4 w-4" />
                   Create Your First Cadence
@@ -460,7 +472,7 @@ export function Dashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
-              <CardTitle>Recent Activity</CardTitle>
+              <CardTitle>Actividad Reciente</CardTitle>
               <CardDescription>Last 10 actions across all cadences</CardDescription>
             </div>
             <Button variant="ghost" size="sm" onClick={() => navigate('/admin/logs')}>
@@ -472,7 +484,7 @@ export function Dashboard() {
             {recentActivities.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8">
                 <Activity className="mb-4 h-12 w-12 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">No activity yet</p>
+                <p className="text-sm text-muted-foreground">Aún no hay actividad</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   Activity will appear here when you start using cadences
                 </p>
@@ -680,7 +692,7 @@ export function Dashboard() {
                       </div>
                       <div className="rounded-lg border p-3 text-center">
                         <p className="text-2xl font-bold">{stats.messagesSent}</p>
-                        <p className="text-xs text-muted-foreground">Messages Sent</p>
+                        <p className="text-xs text-muted-foreground">Mensajes Enviados</p>
                       </div>
                       <div className="rounded-lg border p-3 text-center">
                         <p className="text-2xl font-bold">{stats.connectionsSent}</p>
@@ -688,7 +700,7 @@ export function Dashboard() {
                       </div>
                       <div className="rounded-lg border p-3 text-center">
                         <p className="text-2xl font-bold">{stats.successRate}%</p>
-                        <p className="text-xs text-muted-foreground">Success Rate</p>
+                        <p className="text-xs text-muted-foreground">Tasa de Éxito</p>
                       </div>
                     </div>
 
@@ -699,7 +711,7 @@ export function Dashboard() {
                       </div>
                       <div className="rounded-lg border p-3 text-center">
                         <p className="text-xl font-bold">{stats.activeLeads}</p>
-                        <p className="text-xs text-muted-foreground">Active Leads</p>
+                        <p className="text-xs text-muted-foreground">Leads Activos</p>
                       </div>
                     </div>
 
@@ -775,6 +787,6 @@ export function Dashboard() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </motion.div>
   )
 }

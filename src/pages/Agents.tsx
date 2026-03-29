@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { motion } from 'motion/react'
 import { useAgents } from '@/contexts/AgentContext'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -121,20 +122,25 @@ export function Agents() {
   }
 
   return (
-    <div className="p-8">
+    <motion.div
+      className="p-8"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: 'easeOut' }}
+    >
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-[28px] font-bold tracking-tight font-heading">AI Agents</h1>
-          <p className="text-muted-foreground mt-1">Create and manage AI agents with specific roles</p>
+          <h1 className="text-[28px] font-bold tracking-tight font-heading">Agentes IA</h1>
+          <p className="text-muted-foreground mt-1">Crea y gestiona agentes de IA con roles específicos</p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
-            <Button><Plus className="mr-2 h-4 w-4" />Create Agent</Button>
+            <Button><Plus className="mr-2 h-4 w-4" />Crear Agente</Button>
           </DialogTrigger>
           <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Create Agent</DialogTitle>
-              <DialogDescription>Create a new AI agent with a specific role and capabilities</DialogDescription>
+              <DialogTitle>Crear Agente</DialogTitle>
+              <DialogDescription>Crea un nuevo agente de IA con un rol y capacidades específicas</DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
               <div className="space-y-2">
@@ -202,19 +208,25 @@ export function Agents() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Bot className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-1">No agents yet</h3>
+            <h3 className="text-lg font-medium mb-1">Aún no hay agentes</h3>
             <p className="text-muted-foreground text-sm mb-4">Create your first AI agent to get started</p>
-            <Button onClick={() => setIsCreateOpen(true)}><Plus className="mr-2 h-4 w-4" />Create Agent</Button>
+            <Button onClick={() => setIsCreateOpen(true)}><Plus className="mr-2 h-4 w-4" />Crear Agente</Button>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {agents.map(agent => (
-            <Card key={agent.id} className="cursor-pointer transition-shadow hover:shadow-md" onClick={() => navigate(`/agents/${agent.id}`)}>
+          {agents.map((agent, idx) => (
+            <motion.div
+              key={agent.id}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.08 * idx, duration: 0.35, ease: 'easeOut' }}
+            >
+            <Card className="cursor-pointer transition-shadow hover:shadow-md" onClick={() => navigate(`/agents/${agent.id}`)}>
               <CardHeader className="flex flex-row items-start justify-between space-y-0">
                 <div className="space-y-1 min-w-0 flex-1">
                   <CardTitle className="text-base truncate">{agent.name}</CardTitle>
-                  <CardDescription className="line-clamp-2">{agent.description || 'No description'}</CardDescription>
+                  <CardDescription className="line-clamp-2">{agent.description || 'Sin descripción'}</CardDescription>
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
@@ -230,15 +242,25 @@ export function Agents() {
               <CardContent>
                 <div className="flex items-center gap-2 flex-wrap">
                   <Badge variant="outline">{ROLE_OPTIONS.find(r => r.value === agent.role)?.label || agent.role}</Badge>
-                  <Badge className={STATUS_COLORS[agent.status] || STATUS_COLORS.draft}>{agent.status}</Badge>
+                  <Badge className={STATUS_COLORS[agent.status] || STATUS_COLORS.draft}>
+                    {agent.status === 'active' && (
+                      <motion.span
+                        className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mr-1.5"
+                        animate={{ opacity: [1, 0.3, 1] }}
+                        transition={{ duration: 1.5, repeat: Infinity }}
+                      />
+                    )}
+                    {agent.status}
+                  </Badge>
                   <span className="text-xs text-muted-foreground">{agent.agent_skills?.length || 0} skills</span>
                 </div>
-                <p className="text-xs text-muted-foreground mt-2">Created {new Date(agent.created_at).toLocaleDateString()}</p>
+                <p className="text-xs text-muted-foreground mt-2">Creado el {new Date(agent.created_at).toLocaleDateString()}</p>
               </CardContent>
             </Card>
+            </motion.div>
           ))}
         </div>
       )}
-    </div>
+    </motion.div>
   )
 }

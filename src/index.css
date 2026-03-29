@@ -119,6 +119,44 @@
   }
 }
 
+/* ─── Solar System Orbit Animations ──────────────────────────────────── */
+@layer utilities {
+  .solar-orbit {
+    animation: solar-orbit-spin var(--orbit-duration, 90s) linear infinite;
+  }
+  .solar-counter-rotate {
+    animation: solar-counter-spin var(--orbit-duration, 90s) linear infinite;
+  }
+}
+
+@keyframes solar-orbit-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes solar-counter-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+
+/* ─── Page transition helpers ────────────────────────────────────────── */
+@layer utilities {
+  .page-enter {
+    animation: page-fade-up 0.35s ease-out both;
+  }
+}
+
+@keyframes page-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 [data-theme="dark"] .featured-card-gradient {
   background: linear-gradient(135deg, #8B5CF6, #6366F1);
 }
