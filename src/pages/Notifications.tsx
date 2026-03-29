@@ -34,6 +34,7 @@ import {
 } from 'lucide-react'
 import type { AppNotification } from '@/types'
 import { STEP_TYPE_CONFIG, type StepType } from '@/types'
+import { PageTransition } from '@/components/PageTransition'
 
 // ── Notification config ──
 
@@ -403,7 +404,7 @@ export function Notifications() {
   }
 
   return (
-    <div className="p-8">
+    <PageTransition className="p-8">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
@@ -856,6 +857,6 @@ export function Notifications() {
           </Card>
         </TabsContent>
       </Tabs>
-    </div>
+    </PageTransition>
   )
 }

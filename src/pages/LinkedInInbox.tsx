@@ -270,7 +270,7 @@ export function LinkedInInbox() {
       <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Loading conversations...</p>
+          <p className="text-sm text-muted-foreground">Cargando conversaciones...</p>
           <p className="text-xs text-muted-foreground">This may take ~15 seconds</p>
         </div>
       </div>
@@ -317,7 +317,7 @@ export function LinkedInInbox() {
             variant="ghost"
             size="icon"
             onClick={() => refetchChats()}
-            title="Refresh conversations"
+            title="Refrescar conversaciones"
           >
             <RefreshCw className="h-4 w-4" />
           </Button>
@@ -518,7 +518,7 @@ export function LinkedInInbox() {
             <div className="border-t p-4">
               <div className="flex gap-2">
                 <Input
-                  placeholder="Type a message..."
+                  placeholder="Escribe un mensaje..."
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyDown={(e) => {

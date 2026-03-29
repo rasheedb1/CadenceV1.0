@@ -668,7 +668,7 @@ export function LeadStepExecution() {
                 {loadingPost ? (
                   <div className="flex items-center justify-center p-8 border rounded-lg bg-muted/30">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                    <span className="ml-2 text-sm text-muted-foreground">Loading post...</span>
+                    <span className="ml-2 text-sm text-muted-foreground">Cargando publicación...</span>
                   </div>
                 ) : latestPost ? (
                   <div className="border rounded-lg p-4 bg-muted/30">
@@ -800,7 +800,7 @@ export function LeadStepExecution() {
                 <Input
                   value={emailSubject}
                   onChange={(e) => setEmailSubject(e.target.value)}
-                  placeholder="Email subject line..."
+                  placeholder="Asunto del email..."
                 />
               </div>
             )}
@@ -962,7 +962,7 @@ export function LeadStepExecution() {
             <CardContent>
               <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a template..." />
+                  <SelectValue placeholder="Seleccionar plantilla..." />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No template</SelectItem>

@@ -177,7 +177,7 @@ function AddReminderDialog({ accountId, open, onClose }: { accountId: string; op
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button onClick={handleCreate} disabled={!title.trim() || !dueAt || saving}>
             {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             Add Reminder
@@ -476,8 +476,8 @@ export function AccountExecutiveDetail() {
                   <div className="space-y-2">
                     <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={5} placeholder="Add notes about this account..." />
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={handleSaveNotes}>Save</Button>
-                      <Button size="sm" variant="outline" onClick={() => setEditingNotes(false)}>Cancel</Button>
+                      <Button size="sm" onClick={handleSaveNotes}>Guardar</Button>
+                      <Button size="sm" variant="outline" onClick={() => setEditingNotes(false)}>Cancelar</Button>
                     </div>
                   </div>
                 ) : (

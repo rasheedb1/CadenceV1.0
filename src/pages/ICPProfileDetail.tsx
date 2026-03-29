@@ -338,7 +338,7 @@ export function ICPProfileDetail() {
                   />
                 </div>
                 {!saved && (
-                  <Button size="sm" variant="outline" onClick={handleSave}>Save</Button>
+                  <Button size="sm" variant="outline" onClick={handleSave}>Guardar</Button>
                 )}
               </div>
             </div>

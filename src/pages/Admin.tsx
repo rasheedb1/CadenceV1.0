@@ -286,7 +286,7 @@ export function Admin() {
           </CardHeader>
           <CardContent>
             {!weeklyStats ? (
-              <p className="text-sm text-muted-foreground">No data for this week yet</p>
+              <p className="text-sm text-muted-foreground">Sin datos para esta semana aún</p>
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">

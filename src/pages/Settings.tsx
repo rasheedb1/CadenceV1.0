@@ -15,6 +15,7 @@ import { useLinkedInConnection } from '@/hooks/useLinkedInConnection'
 import { useGmailConnection } from '@/hooks/useGmailConnection'
 import { SalesforceConnection } from '@/components/salesforce/SalesforceConnection'
 import { useAccountExecutive } from '@/contexts/AccountExecutiveContext'
+import { PageTransition } from '@/components/PageTransition'
 
 const CLAUDE_MODELS = [
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Recommended)' },
@@ -216,7 +217,7 @@ export function Settings() {
   }
 
   return (
-    <div className="p-8">
+    <PageTransition className="p-8">
       <div className="mb-8">
         <h1 className="text-[28px] font-bold tracking-tight font-heading">Configuración</h1>
         <p className="text-muted-foreground">Administra la configuración de tu cuenta</p>
@@ -517,7 +518,7 @@ export function Settings() {
               <Label>Your Role</Label>
               <Select value={jobRole} onValueChange={v => setJobRole(v as 'sdr' | 'bdm')}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select your role" />
+                  <SelectValue placeholder="Selecciona tu rol" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="sdr">SDR — Sales Development Representative</SelectItem>
@@ -706,6 +707,6 @@ export function Settings() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </PageTransition>
   )
 }

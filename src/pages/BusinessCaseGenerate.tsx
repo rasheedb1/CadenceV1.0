@@ -113,7 +113,7 @@ function LeadPicker({
       {open && (
         <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-lg">
           <div className="p-2 border-b">
-            <Input autoFocus placeholder="Type to search…" value={search} onChange={(e) => setSearch(e.target.value)} className="h-8" />
+            <Input autoFocus placeholder="Escribe para buscar…" value={search} onChange={(e) => setSearch(e.target.value)} className="h-8" />
           </div>
           <div className="max-h-56 overflow-y-auto">
             {loading && (
@@ -481,7 +481,7 @@ export function BusinessCaseGenerate() {
                 <Label>Template</Label>
                 <Select value={templateId} onValueChange={setTemplateId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a template…" />
+                    <SelectValue placeholder="Seleccionar plantilla…" />
                   </SelectTrigger>
                   <SelectContent>
                     {activeTemplates.map((t) => (

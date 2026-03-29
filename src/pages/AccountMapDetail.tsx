@@ -503,7 +503,7 @@ export function AccountMapDetail() {
           <div className="py-4">
             <Select value={selectedICPProfileId} onValueChange={setSelectedICPProfileId}>
               <SelectTrigger>
-                <SelectValue placeholder="Select an ICP Profile..." />
+                <SelectValue placeholder="Seleccionar perfil ICP..." />
               </SelectTrigger>
               <SelectContent>
                 {icpProfiles.map((profile) => (
@@ -521,7 +521,7 @@ export function AccountMapDetail() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowICPPicker(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setShowICPPicker(false)}>Cancelar</Button>
             <Button onClick={handleICPPickerConfirm} disabled={!selectedICPProfileId}>
               Link & Continue
             </Button>
@@ -1529,7 +1529,7 @@ function ProspectsTab({
           <div className="space-y-2 py-2">
             <Label className="text-sm">Reason (optional)</Label>
             <Select value={skipReason} onValueChange={setSkipReason}>
-              <SelectTrigger><SelectValue placeholder="Select reason..." /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Seleccionar razón..." /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="wrong_person">Wrong person</SelectItem>
                 <SelectItem value="already_contacted">Already contacted</SelectItem>
@@ -1539,7 +1539,7 @@ function ProspectsTab({
             </Select>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setShowSkipDialog(null); setSkipReason('') }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setShowSkipDialog(null); setSkipReason('') }}>Cancelar</Button>
             <Button onClick={handleSkip}>Skip Prospect</Button>
           </DialogFooter>
         </DialogContent>
@@ -1557,7 +1557,7 @@ function ProspectsTab({
           <div className="space-y-2 py-2">
             <Label className="text-sm">Select Cadence</Label>
             <Select value={selectedCadence} onValueChange={setSelectedCadence}>
-              <SelectTrigger><SelectValue placeholder="Choose cadence..." /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Elegir cadencia..." /></SelectTrigger>
               <SelectContent>
                 {cadences.map(c => (
                   <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
@@ -1566,7 +1566,7 @@ function ProspectsTab({
             </Select>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setAddToCadenceProspect(null); setSelectedCadence('') }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setAddToCadenceProspect(null); setSelectedCadence('') }}>Cancelar</Button>
             <Button onClick={handleAddToCadence} disabled={!selectedCadence}>
               <ArrowUpRight className="mr-1 h-4 w-4" /> Add to Cadence
             </Button>
@@ -1650,7 +1650,7 @@ function AddCompanyDialog({
             <div className="space-y-2">
               <Label>Company Size *</Label>
               <Select value={size} onValueChange={setSize}>
-                <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
                 <SelectContent>
                   {COMPANY_SIZE_OPTIONS.map((o) => (
                     <SelectItem key={o} value={o}>{o}</SelectItem>
@@ -1681,7 +1681,7 @@ function AddCompanyDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button onClick={handleSave} disabled={saving || !name.trim() || !size}>
             {saving ? 'Saving...' : 'Add Company'}
           </Button>
@@ -1952,7 +1952,7 @@ function ImportCompaniesDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose} disabled={importing}>Cancel</Button>
+          <Button variant="outline" onClick={handleClose} disabled={importing}>Cancelar</Button>
           <Button onClick={handleImport} disabled={rows.length === 0 || importing}>
             {importing
               ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Importing…</>
@@ -2394,7 +2394,7 @@ function SearchProspectsDialog({
             </div>
             <div className="space-y-2">
               <Label>Company Name</Label>
-              <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Leave empty to search all companies" />
+              <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Dejar vacío para buscar todas las empresas" />
             </div>
           </div>
           <div className="space-y-2">
@@ -2510,13 +2510,13 @@ function SearchProspectsDialog({
                 </Table>
               </div>
             ) : (
-              <p className="py-4 text-center text-sm text-muted-foreground">No results found. Try adjusting your search criteria.</p>
+              <p className="py-4 text-center text-sm text-muted-foreground">Sin resultados. Intenta ajustar tus criterios de búsqueda.</p>
             )}
           </div>
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
           {results.length > 0 && (
             <Button onClick={handleSave} disabled={saving || selectedResults.size === 0}>
               {saving ? 'Saving...' : `Save ${selectedResults.size} Prospects`}
@@ -2818,7 +2818,7 @@ function PromoteDialog({
           <div className="space-y-2">
             <Label>Assign to Cadence (optional)</Label>
             <Select value={cadenceId} onValueChange={setCadenceId}>
-              <SelectTrigger><SelectValue placeholder="No cadence" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Sin cadencia" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">No cadence</SelectItem>
                 {cadences.map((c) => (
@@ -2834,7 +2834,7 @@ function PromoteDialog({
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={promoting}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={promoting}>Cancelar</Button>
           <Button onClick={handlePromote} disabled={promoting || prospects.length === 0}>
             {promoting ? 'Promoting...' : `Promote ${prospects.length}`}
           </Button>

@@ -41,6 +41,7 @@ import {
 } from '@/components/ui/table'
 import type { BuyerPersona, BuyingCommitteeRole } from '@/types/account-mapping'
 import { BUYING_ROLE_CONFIG } from '@/types/account-mapping'
+import { PageTransition } from '@/components/PageTransition'
 
 type TabId = 'maps' | 'icp-profiles' | 'buyer-personas'
 
@@ -244,7 +245,7 @@ export function AccountMapping() {
   // tabs hidden - ICP/Personas moved to One Time Use section
 
   return (
-    <div className="p-8">
+    <PageTransition className="p-8">
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight font-heading">
@@ -294,7 +295,7 @@ export function AccountMapping() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
-                  Cancel
+                  Cancelar
                 </Button>
                 <Button onClick={handleCreate} disabled={creating || !newName.trim()}>
                   {creating ? 'Creating...' : 'Create'}
@@ -332,7 +333,7 @@ export function AccountMapping() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsCreateProfileOpen(false)}>
-                  Cancel
+                  Cancelar
                 </Button>
                 <Button onClick={handleCreateProfile} disabled={creatingProfile || !profileName.trim()}>
                   {creatingProfile ? 'Creating...' : 'Create'}
@@ -782,7 +783,7 @@ export function AccountMapping() {
                 placeholder="e.g. We sell a payment orchestration platform to fintech companies and online marketplaces that need to process payments globally..."
               />
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAIPersonaOpen(false)}>Cancel</Button>
+                <Button variant="outline" onClick={() => setIsAIPersonaOpen(false)}>Cancelar</Button>
                 <Button
                   onClick={handleGeneratePersonasWithAI}
                   disabled={aiSuggesting || !aiProductDescription.trim()}
@@ -848,6 +849,6 @@ export function AccountMapping() {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </PageTransition>
   )
 }

@@ -95,7 +95,7 @@ export function OrgSelect() {
             </CardHeader>
             <CardContent className="space-y-4">
               <Input
-                placeholder="Organization name"
+                placeholder="Nombre de la organización"
                 value={newOrgName}
                 onChange={e => setNewOrgName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleCreateOrg()}
@@ -103,7 +103,7 @@ export function OrgSelect() {
               <div className="flex gap-2">
                 {allOrgs.length > 0 && (
                   <Button variant="outline" className="flex-1" onClick={() => setShowCreate(false)}>
-                    Cancel
+                    Cancelar
                   </Button>
                 )}
                 <Button

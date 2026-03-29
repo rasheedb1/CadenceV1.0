@@ -37,6 +37,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { PermissionGate } from '@/components/PermissionGate'
+import { PageTransition } from '@/components/PageTransition'
 
 interface Template {
   id: string
@@ -292,7 +293,7 @@ export function Templates() {
   }
 
   return (
-    <div className="p-8">
+    <PageTransition className="p-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight font-heading">Templates</h1>
@@ -401,7 +402,7 @@ export function Templates() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
-                Cancel
+                Cancelar
               </Button>
               <Button
                 onClick={() => createMutation.mutate(formData)}
@@ -503,7 +504,7 @@ export function Templates() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditOpen(false)}>
-              Cancel
+              Cancelar
             </Button>
             <Button
               onClick={() =>
@@ -603,6 +604,6 @@ export function Templates() {
           })}
         </div>
       )}
-    </div>
+    </PageTransition>
   )
 }

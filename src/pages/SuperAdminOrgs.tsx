@@ -446,7 +446,7 @@ export function SuperAdminOrgs() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => { setCreateOpen(false); setInviteResult(null) }}>
-                  {inviteResult ? 'Done' : 'Cancel'}
+                  {inviteResult ? 'Listo' : 'Cancel'}
                 </Button>
                 {!inviteResult && (
                   <Button onClick={handleCreate} disabled={creating || !newName.trim() || !newSlug.trim()}>
@@ -490,7 +490,7 @@ export function SuperAdminOrgs() {
         <Card>
           <CardContent className="p-0">
             {loading ? (
-              <div className="p-8 text-center text-muted-foreground">Loading...</div>
+              <div className="p-8 text-center text-muted-foreground">Cargando...</div>
             ) : filtered.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground">No organizations found</div>
             ) : (

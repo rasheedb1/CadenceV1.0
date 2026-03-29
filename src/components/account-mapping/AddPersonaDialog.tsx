@@ -429,7 +429,7 @@ export function AddPersonaDialog({
           <div className="flex items-center gap-2 text-xs text-muted-foreground mr-auto">
             {keywords.length > 0 && <span>{keywords.length} keyword{keywords.length !== 1 ? 's' : ''}</span>}
           </div>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button onClick={handleSave} disabled={saving || !name.trim()}>
             {saving ? 'Saving...' : isEditing ? 'Save Changes' : 'Add Persona'}
           </Button>

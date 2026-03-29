@@ -221,7 +221,7 @@ function NewAccountDialog({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button onClick={handleCreate} disabled={!name.trim() || saving}>
             {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             Create Account

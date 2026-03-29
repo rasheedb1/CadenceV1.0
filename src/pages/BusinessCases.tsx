@@ -70,7 +70,7 @@ function TrackerView({ cases, onDownload, downloadingId }: {
       <div className="relative mb-6 max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search by company..."
+          placeholder="Buscar por empresa..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
@@ -91,7 +91,7 @@ function TrackerView({ cases, onDownload, downloadingId }: {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Search className="mb-4 h-10 w-10 text-muted-foreground" />
-            <h3 className="mb-1 text-base font-medium">No results for "{search}"</h3>
+            <h3 className="mb-1 text-base font-medium">Sin resultados para "{search}"</h3>
             <p className="text-sm text-muted-foreground">Try a different company name.</p>
           </CardContent>
         </Card>

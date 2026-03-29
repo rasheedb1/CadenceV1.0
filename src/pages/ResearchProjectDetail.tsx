@@ -416,7 +416,7 @@ export function ResearchProjectDetail() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddCompany(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setShowAddCompany(false)}>Cancelar</Button>
             <Button onClick={handleAddCompany} disabled={!newCompanyName.trim()}>
               Add Company
             </Button>

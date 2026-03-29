@@ -14,6 +14,7 @@ import type { ResearchedCompanyWithProject } from '@/contexts/CompanyResearchCon
 import { CreateProjectDialog } from '@/components/company-research/CreateProjectDialog'
 import { ResearchReportView } from '@/components/company-research/ResearchReportView'
 import { toast } from 'sonner'
+import { PageTransition } from '@/components/PageTransition'
 
 export function CompanyResearch() {
   const navigate = useNavigate()
@@ -62,7 +63,7 @@ export function CompanyResearch() {
   }
 
   return (
-    <div className="p-8">
+    <PageTransition className="p-8">
       {/* Header */}
       <div className="mb-8 flex items-center justify-between">
         <div>
@@ -87,7 +88,7 @@ export function CompanyResearch() {
           <div className="relative mb-4">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search by company name, industry, project, or researcher..."
+              placeholder="Buscar por empresa, industria, proyecto o investigador..."
               value={companySearch}
               onChange={(e) => setCompanySearch(e.target.value)}
               className="pl-9"
@@ -238,7 +239,7 @@ export function CompanyResearch() {
           <div className="relative max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Filter projects..."
+              placeholder="Filtrar proyectos..."
               value={projectSearch}
               onChange={(e) => setProjectSearch(e.target.value)}
               className="pl-9 h-8 text-sm"
@@ -331,6 +332,6 @@ export function CompanyResearch() {
           toast.success('Research project created')
         }}
       />
-    </div>
+    </PageTransition>
   )
 }

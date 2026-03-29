@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { PageTransition } from "@/components/PageTransition"
 import { Link } from 'react-router-dom'
 import { useAccountMapping, type SuggestedPersona } from '@/contexts/AccountMappingContext'
 import { useICPProfiles } from '@/hooks/useICPProfiles'
@@ -158,7 +159,7 @@ function GroupDialog({ open, onOpenChange, initial, onSave }: GroupDialogProps) 
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button onClick={handleSave} disabled={!name.trim() || saving}>
             {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
             {initial ? 'Save' : 'Create Group'}
@@ -237,7 +238,7 @@ function ICPPickerDialog({ open, onOpenChange, onSelect }: ICPPickerDialogProps)
           >
             Skip — use group context
           </Button>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button onClick={() => { onOpenChange(false); onSelect(selected) }} disabled={!selected}>
             Suggest with ICP
           </Button>
@@ -514,7 +515,7 @@ function GroupCard({ group, expanded, onToggle, onEdit, onDelete }: GroupCardPro
                           disabled={added}
                           onClick={() => handleAddSuggestion(s, i)}
                         >
-                          {added ? 'Added' : <><Plus className="mr-1 h-3.5 w-3.5" />Add</>}
+                          {added ? 'Agregado' : <><Plus className="mr-1 h-3.5 w-3.5" />Agregar</>}
                         </Button>
                       </div>
                     )
@@ -601,7 +602,7 @@ export function BuyerPersonas() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-4xl mx-auto">
+    <PageTransition className="flex flex-col gap-6 p-6 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -618,7 +619,7 @@ export function BuyerPersonas() {
       {/* Groups */}
       {personaGroupsLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+          <Loader2 className="h-4 w-4 animate-spin" /> Cargando...
         </div>
       ) : personaGroups.length === 0 ? (
         <Card className="border-dashed">
@@ -668,13 +669,13 @@ export function BuyerPersonas() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Delete
+              Eliminar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </PageTransition>
   )
 }

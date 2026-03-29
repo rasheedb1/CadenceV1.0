@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { WORKFLOW_STATUS_CONFIG } from '@/types/workflow'
+import { PageTransition } from '@/components/PageTransition'
 
 export function Workflows() {
   const navigate = useNavigate()
@@ -64,7 +65,7 @@ export function Workflows() {
   }
 
   return (
-    <div className="p-8">
+    <PageTransition className="p-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight font-heading">Workflows</h1>
@@ -100,7 +101,7 @@ export function Workflows() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
-                Cancel
+                Cancelar
               </Button>
               <Button onClick={handleCreate} disabled={creating || !newWorkflowName.trim()}>
                 {creating ? 'Creating...' : 'Create'}
@@ -210,6 +211,6 @@ export function Workflows() {
           })}
         </div>
       )}
-    </div>
+    </PageTransition>
   )
 }

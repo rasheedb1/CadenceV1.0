@@ -652,7 +652,7 @@ export function BatchSearchDialog({
             <>
               <LLMModelSelector />
               <div className="flex gap-2">
-                <Button variant="outline" onClick={handleClose}>Cancel</Button>
+                <Button variant="outline" onClick={handleClose}>Cancelar</Button>
                 <Button
                   onClick={startSearch}
                   disabled={selectedCompanies.length === 0 || personas.length === 0}
@@ -667,7 +667,7 @@ export function BatchSearchDialog({
             <>
               <LLMModelSelector />
               <div className="flex gap-2">
-                <Button variant="outline" onClick={handleCancel}>Cancel</Button>
+                <Button variant="outline" onClick={handleCancel}>Cancelar</Button>
                 <Button variant="outline" onClick={handlePauseResume}>
                   {isPaused ? (
                     <><Play className="mr-1 h-4 w-4" /> Resume</>

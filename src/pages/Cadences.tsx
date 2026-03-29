@@ -24,6 +24,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { PageTransition } from '@/components/PageTransition'
 
 export function Cadences() {
   const navigate = useNavigate()
@@ -113,7 +114,7 @@ export function Cadences() {
   }
 
   return (
-    <div className="p-8">
+    <PageTransition className="p-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight font-heading">Cadences</h1>
@@ -278,6 +279,6 @@ export function Cadences() {
           ))}
         </div>
       )}
-    </div>
+    </PageTransition>
   )
 }

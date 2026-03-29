@@ -1932,7 +1932,7 @@ export function CadenceBuilder() {
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a template..." />
+                      <SelectValue placeholder="Seleccionar plantilla..." />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">No template</SelectItem>
@@ -2059,7 +2059,7 @@ export function CadenceBuilder() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsAddStepOpen(false)}>
-              Cancel
+              Cancelar
             </Button>
             <Button onClick={editingStepId ? handleSaveEditStep : handleAddStep} disabled={saving}>
               {saving ? (editingStepId ? 'Saving...' : 'Adding...') : (editingStepId ? 'Save Changes' : 'Add Step')}
@@ -2089,7 +2089,7 @@ export function CadenceBuilder() {
                 }
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose a lead..." />
+                  <SelectValue placeholder="Elegir un lead..." />
                 </SelectTrigger>
                 <SelectContent>
                   {cadenceLeads.length === 0 ? (
@@ -2117,7 +2117,7 @@ export function CadenceBuilder() {
                     onChange={(e) =>
                       setTestStepConfig((prev) => ({ ...prev, message: e.target.value }))
                     }
-                    placeholder="Enter the message to send..."
+                    placeholder="Escribe el mensaje a enviar..."
                     rows={4}
                   />
                 </div>
@@ -2146,7 +2146,7 @@ export function CadenceBuilder() {
                     onChange={(e) =>
                       setTestStepConfig((prev) => ({ ...prev, comment: e.target.value }))
                     }
-                    placeholder="Enter your comment..."
+                    placeholder="Escribe tu comentario..."
                     rows={3}
                   />
                 </div>
@@ -2154,7 +2154,7 @@ export function CadenceBuilder() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsTestStepOpen(false)}>
-              Cancel
+              Cancelar
             </Button>
             <Button
               onClick={handleTestStep}
@@ -2194,7 +2194,7 @@ export function CadenceBuilder() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => takeOutConfirmLead && handleTakeOutOfCadence(takeOutConfirmLead)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"

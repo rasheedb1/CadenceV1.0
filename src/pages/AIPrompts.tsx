@@ -66,6 +66,7 @@ import { PermissionGate } from '@/components/PermissionGate'
 import { ExampleSectionsTab } from '@/components/ExampleSectionsTab'
 import { SignalsTab } from '@/components/SignalsTab'
 import { TestPromptTab } from '@/components/TestPromptTab'
+import { PageTransition } from '@/components/PageTransition'
 
 const STEP_TYPES = [
   { value: 'linkedin_message', label: 'LinkedIn Message', icon: MessageSquare, color: 'bg-sky-100 text-sky-700' },
@@ -958,7 +959,7 @@ export function AIPrompts() {
   }
 
   return (
-    <div className="p-8 space-y-6">
+    <PageTransition className="p-8 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -1243,6 +1244,6 @@ export function AIPrompts() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </PageTransition>
   )
 }

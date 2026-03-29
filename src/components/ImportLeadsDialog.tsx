@@ -1209,7 +1209,7 @@ export function ImportLeadsDialog({ open, onOpenChange, preSelectedCadenceId }: 
         {/* ── Footer ─────────────────────────────────────────── */}
         <DialogFooter>
           {step === 'result' ? (
-            <Button onClick={() => handleClose(false)}>Close</Button>
+            <Button onClick={() => handleClose(false)}>Cerrar</Button>
           ) : step === 'review' ? (
             <>
               <Button variant="outline" onClick={() => setStep('mapping')}>

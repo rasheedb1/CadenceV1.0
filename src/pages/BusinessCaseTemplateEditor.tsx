@@ -917,7 +917,7 @@ function SlidePanel({
     return (
       <div className="flex flex-col items-center justify-center h-32 gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-5 w-5 animate-spin" />
-        <p>Loading preview…</p>
+        <p>Cargando vista previa…</p>
       </div>
     )
   }

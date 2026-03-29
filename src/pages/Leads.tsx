@@ -51,6 +51,7 @@ import { LEAD_STATUS_CONFIG, type LeadStatus, type Lead } from '@/types'
 import { useSalesforceConnection } from '@/hooks/useSalesforceConnection'
 import { callEdgeFunction } from '@/lib/edge-functions'
 import { toast } from 'sonner'
+import { PageTransition } from '@/components/PageTransition'
 
 interface LeadFormData {
   first_name: string
@@ -447,7 +448,7 @@ export function Leads() {
   }
 
   return (
-    <div className="p-8">
+    <PageTransition className="p-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight font-heading">Leads</h1>
@@ -978,6 +979,6 @@ export function Leads() {
       </Dialog>
 
       <ImportLeadsDialog open={isImportOpen} onOpenChange={setIsImportOpen} />
-    </div>
+    </PageTransition>
   )
 }

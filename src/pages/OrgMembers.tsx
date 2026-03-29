@@ -235,7 +235,7 @@ export function OrgMembers() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <p className="text-muted-foreground text-sm">Loading...</p>
+            <p className="text-muted-foreground text-sm">Cargando...</p>
           ) : (
             <div className="divide-y">
               {members.map(member => (
