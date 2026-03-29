@@ -155,6 +155,11 @@ async function sendToGateway(message, timeoutMs = 120000) {
 
     const data = await res.json();
     return data.choices?.[0]?.message?.content || "";
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
 
 // --- Agent Card ---
 const agentCard = {
