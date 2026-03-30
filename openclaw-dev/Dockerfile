@@ -32,6 +32,7 @@ COPY --chown=node:node dist/ ./dist/
 # A2A server + deps
 COPY --chown=node:node a2a-server.js /home/node/.openclaw/a2a-server.js
 COPY --chown=node:node a2a-send.js /home/node/.openclaw/a2a-send.js
+COPY --chown=node:node event-loop.js /home/node/.openclaw/event-loop.js
 COPY --chown=node:node a2a-package.json /home/node/.openclaw/package.json
 RUN cd /home/node/.openclaw && npm install --omit=dev --no-audit --no-fund
 

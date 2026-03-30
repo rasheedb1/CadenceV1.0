@@ -22,6 +22,7 @@ COPY --chown=node:node workspace/ /home/node/.openclaw/workspace/
 
 # Copy A2A server + send script + package.json
 COPY --chown=node:node a2a-server.js /home/node/.openclaw/a2a-server.js
+COPY --chown=node:node event-loop.js /home/node/.openclaw/event-loop.js
 COPY --chown=node:node a2a-send.js /home/node/.openclaw/a2a-send.js
 COPY --chown=node:node package.json /home/node/.openclaw/package.json
 

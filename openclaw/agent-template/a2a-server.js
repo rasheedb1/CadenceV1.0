@@ -20,6 +20,7 @@
  */
 
 const { randomUUID } = require("crypto");
+const eventLoop = require("./event-loop");
 
 // Load dependencies with error handling
 let express, createProxyMiddleware, DefaultRequestHandler, InMemoryTaskStore, DefaultExecutionEventBusManager, jsonRpcHandler, agentCardHandler, UserBuilder;
@@ -166,6 +167,8 @@ const agentCard = {
 // Implements AgentExecutor interface from @a2a-js/sdk/server
 const openClawExecutor = {
   async execute(requestContext, eventBus) {
+    eventLoop.acquireLock();
+    try {
     const userMessage = requestContext.userMessage;
     const taskId = requestContext.taskId;
 
@@ -243,6 +246,9 @@ const openClawExecutor = {
     }
 
     eventBus.finished();
+    } finally {
+      eventLoop.releaseLock();
+    }
   },
 
   async cancelTask(taskId, eventBus) {
@@ -277,6 +283,7 @@ app.get("/healthz", (_req, res) => {
     agent_name: AGENT_NAME,
     protocol: "a2a/0.3.0",
     uptime_seconds: Math.floor(process.uptime()),
+    event_loop: process.env.EVENT_LOOP_ENABLED === "true" ? eventLoop.getState() : "disabled",
   });
 });
 
@@ -358,4 +365,17 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`   A2A endpoint: /a2a/jsonrpc`);
   console.log(`   Agent Card: /.well-known/agent-card.json`);
   console.log(`   Auth: ${A2A_TOKEN ? "Bearer token" : "OPEN (no A2A_TOKEN set)"}`);
+
+  // Start proactive event loop (if enabled)
+  if (process.env.EVENT_LOOP_ENABLED === "true") {
+    setTimeout(() => eventLoop.start(), 10000); // wait 10s for gateway to be ready
+    console.log("   Event loop: ENABLED (starting in 10s)");
+  } else {
+    console.log("   Event loop: disabled (set EVENT_LOOP_ENABLED=true)");
+  }
+});
+
+process.on("SIGTERM", () => {
+  eventLoop.stop();
+  process.exit(0);
 });
