@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { PageTransition } from '@/components/PageTransition'
 import { Link } from 'react-router-dom'
 import { useOrg } from '@/contexts/OrgContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -172,7 +173,7 @@ export function OrgMembers() {
   if (!org) return null
 
   return (
-    <div className="p-8">
+    <PageTransition className="p-8">
       <div className="mb-8">
         <h1 className="text-[28px] font-bold tracking-tight font-heading">Settings</h1>
         <p className="text-muted-foreground">Manage your account settings</p>
@@ -342,6 +343,6 @@ export function OrgMembers() {
         </Card>
       )}
       </div>
-    </div>
+    </PageTransition>
   )
 }

@@ -168,7 +168,7 @@ export function OrgSettings() {
                   value={apolloKey}
                   onChange={e => setApolloKey(e.target.value)}
                   disabled={!canEdit || !keysLoaded}
-                  placeholder="Enter Apollo API key..."
+                  placeholder="Ingresa tu API key de Apollo..."
                   className="pr-10 font-mono text-xs"
                 />
                 <button
@@ -195,7 +195,7 @@ export function OrgSettings() {
                   value={firecrawlKey}
                   onChange={e => setFirecrawlKey(e.target.value)}
                   disabled={!canEdit || !keysLoaded}
-                  placeholder="Enter Firecrawl API key..."
+                  placeholder="Ingresa tu API key de Firecrawl..."
                   className="pr-10 font-mono text-xs"
                 />
                 <button

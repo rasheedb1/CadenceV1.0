@@ -477,7 +477,7 @@ export function Leads() {
             <div className="relative w-72">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search by name, email, company, title..."
+                placeholder="Buscar por nombre, email, empresa, título..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9 pr-9"
@@ -501,7 +501,7 @@ export function Leads() {
               <Users className="mb-4 h-12 w-12 text-muted-foreground" />
               <h3 className="mb-2 text-lg font-medium">No leads found</h3>
               <p className="mb-4 text-sm text-muted-foreground">
-                {searchQuery ? 'Try a different search' : 'Add your first lead to get started'}
+                {searchQuery ? 'Intenta otra búsqueda' : 'Agrega tu primer lead para comenzar'}
               </p>
               {!searchQuery && (
                 <PermissionGate permission="leads_create">
@@ -765,7 +765,7 @@ export function Leads() {
               <Label>Add to Cadence</Label>
               <Select value={selectedCadenceId} onValueChange={setSelectedCadenceId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a cadence (optional)" />
+                  <SelectValue placeholder="Seleccionar cadencia (opcional)" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">-- No cadence --</SelectItem>
@@ -859,7 +859,7 @@ export function Leads() {
               <Label>Cadence</Label>
               <Select value={selectedCadenceId} onValueChange={setSelectedCadenceId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a cadence (optional)" />
+                  <SelectValue placeholder="Seleccionar cadencia (opcional)" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">-- No cadence --</SelectItem>
@@ -895,7 +895,7 @@ export function Leads() {
           <div className="py-4">
             <Select onValueChange={handleAssign}>
               <SelectTrigger>
-                <SelectValue placeholder="Select a cadence" />
+                <SelectValue placeholder="Seleccionar cadencia" />
               </SelectTrigger>
               <SelectContent>
                 {cadences
@@ -964,7 +964,7 @@ export function Leads() {
               Delete Lead
             </DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this lead? This action cannot be undone.
+              ¿Estás seguro de eliminar este lead? Esta acción no se puede deshacer.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

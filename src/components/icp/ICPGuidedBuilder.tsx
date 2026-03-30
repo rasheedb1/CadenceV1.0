@@ -122,7 +122,7 @@ export function ICPGuidedBuilder({ data, onChange }: ICPGuidedBuilderProps) {
               onValueChange={v => update('productCategory', v)}
             >
               <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="Select a category..." />
+                <SelectValue placeholder="Seleccionar categoría..." />
               </SelectTrigger>
               <SelectContent>
                 {PRODUCT_CATEGORIES.map(group => (
@@ -174,8 +174,8 @@ export function ICPGuidedBuilder({ data, onChange }: ICPGuidedBuilderProps) {
               options={industryOptions}
               selected={data.industries}
               onChange={v => update('industries', v)}
-              placeholder="Select industries..."
-              searchPlaceholder="Search industries..."
+              placeholder="Seleccionar industrias..."
+              searchPlaceholder="Buscar industrias..."
               allowCustom
             />
           </div>
@@ -251,8 +251,8 @@ export function ICPGuidedBuilder({ data, onChange }: ICPGuidedBuilderProps) {
               options={regionOptions}
               selected={data.targetRegions}
               onChange={v => update('targetRegions', v)}
-              placeholder="Select regions or countries..."
-              searchPlaceholder="Search regions..."
+              placeholder="Seleccionar regiones o países..."
+              searchPlaceholder="Buscar regiones..."
             />
           </div>
           <div className="space-y-1.5">
@@ -304,8 +304,8 @@ export function ICPGuidedBuilder({ data, onChange }: ICPGuidedBuilderProps) {
               options={techOptions}
               selected={data.techSignals}
               onChange={v => update('techSignals', v)}
-              placeholder="Select technologies..."
-              searchPlaceholder="Search technologies..."
+              placeholder="Seleccionar tecnologías..."
+              searchPlaceholder="Buscar tecnologías..."
               allowCustom
             />
           </div>
@@ -401,8 +401,8 @@ export function ICPGuidedBuilder({ data, onChange }: ICPGuidedBuilderProps) {
               options={industryOptions}
               selected={data.excludedIndustries}
               onChange={v => update('excludedIndustries', v)}
-              placeholder="Select industries to exclude..."
-              searchPlaceholder="Search industries..."
+              placeholder="Seleccionar industrias a excluir..."
+              searchPlaceholder="Buscar industrias..."
             />
           </div>
 

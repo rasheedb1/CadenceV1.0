@@ -93,7 +93,7 @@ export function OrgSwitcher() {
           </DialogHeader>
           <div className="py-4">
             <Input
-              placeholder="Organization name"
+              placeholder="Nombre de la organización"
               value={newOrgName}
               onChange={(e) => setNewOrgName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}

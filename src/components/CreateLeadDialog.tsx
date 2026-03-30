@@ -140,7 +140,7 @@ export function CreateLeadDialog({
         onLeadCreated(newLead)
       }
 
-      toast.success('Lead created successfully')
+      toast.success('Lead creado exitosamente')
       onOpenChange(false)
     } catch (error) {
       console.error('Error creating lead:', error)
@@ -267,7 +267,7 @@ export function CreateLeadDialog({
                 disabled={!!preSelectedCadenceId}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a cadence (optional)" />
+                  <SelectValue placeholder="Seleccionar cadencia (opcional)" />
                 </SelectTrigger>
                 <SelectContent>
                   {!preSelectedCadenceId && <SelectItem value="none">-- No cadence --</SelectItem>}

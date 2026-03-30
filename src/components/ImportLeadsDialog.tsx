@@ -746,7 +746,7 @@ export function ImportLeadsDialog({ open, onOpenChange, preSelectedCadenceId }: 
                 onValueChange={(value) => updateMapping(col.key, value)}
               >
                 <SelectTrigger className="flex-1 h-8 text-xs">
-                  <SelectValue placeholder="Select column" />
+                  <SelectValue placeholder="Seleccionar columna" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">-- Not mapped --</SelectItem>
@@ -898,7 +898,7 @@ export function ImportLeadsDialog({ open, onOpenChange, preSelectedCadenceId }: 
                 <Label className="text-sm font-medium">Add to Cadence (Optional)</Label>
                 <Select value={selectedCadenceId} onValueChange={setSelectedCadenceId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a cadence (optional)" />
+                    <SelectValue placeholder="Seleccionar cadencia (opcional)" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">-- No cadence --</SelectItem>

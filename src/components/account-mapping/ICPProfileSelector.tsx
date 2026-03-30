@@ -85,7 +85,7 @@ export function ICPProfileSelector({
           onValueChange={(v) => onLink(v === '__none__' ? null : v)}
         >
           <SelectTrigger>
-            <SelectValue placeholder="Select an ICP Profile..." />
+            <SelectValue placeholder="Seleccionar perfil ICP..." />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__none__">No profile linked</SelectItem>

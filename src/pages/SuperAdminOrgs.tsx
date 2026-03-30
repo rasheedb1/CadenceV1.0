@@ -365,7 +365,7 @@ export function SuperAdminOrgs() {
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search organizations..."
+              placeholder="Buscar organizaciones..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
@@ -696,7 +696,7 @@ export function SuperAdminOrgs() {
                                               size="icon"
                                               className="h-5 w-5"
                                               onClick={() => clearMemberFlag(flag)}
-                                              title="Remove override (inherit from org)"
+                                              title="Eliminar override (heredar de org)"
                                             >
                                               <X className="h-3 w-3" />
                                             </Button>

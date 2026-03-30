@@ -164,7 +164,7 @@ function ReviewPanelAi({
     <div className="space-y-4">
       <div className="flex items-center gap-2 text-green-600 font-medium">
         <CheckCircle className="h-5 w-5" />
-        Business case generated successfully!
+        ¡Business case generado exitosamente!
       </div>
       <div className="rounded-lg border bg-muted/30 p-4 flex items-center justify-between gap-4">
         <div>

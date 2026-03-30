@@ -35,7 +35,7 @@ export function SalesforceCallback() {
     const exchangeCode = async () => {
       try {
         await callEdgeFunction('salesforce-callback', { code, state }, session.access_token)
-        toast.success('Salesforce connected successfully!')
+        toast.success('¡Salesforce conectado exitosamente!')
 
         // Trigger initial sync
         try {

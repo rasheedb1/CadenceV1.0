@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { PageTransition } from '@/components/PageTransition'
 import { useNavigate } from 'react-router-dom'
 import { ReactFlow, Background, Position } from '@xyflow/react'
 import type { Node, Edge } from '@xyflow/react'

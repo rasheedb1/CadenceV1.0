@@ -165,7 +165,7 @@ function AddReminderDialog({ accountId, open, onClose }: { accountId: string; op
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
             <Label>Title *</Label>
-            <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Follow up on contract renewal" />
+            <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Seguimiento de renovación de contrato" />
           </div>
           <div className="space-y-1.5">
             <Label>Due Date *</Label>
@@ -173,7 +173,7 @@ function AddReminderDialog({ accountId, open, onClose }: { accountId: string; op
           </div>
           <div className="space-y-1.5">
             <Label>Description</Label>
-            <Textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} placeholder="Optional details..." />
+            <Textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} placeholder="Detalles opcionales..." />
           </div>
         </div>
         <DialogFooter>
@@ -238,7 +238,7 @@ export function AccountExecutiveDetail() {
   }
 
   const handleDeleteActivity = (activityId: string) => {
-    if (confirm('Delete this activity?')) {
+    if (confirm('¿Eliminar esta actividad?')) {
       deleteActivity.mutate(activityId)
     }
   }
@@ -474,7 +474,7 @@ export function AccountExecutiveDetail() {
               <CardContent>
                 {editingNotes ? (
                   <div className="space-y-2">
-                    <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={5} placeholder="Add notes about this account..." />
+                    <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={5} placeholder="Agrega notas sobre esta cuenta..." />
                     <div className="flex gap-2">
                       <Button size="sm" onClick={handleSaveNotes}>Guardar</Button>
                       <Button size="sm" variant="outline" onClick={() => setEditingNotes(false)}>Cancelar</Button>

@@ -353,10 +353,10 @@ function GroupCard({ group, expanded, onToggle, onEdit, onDelete }: GroupCardPro
           </div>
           {isOwner && (
             <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={onEdit} title="Edit group">
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={onEdit} title="Editar grupo">
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={onDelete} title="Delete group">
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={onDelete} title="Eliminar grupo">
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -665,7 +665,7 @@ export function BuyerPersonas() {
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar grupo de persona?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the group and all personas inside it. This action cannot be undone.
+              Esto eliminará permanentemente el grupo y todas las personas. Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

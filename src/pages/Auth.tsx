@@ -57,7 +57,7 @@ export function Auth() {
                 if (error) {
                   setError(error.message)
                 } else {
-                  setSuccessMessage('Password updated successfully! Redirecting...')
+                  setSuccessMessage('¡Contraseña actualizada! Redirigiendo...')
                 }
                 setLoading(false)
               }}

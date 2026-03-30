@@ -191,7 +191,7 @@ export function AdminLogs() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search by lead or cadence..."
+                placeholder="Buscar por lead o cadencia..."
                 value={searchQuery}
                 onChange={(e) => {
                   setSearchQuery(e.target.value)
@@ -209,7 +209,7 @@ export function AdminLogs() {
               }}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Action type" />
+                <SelectValue placeholder="Tipo de acción" />
               </SelectTrigger>
               <SelectContent>
                 {ACTION_TYPES.map((type) => (
@@ -241,7 +241,7 @@ export function AdminLogs() {
 
             <Input
               type="date"
-              placeholder="From date"
+              placeholder="Desde"
               value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value)
@@ -251,7 +251,7 @@ export function AdminLogs() {
 
             <Input
               type="date"
-              placeholder="To date"
+              placeholder="Hasta"
               value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value)

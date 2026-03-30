@@ -201,7 +201,7 @@ export function AccountMapping() {
   }
 
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this account map and all its data?')) {
+    if (confirm('¿Eliminar este mapa de cuentas y todos sus datos?')) {
       await deleteAccountMap(id)
     }
   }
@@ -229,7 +229,7 @@ export function AccountMapping() {
       toast.error(`This profile is used by ${usage} account map(s). Unlink them first.`)
       return
     }
-    if (confirm('Delete this ICP Profile and all its personas?')) {
+    if (confirm('¿Eliminar este perfil ICP y todas sus personas?')) {
       await deleteProfile.mutateAsync(id)
     }
   }
@@ -698,7 +698,7 @@ export function AccountMapping() {
                                           persona.icp_profile_id &&
                                             navigate(`/account-mapping/icp-profiles/${persona.icp_profile_id}`)
                                         }}
-                                        title="Edit persona"
+                                        title="Editar persona"
                                       >
                                         <Pencil className="h-4 w-4" />
                                       </Button>

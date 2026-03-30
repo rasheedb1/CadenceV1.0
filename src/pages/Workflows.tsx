@@ -51,7 +51,7 @@ export function Workflows() {
   }
 
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this workflow?')) {
+    if (confirm('¿Eliminar este workflow?')) {
       await deleteWorkflow(id)
     }
   }

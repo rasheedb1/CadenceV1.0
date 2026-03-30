@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { PageTransition } from '@/components/PageTransition'
 import { useNavigate } from 'react-router-dom'
 import { useAccountMapping } from '@/contexts/AccountMappingContext'
 import { Button } from '@/components/ui/button'
@@ -155,7 +156,7 @@ export function CompanyRegistry() {
   }
 
   return (
-    <div className="space-y-6">
+    <PageTransition className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -303,7 +304,7 @@ export function CompanyRegistry() {
       {/* Dialogs */}
       <ImportExclusionDialog open={showImport} onOpenChange={setShowImport} />
       <AddExclusionDialog open={showAdd} onOpenChange={setShowAdd} />
-    </div>
+    </PageTransition>
   )
 }
 

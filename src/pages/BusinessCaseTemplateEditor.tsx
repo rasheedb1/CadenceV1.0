@@ -740,7 +740,7 @@ function FullSlideModal({
             {pendingMoves.length > 0 && (
               <div className="absolute top-14 left-1/2 -translate-x-1/2 z-10 bg-blue-600 text-white text-xs px-3 py-1.5 rounded-full shadow flex items-center gap-1.5">
                 <Move className="h-3 w-3" />
-                {pendingMoves.length} shape{pendingMoves.length > 1 ? 's' : ''} moved — click "Save Layout" to apply
+                {pendingMoves.length} formas movidas — haz clic en "Guardar Layout" para aplicar
               </div>
             )}
             <SlideCanvas
@@ -1118,7 +1118,7 @@ function VariableRow({
                 onValueChange={(v) => onChange({ ...variable, field_key: v })}
               >
                 <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="Select a field…" />
+                  <SelectValue placeholder="Seleccionar campo…" />
                 </SelectTrigger>
                 <SelectContent>
                   {LEAD_FIELD_OPTIONS.map((o) => (
@@ -1254,7 +1254,7 @@ function VariableEditor({
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search variables…"
+            placeholder="Buscar variables…"
             className="pl-8 h-8 text-xs"
           />
           {search && (

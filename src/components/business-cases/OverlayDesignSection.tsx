@@ -135,7 +135,7 @@ function FormatToolbar({ overlay, onChange, onDelete, onAlign }: {
       </div>
 
       <div className="h-5 w-px bg-border mx-0.5" />
-      <button type="button" title="Delete chip" onClick={onDelete}
+      <button type="button" title="Eliminar" onClick={onDelete}
         className="h-7 w-7 border border-destructive/40 text-destructive rounded flex items-center justify-center hover:bg-destructive/10">
         <Trash2 className="h-3.5 w-3.5" />
       </button>
@@ -334,14 +334,14 @@ function VariablePalettePanel({ variables, currentOverlays, onPlace, onRemove, i
     <div className="w-[215px] shrink-0 border-l flex flex-col overflow-hidden bg-background">
       <div className="px-3 py-2.5 border-b flex items-center justify-between shrink-0">
         <p className="text-xs font-semibold flex items-center gap-1.5"><Type className="h-3.5 w-3.5" /> Variables</p>
-        <Button size="sm" variant="ghost" className="h-6 w-6 p-0" title="Add variable" onClick={() => setShowAdd(v => !v)}>
+        <Button size="sm" variant="ghost" className="h-6 w-6 p-0" title="Agregar variable" onClick={() => setShowAdd(v => !v)}>
           <Plus className="h-3.5 w-3.5" />
         </Button>
       </div>
 
       {showAdd && (
         <div className="px-3 py-2 border-b bg-muted/30 space-y-1.5 shrink-0">
-          <Input value={newKey} onChange={e => setNewKey(e.target.value)} placeholder="Key: company_name"
+          <Input value={newKey} onChange={e => setNewKey(e.target.value)} placeholder="Clave: company_name"
             className="h-7 text-xs" autoFocus onKeyDown={e => e.key === 'Enter' && add()} />
           <Input value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder="Label (optional)"
             className="h-7 text-xs" onKeyDown={e => e.key === 'Enter' && add()} />
@@ -376,7 +376,7 @@ function VariablePalettePanel({ variables, currentOverlays, onPlace, onRemove, i
                   className="h-5 w-5 rounded text-primary opacity-0 group-hover:opacity-100 hover:bg-primary/10 flex items-center justify-center">
                   <Plus className="h-3 w-3" />
                 </button>
-                <button type="button" title="Delete variable" onClick={() => onRemove(v.id)}
+                <button type="button" title="Eliminar variable" onClick={() => onRemove(v.id)}
                   className="h-5 w-5 rounded text-destructive opacity-0 group-hover:opacity-100 hover:bg-destructive/10 flex items-center justify-center">
                   <Trash2 className="h-3 w-3" />
                 </button>

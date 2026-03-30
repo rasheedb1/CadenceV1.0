@@ -602,7 +602,7 @@ export function CadenceBuilder() {
         reply_to_step_id: '',
         cc: '',
       })
-      toast.success('Step added successfully')
+      toast.success('Paso agregado exitosamente')
     } catch (error) {
       console.error('Error adding step:', error)
       toast.error(error instanceof Error ? error.message : 'Failed to add step')
@@ -661,7 +661,7 @@ export function CadenceBuilder() {
         reply_to_step_id: '',
         cc: '',
       })
-      toast.success('Step updated successfully')
+      toast.success('Paso actualizado exitosamente')
     } catch (error) {
       console.error('Error updating step:', error)
       toast.error(error instanceof Error ? error.message : 'Failed to update step')
@@ -671,7 +671,7 @@ export function CadenceBuilder() {
   }
 
   const handleDeleteStep = async (stepId: string) => {
-    if (confirm('Delete this step?')) {
+    if (confirm('¿Eliminar este paso?')) {
       await deleteStep(stepId)
       toast.success('Step deleted')
     }
@@ -740,7 +740,7 @@ export function CadenceBuilder() {
         comment: testStepConfig.comment || undefined,
       })
 
-      toast.success(`Step "${selectedStepForTest.step_label}" executed successfully!`)
+      toast.success(`Step "${selectedStepForTest.step_label}" ejecutado exitosamente!`)
       setIsTestStepOpen(false)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred'
@@ -1005,7 +1005,7 @@ export function CadenceBuilder() {
                 <CardContent>
                   {steps.length === 0 ? (
                     <div className="py-12 text-center">
-                      <p className="text-muted-foreground">No steps yet. Add your first step!</p>
+                      <p className="text-muted-foreground">Sin pasos aún. ¡Agrega tu primer paso!</p>
                     </div>
                   ) : (
                     <div className="space-y-6">
@@ -1935,7 +1935,7 @@ export function CadenceBuilder() {
                       <SelectValue placeholder="Seleccionar plantilla..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">No template</SelectItem>
+                      <SelectItem value="none">Sin plantilla</SelectItem>
                       {templates.map((template) => (
                         <SelectItem key={template.id} value={template.id}>
                           {template.name}
@@ -1958,7 +1958,7 @@ export function CadenceBuilder() {
                     onChange={(e) =>
                       setNewStep((prev) => ({ ...prev, message_template: e.target.value }))
                     }
-                    placeholder="Hi {{first_name}}, I noticed you work at {{company}}..."
+                    placeholder="Hola {{first_name}}, noté que trabajas en {{company}}..."
                     rows={6}
                   />
                   <div className="flex flex-wrap gap-2">
@@ -2185,7 +2185,7 @@ export function CadenceBuilder() {
           <AlertDialogHeader>
             <AlertDialogTitle>Quitar de Cadencia</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to remove{' '}
+              ¿Estás seguro de que quieres eliminar{' '}
               <strong>
                 {takeOutConfirmLead?.first_name} {takeOutConfirmLead?.last_name}
               </strong>{' '}

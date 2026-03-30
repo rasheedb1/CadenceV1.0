@@ -265,7 +265,7 @@ export function AddPersonaDialog({
               <Label>Role in Buying Committee</Label>
               <Select value={role} onValueChange={(v) => setRole(v as BuyingCommitteeRole)}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select role..." />
+                  <SelectValue placeholder="Seleccionar rol..." />
                 </SelectTrigger>
                 <SelectContent>
                   {BUYING_COMMITTEE_ROLES.map((r) => (

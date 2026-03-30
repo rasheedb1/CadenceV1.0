@@ -137,7 +137,7 @@ export function Templates() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['templates'] })
-      toast.success('Template created successfully')
+      toast.success('Plantilla creada exitosamente')
       setIsCreateOpen(false)
       resetForm()
     },
@@ -168,7 +168,7 @@ export function Templates() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['templates'] })
-      toast.success('Template updated successfully')
+      toast.success('Plantilla actualizada exitosamente')
       setIsEditOpen(false)
       setEditingTemplate(null)
       resetForm()
@@ -382,7 +382,7 @@ export function Templates() {
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, body: e.target.value }))
                   }
-                  placeholder="Hi {{first_name}}, I noticed you work at {{company}}..."
+                  placeholder="Hola {{first_name}}, noté que trabajas en {{company}}..."
                   rows={6}
                 />
                 <div className="flex flex-wrap gap-2">
@@ -524,7 +524,7 @@ export function Templates() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <FileText className="mb-4 h-12 w-12 text-muted-foreground" />
-            <h3 className="mb-2 text-lg font-medium">No templates yet</h3>
+            <h3 className="mb-2 text-lg font-medium">Sin plantillas aún</h3>
             <p className="mb-4 text-sm text-muted-foreground">
               Create your first template to speed up your outreach
             </p>
@@ -590,7 +590,7 @@ export function Templates() {
                       size="sm"
                       className="text-destructive hover:text-destructive"
                       onClick={() => {
-                        if (confirm('Are you sure you want to delete this template?')) {
+                        if (confirm('¿Eliminar esta plantilla?')) {
                           deleteMutation.mutate(template.id)
                         }
                       }}

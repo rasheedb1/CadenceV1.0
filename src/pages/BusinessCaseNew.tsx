@@ -75,7 +75,7 @@ function AiGeneratedTab() {
         slide_structure: slides,
       })
       if (template) {
-        toast.success('Template created successfully')
+        toast.success('Plantilla creada exitosamente')
         navigate(`/business-cases/templates/${template.id}`)
       }
     } catch (err) {
@@ -106,7 +106,7 @@ function AiGeneratedTab() {
           <Label htmlFor="prompt">What should this business case cover?</Label>
           <Textarea
             id="prompt"
-            placeholder="Describe the purpose, target audience, key value propositions, metrics to include (ROI, time savings, etc.)..."
+            placeholder="Describe el propósito, audiencia objetivo, propuestas de valor, métricas a incluir (ROI, ahorro de tiempo, etc.)..."
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={5}
@@ -193,7 +193,7 @@ function UploadPptxTab() {
         detectedVariables: parsedVars || [],
       })
       if (template) {
-        toast.success('Template uploaded successfully')
+        toast.success('Plantilla subida exitosamente')
         navigate(`/business-cases/templates/${template.id}`)
       }
     } catch (err) {

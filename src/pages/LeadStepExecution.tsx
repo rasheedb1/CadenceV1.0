@@ -822,7 +822,7 @@ export function LeadStepExecution() {
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder={step.step_type === 'linkedin_connect'
-                    ? "Add a note to your connection request (optional)..."
+                    ? "Agrega una nota a tu solicitud de conexión (opcional)..."
                     : step.step_type === 'linkedin_comment'
                     ? "Write your comment here..."
                     : "Write your message here. Use {{first_name}}, {{company}}, etc. for personalization..."}
@@ -965,7 +965,7 @@ export function LeadStepExecution() {
                   <SelectValue placeholder="Seleccionar plantilla..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No template</SelectItem>
+                  <SelectItem value="none">Sin plantilla</SelectItem>
                   {templates.map((template) => (
                     <SelectItem key={template.id} value={template.id}>
                       {template.name}

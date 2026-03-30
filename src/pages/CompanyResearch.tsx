@@ -287,7 +287,7 @@ export function CompanyResearch() {
                     className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={(e) => {
                       e.stopPropagation()
-                      if (confirm('Delete this research project and all its research data?')) {
+                      if (confirm('¿Eliminar este proyecto de investigación y todos sus datos?')) {
                         deleteProject(project.id).then(() => toast.success('Project deleted'))
                       }
                     }}

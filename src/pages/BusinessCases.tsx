@@ -419,7 +419,7 @@ export function BusinessCases() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16">
                 <Layers className="mb-4 h-12 w-12 text-muted-foreground" />
-                <h3 className="mb-2 text-lg font-medium">No templates yet</h3>
+                <h3 className="mb-2 text-lg font-medium">Sin plantillas aún</h3>
                 <p className="mb-6 text-sm text-muted-foreground text-center max-w-md">
                   Create a template by describing the business case structure you need. The AI will generate the slide layout.
                 </p>

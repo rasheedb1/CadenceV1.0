@@ -136,7 +136,7 @@ export function ICPProfileDetail() {
       toast.error(`This profile is used by ${usageCount} account map(s). Unlink them first.`)
       return
     }
-    if (!confirm('Delete this ICP Profile and all its personas?')) return
+    if (!confirm('¿Eliminar este perfil ICP y todas sus personas?')) return
     await deleteProfile.mutateAsync(profile.id)
     navigate('/account-mapping')
   }

@@ -74,7 +74,7 @@ export function CreateProjectDialog({ open, onOpenChange, onSubmit, editProject 
             <Label htmlFor="description">Description (optional)</Label>
             <Input
               id="description"
-              placeholder="Brief description of the research objective"
+              placeholder="Breve descripción del objetivo de investigación"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
@@ -87,7 +87,7 @@ export function CreateProjectDialog({ open, onOpenChange, onSubmit, editProject 
             </p>
             <Textarea
               id="prompt"
-              placeholder="Describe what you want to research about each company. For example: Analyze the company's product offering, pricing model, target market, recent funding rounds, key decision makers, competitive advantages, technology stack, and any recent news or press releases. Focus on identifying potential pain points that our solution could address..."
+              placeholder="Describe qué quieres investigar de cada empresa. Por ejemplo: Analizar la oferta de productos, modelo de precios, mercado objetivo, rondas de financiamiento, tomadores de decisión, ventajas competitivas, stack tecnológico y noticias recientes..."
               value={researchPrompt}
               onChange={(e) => setResearchPrompt(e.target.value)}
               rows={10}

@@ -302,7 +302,7 @@ export function AdminMetrics() {
           <CardContent>
             {weeklyChartData.length === 0 ? (
               <div className="flex h-64 items-center justify-center text-muted-foreground">
-                No data available for the selected time range
+                Sin datos disponibles para el rango seleccionado
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={300}>
