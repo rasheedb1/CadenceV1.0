@@ -51,14 +51,14 @@ export function MissionControl() {
     for (const agent of agents) {
       for (const task of getAgentTasks(agent.id).slice(0, 10)) {
         events.push({ id: `task-${task.id}`, type: 'task' as const, agent_name: agent.name, agent_id: agent.id,
-          content: task.instruction?.substring(0, 500) || '', detail: task.status, status: task.status,
+          content: task.instruction?.substring(0, 2000) || '', detail: task.status, status: task.status,
           timestamp: task.completed_at || task.created_at })
       }
       for (const msg of getAgentMessages(agent.id).slice(0, 50)) {
         const from = agents.find(a => a.id === msg.from_agent_id)
         const to = agents.find(a => a.id === msg.to_agent_id)
         events.push({ id: `msg-${msg.id}`, type: 'message' as const, agent_name: from?.name || 'Chief',
-          agent_id: msg.from_agent_id || '', content: typeof msg.content === 'string' ? msg.content.substring(0, 500) : 'Message',
+          agent_id: msg.from_agent_id || '', content: typeof msg.content === 'string' ? msg.content.substring(0, 2000) : 'Message',
           detail: `→ ${to?.name || 'Chief'}`, timestamp: msg.created_at })
       }
     }
@@ -95,7 +95,7 @@ export function MissionControl() {
       if (!task?.agent_id) return
       const agent = agents.find(a => a.id === task.agent_id)
       setLiveEvents(prev => [{ id: `task-${task.id}-${Date.now()}`, type: 'task' as const, agent_name: agent?.name || 'Agent',
-        agent_id: task.agent_id, content: task.instruction?.substring(0, 500) || '', detail: task.status,
+        agent_id: task.agent_id, content: task.instruction?.substring(0, 2000) || '', detail: task.status,
         status: task.status, timestamp: task.completed_at || task.created_at }, ...prev].slice(0, 50))
     })
     channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'agent_messages' }, (payload) => {
@@ -103,7 +103,7 @@ export function MissionControl() {
       const from = agents.find(a => a.id === msg.from_agent_id)
       const to = agents.find(a => a.id === msg.to_agent_id)
       setLiveEvents(prev => [{ id: `msg-${msg.id}-${Date.now()}`, type: 'message' as const, agent_name: from?.name || 'Chief',
-        agent_id: msg.from_agent_id || '', content: typeof msg.content === 'string' ? msg.content.substring(0, 500) : 'Message',
+        agent_id: msg.from_agent_id || '', content: typeof msg.content === 'string' ? msg.content.substring(0, 2000) : 'Message',
         detail: `→ ${to?.name || 'Chief'}`, timestamp: msg.created_at }, ...prev].slice(0, 50))
     })
     channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'agent_activity_events' }, (payload) => {
@@ -313,7 +313,12 @@ export function MissionControl() {
                             {!isTask && !isActivity && <span className="text-[10px] text-muted-foreground">{event.detail}</span>}
                             {isRecent && <span className="text-[9px] text-amber-600 font-medium">NUEVO</span>}
                           </div>
-                          <p className={`text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap ${expandedEvent === event.id ? '' : 'line-clamp-3'}`}>{event.content}</p>
+                          <p className={`text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap ${expandedEvent === event.id ? 'max-h-96 overflow-y-auto' : 'line-clamp-2'}`}>{event.content}</p>
+                          {expandedEvent === event.id && event.content && event.content.length > 100 && (
+                            <div className="mt-2 pt-2 border-t border-border/50">
+                              <p className="text-[10px] text-muted-foreground">ID: {event.id?.substring(0, 20)} | {event.type} | {new Date(event.timestamp).toLocaleString()}</p>
+                            </div>
+                          )}
                         </div>
                         <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(event.timestamp)}</span>
                       </div>
