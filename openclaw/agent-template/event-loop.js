@@ -84,27 +84,27 @@ async function sense() {
   const [inbox, myTasks, availableTasks, budget, heartbeats] = await Promise.all([
     // 1. Inbox messages (recent, to me)
     sbGet(
-      `agent_messages?to_agent_id=eq.${AGENT_ID}&created_at=gt.${since}&order=created_at.desc&limit=10&select=id,from_agent_id,role,content,created_at`
+      `agent_messages?to_agent_id=eq.${AGENT_ID}&created_at=gt.${since}&order=created_at.desc&limit=5&select=from_agent_id,content,created_at`
     ).catch(() => []),
 
-    // 2. My assigned tasks
+    // 2. My assigned tasks on the blackboard
     sbGet(
-      `project_board?assigned_to=eq.${AGENT_ID}&status=in.(claimed,working)&order=priority.desc&limit=10&select=id,title,description,status,priority,metadata`
+      `project_board?assignee_agent_id=eq.${AGENT_ID}&status=in.(claimed,working)&order=priority.desc&limit=5&select=id,title,content,status,priority`
     ).catch(() => []),
 
     // 3. Available tasks I could claim
     sbGet(
-      `project_board?status=eq.available&entry_type=eq.task&org_id=eq.${ORG_ID}&order=priority.desc&limit=5&select=id,title,description,priority,metadata`
+      `project_board?status=eq.available&entry_type=eq.task&org_id=eq.${ORG_ID}&order=priority.desc&limit=5&select=id,title,content,priority`
     ).catch(() => []),
 
     // 4. My budget
     sbGet(
-      `agent_budgets?agent_id=eq.${AGENT_ID}&limit=1&select=daily_limit,daily_used,total_limit,total_used`
+      `agent_budgets?agent_id=eq.${AGENT_ID}&limit=1&select=tokens_used,max_tokens,cost_usd,max_cost_usd,iterations_used,max_iterations`
     ).catch(() => []),
 
     // 5. Who's online
     sbGet(
-      `agent_heartbeats?last_seen=gt.${new Date(Date.now() - 120000).toISOString()}&select=agent_id,agent_name,status,current_task`
+      `agent_heartbeats?last_seen=gt.${new Date(Date.now() - 300000).toISOString()}&select=agent_id,status,current_task`
     ).catch(() => []),
   ]);
 
@@ -123,51 +123,45 @@ async function sense() {
 function think(context) {
   return new Promise((resolve, reject) => {
     const budgetStr = context.budget
-      ? `Daily: ${context.budget.daily_used}/${context.budget.daily_limit} tokens`
-      : "No budget data";
+      ? `${context.budget.tokens_used || 0}/${context.budget.max_tokens || "∞"} tokens, $${context.budget.cost_usd || 0}/${context.budget.max_cost_usd || "∞"}`
+      : "No budget tracking";
 
-    const prompt = `You are ${AGENT_NAME}, a ${AGENT_ROLE}.
-You are running autonomously in an event loop (iteration #${state.iteration}).
+    // Format tasks with their content/description
+    const fmtTask = (t) => {
+      const desc = typeof t.content === "object" ? (t.content.description || JSON.stringify(t.content)) : (t.content || "");
+      return `- [${t.id}] ${t.title} (pri=${t.priority}) — ${desc.substring(0, 150)}`;
+    };
 
-## Current Context
+    const prompt = `SYSTEM: You are an autonomous AI agent. Return ONLY a JSON object, no other text.
 
-### Inbox (${context.inbox.length} messages)
-${context.inbox.length ? context.inbox.map((m) => `- From ${m.from_agent_id}: ${(m.content || "").substring(0, 200)}`).join("\n") : "Empty"}
+CONTEXT:
+- Name: ${AGENT_NAME}, Role: ${AGENT_ROLE}
+- Loop iteration: ${state.iteration}
+- Budget: ${budgetStr}
 
-### My Assigned Tasks (${context.myTasks.length})
-${context.myTasks.length ? context.myTasks.map((t) => `- [${t.id}] ${t.title} (${t.status}, pri=${t.priority})`).join("\n") : "None"}
+INBOX (${context.inbox.length}):
+${context.inbox.length ? context.inbox.map((m) => `- ${(m.content || "").substring(0, 200)}`).join("\n") : "(empty)"}
 
-### Available Tasks to Claim (${context.availableTasks.length})
-${context.availableTasks.length ? context.availableTasks.map((t) => `- [${t.id}] ${t.title} (pri=${t.priority})`).join("\n") : "None"}
+MY TASKS (${context.myTasks.length}):
+${context.myTasks.length ? context.myTasks.map(fmtTask).join("\n") : "(none assigned)"}
 
-### Budget
-${budgetStr}
+AVAILABLE TASKS (${context.availableTasks.length}):
+${context.availableTasks.length ? context.availableTasks.map(fmtTask).join("\n") : "(none available)"}
 
-### Online Agents
-${context.onlineAgents.length ? context.onlineAgents.map((a) => `- ${a.agent_name} (${a.status})`).join("\n") : "None visible"}
+ONLINE AGENTS: ${context.onlineAgents.length ? context.onlineAgents.map((a) => a.agent_id?.substring(0, 8)).join(", ") : "none"}
 
-## Instructions
-Decide your next action. Return ONLY valid JSON:
+RESPOND WITH EXACTLY ONE JSON OBJECT:
+{"action":"claim_task","reasoning":"...","params":{"task_id":"..."}}
+{"action":"work_on_task","reasoning":"...","params":{"task_id":"...","instruction":"..."}}
+{"action":"send_message","reasoning":"...","params":{"to_agent":"name","message":"..."}}
+{"action":"complete_task","reasoning":"...","params":{"task_id":"...","result_summary":"..."}}
+{"action":"idle","reasoning":"nothing to do","params":{}}
 
-{
-  "action": "work_on_task|claim_task|send_message|post_to_board|complete_task|idle",
-  "reasoning": "brief explanation",
-  "params": {
-    "task_id": "uuid (for work_on_task, claim_task, complete_task)",
-    "instruction": "what to do (for work_on_task)",
-    "to_agent": "agent name (for send_message)",
-    "message": "text (for send_message)",
-    "title": "text (for post_to_board)",
-    "content": "text (for post_to_board)",
-    "result_summary": "text (for complete_task)"
-  }
-}
-
-Rules:
-- If you have assigned tasks, work on the highest priority one first.
-- Only claim a new task if you have no assigned tasks.
-- Use idle if there's nothing meaningful to do. Don't invent work.
-- Be efficient — avoid redundant actions.`;
+RULES:
+1. If AVAILABLE TASKS has entries and MY TASKS is empty → claim_task (pick highest priority)
+2. If MY TASKS has entries → work_on_task (use the task description as instruction)
+3. If no tasks at all → idle
+4. ONLY return JSON. No markdown, no explanation, no code blocks.`;
 
     execFile(
       "node",
@@ -217,10 +211,7 @@ async function act(decision) {
     case "work_on_task": {
       if (!params.task_id || !params.instruction) break;
       // Mark task as working
-      await sbPatch(
-        `project_board?id=eq.${params.task_id}`,
-        { status: "working", assigned_to: AGENT_ID }
-      );
+      await sbPatch(`project_board?id=eq.${params.task_id}`, { status: "working" });
       // Call LLM via gateway
       const result = await callGateway(params.instruction, `task-${params.task_id}`);
       console.log(`[event-loop] Task ${params.task_id} result: ${(result || "").substring(0, 100)}`);
@@ -229,14 +220,15 @@ async function act(decision) {
 
     case "claim_task": {
       if (!params.task_id) break;
-      await sbPost("functions/v1/blackboard", {
-        action: "claim",
-        entry_id: params.task_id,
-        agent_id: AGENT_ID,
-        org_id: ORG_ID,
+      // Use PATCH to blackboard edge function for atomic claim
+      const claimRes = await fetch(`${SB_URL}/functions/v1/blackboard`, {
+        method: "PATCH",
+        headers: sbHeaders,
+        body: JSON.stringify({ entry_id: params.task_id, action: "claim", agent_id: AGENT_ID }),
       });
-      console.log(`[event-loop] Claimed task ${params.task_id}`);
-      return "claimed";
+      const claimData = await claimRes.json().catch(() => ({}));
+      console.log(`[event-loop] Claimed task ${params.task_id}: ${claimData.entry?.status || "failed"}`);
+      return claimData.entry?.status === "claimed" ? "claimed" : "claim_failed";
     }
 
     case "send_message": {
@@ -244,13 +236,10 @@ async function act(decision) {
       return new Promise((resolve) => {
         execFile(
           "node",
-          [__dirname + "/a2a-send.js", params.to_agent, params.message],
-          { timeout: 60000, env: { ...process.env, HOME: "/home/node" } },
-          (err, stdout, stderr) => {
-            if (err) {
-              console.error("[event-loop] send_message error:", err.message);
-              return resolve("send_error");
-            }
+          ["/home/node/.openclaw/a2a-send.js", params.to_agent, params.message],
+          { timeout: 120000, env: { ...process.env, HOME: "/home/node" } },
+          (err, stdout) => {
+            if (err) { console.error("[event-loop] send_message error:", err.message); return resolve("send_error"); }
             resolve((stdout || "").trim());
           }
         );
@@ -259,25 +248,20 @@ async function act(decision) {
 
     case "post_to_board": {
       if (!params.title) break;
-      await sbPost("functions/v1/blackboard", {
-        action: "post",
-        org_id: ORG_ID,
-        agent_id: AGENT_ID,
-        entry_type: "note",
-        title: params.title,
-        content: params.content || "",
+      await fetch(`${SB_URL}/functions/v1/blackboard`, {
+        method: "POST",
+        headers: sbHeaders,
+        body: JSON.stringify({ org_id: ORG_ID, entry_type: "note", title: params.title, content: { text: params.content || "" }, written_by: AGENT_ID }),
       });
       return "posted";
     }
 
     case "complete_task": {
       if (!params.task_id) break;
-      await sbPost("functions/v1/blackboard", {
-        action: "complete",
-        entry_id: params.task_id,
-        agent_id: AGENT_ID,
-        org_id: ORG_ID,
-        result_summary: params.result_summary || "Done",
+      await fetch(`${SB_URL}/functions/v1/blackboard`, {
+        method: "PATCH",
+        headers: sbHeaders,
+        body: JSON.stringify({ entry_id: params.task_id, action: "complete", result: params.result_summary || "Done" }),
       });
       console.log(`[event-loop] Completed task ${params.task_id}`);
       return "completed";
@@ -353,10 +337,8 @@ async function reflect(decision) {
   if (SB_URL && SB_KEY && AGENT_ID) {
     const heartbeat = {
       agent_id: AGENT_ID,
-      agent_name: AGENT_NAME,
-      org_id: ORG_ID,
       status: action === "idle" ? "idle" : "working",
-      current_task: taskId,
+      current_task: action === "idle" ? null : (taskId || action),
       last_seen: new Date().toISOString(),
       loop_iteration: state.iteration,
     };
