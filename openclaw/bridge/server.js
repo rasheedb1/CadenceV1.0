@@ -2116,7 +2116,7 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
         body: JSON.stringify({
           project_id: project.id,
           iteration_number: project.current_iteration + 1,
-          agent_id: currentAgentId,
+          agent_id: leadAgent.id,
           action,
           input_summary: prompt.substring(0, 300),
           output_summary: outputSummary,
