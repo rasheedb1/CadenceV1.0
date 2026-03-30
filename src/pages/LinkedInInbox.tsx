@@ -284,7 +284,7 @@ export function LinkedInInbox() {
       <div className="flex h-full items-center justify-center">
         <div className="text-center max-w-md p-8">
           <MessageSquare className="mx-auto mb-4 h-16 w-16 text-destructive" />
-          <h2 className="text-xl font-semibold mb-2">Failed to Load Conversations</h2>
+          <h2 className="text-xl font-semibold mb-2">Error al Cargar Conversaciones</h2>
           <p className="text-muted-foreground mb-6">
             Error al cargar tus conversaciones de LinkedIn. Intenta de nuevo.
           </p>

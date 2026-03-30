@@ -516,7 +516,7 @@ export function AccountMapDetail() {
             </Select>
             {icpProfiles.length === 0 && (
               <p className="mt-2 text-sm text-muted-foreground">
-                No ICP Profiles found. Create one in <button className="underline text-primary" onClick={() => navigate('/account-mapping?tab=icp')}>ICP Setup</button>.
+                No se encontraron Perfiles ICP. Crea uno en <button className="underline text-primary" onClick={() => navigate('/account-mapping?tab=icp')}>Configuración ICP</button>.
               </p>
             )}
           </div>
@@ -661,7 +661,7 @@ function CompaniesTab({
       <CardContent>
         {companies.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
-            No companies added yet. Add target companies to search for prospects.
+            Sin empresas aún. Agrega empresas objetivo para buscar prospectos.
           </p>
         ) : viewMode === 'list' ? (
           /* List view: stacked cards */
@@ -947,7 +947,7 @@ function ProspectsTab({
       }
     } catch (err) {
       console.error('Find duplicates failed:', err)
-      alert(err instanceof Error ? err.message : 'Failed to find duplicates')
+      alert(err instanceof Error ? err.message : 'Error al buscar duplicados')
     } finally {
       setFindingDuplicates(false)
     }
@@ -1166,7 +1166,7 @@ function ProspectsTab({
           {prospects.length === 0 ? (
             <div className="py-8 text-center space-y-3">
               <p className="text-sm text-muted-foreground">
-                No prospects yet. Use batch search to find prospects across all companies.
+                Sin prospectos aún. Usa búsqueda por lote para encontrar prospectos.
               </p>
               <div className="flex items-center justify-center gap-2 flex-wrap">
                 <Button size="sm" variant="outline" onClick={onImportProspects}>

@@ -193,8 +193,8 @@ export function AccountMapping() {
         navigate(`/account-mapping/${map.id}`)
       }
     } catch (error) {
-      console.error('Failed to create account map:', error)
-      alert(error instanceof Error ? error.message : 'Failed to create account map.')
+      console.error('Error al crear mapa de cuentas.', error)
+      alert(error instanceof Error ? error.message : 'Error al crear mapa de cuentas.')
     } finally {
       setCreating(false)
     }

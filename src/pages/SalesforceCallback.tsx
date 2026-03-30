@@ -50,7 +50,7 @@ export function SalesforceCallback() {
       } catch (err) {
         console.error('Salesforce callback error:', err)
         setStatus('error')
-        setErrorMsg(err instanceof Error ? err.message : 'Failed to complete connection')
+        setErrorMsg(err instanceof Error ? err.message : 'Error al completar conexión')
         toast.error('Failed to connect Salesforce')
         setTimeout(() => navigate('/settings'), 3000)
       }

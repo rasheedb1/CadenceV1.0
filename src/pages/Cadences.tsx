@@ -99,7 +99,7 @@ export function Cadences() {
       if (copy) navigate(`/cadences/${copy.id}`)
     } catch (err) {
       console.error('Failed to duplicate cadence:', err)
-      alert(err instanceof Error ? err.message : 'Failed to duplicate cadence')
+      alert(err instanceof Error ? err.message : 'Error al duplicar cadencia')
     } finally {
       setDuplicatingId(null)
     }
