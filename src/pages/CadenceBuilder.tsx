@@ -725,7 +725,7 @@ export function CadenceBuilder() {
 
   const handleTestStep = async () => {
     if (!selectedStepForTest || !testStepConfig.leadId) {
-      toast.error('Please select a lead to test with')
+      toast.error('Selecciona un lead para probar')
       return
     }
 
@@ -2062,7 +2062,7 @@ export function CadenceBuilder() {
               Cancelar
             </Button>
             <Button onClick={editingStepId ? handleSaveEditStep : handleAddStep} disabled={saving}>
-              {saving ? (editingStepId ? 'Saving...' : 'Adding...') : (editingStepId ? 'Save Changes' : 'Agregar Paso')}
+              {saving ? (editingStepId ? 'Guardando...' : 'Agregando...') : (editingStepId ? 'Guardar Cambios' : 'Agregar Paso')}
             </Button>
           </DialogFooter>
         </DialogContent>

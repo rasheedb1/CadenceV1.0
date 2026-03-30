@@ -137,7 +137,7 @@ export function OrgSettings() {
           {canEdit && (
             <Button onClick={handleSave} disabled={saving || name === org.name}>
               <Save className="h-4 w-4 mr-2" />
-              {saving ? 'Saving...' : 'Save Changes'}
+              {saving ? 'Guardando...' : 'Guardar Cambios'}
             </Button>
           )}
         </CardContent>
@@ -212,7 +212,7 @@ export function OrgSettings() {
           {canEdit && (
             <Button onClick={handleSaveKeys} disabled={savingKeys || !keysLoaded}>
               <Save className="h-4 w-4 mr-2" />
-              {savingKeys ? 'Saving...' : 'Save API Keys'}
+              {savingKeys ? 'Guardando...' : 'Guardar API Keys'}
             </Button>
           )}
         </CardContent>

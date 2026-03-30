@@ -79,7 +79,7 @@ export function CompanyResearch() {
       {/* ═══ Global Company Search ═══ */}
       <Card className="mb-8">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Search All Researched Companies</CardTitle>
+          <CardTitle className="text-lg">Buscar Empresas Investigadas</CardTitle>
           <CardDescription>
             Find research done by anyone in your organization across all projects
           </CardDescription>
@@ -101,7 +101,7 @@ export function CompanyResearch() {
             </div>
           ) : allCompanies.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No companies have been researched yet. Create a project and start researching.
+              No hay empresas investigadas aún. Crea un proyecto y comienza a investigar.
             </p>
           ) : filteredCompanies.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
@@ -254,7 +254,7 @@ export function CompanyResearch() {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Building2 className="mb-4 h-12 w-12 text-muted-foreground" />
             <h3 className="mb-2 text-lg font-medium">
-              {projectSearch ? 'No matching projects' : 'No research projects yet'}
+              {projectSearch ? 'No hay proyectos coincidentes' : 'No hay proyectos de investigación aún'}
             </h3>
             <p className="mb-4 text-sm text-muted-foreground text-center max-w-md">
               {projectSearch

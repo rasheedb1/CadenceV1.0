@@ -371,11 +371,11 @@ export function Onboarding() {
               <div className="space-y-3 text-left text-sm">
                 <div className="flex items-center gap-2 p-2 rounded border">
                   <span className="font-medium text-muted-foreground w-5 text-center">1</span>
-                  <span>Create your first cadence with outreach steps</span>
+                  <span>Crea tu primera cadencia con pasos de outreach</span>
                 </div>
                 <div className="flex items-center gap-2 p-2 rounded border">
                   <span className="font-medium text-muted-foreground w-5 text-center">2</span>
-                  <span>Import leads and assign them to your cadence</span>
+                  <span>Importa leads y asígnalos a tu cadencia</span>
                 </div>
                 <div className="flex items-center gap-2 p-2 rounded border">
                   <span className="font-medium text-muted-foreground w-5 text-center">3</span>

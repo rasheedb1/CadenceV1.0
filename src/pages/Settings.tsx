@@ -255,7 +255,7 @@ export function Settings() {
         <Card>
           <CardHeader>
             <CardTitle>Change Password</CardTitle>
-            <CardDescription>Update your password</CardDescription>
+            <CardDescription>Actualiza tu contraseña</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleUpdatePassword} className="space-y-4">
@@ -334,7 +334,7 @@ export function Settings() {
                   Saved
                 </>
               ) : (
-                'Save AI Settings'
+                'Guardar Configuración IA'
               )}
             </Button>
           </CardContent>

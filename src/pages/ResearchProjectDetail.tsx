@@ -216,7 +216,7 @@ export function ResearchProjectDetail() {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Search className="mb-4 h-12 w-12 text-muted-foreground" />
             <h3 className="mb-2 text-lg font-medium">
-              {search ? 'No matching companies' : 'No companies added yet'}
+              {search ? 'No hay empresas coincidentes' : 'No hay empresas agregadas aún'}
             </h3>
             <p className="mb-4 text-sm text-muted-foreground text-center max-w-md">
               {search

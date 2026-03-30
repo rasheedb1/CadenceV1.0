@@ -286,7 +286,7 @@ export function LinkedInInbox() {
           <MessageSquare className="mx-auto mb-4 h-16 w-16 text-destructive" />
           <h2 className="text-xl font-semibold mb-2">Failed to Load Conversations</h2>
           <p className="text-muted-foreground mb-6">
-            There was an error loading your LinkedIn conversations. Please try again.
+            Error al cargar tus conversaciones de LinkedIn. Intenta de nuevo.
           </p>
           <Button onClick={() => refetchChats()} className="gap-2">
             <RefreshCw className="h-4 w-4" />

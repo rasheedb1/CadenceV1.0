@@ -381,7 +381,7 @@ export function AccountMapDetail() {
         onAdd={addCompany}
       />
 
-      {/* Import Companies Dialog */}
+      {/* Importar Empresas Dialog */}
       <ImportCompaniesDialog
         open={showImportCompanies}
         onOpenChange={setShowImportCompanies}
@@ -956,7 +956,7 @@ function ProspectsTab({
   const handleDeleteSelected = async () => {
     const ids = Array.from(selectedProspects)
     if (ids.length === 0) return
-    if (!confirm(`Delete ${ids.length} selected prospect${ids.length !== 1 ? 's' : ''}? This cannot be undone.`)) return
+    if (!confirm(`¿Eliminar ${ids.length} prospecto${ids.length !== 1 ? 's' : ''} seleccionado${ids.length !== 1 ? 's' : ''}? Esta acción no se puede deshacer.`)) return
     try {
       await bulkDeleteProspects(ids)
     } catch (e) {
@@ -1692,7 +1692,7 @@ function AddCompanyDialog({
 }
 
 // ═══════════════════════════════════════════════════════
-// DIALOG: Import Companies (CSV / Excel)
+// DIALOG: Importar Empresas (CSV / Excel)
 // ═══════════════════════════════════════════════════════
 
 type ImportedRow = {
@@ -1861,7 +1861,7 @@ function ImportCompaniesDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>Import Companies</DialogTitle>
+          <DialogTitle>Importar Empresas</DialogTitle>
           <DialogDescription>
             Upload a CSV or Excel file to batch-import target companies into this account map.
           </DialogDescription>
@@ -1871,7 +1871,7 @@ function ImportCompaniesDialog({
           {/* Template download */}
           <div className="flex items-center justify-between rounded-lg border border-dashed p-3 bg-muted/30">
             <div>
-              <p className="text-sm font-medium">Download template</p>
+              <p className="text-sm font-medium">Descargar plantilla</p>
               <p className="text-xs text-muted-foreground">
                 Columns: company_name (required), industry, company_size, website, linkedin_url, location, description
               </p>
@@ -2355,7 +2355,7 @@ function SearchProspectsDialog({
       setHasSearched(true)
     } catch (err) {
       console.error('Search failed:', err)
-      alert(err instanceof Error ? err.message : 'Search failed')
+      alert(err instanceof Error ? err.message : 'Error en búsqueda')
     } finally {
       setSearching(false)
     }

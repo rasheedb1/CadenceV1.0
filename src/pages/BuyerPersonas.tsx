@@ -392,7 +392,7 @@ function GroupCard({ group, expanded, onToggle, onEdit, onDelete }: GroupCardPro
           {/* Personas table */}
           {personas.length === 0 && suggestions.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No personas yet. Add personas or use AI to suggest them.
+              Sin personas aún. Agrega personas o usa IA para sugerirlas.
             </p>
           ) : (
             <>

@@ -381,7 +381,7 @@ export function SuperAdminOrgs() {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create Organization</DialogTitle>
+                <DialogTitle>Crear Organización</DialogTitle>
                 <DialogDescription>
                   Create a new organization for a client. An invite link will be generated automatically.
                 </DialogDescription>
@@ -446,7 +446,7 @@ export function SuperAdminOrgs() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => { setCreateOpen(false); setInviteResult(null) }}>
-                  {inviteResult ? 'Listo' : 'Cancel'}
+                  {inviteResult ? 'Listo' : 'Cancelar'}
                 </Button>
                 {!inviteResult && (
                   <Button onClick={handleCreate} disabled={creating || !newName.trim() || !newSlug.trim()}>
@@ -591,7 +591,7 @@ export function SuperAdminOrgs() {
               </div>
               {(editPlan !== selectedOrg.plan || editActive !== selectedOrg.is_active) && (
                 <Button onClick={handleSaveEdit} disabled={savingEdit} size="sm">
-                  {savingEdit ? 'Saving...' : 'Save Changes'}
+                  {savingEdit ? 'Guardando...' : 'Guardar Cambios'}
                 </Button>
               )}
 
@@ -624,7 +624,7 @@ export function SuperAdminOrgs() {
                   )
                 })}
                 <Button onClick={handleSaveFlags} disabled={savingFlags} size="sm">
-                  {savingFlags ? 'Saving...' : 'Save Flags'}
+                  {savingFlags ? 'Guardando...' : 'Guardar Flags'}
                 </Button>
               </div>
 

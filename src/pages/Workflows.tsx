@@ -82,7 +82,7 @@ export function Workflows() {
           </PermissionGate>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create New Workflow</DialogTitle>
+              <DialogTitle>Crear Nuevo Workflow</DialogTitle>
               <DialogDescription>
                 Give your workflow a name to get started
               </DialogDescription>

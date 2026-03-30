@@ -106,7 +106,7 @@ function LeadPicker({
             </span>
           </span>
         ) : (
-          <span className="text-muted-foreground">Search for a lead…</span>
+          <span className="text-muted-foreground">Buscar un lead…</span>
         )}
         <ChevronDown className="h-4 w-4 text-muted-foreground ml-2 shrink-0" />
       </button>
@@ -343,8 +343,8 @@ export function BusinessCaseGenerate() {
   const isPptxTemplate = selectedTemplate?.template_type === 'uploaded_pptx'
 
   const handleGenerate = async () => {
-    if (!templateId) { toast.error('Please select a template'); return }
-    if (!leadId) { toast.error('Please select a lead'); return }
+    if (!templateId) { toast.error('Selecciona una plantilla'); return }
+    if (!leadId) { toast.error('Selecciona un lead'); return }
 
     setIsGenerating(true)
     setGeneratedCase(null)

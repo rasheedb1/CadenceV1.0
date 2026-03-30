@@ -249,7 +249,7 @@ export function AccountMapping() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight font-heading">
-            {activeTab === 'icp-profiles' ? 'ICP Setup' : activeTab === 'buyer-personas' ? 'Buying Personas' : 'Search Companies & Leads'}
+            {activeTab === 'icp-profiles' ? 'Configuración ICP' : activeTab === 'buyer-personas' ? 'Buyer Personas' : 'Buscar Empresas y Leads'}
           </h1>
           <p className="text-muted-foreground">
             {activeTab === 'icp-profiles' ? 'Define your Ideal Customer Profile' : activeTab === 'buyer-personas' ? 'Define the buyer personas for your outreach' : 'Find prospects and build target lists'}
@@ -268,7 +268,7 @@ export function AccountMapping() {
             </PermissionGate>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create Account Map</DialogTitle>
+                <DialogTitle>Crear Mapa de Cuentas</DialogTitle>
                 <DialogDescription>
                   Define a new Ideal Customer Profile to target
                 </DialogDescription>
@@ -315,7 +315,7 @@ export function AccountMapping() {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create ICP Profile</DialogTitle>
+                <DialogTitle>Crear Perfil ICP</DialogTitle>
                 <DialogDescription>
                   Create a reusable ICP profile with buyer personas that can be linked to multiple account maps.
                 </DialogDescription>
@@ -367,7 +367,7 @@ export function AccountMapping() {
                 <PermissionGate permission="account_mapping_create">
                   <Button onClick={() => setIsCreateOpen(true)}>
                     <Plus className="mr-2 h-4 w-4" />
-                    Create Account Map
+                    Crear Mapa de Cuentas
                   </Button>
                 </PermissionGate>
               </CardContent>
@@ -462,7 +462,7 @@ export function AccountMapping() {
                 </p>
                 <Button onClick={() => setIsCreateProfileOpen(true)}>
                   <Plus className="mr-2 h-4 w-4" />
-                  Create ICP Profile
+                  Crear Perfil ICP
                 </Button>
               </CardContent>
             </Card>

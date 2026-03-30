@@ -677,7 +677,7 @@ function FullSlideModal({
               <Button size="sm" className="h-7 text-xs mr-2" onClick={handleSaveLayout} disabled={isSaving}>
                 {isSaving
                   ? <><Loader2 className="h-3 w-3 animate-spin mr-1" />Saving…</>
-                  : <><Save className="h-3 w-3 mr-1" />Save Layout</>
+                  : <><Save className="h-3 w-3 mr-1" />Guardar Diseño</>
                 }
               </Button>
             )}
@@ -1281,7 +1281,7 @@ function VariableEditor({
           <Button size="sm" onClick={handleSave} disabled={isSaving} className="h-8 shrink-0">
             {isSaving
               ? <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />Saving…</>
-              : <><Save className="mr-1.5 h-3.5 w-3.5" />Save Changes</>
+              : <><Save className="mr-1.5 h-3.5 w-3.5" />Guardar Cambios</>
             }
           </Button>
         )}
@@ -1336,7 +1336,7 @@ function ReuploadSection({
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0]
     if (!selected) return
-    if (!selected.name.endsWith('.pptx')) { toast.error('Please upload a .pptx file'); return }
+    if (!selected.name.endsWith('.pptx')) { toast.error('Por favor sube un archivo .pptx'); return }
     setNewFile(selected); setPreviewVars(null); setIsParsing(true)
     try {
       setPreviewVars(await parsePptxVariables(selected))
@@ -1404,7 +1404,7 @@ function ReuploadSection({
             ) : (
               <>
                 <Upload className="h-6 w-6 text-muted-foreground mb-1" />
-                <p className="text-sm">Click to upload new .pptx</p>
+                <p className="text-sm">Clic para subir nuevo .pptx</p>
               </>
             )}
           </div>
@@ -1492,7 +1492,7 @@ export function BusinessCaseTemplateEditor() {
   }
 
   const handleDelete = async () => {
-    if (!confirm(`Delete template "${template.name}"? This cannot be undone.`)) return
+    if (!confirm(`¿Eliminar plantilla "${template.name}"? Esta acción no se puede deshacer.`)) return
     try {
       await deleteTemplate(template.id)
       toast.success('Template deleted')

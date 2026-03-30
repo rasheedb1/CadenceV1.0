@@ -75,7 +75,7 @@ export function Cadences() {
       }
     } catch (error) {
       console.error('Failed to create cadence:', error)
-      alert(error instanceof Error ? error.message : 'Failed to create cadence. Please try again.')
+      alert(error instanceof Error ? error.message : 'Error al crear cadencia. Intenta de nuevo.')
     } finally {
       setCreating(false)
     }
@@ -131,7 +131,7 @@ export function Cadences() {
           </PermissionGate>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create New Cadence</DialogTitle>
+              <DialogTitle>Crear Nueva Cadencia</DialogTitle>
               <DialogDescription>
                 Give your cadence a name to get started
               </DialogDescription>

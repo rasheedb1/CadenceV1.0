@@ -312,7 +312,7 @@ export function Templates() {
           </PermissionGate>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle>Create Template</DialogTitle>
+              <DialogTitle>Crear Plantilla</DialogTitle>
               <DialogDescription>
                 Create a reusable message template with dynamic variables
               </DialogDescription>
@@ -408,7 +408,7 @@ export function Templates() {
                 onClick={() => createMutation.mutate(formData)}
                 disabled={!formData.name || !formData.body || createMutation.isPending}
               >
-                {createMutation.isPending ? 'Creating...' : 'Create Template'}
+                {createMutation.isPending ? 'Creating...' : 'Crear Plantilla'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -513,7 +513,7 @@ export function Templates() {
               }
               disabled={!formData.name || !formData.body || updateMutation.isPending}
             >
-              {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
+              {updateMutation.isPending ? 'Guardando...' : 'Guardar Cambios'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -531,7 +531,7 @@ export function Templates() {
             <PermissionGate permission="templates_create">
               <Button onClick={() => setIsCreateOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
-                Create Template
+                Crear Plantilla
               </Button>
             </PermissionGate>
           </CardContent>

@@ -227,7 +227,7 @@ export function AccountExecutiveDetail() {
   )
 
   const handleDeleteAccount = async () => {
-    if (!confirm(`Delete account "${account.name}"? This cannot be undone.`)) return
+    if (!confirm(`¿Eliminar cuenta "${account.name}"? Esta acción no se puede deshacer.`)) return
     await deleteAccount.mutateAsync(account.id)
     navigate('/account-executive')
   }
@@ -337,7 +337,7 @@ export function AccountExecutiveDetail() {
             {activities.length === 0 && !loadingActivities && (
               <div className="text-center py-8">
                 <Clock className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground">No activities yet.</p>
+                <p className="text-sm text-muted-foreground">Sin actividades aún.</p>
                 <p className="text-xs text-muted-foreground mt-1">Sincroniza Gong para importar llamadas de esta cuenta.</p>
               </div>
             )}
@@ -482,7 +482,7 @@ export function AccountExecutiveDetail() {
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                    {account.notes || 'No notes yet. Click Edit to add notes.'}
+                    {account.notes || 'Sin notas aún. Haz clic en Editar para agregar notas.'}
                   </p>
                 )}
               </CardContent>

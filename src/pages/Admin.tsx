@@ -146,7 +146,7 @@ export function Admin() {
   const quickLinks = [
     {
       title: 'Activity Logs',
-      description: 'View all system activity and actions',
+      description: 'Ver toda la actividad y acciones del sistema',
       icon: FileText,
       href: '/admin/logs',
     },

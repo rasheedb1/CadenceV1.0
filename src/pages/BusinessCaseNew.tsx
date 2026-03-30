@@ -63,7 +63,7 @@ function AiGeneratedTab() {
 
   const handleGenerate = async () => {
     if (!name.trim()) { toast.error('Template name is required'); return }
-    if (!prompt.trim()) { toast.error('Please describe what this business case should cover'); return }
+    if (!prompt.trim()) { toast.error('Describe qué debe cubrir este business case'); return }
 
     setIsGenerating(true)
     try {
@@ -152,7 +152,7 @@ function UploadPptxTab() {
     const selected = e.target.files?.[0]
     if (!selected) return
     if (!selected.name.endsWith('.pptx')) {
-      toast.error('Please upload a .pptx file')
+      toast.error('Por favor sube un archivo .pptx')
       return
     }
 
@@ -181,7 +181,7 @@ function UploadPptxTab() {
   }
 
   const handleSave = async () => {
-    if (!file) { toast.error('Please upload a PPTX file'); return }
+    if (!file) { toast.error('Por favor sube un archivo PPTX'); return }
     if (!name.trim()) { toast.error('Template name is required'); return }
 
     setIsSaving(true)
@@ -232,7 +232,7 @@ function UploadPptxTab() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Upload Your PPTX Template</CardTitle>
+          <CardTitle>Sube tu Plantilla PPTX</CardTitle>
           <CardDescription>
             Design your presentation in PowerPoint or Google Slides, add {'{{variables}}'}, then upload here.
           </CardDescription>
@@ -259,13 +259,13 @@ function UploadPptxTab() {
                 <CheckCircle className="h-8 w-8 text-primary mb-2" />
                 <p className="text-sm font-medium">{file.name}</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {(file.size / 1024 / 1024).toFixed(1)} MB &bull; Click to replace
+                  {(file.size / 1024 / 1024).toFixed(1)} MB &bull; Clic para reemplazar
                 </p>
               </>
             ) : (
               <>
                 <FileUp className="h-8 w-8 text-muted-foreground mb-2" />
-                <p className="text-sm font-medium">Click to upload .pptx file</p>
+                <p className="text-sm font-medium">Clic para subir archivo .pptx</p>
                 <p className="text-xs text-muted-foreground mt-1">Max 20 MB</p>
               </>
             )}
@@ -280,7 +280,7 @@ function UploadPptxTab() {
               </p>
               {parsedVars.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No {'{{variables}}'} found. You can still upload — variables can be added later by re-uploading.
+                  No se encontraron {'{{variables}}'}. Puedes subir de todas formas — las variables se pueden agregar después re-subiendo.
                 </p>
               ) : (
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -318,7 +318,7 @@ function UploadPptxTab() {
             {isSaving ? (
               <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uploading…</>
             ) : (
-              <><Upload className="mr-2 h-4 w-4" />Save Template</>
+              <><Upload className="mr-2 h-4 w-4" />Guardar Plantilla</>
             )}
           </Button>
         </CardContent>

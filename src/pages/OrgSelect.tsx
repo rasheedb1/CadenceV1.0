@@ -88,7 +88,7 @@ export function OrgSelect() {
         {showCreate || allOrgs.length === 0 ? (
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Create Organization</CardTitle>
+              <CardTitle className="text-lg">Crear Organización</CardTitle>
               <CardDescription>
                 Set up a new workspace for your team
               </CardDescription>

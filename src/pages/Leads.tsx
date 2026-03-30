@@ -879,7 +879,7 @@ export function Leads() {
               Cancel
             </Button>
             <Button onClick={() => handleSaveLead(true)} disabled={saving || !isFormValid}>
-              {saving ? 'Saving...' : 'Save Changes'}
+              {saving ? 'Guardando...' : 'Guardar Cambios'}
             </Button>
           </DialogFooter>
         </DialogContent>
