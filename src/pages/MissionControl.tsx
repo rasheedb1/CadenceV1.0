@@ -46,16 +46,16 @@ export function MissionControl() {
 
   useInterval(10000)
 
-  // Build initial events
+  // Build initial events — load tasks + messages + activity events
   useEffect(() => {
     const events: LiveEvent[] = []
     for (const agent of agents) {
-      for (const task of getAgentTasks(agent.id).slice(0, 5)) {
+      for (const task of getAgentTasks(agent.id).slice(0, 10)) {
         events.push({ id: `task-${task.id}`, type: 'task' as const, agent_name: agent.name, agent_id: agent.id,
-          content: task.instruction.substring(0, 500), detail: task.status, status: task.status,
+          content: task.instruction?.substring(0, 500) || '', detail: task.status, status: task.status,
           timestamp: task.completed_at || task.created_at })
       }
-      for (const msg of getAgentMessages(agent.id).slice(0, 10)) {
+      for (const msg of getAgentMessages(agent.id).slice(0, 50)) {
         const from = agents.find(a => a.id === msg.from_agent_id)
         const to = agents.find(a => a.id === msg.to_agent_id)
         events.push({ id: `msg-${msg.id}`, type: 'message' as const, agent_name: from?.name || 'Chief',
@@ -63,8 +63,29 @@ export function MissionControl() {
           detail: `→ ${to?.name || 'Chief'}`, timestamp: msg.created_at })
       }
     }
+    // Also load recent activity events (event loop actions, tool calls)
+    supabase
+      .from('agent_activity_events')
+      .select('agent_id, event_type, tool_name, content, created_at')
+      .eq('org_id', agents[0]?.org_id || '')
+      .order('created_at', { ascending: false })
+      .limit(100)
+      .then(({ data }) => {
+        if (!data) return
+        for (const evt of data) {
+          const agent = agents.find(a => a.id === evt.agent_id)
+          const icon = evt.tool_name ? (TOOL_ICONS[evt.tool_name] || '⚡') : '⚡'
+          events.push({ id: `evt-${evt.created_at}-${Math.random()}`, type: 'activity' as const, agent_name: agent?.name || 'Agent',
+            agent_id: evt.agent_id, content: `${icon} ${evt.tool_name || evt.event_type}: ${evt.content?.substring(0, 300) || ''}`,
+            detail: evt.event_type, status: evt.event_type === 'tool_call' ? 'in_progress' : 'completed',
+            timestamp: evt.created_at })
+        }
+        events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        setLiveEvents(events.slice(0, 200))
+      })
+    // Set initial (without activity events) immediately
     events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    setLiveEvents(events.slice(0, 50))
+    setLiveEvents(events.slice(0, 200))
   }, [agents, getAgentTasks, getAgentMessages])
 
   // Realtime subscriptions
