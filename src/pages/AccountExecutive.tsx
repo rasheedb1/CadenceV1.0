@@ -581,7 +581,7 @@ export function AccountExecutive() {
                 sfAccounts.length === 0 && !loadingSF ? (
                   <div className="px-6 pb-6 text-center">
                     <Building2 className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                    <p className="text-sm text-muted-foreground">No active Salesforce accounts found for "{sfOwnerName}"</p>
+                    <p className="text-sm text-muted-foreground">Sin cuentas activas de Salesforce para "{sfOwnerName}"</p>
                     <p className="text-xs text-muted-foreground mt-1">Sync Salesforce or check your name in Settings</p>
                   </div>
                 ) : (
@@ -627,7 +627,7 @@ export function AccountExecutive() {
               accounts.length === 0 && !loadingAccounts ? (
                 <div className="px-6 pb-6 text-center">
                   <Building2 className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground">No accounts yet</p>
+                  <p className="text-sm text-muted-foreground">Sin cuentas aún</p>
                   <Button variant="outline" size="sm" className="mt-3" onClick={() => setShowNewAccount(true)}>
                     <Plus className="h-3.5 w-3.5 mr-1" /> Add Account
                   </Button>

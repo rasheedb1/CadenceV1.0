@@ -360,7 +360,7 @@ export function AccountMapping() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <Target className="mb-4 h-12 w-12 text-muted-foreground" />
-                <h3 className="mb-2 text-lg font-medium">No account maps yet</h3>
+                <h3 className="mb-2 text-lg font-medium">Sin mapas de cuentas aún</h3>
                 <p className="mb-4 text-sm text-muted-foreground">
                   Create your first account map to define your ICP and find prospects
                 </p>
@@ -456,7 +456,7 @@ export function AccountMapping() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <Brain className="mb-4 h-12 w-12 text-muted-foreground" />
-                <h3 className="mb-2 text-lg font-medium">No ICP Profiles yet</h3>
+                <h3 className="mb-2 text-lg font-medium">Sin perfiles ICP aún</h3>
                 <p className="mb-4 text-sm text-muted-foreground text-center max-w-md">
                   Create reusable ICP profiles with buyer personas. Link them to multiple account maps without redefining from scratch.
                 </p>
@@ -545,7 +545,7 @@ export function AccountMapping() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <UserCircle className="mb-4 h-12 w-12 text-muted-foreground" />
-                <h3 className="mb-2 text-lg font-medium">No buying personas yet</h3>
+                <h3 className="mb-2 text-lg font-medium">Sin buyer personas aún</h3>
                 <p className="mb-4 text-sm text-muted-foreground text-center max-w-md">
                   Create your first buying persona manually or let AI suggest them based on your product.
                 </p>

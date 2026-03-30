@@ -115,7 +115,7 @@ export function Workflows() {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <GitBranch className="mb-4 h-12 w-12 text-muted-foreground" />
-            <h3 className="mb-2 text-lg font-medium">No workflows yet</h3>
+            <h3 className="mb-2 text-lg font-medium">Sin workflows aún</h3>
             <p className="mb-4 text-sm text-muted-foreground text-center max-w-md">
               Create your first workflow to build conditional LinkedIn automation flows with branching logic
             </p>

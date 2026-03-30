@@ -251,7 +251,7 @@ export function Auth() {
                         id="signup-name"
                         name="fullName"
                         type="text"
-                        placeholder="John Doe"
+                        placeholder="Juan Pérez"
                       />
                     </div>
                     <div className="space-y-2">

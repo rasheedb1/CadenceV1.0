@@ -227,7 +227,7 @@ export function Admin() {
           </CardHeader>
           <CardContent>
             {!recentActivity || recentActivity.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No activity yet</p>
+              <p className="text-sm text-muted-foreground">Sin actividad aún</p>
             ) : (
               <div className="space-y-4">
                 {recentActivity.map((activity) => {

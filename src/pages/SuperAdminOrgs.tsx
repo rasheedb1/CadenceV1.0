@@ -492,7 +492,7 @@ export function SuperAdminOrgs() {
             {loading ? (
               <div className="p-8 text-center text-muted-foreground">Cargando...</div>
             ) : filtered.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground">No organizations found</div>
+              <div className="p-8 text-center text-muted-foreground">Sin organizaciones encontradas</div>
             ) : (
               <Table>
                 <TableHeader>
@@ -722,7 +722,7 @@ export function SuperAdminOrgs() {
                     )
                   })}
                   {orgMembers.length === 0 && (
-                    <p className="px-3 py-2 text-sm text-muted-foreground">No members yet</p>
+                    <p className="px-3 py-2 text-sm text-muted-foreground">Sin miembros aún</p>
                   )}
                 </div>
               </div>

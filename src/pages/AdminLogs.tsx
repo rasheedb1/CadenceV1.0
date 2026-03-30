@@ -228,7 +228,7 @@ export function AdminLogs() {
               }}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Status" />
+                <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
                 {STATUS_TYPES.map((type) => (
@@ -296,7 +296,7 @@ export function AdminLogs() {
           ) : !data?.logs || data.logs.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12">
               <FileText className="mb-4 h-12 w-12 text-muted-foreground" />
-              <h3 className="mb-2 text-lg font-medium">No logs found</h3>
+              <h3 className="mb-2 text-lg font-medium">Sin registros encontrados</h3>
               <p className="text-sm text-muted-foreground">
                 {searchQuery || actionFilter !== 'all' || statusFilter !== 'all'
                   ? 'Try adjusting your filters'

@@ -164,7 +164,7 @@ function UploadPptxTab() {
       const vars = await parsePptxVariables(selected)
       setParsedVars(vars)
       if (vars.length === 0) {
-        toast.info('No {{variables}} found in the file. You can still save and use it as a template.')
+        toast.info('No se encontraron {{variables}} en el archivo. Puedes guardarlo como plantilla.')
       } else {
         toast.success(`Found ${vars.length} variable${vars.length > 1 ? 's' : ''} in your template`)
       }

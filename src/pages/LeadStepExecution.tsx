@@ -783,7 +783,7 @@ export function LeadStepExecution() {
                 ) : (
                   <div className="flex flex-col items-center justify-center p-8 border rounded-lg bg-muted/30 text-center">
                     <p className="text-sm text-muted-foreground">
-                      No posts found or unable to fetch posts
+                      Sin publicaciones encontradas
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
                       The user may have privacy settings that prevent viewing their posts

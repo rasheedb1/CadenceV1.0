@@ -121,7 +121,7 @@ function LeadPicker({
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               </div>
             )}
-            {!loading && leads.length === 0 && <p className="p-4 text-sm text-center text-muted-foreground">No leads found</p>}
+            {!loading && leads.length === 0 && <p className="p-4 text-sm text-center text-muted-foreground">Sin leads encontrados</p>}
             {!loading && leads.map((lead) => (
               <button
                 key={lead.id}

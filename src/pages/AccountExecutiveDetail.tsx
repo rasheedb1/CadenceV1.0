@@ -356,7 +356,7 @@ export function AccountExecutiveDetail() {
           {allActionItems.length === 0 ? (
             <div className="text-center py-8">
               <CheckCircle className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">No action items found.</p>
+              <p className="text-sm text-muted-foreground">Sin acciones pendientes.</p>
               <p className="text-xs text-muted-foreground mt-1">Sync Gong to extract action items from call transcripts.</p>
             </div>
           ) : (

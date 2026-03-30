@@ -636,7 +636,7 @@ export function Settings() {
                       <Label className="text-xs">Gong Access Key</Label>
                       <Input
                         type="password"
-                        placeholder="Access Key"
+                        placeholder="Clave de acceso"
                         value={gongKey}
                         onChange={e => setGongKey(e.target.value)}
                       />
@@ -645,7 +645,7 @@ export function Settings() {
                       <Label className="text-xs">Gong Access Key Secret</Label>
                       <Input
                         type="password"
-                        placeholder="Secret"
+                        placeholder="Secreto"
                         value={gongSecret}
                         onChange={e => setGongSecret(e.target.value)}
                       />

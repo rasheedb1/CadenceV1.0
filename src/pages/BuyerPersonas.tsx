@@ -204,7 +204,7 @@ function ICPPickerDialog({ open, onOpenChange, onSelect }: ICPPickerDialogProps)
             </div>
           ) : icpProfiles.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No ICP profiles found.{' '}
+              Sin perfiles ICP.{' '}
               <Link to="/account-mapping" className="text-primary underline" onClick={() => onOpenChange(false)}>
                 Create one first.
               </Link>
@@ -626,7 +626,7 @@ export function BuyerPersonas() {
           <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
             <Users className="h-10 w-10 text-muted-foreground/40" />
             <div>
-              <p className="font-medium">No persona groups yet</p>
+              <p className="font-medium">Sin grupos de personas aún</p>
               <p className="text-sm text-muted-foreground mt-0.5">
                 Create a group to organize your buyer personas.
               </p>

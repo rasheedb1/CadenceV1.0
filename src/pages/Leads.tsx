@@ -499,7 +499,7 @@ export function Leads() {
           {filteredLeads.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12">
               <Users className="mb-4 h-12 w-12 text-muted-foreground" />
-              <h3 className="mb-2 text-lg font-medium">No leads found</h3>
+              <h3 className="mb-2 text-lg font-medium">Sin leads encontrados</h3>
               <p className="mb-4 text-sm text-muted-foreground">
                 {searchQuery ? 'Intenta otra búsqueda' : 'Agrega tu primer lead para comenzar'}
               </p>

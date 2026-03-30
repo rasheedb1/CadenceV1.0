@@ -328,7 +328,7 @@ export function LinkedInInbox() {
           {chats.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-8 text-center">
               <MessageSquare className="mb-4 h-12 w-12 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">No conversations yet</p>
+              <p className="text-sm text-muted-foreground">Sin conversaciones aún</p>
               <p className="text-xs text-muted-foreground mt-2">
                 If you expect to see messages, try refreshing or check your LinkedIn connection in{' '}
                 <button
