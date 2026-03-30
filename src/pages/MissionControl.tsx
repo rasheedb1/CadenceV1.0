@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { PageTransition } from '@/components/PageTransition'
 import { useNavigate } from 'react-router-dom'
 import { ReactFlow, Background, Position } from '@xyflow/react'
 import type { Node, Edge } from '@xyflow/react'
@@ -159,7 +158,7 @@ export function MissionControl() {
       const statusDot = isWorking ? '🟢' : agent.status === 'active' ? '🟢' : '⚪'
       const activeTask = tasks.find(t => t.status === 'in_progress')
       const taskPreview = activeTask ? activeTask.instruction.substring(0, 40) + (activeTask.instruction.length > 40 ? '…' : '') : ''
-      const label = `${toolIcon ? toolIcon + ' ' : ''}${agent.name}\n${agent.role}\n${statusDot} ${isWorking ? 'trabajando...' : ({'active':'activo','draft':'borrador','deploying':'desplegando','paused':'pausado','error':'error'}[agent.status] || agent.status)}${taskPreview ? `\n📋 ${taskPreview}` : ''}`
+      const label = `${toolIcon ? toolIcon + ' ' : ''}${agent.name}\n${agent.role}\n${statusDot} ${isWorking ? 'trabajando...' : ({'active':'activo','draft':'borrador','deploying':'desplegando','paused':'pausado','error':'error','destroyed':'eliminado'}[agent.status] || agent.status)}${taskPreview ? `\n📋 ${taskPreview}` : ''}`
 
       flowNodes.push({
         id: agent.id, position: { x: centerX + radius * Math.cos(angle), y: centerY + radius * Math.sin(angle) },

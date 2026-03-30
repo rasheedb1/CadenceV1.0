@@ -1,5 +1,4 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { PageTransition } from '@/components/PageTransition'
 import { useWorkflow } from '@/contexts/WorkflowContext'
 import { useCadence } from '@/contexts/CadenceContext'
 import { Button } from '@/components/ui/button'
