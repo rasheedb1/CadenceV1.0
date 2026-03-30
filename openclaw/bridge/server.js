@@ -2027,59 +2027,68 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
       const agents = project.assigned_agents || [];
       if (agents.length < 2) return;
 
-      // Determine whose turn it is (alternate between agents)
-      const currentAgentIdx = project.current_iteration % agents.length;
-      const currentAgentId = agents[currentAgentIdx];
-
-      // Get agent info
-      const agentRows = await sbFetch(`${SB_URL}/rest/v1/agents?id=eq.${currentAgentId}&select=id,name,role,railway_url`, { headers: sbHeaders() });
-      const agent = Array.isArray(agentRows) ? agentRows[0] : null;
-      if (!agent || !agent.railway_url) {
-        console.error(`[collab] Agent ${currentAgentId} not found or not deployed`);
-        return;
+      // Resolve ALL agents with info
+      const agentInfos = [];
+      for (const agId of agents) {
+        const rows = await sbFetch(`${SB_URL}/rest/v1/agents?id=eq.${agId}&select=id,name,role,railway_url`, { headers: sbHeaders() });
+        if (Array.isArray(rows) && rows.length > 0) agentInfos.push(rows[0]);
       }
+      if (agentInfos.length < 2) { console.error("[collab] Not enough agents"); return; }
 
-      // Get last iteration output for context
+      // Lead agent = first agent. They drive the work and coordinate.
+      const leadAgent = agentInfos[0];
+      const otherAgents = agentInfos.slice(1);
+      const agent = leadAgent; // Lead always receives the task
+
+      if (!agent.railway_url) { console.error(`[collab] Lead agent not deployed`); return; }
+
+      // Get last iteration for context
       const lastIterRows = await sbFetch(`${SB_URL}/rest/v1/agent_project_iterations?project_id=eq.${project.id}&order=iteration_number.desc&limit=1&select=agent_id,output_full,action`, { headers: sbHeaders() });
       const lastIter = Array.isArray(lastIterRows) && lastIterRows.length > 0 ? lastIterRows[0] : null;
 
-      // Get the other agent's name for context
-      const otherAgentId = agents[(currentAgentIdx + 1) % agents.length];
-      const otherRows = await sbFetch(`${SB_URL}/rest/v1/agents?id=eq.${otherAgentId}&select=name,role`, { headers: sbHeaders() });
-      const otherAgent = Array.isArray(otherRows) ? otherRows[0] : { name: "otro agente", role: "unknown" };
-
-      // Determine action type
       const isFirst = project.current_iteration === 0;
-      const action = isFirst ? "produce" : (currentAgentIdx === 0 ? "refine" : "review");
+      const action = isFirst ? "produce" : "refine";
 
-      // Build the prompt
-      let prompt = `## Proyecto Colaborativo: ${project.name}\n`;
+      // Build the prompt — HYBRID: agent coordinates directly with teammates
+      let prompt = `## Proyecto: ${project.name}\n`;
       prompt += `**Iteración ${project.current_iteration + 1}/${project.max_iterations}**\n`;
-      prompt += `**Tu rol:** ${agent.role} | **Colaboras con:** ${otherAgent.name} (${otherAgent.role})\n`;
+      prompt += `**Tu rol:** ${agent.role} (LEAD del proyecto)\n`;
       if (project.success_criteria) prompt += `**Criterios de éxito:** ${project.success_criteria}\n`;
-      prompt += `\n### Descripción del proyecto:\n${project.description}\n`;
+      prompt += `\n### Descripción:\n${project.description}\n`;
 
-      // Add project memory (cumulative summary)
+      // Communication instructions
+      prompt += `\n### Comunicación directa con tu equipo:\n`;
+      for (const other of otherAgents) {
+        prompt += `Para hablar con **${other.name}** (${other.role}), ejecuta:\n`;
+        prompt += `\`\`\`\nnode /home/node/.openclaw/a2a-send.js "${other.name}" "tu mensaje"\n\`\`\`\n`;
+      }
+      prompt += `Puedes enviar trabajo, pedir implementaciones, dar feedback, y recibir respuestas DIRECTO sin esperar a Chief.\n`;
+      prompt += `**Usa a2a-send.js** para coordinar. Itera con tu equipo dentro de esta misma sesión.\n`;
+
+      // Project memory
       if (project.project_memory) {
-        prompt += `\n### Memoria del proyecto (historial acumulado):\n${project.project_memory.substring(Math.max(0, project.project_memory.length - 3000))}\n`;
+        prompt += `\n### Memoria del proyecto:\n${project.project_memory.substring(Math.max(0, project.project_memory.length - 3000))}\n`;
       }
 
-      // Add last iteration result
+      // Last iteration result
       if (lastIter?.output_full) {
-        const lastAgentRows = await sbFetch(`${SB_URL}/rest/v1/agents?id=eq.${lastIter.agent_id}&select=name`, { headers: sbHeaders() });
-        const lastAgentName = Array.isArray(lastAgentRows) && lastAgentRows.length > 0 ? lastAgentRows[0].name : "agente";
-        prompt += `\n### Último resultado de ${lastAgentName}:\n${lastIter.output_full.substring(0, 2000)}\n`;
+        prompt += `\n### Tu último avance:\n${lastIter.output_full.substring(0, 2000)}\n`;
       }
 
-      // Action-specific instructions
+      // Task instructions
       if (isFirst) {
-        prompt += `\n### Tu tarea:\nEres el primero en trabajar. Investiga, analiza, y produce un primer entregable. ${otherAgent.name} lo revisará después.\n`;
-      } else if (action === "review") {
-        prompt += `\n### Tu tarea:\nRevisa el trabajo anterior. Da feedback específico y actionable. Si hay que implementar algo, hazlo. Si está bien, di "COMPLETADO" al inicio de tu respuesta.\n`;
+        prompt += `\n### Tu tarea:\n`;
+        prompt += `1. Analiza el proyecto y planifica\n`;
+        prompt += `2. Coordina con ${otherAgents.map(a => a.name).join(", ")} — delégales trabajo via a2a-send.js\n`;
+        prompt += `3. Itera con ellos: envía specs, recibe resultados, da feedback\n`;
+        prompt += `4. Reporta aquí el resultado consolidado de esta iteración\n`;
       } else {
-        prompt += `\n### Tu tarea:\nConsidera el feedback anterior y mejora tu trabajo. Itera y produce una versión mejorada.\n`;
+        prompt += `\n### Tu tarea:\n`;
+        prompt += `Continúa el proyecto desde donde quedaste. Coordina con tu equipo via a2a-send.js.\n`;
+        prompt += `Si el proyecto cumple TODOS los criterios de éxito, di "COMPLETADO" al inicio.\n`;
+        prompt += `Si necesitas decisión del usuario humano (no de tu equipo), di "necesito tu input".\n`;
       }
-      prompt += `\nResponde con tu trabajo/feedback. Sé concreto y enfocado.`;
+      prompt += `\n**Reporta:** qué hiciste, qué delegaste, qué respondieron, y cuál es el estado actual.`;
 
       // Send to agent via A2A
       console.log(`[collab] Iteration ${project.current_iteration + 1}: ${agent.name} (${action})`);
