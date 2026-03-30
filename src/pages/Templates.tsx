@@ -192,7 +192,7 @@ export function Templates() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['templates'] })
-      toast.success('Template deleted')
+      toast.success('Plantilla eliminada')
     },
     onError: (error) => {
       toast.error(`Failed to delete template: ${error.message}`)
@@ -251,7 +251,7 @@ export function Templates() {
 
   const copyTemplate = (template: Template) => {
     navigator.clipboard.writeText(template.body_template)
-    toast.success('Template copied to clipboard')
+    toast.success('Plantilla copiada al portapapeles')
   }
 
   const getTypeIcon = (type: string) => {

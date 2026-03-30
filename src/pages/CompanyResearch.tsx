@@ -201,7 +201,7 @@ export function CompanyResearch() {
                             onClick={async (e) => {
                               e.stopPropagation()
                               await resetStuckResearch(company.id)
-                              toast.success('Status reset to pending')
+                              toast.success('Estado reiniciado a pendiente')
                             }}
                           >
                             <RotateCcw className="mr-2 h-3 w-3" />
@@ -288,7 +288,7 @@ export function CompanyResearch() {
                     onClick={(e) => {
                       e.stopPropagation()
                       if (confirm('¿Eliminar este proyecto de investigación y todos sus datos?')) {
-                        deleteProject(project.id).then(() => toast.success('Project deleted'))
+                        deleteProject(project.id).then(() => toast.success('Proyecto eliminado'))
                       }
                     }}
                   >
@@ -329,7 +329,7 @@ export function CompanyResearch() {
         onOpenChange={setShowCreate}
         onSubmit={async (data) => {
           await createProject(data)
-          toast.success('Research project created')
+          toast.success('Proyecto de investigación creado')
         }}
       />
     </PageTransition>

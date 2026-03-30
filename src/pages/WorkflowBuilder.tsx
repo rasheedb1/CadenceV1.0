@@ -170,7 +170,7 @@ export function WorkflowBuilder() {
         await updateWorkflow(id, { name: workflowName })
       }
       await saveGraph(id, { nodes, edges })
-      toast.success('Workflow saved')
+      toast.success('Workflow guardado')
     } catch (error) {
       toast.error('Failed to save workflow')
       console.error(error)
@@ -184,7 +184,7 @@ export function WorkflowBuilder() {
     await handleSave()
     try {
       await activateWorkflow(id)
-      toast.success('Workflow activated')
+      toast.success('Workflow activado')
     } catch (error) {
       toast.error('Failed to activate workflow')
     }
@@ -194,7 +194,7 @@ export function WorkflowBuilder() {
     if (!id) return
     try {
       await pauseWorkflow(id)
-      toast.success('Workflow paused')
+      toast.success('Workflow pausado')
     } catch (error) {
       toast.error('Failed to pause workflow')
     }

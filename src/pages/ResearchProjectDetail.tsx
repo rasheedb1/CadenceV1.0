@@ -308,7 +308,7 @@ export function ResearchProjectDetail() {
                       onClick={() => {
                         if (confirm(`Remove ${company.company_name} from this project?`)) {
                           removeCompanyFromProject(company.id)
-                          toast.success('Company removed')
+                          toast.success('Empresa eliminada')
                         }
                       }}
                     >
@@ -361,7 +361,7 @@ export function ResearchProjectDetail() {
                           variant="outline"
                           onClick={async () => {
                             await resetStuckResearch(company.id)
-                            toast.success('Status reset to pending')
+                            toast.success('Estado reiniciado a pendiente')
                           }}
                         >
                           <RotateCcw className="mr-2 h-4 w-4" />
@@ -431,7 +431,7 @@ export function ResearchProjectDetail() {
         editProject={project}
         onSubmit={async (data) => {
           await updateProject(projectId!, data)
-          toast.success('Project updated')
+          toast.success('Proyecto actualizado')
         }}
       />
     </div>

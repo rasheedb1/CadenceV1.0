@@ -118,7 +118,7 @@ export function AcceptInvite() {
 
       if (memberError) {
         if (memberError.code === '23505') {
-          toast.info('You are already a member of this organization')
+          toast.info('Ya eres miembro de esta organización')
         } else {
           throw memberError
         }

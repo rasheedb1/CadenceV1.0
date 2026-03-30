@@ -90,7 +90,7 @@ export function ICPProfileDetail() {
 
     await updateProfile.mutateAsync({ id: profile.id, ...updates } as Parameters<typeof updateProfile.mutateAsync>[0])
     setSaved(true)
-    toast.success('ICP Profile saved')
+    toast.success('Perfil ICP guardado')
   }
 
   const handlePolish = async () => {

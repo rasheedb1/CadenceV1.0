@@ -112,7 +112,7 @@ export function AccountMapping() {
       .single()
     if (error) { toast.error(error.message); return null }
     queryClient.invalidateQueries({ queryKey: ['all-buyer-personas', orgId, user?.id] })
-    toast.success('Persona created')
+    toast.success('Persona creada')
     return data as BuyerPersona
   }
 

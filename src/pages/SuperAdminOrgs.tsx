@@ -154,7 +154,7 @@ export function SuperAdminOrgs() {
 
       if (error) throw error
 
-      toast.success(`Organization "${newName}" created`)
+      toast.success(`Organización "${newName}" creada`)
       setInviteResult({
         link: data.inviteLink || null,
         memberAdded: false,
@@ -170,7 +170,7 @@ export function SuperAdminOrgs() {
   const handleCopyLink = (link: string) => {
     navigator.clipboard.writeText(link)
     setCopiedLink(true)
-    toast.success('Invite link copied')
+    toast.success('Enlace de invitación copiado')
     setTimeout(() => setCopiedLink(false), 2000)
   }
 
@@ -236,7 +236,7 @@ export function SuperAdminOrgs() {
     if (error) {
       toast.error('Failed to update organization')
     } else {
-      toast.success('Organization updated')
+      toast.success('Organización actualizada')
       fetchOrgs()
       setSelectedOrg({ ...selectedOrg, plan: editPlan, is_active: editActive })
     }
@@ -263,7 +263,7 @@ export function SuperAdminOrgs() {
     if (error) {
       toast.error('Failed to save feature flags')
     } else {
-      toast.success('Feature flags updated')
+      toast.success('Feature flags actualizados')
       setSelectedOrg({ ...selectedOrg, feature_flags: stored })
       fetchOrgs()
     }
@@ -300,7 +300,7 @@ export function SuperAdminOrgs() {
     if (error) {
       toast.error('Failed to save user flags')
     } else {
-      toast.success('User flags updated')
+      toast.success('Flags de usuario actualizados')
       // Update local state
       setOrgMembers(prev =>
         prev.map(m => m.id === memberId ? { ...m, feature_flags: { ...memberFlagsEdit } as Record<string, boolean> } : m)
@@ -331,7 +331,7 @@ export function SuperAdminOrgs() {
     } else {
       const link = `https://laiky-cadence.vercel.app/invite/${inv.token}`
       navigator.clipboard.writeText(link)
-      toast.success('Invite link copied to clipboard!')
+      toast.success('Enlace copiado al portapapeles')
     }
 
     setDetailInviting(false)
@@ -745,7 +745,7 @@ export function SuperAdminOrgs() {
                             className="h-7 w-7"
                             onClick={() => {
                               navigator.clipboard.writeText(`https://laiky-cadence.vercel.app/invite/${inv.token}`)
-                              toast.success('Link copied')
+                              toast.success('Enlace copiado')
                             }}
                           >
                             <Copy className="h-3.5 w-3.5" />

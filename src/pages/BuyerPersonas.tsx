@@ -580,20 +580,20 @@ export function BuyerPersonas() {
   const handleCreate = async (data: { name: string; description: string | null; scope: 'personal' | 'organization' }) => {
     const group = await addPersonaGroup(data)
     setExpandedGroups((prev) => new Set([...prev, group.id]))
-    toast.success(`Group "${data.name}" created`)
+    toast.success(`Grupo "${data.name}" creado`)
   }
 
   const handleUpdate = async (data: { name: string; description: string | null; scope: 'personal' | 'organization' }) => {
     if (!editingGroup) return
     await updatePersonaGroup(editingGroup.id, data)
-    toast.success('Group updated')
+    toast.success('Grupo actualizado')
   }
 
   const handleDelete = async () => {
     if (!deletingGroupId) return
     try {
       await deletePersonaGroup(deletingGroupId)
-      toast.success('Group deleted')
+      toast.success('Grupo eliminado')
     } catch {
       toast.error('Error al eliminar grupo')
     } finally {
