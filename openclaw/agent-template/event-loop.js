@@ -207,6 +207,33 @@ RULES:
   });
 }
 
+// --- Log action to agent_activity_events (visible in Mission Control) ---
+async function logActivity(eventType, toolName, content) {
+  if (!SB_URL || !SB_KEY || !AGENT_ID) return;
+  fetch(`${SB_URL}/rest/v1/agent_activity_events`, {
+    method: "POST",
+    headers: { ...sbHeaders, Prefer: "return=minimal" },
+    body: JSON.stringify({
+      agent_id: AGENT_ID, org_id: ORG_ID,
+      event_type: eventType, tool_name: toolName,
+      content: (typeof content === "string" ? content : JSON.stringify(content)).substring(0, 500),
+    }),
+  }).catch(() => {});
+}
+
+// --- Log message exchange to agent_messages (visible in Mission Control) ---
+async function logMessage(fromId, toId, role, content, metadata = {}) {
+  if (!SB_URL || !SB_KEY) return;
+  fetch(`${SB_URL}/rest/v1/agent_messages`, {
+    method: "POST",
+    headers: { ...sbHeaders, Prefer: "return=minimal" },
+    body: JSON.stringify({
+      org_id: ORG_ID, from_agent_id: fromId || null, to_agent_id: toId || null,
+      role, content: (content || "").substring(0, 2000), metadata,
+    }),
+  }).catch(() => {});
+}
+
 // ============================================================
 // ACT — execute the decision
 // ============================================================
@@ -214,14 +241,18 @@ async function act(decision) {
   const { action, params = {} } = decision;
   console.log(`[event-loop] ACT: ${action} — ${decision.reasoning || ""}`);
 
+  // Log every non-idle action to Mission Control
+  if (action !== "idle") {
+    logActivity("event_loop_action", action, `${decision.reasoning || ""} | ${JSON.stringify(params).substring(0, 200)}`);
+  }
+
   switch (action) {
     case "work_on_task": {
       if (!params.task_id || !params.instruction) break;
-      // Mark task as working
       await sbPatch(`project_board?id=eq.${params.task_id}`, { status: "working" });
-      // Call LLM via gateway
       const result = await callGateway(params.instruction, `task-${params.task_id}`);
       console.log(`[event-loop] Task ${params.task_id} result: ${(result || "").substring(0, 100)}`);
+      logActivity("task_result", "work_on_task", `Task: ${params.task_id} | Result: ${(result || "").substring(0, 300)}`);
       return result;
     }
 
@@ -252,6 +283,8 @@ async function act(decision) {
       } else {
         messageCounts[params.to_agent] = { count: 1, resetAt: now + MSG_CIRCUIT_WINDOW };
       }
+      // Log outgoing message (visible in Mission Control)
+      logMessage(AGENT_ID, null, "user", `→ ${params.to_agent}: ${params.message.substring(0, 500)}`, { a2a_direct: true, to_agent_name: params.to_agent });
       return new Promise((resolve) => {
         execFile(
           "node",
@@ -259,7 +292,9 @@ async function act(decision) {
           { timeout: 120000, env: { ...process.env, HOME: "/home/node" } },
           (err, stdout) => {
             if (err) { console.error("[event-loop] send_message error:", err.message); return resolve("send_error"); }
-            resolve((stdout || "").trim());
+            const reply = (stdout || "").trim();
+            logMessage(null, AGENT_ID, "assistant", `← ${params.to_agent}: ${reply.substring(0, 500)}`, { a2a_direct: true, from_agent_name: params.to_agent });
+            resolve(reply);
           }
         );
       });
