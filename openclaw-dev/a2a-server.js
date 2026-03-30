@@ -110,7 +110,7 @@ async function loadConversationHistory(fromAgentId, limit = 10) {
   } catch { return ""; }
 }
 
-function sendToGateway(message, sessionKey = "default", timeoutMs = 120000) {
+function sendToGateway(message, sessionKey = "default", timeoutMs = 300000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("CLI timeout")), timeoutMs);
 
