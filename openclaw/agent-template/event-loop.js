@@ -216,7 +216,7 @@ async function logActivity(eventType, toolName, content) {
     body: JSON.stringify({
       agent_id: AGENT_ID, org_id: ORG_ID,
       event_type: eventType, tool_name: toolName,
-      content: (typeof content === "string" ? content : JSON.stringify(content)).substring(0, 500),
+      content: (typeof content === "string" ? content : JSON.stringify(content)).substring(0, 3000),
     }),
   }).catch(() => {});
 }
@@ -284,7 +284,7 @@ async function act(decision) {
         messageCounts[params.to_agent] = { count: 1, resetAt: now + MSG_CIRCUIT_WINDOW };
       }
       // Log outgoing message (visible in Mission Control)
-      logMessage(AGENT_ID, null, "user", `→ ${params.to_agent}: ${params.message.substring(0, 500)}`, { a2a_direct: true, to_agent_name: params.to_agent });
+      logMessage(AGENT_ID, null, "user", `→ ${params.to_agent}: ${params.message.substring(0, 3000)}`, { a2a_direct: true, to_agent_name: params.to_agent });
       return new Promise((resolve) => {
         execFile(
           "node",
@@ -293,7 +293,7 @@ async function act(decision) {
           (err, stdout) => {
             if (err) { console.error("[event-loop] send_message error:", err.message); return resolve("send_error"); }
             const reply = (stdout || "").trim();
-            logMessage(null, AGENT_ID, "assistant", `← ${params.to_agent}: ${reply.substring(0, 500)}`, { a2a_direct: true, from_agent_name: params.to_agent });
+            logMessage(null, AGENT_ID, "assistant", `← ${params.to_agent}: ${reply.substring(0, 3000)}`, { a2a_direct: true, from_agent_name: params.to_agent });
             resolve(reply);
           }
         );

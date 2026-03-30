@@ -330,7 +330,7 @@ export function MissionControl() {
                             {!isTask && !isActivity && <span className="text-[10px] text-muted-foreground">{event.detail}</span>}
                             {isRecent && <span className="text-[9px] text-amber-600 font-medium">NUEVO</span>}
                           </div>
-                          <p className={`text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap ${expandedEvent === event.id ? 'max-h-96 overflow-y-auto' : 'line-clamp-2'}`}>{event.content}</p>
+                          <p className={`text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap ${expandedEvent === event.id ? 'overflow-y-auto' : 'line-clamp-2'}`}>{event.content}</p>
                           {expandedEvent === event.id && event.content && event.content.length > 100 && (
                             <div className="mt-2 pt-2 border-t border-border/50">
                               <p className="text-[10px] text-muted-foreground">ID: {event.id?.substring(0, 20)} | {event.type} | {new Date(event.timestamp).toLocaleString()}</p>
