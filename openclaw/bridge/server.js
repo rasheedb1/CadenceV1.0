@@ -697,6 +697,7 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     { name: "web_research", description: "Busca en la web y scrapea páginas para investigación. Acciones: 'search' (buscar), 'scrape' (extraer contenido de URL), 'research' (buscar + scrape combinado).", input_schema: { type: "object", properties: { action: { type: "string", enum: ["search", "scrape", "research"], description: "search=buscar en web, scrape=extraer contenido de URL, research=buscar+scrape" }, query: { type: "string", description: "Término de búsqueda (para search/research)" }, url: { type: "string", description: "URL a scrapear (para scrape)" }, limit: { type: "number", description: "Número de resultados (default 5)" }, max_chars: { type: "number", description: "Máximo de caracteres de contenido (default 2000)" } }, required: [] } },
     { name: "ver_tarea_agente", description: "Consulta el estado y resultado de la última tarea de un agente. Usa cuando el usuario pregunta '¿ya terminó X?', '¿qué encontró X?', 'resultado de la tarea de X'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string" }, agent_name: { type: "string", description: "Nombre del agente" }, task_id: { type: "string", description: "ID específico de tarea (opcional)" } }, required: ["org_id"] } },
     { name: "reunion_agentes", description: "Convoca una reunión con múltiples agentes sobre un tema. Cada agente da su perspectiva según su rol. Usa cuando: 'haz una reunión con X y Y sobre...', 'quiero que X y Y discutan...', 'junta a los agentes para hablar de...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_names: { type: "array", items: { type: "string" }, description: "Nombres de los agentes a convocar" }, topic: { type: "string", description: "El tema a discutir" } }, required: ["org_id", "agent_names", "topic"] } },
+    { name: "descomponer_proyecto", description: "Descompone un proyecto grande en tareas pequeñas en el blackboard. Los agentes las reclamarán automáticamente. Usa esto cuando el usuario pide algo complejo que requiere múltiples pasos.", input_schema: { type: "object", properties: { org_id: { type: "string" }, project_name: { type: "string", description: "Nombre del proyecto" }, description: { type: "string", description: "Descripción detallada de lo que se necesita" }, agent_roles: { type: "array", items: { type: "string" }, description: "Roles de los agentes disponibles (ej: ux_designer, cto)" } }, required: ["org_id", "project_name", "description"] } },
   ];
 
   async function gwExecuteTool(name, args) {
@@ -1762,6 +1763,50 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
             });
             return { success: false, error: `Error desplegando: ${err.message}` };
           }
+        }
+
+        case "descomponer_proyecto": {
+          const { org_id, project_name, description, agent_roles } = args;
+          const anthropic = new (_AnthSdk.default || _AnthSdk)({ apiKey: process.env.ANTHROPIC_API_KEY });
+          const decomposition = await anthropic.messages.create({
+            model: "claude-sonnet-4-6",
+            max_tokens: 2000,
+            messages: [{
+              role: "user",
+              content: `Descompón este proyecto en 5-15 tareas concretas y accionables.\n\nProyecto: ${project_name}\nDescripción: ${description}\nRoles disponibles: ${(agent_roles || ["ux_designer", "cto", "sales"]).join(", ")}\n\nRetorna SOLO un JSON array:\n[\n  {\n    "title": "Nombre corto de la tarea",\n    "description": "Instrucción concreta de qué hacer. Incluir archivos, comandos, o URLs si aplica.",\n    "priority": 10,\n    "role_hint": "ux_designer"\n  },\n  ...\n]\n\nReglas:\n- Cada tarea debe ser completable en 1-5 minutos\n- Ordena por prioridad (10=más alta, 1=más baja)\n- Incluye dependencias implícitas en el orden (las primeras tareas deben hacerse antes)\n- role_hint debe ser uno de los roles disponibles\n- Las instrucciones deben ser específicas: "Revisa archivo X" no "Mejora la UX"\n- Incluir tareas de verificación (build, test, review)`
+            }],
+          });
+          const responseText = decomposition.content[0]?.text || "[]";
+          const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+          if (!jsonMatch) return { success: false, error: "No se pudo descomponer el proyecto" };
+          let tasks;
+          try { tasks = JSON.parse(jsonMatch[0]); }
+          catch { return { success: false, error: "JSON inválido en la descomposición" }; }
+          const created = [];
+          for (const task of tasks) {
+            try {
+              const res = await fetch(`${base}/functions/v1/blackboard`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+                body: JSON.stringify({
+                  org_id,
+                  entry_type: "task",
+                  title: task.title,
+                  content: { description: task.description, role_hint: task.role_hint, project: project_name },
+                  priority: task.priority || 5,
+                }),
+              });
+              const data = await res.json();
+              if (data.entry) created.push({ title: task.title, priority: task.priority, role: task.role_hint });
+            } catch {}
+          }
+          return {
+            success: true,
+            project: project_name,
+            tasks_created: created.length,
+            tasks: created,
+            message: `Proyecto "${project_name}" descompuesto en ${created.length} tareas. Los agentes las reclamarán automáticamente.`,
+          };
         }
 
         default: return { success: false, error: `Tool desconocida: ${name}` };

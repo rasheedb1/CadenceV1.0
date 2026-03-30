@@ -24,6 +24,11 @@ const MAX_INTERVAL = 300000;   // 5min when idle
 const DEFAULT_INTERVAL = 60000; // 1min default
 const STALL_WINDOW = 3;
 
+// --- Circuit breaker for agent-to-agent messaging ---
+const messageCounts = {}; // { agentName: { count: N, resetAt: timestamp } }
+const MSG_CIRCUIT_LIMIT = 10;
+const MSG_CIRCUIT_WINDOW = 5 * 60 * 1000; // 5 minutes
+
 // --- State ---
 const state = {
   running: false,
@@ -38,6 +43,8 @@ const state = {
   maxIterations: parseInt(process.env.EVENT_LOOP_MAX_ITERATIONS || "200", 10),
   recentActions: [], // last N (action, taskId) for stall detection
   lastSenseTime: null,
+  budgetFromDB: null,       // cached budget row from agent_budgets
+  consecutiveErrors: 0,     // track consecutive tick errors for error recovery
 };
 
 const sbHeaders = {
@@ -233,6 +240,18 @@ async function act(decision) {
 
     case "send_message": {
       if (!params.to_agent || !params.message) break;
+      // --- Circuit breaker: max 10 msgs to same agent in 5min ---
+      const now = Date.now();
+      const mc = messageCounts[params.to_agent];
+      if (mc && mc.resetAt > now) {
+        if (mc.count >= MSG_CIRCUIT_LIMIT) {
+          console.warn(`[event-loop] Circuit breaker: ${mc.count} msgs to ${params.to_agent} in 5min, skipping`);
+          return "circuit_breaker";
+        }
+        mc.count++;
+      } else {
+        messageCounts[params.to_agent] = { count: 1, resetAt: now + MSG_CIRCUIT_WINDOW };
+      }
       return new Promise((resolve) => {
         execFile(
           "node",
@@ -330,6 +349,17 @@ async function reflect(decision) {
       console.warn(`[event-loop] STALL detected: repeated ${action} on ${taskId} — forcing idle`);
       state.interval = MAX_INTERVAL;
       state.recentActions = [];
+
+      // --- Human escalation via WhatsApp ---
+      fetch("https://twilio-bridge-production-241b.up.railway.app/api/agent-callback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_name: AGENT_NAME,
+          result: { text: `⚠️ ${AGENT_NAME} está trabado en: ${action} on ${taskId}. Necesita ayuda.` },
+          whatsapp_number: null, // bridge will look up from org
+        }),
+      }).catch(() => {});
     }
   }
 
@@ -350,11 +380,18 @@ async function reflect(decision) {
     }).catch(() => {});
   }
 
-  // --- Budget tracking to DB ---
-  if (SB_URL && SB_KEY && AGENT_ID && state.budget.iterations % 5 === 0) {
-    await sbPost("rest/v1/rpc/update_agent_budget", {
-      p_agent_id: AGENT_ID,
-      p_tokens: state.budget.tokens,
+  // --- Sync budget to DB (after every non-idle action) ---
+  if (action !== "idle" && SB_URL && SB_KEY && AGENT_ID) {
+    await fetch(`${SB_URL}/rest/v1/agent_budgets`, {
+      method: "POST",
+      headers: { ...sbHeaders, Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({
+        agent_id: AGENT_ID,
+        org_id: ORG_ID,
+        tokens_used: state.budget.tokens,
+        cost_usd: parseFloat((state.budget.tokens * 0.000003).toFixed(4)),
+        iterations_used: state.budget.iterations,
+      }),
     }).catch(() => {});
   }
 
@@ -383,8 +420,28 @@ async function tick() {
     return;
   }
 
+  // --- Cost budget enforcement (cached, refresh every 10 iterations) ---
+  if (SB_URL && SB_KEY && AGENT_ID && (state.iteration % 10 === 0 || !state.budgetFromDB)) {
+    const budgetRows = await sbGet(`agent_budgets?agent_id=eq.${AGENT_ID}&limit=1`).catch(() => []);
+    state.budgetFromDB = Array.isArray(budgetRows) && budgetRows[0] ? budgetRows[0] : null;
+  }
+  if (state.budgetFromDB) {
+    const b = state.budgetFromDB;
+    if ((b.iterations_used || 0) >= (b.max_iterations || 200)) {
+      console.warn("[event-loop] Budget: max iterations reached, stopping");
+      stop();
+      return;
+    }
+    if ((b.cost_usd || 0) >= (b.max_cost_usd || 10)) {
+      console.warn("[event-loop] Budget: max cost reached, stopping");
+      stop();
+      return;
+    }
+  }
+
   state.busy = true;
   let decision = { action: "idle", reasoning: "default", params: {} };
+  let tickError = false;
 
   try {
     const context = await sense();
@@ -392,8 +449,21 @@ async function tick() {
     await act(decision);
   } catch (err) {
     console.error("[event-loop] Tick error:", err.message);
+    tickError = true;
   } finally {
     state.busy = false;
+  }
+
+  // --- Error recovery: 3 consecutive errors → pause 10min ---
+  if (tickError && decision.action !== "idle") {
+    state.consecutiveErrors++;
+  } else {
+    state.consecutiveErrors = 0;
+  }
+  if (state.consecutiveErrors >= 3) {
+    console.error("[event-loop] 3 consecutive errors, pausing 10min");
+    state.interval = 600000; // 10 min
+    state.consecutiveErrors = 0;
   }
 
   await reflect(decision);
@@ -448,9 +518,11 @@ function getState() {
     iteration: state.iteration,
     interval: state.interval,
     consecutiveIdles: state.consecutiveIdles,
+    consecutiveErrors: state.consecutiveErrors,
     lastAction: state.lastAction,
     lastActionTime: state.lastActionTime,
     budget: { ...state.budget },
+    budgetFromDB: state.budgetFromDB,
   };
 }
 
