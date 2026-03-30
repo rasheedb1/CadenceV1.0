@@ -121,6 +121,7 @@ function sendToGateway(message, sessionKey = "default", timeoutMs = 300000) {
       "--message", message,
       "--agent", "main",
       "--session-id", sessionKey,
+      "--timeout", "300",
     ], {
       cwd: "/app",
       timeout: timeoutMs,
