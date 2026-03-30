@@ -41,7 +41,7 @@ export function WorkflowRuns() {
       {runs.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <p className="text-muted-foreground">No leads enrolled in this workflow yet</p>
+            <p className="text-muted-foreground">Sin leads asignados a este workflow aún</p>
           </CardContent>
         </Card>
       ) : (

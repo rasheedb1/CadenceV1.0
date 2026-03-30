@@ -82,7 +82,7 @@ function TrackerView({ cases, onDownload, downloadingId }: {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Briefcase className="mb-4 h-12 w-12 text-muted-foreground" />
-            <h3 className="mb-2 text-lg font-medium">No business cases yet</h3>
+            <h3 className="mb-2 text-lg font-medium">Sin business cases aún</h3>
             <p className="text-sm text-muted-foreground text-center max-w-md">
               Business cases generated from the One Time Use section will appear here grouped by company.
             </p>
@@ -306,7 +306,7 @@ export function BusinessCases() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16">
                 <FileText className="mb-4 h-12 w-12 text-muted-foreground" />
-                <h3 className="mb-2 text-lg font-medium">No business cases yet</h3>
+                <h3 className="mb-2 text-lg font-medium">Sin business cases aún</h3>
                 <p className="mb-6 text-sm text-muted-foreground text-center max-w-md">
                   {templates.length === 0
                     ? 'Start by creating a template, then generate personalized cases for your leads.'

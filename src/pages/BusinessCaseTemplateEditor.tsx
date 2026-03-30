@@ -890,7 +890,7 @@ function SlidePanel({
     return (
       <div className="flex flex-col items-center justify-center h-48 border-2 border-dashed rounded-lg text-muted-foreground text-sm gap-2">
         <FileUp className="h-8 w-8 opacity-30" />
-        <p>No PPTX uploaded yet</p>
+        <p>Sin PPTX cargado aún</p>
       </div>
     )
   }
