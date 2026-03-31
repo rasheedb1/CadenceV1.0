@@ -749,6 +749,7 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     { name: "standup_equipo", description: "Genera un resumen ejecutivo del equipo: tareas completadas, en progreso, bloqueadas, y check-ins pendientes. Formato WhatsApp-friendly. Usa cuando: 'standup', 'resumen', '¿qué hicieron hoy?'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "cambiar_config_agente", description: "Cambia la configuración de un agente: modelo LLM, temperatura, equipo, tier, capabilities. Usa cuando: 'cambia a Sofi a Opus', 'pon a Juanse en el equipo de ventas', 'hazlo team lead'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_name: { type: "string", description: "Nombre del agente" }, updates: { type: "object", properties: { model: { type: "string", description: "claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001" }, temperature: { type: "number" }, team: { type: "string" }, tier: { type: "string", enum: ["worker", "team_lead", "manager"] }, capabilities: { type: "array", items: { type: "string" } } } } }, required: ["org_id", "agent_name", "updates"] } },
     { name: "pausar_reactivar_proyecto", description: "Pausa o reactiva un proyecto existente. Usa cuando: 'continuar proyecto', 'pausa el proyecto X', 'reactiva'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, project_id: { type: "string" }, action: { type: "string", enum: ["pause", "activate"] } }, required: ["org_id", "project_id", "action"] } },
+    { name: "analizar_estructura", description: "Analiza la estructura del equipo y sugiere mejoras: si un equipo tiene 4+ workers sin team lead, sugiere crear uno. Si hay agentes sin equipo, sugiere asignarlos. Usa cuando: 'cómo está organizado el equipo?', 'necesitamos más estructura?', 'analiza la jerarquía'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "configurar_standup", description: "Configura el standup diario automático: timezone, hora, y si está activado. Usa cuando: 'estoy en México', 'mándame el standup a las 8am', 'cambia mi zona horaria', 'desactiva el standup'. Timezones comunes: America/Mexico_City, America/Bogota, America/Buenos_Aires, America/Santiago, America/Lima, Europe/Madrid, US/Eastern, US/Pacific.", input_schema: { type: "object", properties: { whatsapp_number: { type: "string", description: "Número WhatsApp del usuario (sessionKey)" }, timezone: { type: "string", description: "IANA timezone (ej: America/Mexico_City, America/Bogota)" }, standup_hour: { type: "number", description: "Hora local para el standup (0-23, default 9)" }, standup_enabled: { type: "boolean", description: "Activar/desactivar standup diario" } }, required: ["whatsapp_number"] } },
   ];
 
@@ -1940,6 +1941,71 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
             body: JSON.stringify({ status: newStatus, updated_at: new Date().toISOString() }),
           });
           return { success: true, project_id: args.project_id, status: newStatus, message: `Proyecto ${newStatus === 'paused' ? 'pausado' : 'reactivado'}.` };
+        }
+
+        case "analizar_estructura": {
+          const agts = await sbFetch(`${SB_URL}/rest/v1/agents?org_id=eq.${args.org_id}&status=neq.destroyed&select=id,name,role,team,tier,parent_agent_id,capabilities,model,availability`, { headers: sbHeaders() });
+          if (!Array.isArray(agts)) return { success: false, error: "Could not load agents" };
+
+          const suggestions = [];
+          const teams = {};
+          const orphans = [];
+
+          for (const a of agts) {
+            if (a.team) {
+              if (!teams[a.team]) teams[a.team] = { workers: [], leads: [], managers: [] };
+              teams[a.team][a.tier === 'team_lead' ? 'leads' : a.tier === 'manager' ? 'managers' : 'workers'].push(a);
+            } else {
+              orphans.push(a);
+            }
+          }
+
+          // Check teams with 4+ workers and no lead
+          for (const [teamName, members] of Object.entries(teams)) {
+            if (members.workers.length >= 4 && members.leads.length === 0) {
+              const bestCandidate = members.workers.sort((a, b) => (b.capabilities?.length || 0) - (a.capabilities?.length || 0))[0];
+              suggestions.push({
+                type: "need_team_lead",
+                team: teamName,
+                workers: members.workers.length,
+                message: `El equipo "${teamName}" tiene ${members.workers.length} workers sin team lead. Sugiero promover a ${bestCandidate?.name || 'un agente'} o crear uno nuevo.`,
+                candidate: bestCandidate?.name || null,
+              });
+            }
+          }
+
+          // Orphan agents
+          if (orphans.length > 0) {
+            suggestions.push({
+              type: "orphan_agents",
+              agents: orphans.map(a => a.name),
+              message: `${orphans.length} agente(s) sin equipo: ${orphans.map(a => a.name).join(', ')}. Sugiero asignarlos a un equipo.`,
+            });
+          }
+
+          // Agents without capabilities
+          const noCaps = agts.filter(a => !a.capabilities || a.capabilities.length === 0);
+          if (noCaps.length > 0) {
+            suggestions.push({
+              type: "no_capabilities",
+              agents: noCaps.map(a => a.name),
+              message: `${noCaps.length} agente(s) sin capabilities configuradas: ${noCaps.map(a => a.name).join(', ')}. No podrán reclamar tareas del backlog.`,
+            });
+          }
+
+          return {
+            success: true,
+            total_agents: agts.length,
+            teams: Object.entries(teams).map(([name, m]) => ({
+              name, workers: m.workers.length, leads: m.leads.length, managers: m.managers.length,
+            })),
+            orphan_agents: orphans.length,
+            suggestions,
+            healthy: suggestions.length === 0,
+            message: suggestions.length === 0
+              ? "✅ La estructura del equipo se ve bien. Todos los agentes tienen equipo, capabilities, y los equipos están balanceados."
+              : `⚠️ ${suggestions.length} sugerencia(s) para mejorar la estructura:\n${suggestions.map((s, i) => `${i + 1}. ${s.message}`).join('\n')}`,
+          };
         }
 
         case "configurar_standup": {

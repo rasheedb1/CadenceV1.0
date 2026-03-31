@@ -74,6 +74,7 @@ const state = {
   // v2 additions
   agentConfig: null,           // cached agent row (model, capabilities, tier, etc.)
   tasksCompletedSinceCheckin: 0,
+  budgetAlertSent: false,      // true after 80% budget alert sent (reset on new project)
 };
 
 const sbHeaders = {
@@ -639,8 +640,27 @@ async function tick() {
   }
   if (state.budgetFromDB) {
     const b = state.budgetFromDB;
-    if ((b.iterations_used || 0) >= (b.max_iterations || 200)) { console.warn("[event-loop] Budget: max iterations"); stop(); return; }
-    if ((b.cost_usd || 0) >= (b.max_cost_usd || 10)) { console.warn("[event-loop] Budget: max cost"); stop(); return; }
+    const maxIter = b.max_iterations || 200;
+    const maxCost = b.max_cost_usd || 10;
+    if ((b.iterations_used || 0) >= maxIter) { console.warn("[event-loop] Budget: max iterations"); stop(); return; }
+    if ((b.cost_usd || 0) >= maxCost) { console.warn("[event-loop] Budget: max cost"); stop(); return; }
+
+    // --- Budget alert at 80% ---
+    const costPct = ((b.cost_usd || 0) / maxCost) * 100;
+    const iterPct = ((b.iterations_used || 0) / maxIter) * 100;
+    if ((costPct >= 80 || iterPct >= 80) && !state.budgetAlertSent) {
+      state.budgetAlertSent = true;
+      console.warn(`[event-loop] Budget alert: ${costPct.toFixed(0)}% cost, ${iterPct.toFixed(0)}% iterations`);
+      fetch(CALLBACK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_name: AGENT_NAME,
+          result: { text: `⚠️ *Alerta de presupuesto* — ${AGENT_NAME}\n💰 Costo: $${(b.cost_usd || 0).toFixed(2)} / $${maxCost.toFixed(2)} (${costPct.toFixed(0)}%)\n🔄 Iteraciones: ${b.iterations_used || 0} / ${maxIter} (${iterPct.toFixed(0)}%)\n\nEl agente seguirá trabajando hasta el límite. Puedes ajustar el budget desde el dashboard.` },
+          whatsapp_number: null,
+        }),
+      }).catch(() => {});
+    }
   }
 
   state.busy = true;
