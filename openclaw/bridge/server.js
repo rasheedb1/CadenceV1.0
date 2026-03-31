@@ -749,6 +749,7 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     { name: "standup_equipo", description: "Genera un resumen ejecutivo del equipo: tareas completadas, en progreso, bloqueadas, y check-ins pendientes. Formato WhatsApp-friendly. Usa cuando: 'standup', 'resumen', '¿qué hicieron hoy?'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "cambiar_config_agente", description: "Cambia la configuración de un agente: modelo LLM, temperatura, equipo, tier, capabilities. Usa cuando: 'cambia a Sofi a Opus', 'pon a Juanse en el equipo de ventas', 'hazlo team lead'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_name: { type: "string", description: "Nombre del agente" }, updates: { type: "object", properties: { model: { type: "string", description: "claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001" }, temperature: { type: "number" }, team: { type: "string" }, tier: { type: "string", enum: ["worker", "team_lead", "manager"] }, capabilities: { type: "array", items: { type: "string" } } } } }, required: ["org_id", "agent_name", "updates"] } },
     { name: "pausar_reactivar_proyecto", description: "Pausa o reactiva un proyecto existente. Usa cuando: 'continuar proyecto', 'pausa el proyecto X', 'reactiva'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, project_id: { type: "string" }, action: { type: "string", enum: ["pause", "activate"] } }, required: ["org_id", "project_id", "action"] } },
+    { name: "configurar_standup", description: "Configura el standup diario automático: timezone, hora, y si está activado. Usa cuando: 'estoy en México', 'mándame el standup a las 8am', 'cambia mi zona horaria', 'desactiva el standup'. Timezones comunes: America/Mexico_City, America/Bogota, America/Buenos_Aires, America/Santiago, America/Lima, Europe/Madrid, US/Eastern, US/Pacific.", input_schema: { type: "object", properties: { whatsapp_number: { type: "string", description: "Número WhatsApp del usuario (sessionKey)" }, timezone: { type: "string", description: "IANA timezone (ej: America/Mexico_City, America/Bogota)" }, standup_hour: { type: "number", description: "Hora local para el standup (0-23, default 9)" }, standup_enabled: { type: "boolean", description: "Activar/desactivar standup diario" } }, required: ["whatsapp_number"] } },
   ];
 
   async function gwExecuteTool(name, args) {
@@ -1939,6 +1940,27 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
             body: JSON.stringify({ status: newStatus, updated_at: new Date().toISOString() }),
           });
           return { success: true, project_id: args.project_id, status: newStatus, message: `Proyecto ${newStatus === 'paused' ? 'pausado' : 'reactivado'}.` };
+        }
+
+        case "configurar_standup": {
+          const updates = {};
+          if (args.timezone) updates.timezone = args.timezone;
+          if (args.standup_hour != null) updates.standup_hour = args.standup_hour;
+          if (args.standup_enabled != null) updates.standup_enabled = args.standup_enabled;
+          if (Object.keys(updates).length === 0) {
+            // Just return current config
+            const current = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?whatsapp_number=eq.${args.whatsapp_number}&select=timezone,standup_hour,standup_enabled&limit=1`, { headers: sbHeaders() });
+            return { success: true, current: Array.isArray(current) && current[0] ? current[0] : null };
+          }
+          updates.updated_at = new Date().toISOString();
+          await sbFetch(`${SB_URL}/rest/v1/chief_sessions?whatsapp_number=eq.${args.whatsapp_number}`, {
+            method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" }, body: JSON.stringify(updates),
+          });
+          const parts = [];
+          if (args.timezone) parts.push(`Timezone: ${args.timezone}`);
+          if (args.standup_hour != null) parts.push(`Hora: ${args.standup_hour}:00`);
+          if (args.standup_enabled != null) parts.push(`Standup: ${args.standup_enabled ? 'activado' : 'desactivado'}`);
+          return { success: true, updated: parts.join(', '), message: `Configuración actualizada. ${parts.join(', ')}.` };
         }
 
         default: return { success: false, error: `Tool desconocida: ${name}` };
