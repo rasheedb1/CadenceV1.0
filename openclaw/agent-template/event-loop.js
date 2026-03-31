@@ -110,8 +110,10 @@ async function sbRpc(fnName, body) {
 }
 
 // ============================================================
-// SENSE — gather context from DB (v2: agent_tasks_v2 + agent config)
+// SENSE — gather context from DB (v3: memory-aware)
 // ============================================================
+const safe = (arr) => Array.isArray(arr) ? arr : [];
+
 async function sense() {
   if (!SB_URL || !SB_KEY || !AGENT_ID) return {};
 
@@ -119,7 +121,7 @@ async function sense() {
   const now = new Date().toISOString();
   state.lastSenseTime = now;
 
-  // Load agent config every 10 iterations (model, capabilities, tier)
+  // Load agent config every 10 iterations
   if (!state.agentConfig || state.iteration % 10 === 0) {
     const agentRows = await sbGet(
       `agents?id=eq.${AGENT_ID}&select=model,capabilities,tier,team,availability,temperature,max_tokens`
@@ -129,46 +131,44 @@ async function sense() {
 
   const capabilities = state.agentConfig?.capabilities || [];
 
+  // --- Core queries (parallel) ---
   const [inbox, myTasksV2, availableTasksV2, myTasksLegacy, availableTasksLegacy, budget, heartbeats] = await Promise.all([
-    // 1. Inbox messages (recent, to me)
-    sbGet(
-      `agent_messages?to_agent_id=eq.${AGENT_ID}&created_at=gt.${since}&order=created_at.desc&limit=5&select=from_agent_id,content,created_at`
-    ).catch(() => []),
-
-    // 2. My assigned tasks on agent_tasks_v2
-    sbGet(
-      `agent_tasks_v2?assigned_agent_id=eq.${AGENT_ID}&status=in.(claimed,in_progress)&order=priority.asc&limit=5&select=id,title,description,task_type,status,priority`
-    ).catch(() => []),
-
-    // 3. Available v2 tasks I could claim (capabilities match done in claim_task_v2 RPC)
-    sbGet(
-      `agent_tasks_v2?status=eq.ready&assigned_agent_id=is.null&org_id=eq.${ORG_ID}&order=priority.asc&limit=5&select=id,title,description,task_type,priority,required_capabilities`
-    ).catch(() => []),
-
-    // 4. My assigned tasks on legacy blackboard (backward compat)
-    sbGet(
-      `project_board?assignee_agent_id=eq.${AGENT_ID}&status=in.(claimed,working)&order=priority.desc&limit=5&select=id,title,content,status,priority`
-    ).catch(() => []),
-
-    // 5. Available legacy tasks
-    sbGet(
-      `project_board?status=eq.available&entry_type=eq.task&org_id=eq.${ORG_ID}&order=priority.desc&limit=5&select=id,title,content,priority`
-    ).catch(() => []),
-
-    // 6. My budget
-    sbGet(
-      `agent_budgets?agent_id=eq.${AGENT_ID}&limit=1&select=tokens_used,max_tokens,cost_usd,max_cost_usd,iterations_used,max_iterations`
-    ).catch(() => []),
-
-    // 7. Who's online
-    sbGet(
-      `agent_heartbeats?last_seen=gt.${new Date(Date.now() - 300000).toISOString()}&select=agent_id,status,current_task`
-    ).catch(() => []),
+    sbGet(`agent_messages?to_agent_id=eq.${AGENT_ID}&created_at=gt.${since}&order=created_at.desc&limit=5&select=from_agent_id,content,created_at`).catch(() => []),
+    // Include memory fields in my tasks
+    sbGet(`agent_tasks_v2?assigned_agent_id=eq.${AGENT_ID}&status=in.(claimed,in_progress)&order=priority.asc&limit=5&select=id,title,description,task_type,status,priority,parent_result_summary,context_summary,review_iteration,depends_on`).catch(() => []),
+    sbGet(`agent_tasks_v2?status=eq.ready&assigned_agent_id=is.null&org_id=eq.${ORG_ID}&order=priority.asc&limit=5&select=id,title,description,task_type,priority,required_capabilities,parent_result_summary,context_summary`).catch(() => []),
+    sbGet(`project_board?assignee_agent_id=eq.${AGENT_ID}&status=in.(claimed,working)&order=priority.desc&limit=5&select=id,title,content,status,priority`).catch(() => []),
+    sbGet(`project_board?status=eq.available&entry_type=eq.task&org_id=eq.${ORG_ID}&order=priority.desc&limit=5&select=id,title,content,priority`).catch(() => []),
+    sbGet(`agent_budgets?agent_id=eq.${AGENT_ID}&limit=1&select=tokens_used,max_tokens,cost_usd,max_cost_usd,iterations_used,max_iterations`).catch(() => []),
+    sbGet(`agent_heartbeats?last_seen=gt.${new Date(Date.now() - 300000).toISOString()}&select=agent_id,status,current_task`).catch(() => []),
   ]);
 
-  // Merge v2 + legacy tasks
-  const safe = (arr) => Array.isArray(arr) ? arr : [];
-  const myTasks = [...safe(myTasksV2), ...safe(myTasksLegacy)];
+  // --- Memory queries (parallel, only if agent has tasks) ---
+  const myV2 = safe(myTasksV2);
+  let latestArtifact = null;
+  let latestReview = null;
+  let knowledge = [];
+  let pendingFeedback = [];
+
+  if (myV2.length > 0 || state.iteration % 5 === 0) {
+    const taskId = myV2[0]?.id;
+    const [artifactRes, reviewRes, knowledgeRes, feedbackRes] = await Promise.all([
+      // Latest artifact for my current task
+      taskId ? sbGet(`agent_artifacts?task_id=eq.${taskId}&order=version.desc&limit=1&select=id,filename,version,content_summary,artifact_type`).catch(() => []) : [],
+      // Latest review for my current task
+      taskId ? sbGet(`agent_reviews?task_id=eq.${taskId}&order=iteration.desc&limit=1&select=score,passed,issues,suggestions,iteration`).catch(() => []) : [],
+      // My knowledge + team knowledge (top 5 by importance)
+      sbGet(`agent_knowledge?or=(agent_id.eq.${AGENT_ID},agent_id.is.null)&org_id=eq.${ORG_ID}&valid_until=is.null&order=importance.desc&limit=5&select=content,category,importance`).catch(() => []),
+      // Pending feedback from rejected check-ins
+      sbGet(`agent_checkins?agent_id=eq.${AGENT_ID}&status=eq.rejected&order=created_at.desc&limit=2&select=feedback,summary`).catch(() => []),
+    ]);
+    latestArtifact = safe(artifactRes)[0] || null;
+    latestReview = safe(reviewRes)[0] || null;
+    knowledge = safe(knowledgeRes);
+    pendingFeedback = safe(feedbackRes).filter(f => f.feedback);
+  }
+
+  const myTasks = [...myV2, ...safe(myTasksLegacy)];
   const availableTasks = [...safe(availableTasksV2), ...safe(availableTasksLegacy)];
 
   return {
@@ -179,6 +179,11 @@ async function sense() {
     onlineAgents: safe(heartbeats),
     capabilities,
     isV2Available: safe(availableTasksV2).length > 0,
+    // Memory context
+    latestArtifact,
+    latestReview,
+    knowledge,
+    pendingFeedback,
   };
 }
 
@@ -198,6 +203,55 @@ function think(context) {
       return `- [${t.id}] ${t.title} (pri=${t.priority}, type=${t.task_type || "general"}) — ${(desc || "").substring(0, 150)}`;
     };
 
+    // --- Build memory context sections ---
+    let memoryContext = "";
+
+    // Parent task results (from dependency resolution)
+    const taskWithParent = (context.myTasks || []).find(t => t.parent_result_summary);
+    if (taskWithParent) {
+      memoryContext += `\nDEPENDENCY CONTEXT:\n${taskWithParent.parent_result_summary}\n`;
+    }
+    // Context summary (accumulated from resolved dependencies)
+    const taskWithContext = (context.myTasks || []).find(t => t.context_summary);
+    if (taskWithContext && taskWithContext !== taskWithParent) {
+      memoryContext += `\nTASK CONTEXT:\n${taskWithContext.context_summary}\n`;
+    }
+
+    // Latest artifact summary
+    if (context.latestArtifact) {
+      const a = context.latestArtifact;
+      memoryContext += `\nLAST ARTIFACT (${a.filename} v${a.version}, ${a.artifact_type}):\n${(a.content_summary || "").substring(0, 300)}\n`;
+    }
+
+    // Latest review
+    if (context.latestReview) {
+      const r = context.latestReview;
+      memoryContext += `\nLAST REVIEW (iteration ${r.iteration}, score: ${r.score}, ${r.passed ? "APPROVED" : "NOT APPROVED"}):\n`;
+      if (r.issues && Array.isArray(r.issues) && r.issues.length > 0) {
+        memoryContext += `Issues: ${r.issues.map(i => typeof i === 'object' ? i.issue : i).join("; ")}\n`;
+      }
+      if (r.suggestions && Array.isArray(r.suggestions) && r.suggestions.length > 0) {
+        memoryContext += `Suggestions: ${r.suggestions.map(s => typeof s === 'object' ? s.suggestion : s).join("; ")}\n`;
+      }
+    }
+
+    // Pending feedback from human
+    if (context.pendingFeedback && context.pendingFeedback.length > 0) {
+      memoryContext += `\nFEEDBACK FROM YOUR MANAGER:\n`;
+      for (const f of context.pendingFeedback) {
+        memoryContext += `- ${f.feedback}\n`;
+      }
+      memoryContext += `Incorporate this feedback into your work.\n`;
+    }
+
+    // Knowledge / lessons learned
+    if (context.knowledge && context.knowledge.length > 0) {
+      memoryContext += `\nKNOWLEDGE (lessons learned):\n`;
+      for (const k of context.knowledge) {
+        memoryContext += `- [${k.category}] ${k.content}\n`;
+      }
+    }
+
     const prompt = `SYSTEM: You are an autonomous AI agent. Return ONLY a JSON object, no other text.
 
 CONTEXT:
@@ -205,7 +259,7 @@ CONTEXT:
 - Capabilities: ${(context.capabilities || []).join(", ") || "general"}
 - Loop iteration: ${state.iteration}
 - Budget: ${budgetStr}
-
+${memoryContext}
 INBOX (${context.inbox.length}):
 ${context.inbox.length ? context.inbox.map((m) => `- ${(m.content || "").substring(0, 200)}`).join("\n") : "(empty)"}
 
@@ -226,7 +280,7 @@ RESPOND WITH EXACTLY ONE JSON OBJECT:
 
 RULES:
 1. If AVAILABLE TASKS has entries and MY TASKS is empty → claim_task (pick highest priority)
-2. If MY TASKS has entries → work_on_task (use the task description as instruction)
+2. If MY TASKS has entries → work_on_task (use the task description + DEPENDENCY CONTEXT + FEEDBACK as instruction)
 3. If no tasks at all → idle
 4. ONLY return JSON. No markdown, no explanation, no code blocks.`;
 
@@ -357,21 +411,52 @@ async function act(decision, context) {
       if (!params.task_id) break;
 
       // Check if v2 task
-      const isV2c = await sbGet(`agent_tasks_v2?id=eq.${params.task_id}&select=id`).catch(() => []);
+      const isV2c = await sbGet(`agent_tasks_v2?id=eq.${params.task_id}&select=id,title,task_type`).catch(() => []);
       if (Array.isArray(isV2c) && isV2c.length > 0) {
+        const task = isV2c[0];
         const taskTokens = state.budget.tokens;
         const taskCost = getTokenCost(taskTokens, state.agentConfig?.model || "claude-sonnet-4-6");
+        const resultText = params.result_summary || "Done";
+
+        // --- Create artifact from the result ---
+        const contentSummary = resultText.length > 400
+          ? resultText.substring(0, 400) + "..."
+          : resultText;
+        let artifactId = null;
+        try {
+          const artRes = await fetch(`${SB_URL}/rest/v1/agent_artifacts`, {
+            method: "POST",
+            headers: { ...sbHeaders, Prefer: "return=representation" },
+            body: JSON.stringify({
+              org_id: ORG_ID,
+              task_id: params.task_id,
+              filename: `${(task.title || "output").substring(0, 40).replace(/[^a-zA-Z0-9-_ ]/g, "").trim().replace(/\s+/g, "-").toLowerCase()}-result`,
+              version: 1,
+              artifact_type: task.task_type || "general",
+              content: resultText.substring(0, 10000),
+              content_summary: contentSummary,
+              created_by: AGENT_ID,
+            }),
+          });
+          const artData = await artRes.json();
+          artifactId = Array.isArray(artData) && artData[0] ? artData[0].id : null;
+        } catch (e) {
+          console.error("[event-loop] Artifact creation failed:", e.message);
+        }
+
+        // --- Update task with result + artifact ---
         await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
           status: "done",
           completed_at: new Date().toISOString(),
-          result: { summary: params.result_summary || "Done" },
+          result: { summary: resultText },
           tokens_used: taskTokens,
           cost_usd: taskCost,
+          artifact_ids: artifactId ? [artifactId] : [],
           updated_at: new Date().toISOString(),
         });
-        // Dependency resolution happens via DB trigger
+        // Dependency resolution + parent_result_summary propagation via DB trigger
         state.tasksCompletedSinceCheckin++;
-        console.log(`[event-loop] Completed v2 task ${params.task_id} (${state.tasksCompletedSinceCheckin} since last check-in)`);
+        console.log(`[event-loop] Completed v2 task ${params.task_id}${artifactId ? ' + artifact ' + artifactId.substring(0, 8) : ''} (${state.tasksCompletedSinceCheckin} since last check-in)`);
       } else {
         // Legacy blackboard
         await fetch(`${SB_URL}/functions/v1/blackboard`, {
@@ -478,6 +563,34 @@ async function reflect(decision) {
   if (SB_URL && SB_KEY && AGENT_ID) {
     const newAvailability = action === "idle" ? "available" : "working";
     sbPatch(`agents?id=eq.${AGENT_ID}`, { availability: newAvailability, updated_at: new Date().toISOString() }).catch(() => {});
+  }
+
+  // --- Extract knowledge from completed tasks (lightweight, every completion) ---
+  if (action === "complete_task" && taskId && SB_URL && SB_KEY) {
+    try {
+      const resultSummary = decision?.params?.result_summary || "";
+      // Only extract if result has enough content (>50 chars = likely contains an insight)
+      if (resultSummary.length > 50) {
+        // Save the result as a "lesson" in agent_knowledge
+        await fetch(`${SB_URL}/rest/v1/agent_knowledge`, {
+          method: "POST",
+          headers: { ...sbHeaders, Prefer: "return=minimal" },
+          body: JSON.stringify({
+            org_id: ORG_ID,
+            agent_id: AGENT_ID,
+            scope: "/",
+            category: "lesson",
+            content: `Tarea "${decision?.params?.task_id || ""}": ${resultSummary.substring(0, 500)}`,
+            importance: 0.5,
+            source_task_id: taskId,
+            source_type: "task_completion",
+          }),
+        });
+        console.log("[event-loop] Knowledge extracted from completed task");
+      }
+    } catch (e) {
+      console.error("[event-loop] Knowledge extraction failed:", e.message);
+    }
   }
 
   // --- Auto-pause inactive projects ---
