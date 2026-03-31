@@ -781,7 +781,46 @@ You manage AI agent teams + the Chief Outreach sales platform.
     { name: "configurar_standup", description: "Configura el standup diario automático: timezone, hora, y si está activado. Usa cuando: 'estoy en México', 'mándame el standup a las 8am', 'cambia mi zona horaria', 'desactiva el standup'. Timezones comunes: America/Mexico_City, America/Bogota, America/Buenos_Aires, America/Santiago, America/Lima, Europe/Madrid, US/Eastern, US/Pacific.", input_schema: { type: "object", properties: { whatsapp_number: { type: "string", description: "Número WhatsApp del usuario (sessionKey)" }, timezone: { type: "string", description: "IANA timezone (ej: America/Mexico_City, America/Bogota)" }, standup_hour: { type: "number", description: "Hora local para el standup (0-23, default 9)" }, standup_enabled: { type: "boolean", description: "Activar/desactivar standup diario" } }, required: ["whatsapp_number"] } },
   ];
 
+  // Tools that should run in background (>30s expected)
+  const ASYNC_TOOLS = new Set([
+    "desplegar_agente", "consultar_agente", "reunion_agentes",
+    "buscar_prospectos", "capturar_pantalla",
+  ]);
+
+  // Run a tool in background — return immediate ack, send result via WhatsApp callback
+  function runToolAsync(name, args, orgId) {
+    const startMsg = {
+      desplegar_agente: "🚀 Deploying agent in background...",
+      consultar_agente: "💬 Consulting agent...",
+      reunion_agentes: "🤝 Starting agent meeting...",
+      buscar_prospectos: "🔍 Searching prospects...",
+      capturar_pantalla: "📸 Capturing screenshot...",
+    }[name] || `⚡ Running ${name}...`;
+
+    // Fire and forget — execute in background
+    (async () => {
+      try {
+        const result = await gwExecuteToolSync(name, args);
+        const resultText = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+        const summary = resultText.length > 1500 ? resultText.substring(0, 1500) + "..." : resultText;
+        await notifyUserByOrg(orgId || args.org_id, `✅ *${name}* completed:\n\n${summary}`);
+      } catch (err) {
+        await notifyUserByOrg(orgId || args.org_id, `❌ *${name}* failed: ${err.message || "Unknown error"}`);
+      }
+    })();
+
+    return { success: true, async: true, message: startMsg + " You'll receive the result via WhatsApp when done." };
+  }
+
   async function gwExecuteTool(name, args) {
+    // Route slow tools to async execution
+    if (ASYNC_TOOLS.has(name)) {
+      return runToolAsync(name, args, args.org_id);
+    }
+    return gwExecuteToolSync(name, args);
+  }
+
+  async function gwExecuteToolSync(name, args) {
     const base = SB_URL;
     try {
       switch (name) {
