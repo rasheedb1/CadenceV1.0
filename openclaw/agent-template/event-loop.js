@@ -15,6 +15,25 @@
 
 const { execFile } = require("child_process");
 
+// --- Anthropic official pricing (per million tokens, blended input+output avg) ---
+// Source: https://docs.anthropic.com/en/docs/about-claude/models
+// Blended = (input_price + output_price) / 2 for simplicity since we don't split in/out
+const MODEL_PRICING = {
+  "claude-opus-4-6":           { input: 15.00, output: 75.00, blended: 45.00 },   // $15/$75 per MTok
+  "claude-opus-4-20250514":    { input: 15.00, output: 75.00, blended: 45.00 },
+  "claude-sonnet-4-6":         { input: 3.00,  output: 15.00, blended: 9.00 },    // $3/$15 per MTok
+  "claude-sonnet-4-20250514":  { input: 3.00,  output: 15.00, blended: 9.00 },
+  "claude-haiku-4-5-20251001": { input: 0.80,  output: 4.00,  blended: 2.40 },    // $0.80/$4 per MTok
+  "claude-haiku-3-5-20241022": { input: 0.80,  output: 4.00,  blended: 2.40 },
+};
+const DEFAULT_BLENDED_PRICE = 9.00; // Sonnet pricing as fallback
+
+function getTokenCost(tokens, model) {
+  const pricing = MODEL_PRICING[model] || null;
+  const pricePerMTok = pricing ? pricing.blended : DEFAULT_BLENDED_PRICE;
+  return parseFloat((tokens * pricePerMTok / 1_000_000).toFixed(6));
+}
+
 // --- Config from env ---
 const AGENT_ID = process.env.AGENT_ID || "";
 const AGENT_NAME = process.env.AGENT_NAME || "Agent";
@@ -339,11 +358,14 @@ async function act(decision, context) {
       // Check if v2 task
       const isV2c = await sbGet(`agent_tasks_v2?id=eq.${params.task_id}&select=id`).catch(() => []);
       if (Array.isArray(isV2c) && isV2c.length > 0) {
+        const taskTokens = state.budget.tokens;
+        const taskCost = getTokenCost(taskTokens, state.agentConfig?.model || "claude-sonnet-4-6");
         await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
           status: "done",
           completed_at: new Date().toISOString(),
           result: { summary: params.result_summary || "Done" },
-          tokens_used: state.budget.tokens,
+          tokens_used: taskTokens,
+          cost_usd: taskCost,
           updated_at: new Date().toISOString(),
         });
         // Dependency resolution happens via DB trigger
@@ -581,7 +603,7 @@ async function reflect(decision) {
         agent_id: AGENT_ID,
         org_id: ORG_ID,
         tokens_used: state.budget.tokens,
-        cost_usd: parseFloat((state.budget.tokens * 0.000003).toFixed(4)),
+        cost_usd: getTokenCost(state.budget.tokens, state.agentConfig?.model || "claude-sonnet-4-6"),
         iterations_used: state.budget.iterations,
       }),
     }).catch(() => {});
