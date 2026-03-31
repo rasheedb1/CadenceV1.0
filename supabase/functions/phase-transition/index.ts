@@ -101,33 +101,58 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 5. Use LLM to decompose phase into tasks
-    const capabilities = agent?.capabilities || []
+    // 5. Load ALL active agents for task distribution
+    const { data: allAgents } = await supabase
+      .from('agents')
+      .select('id, name, role, capabilities')
+      .eq('org_id', project.org_id)
+      .neq('status', 'destroyed')
+
+    const agentList = (allAgents || []).map(a =>
+      `- ${a.name} (${a.role}): capabilities=[${(a.capabilities || []).join(',')}]`
+    ).join('\n')
+
+    // Map task_type → required_capabilities
+    const TYPE_CAPS: Record<string, string[]> = {
+      design: ['design'],
+      code: ['code', 'ops'],
+      research: ['research'],
+      qa: ['outreach', 'research'],
+      outreach: ['outreach'],
+      writing: [],      // any agent
+      general: [],      // any agent
+    }
+
     const prompt = `Decompose this project phase into 3-7 concrete, actionable tasks.
+IMPORTANT: Distribute tasks across ALL available agents, not just one.
 
 PROJECT: ${project.name}
 ${project.description ? `DESCRIPTION: ${project.description.substring(0, 500)}` : ''}
 
 PHASE ${phase.phase_number}: ${phase.name}
 PHASE DESCRIPTION: ${phase.description || phase.name}
-ASSIGNED AGENT: ${agent?.name || 'Unknown'} (${agent?.role || 'general'})
-AGENT CAPABILITIES: ${capabilities.join(', ') || 'general'}
-${previousContext ? `\nPREVIOUS PHASES COMPLETED:\n${previousContext}` : ''}
 
-Return ONLY a JSON array of tasks. Each task must have:
+AVAILABLE AGENTS:
+${agentList}
+
+${previousContext ? `PREVIOUS PHASES COMPLETED:\n${previousContext}` : ''}
+
+Return ONLY a JSON array. Each task must have:
 - title (string, concise)
-- description (string, what to do specifically)
-- task_type (one of: design, code, research, qa, outreach, writing, general)
-- priority (number 0-100, lower = more urgent)
-- depends_on_index (number or null, index of task in this array that must complete first)
+- description (string, specific instructions)
+- task_type (design|code|research|qa|outreach|writing|general)
+- priority (0-100, lower = more urgent)
+- depends_on_index (number or null, index of task that must complete first)
 
-Example:
-[
-  {"title":"Audit dashboard pages","description":"Navigate each page and document UX issues","task_type":"design","priority":10,"depends_on_index":null},
-  {"title":"Document findings","description":"Compile audit into prioritized list","task_type":"writing","priority":20,"depends_on_index":0}
-]
+RULES:
+- Generate tasks that match DIFFERENT agent capabilities so ALL agents get work
+- design tasks → for agents with design capability
+- code tasks → for agents with code capability
+- qa/outreach tasks → for agents with outreach capability
+- At least 1 task per available agent
+- Max 7 tasks total
 
-Return ONLY the JSON array, no other text.`
+Return ONLY the JSON array.`
 
     const llmResponse = await callHaiku(prompt)
 
@@ -180,7 +205,7 @@ Return ONLY the JSON array, no other text.`
           title: t.title,
           description: t.description,
           task_type: t.task_type || 'general',
-          required_capabilities: capabilities.length > 0 ? capabilities : [],
+          required_capabilities: TYPE_CAPS[t.task_type] || [],
           priority: t.priority || 50,
           depends_on: dependsOn,
           status: taskStatus,

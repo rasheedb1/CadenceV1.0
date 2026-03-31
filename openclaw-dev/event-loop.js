@@ -47,6 +47,9 @@ const MAX_INTERVAL = 120000;   // 2min when idle
 const DEFAULT_INTERVAL = 20000; // 20s default
 const STALL_WINDOW = 3;
 const IDLE_PAUSE_THRESHOLD = 5;        // consecutive idles before auto-pause
+const IDLE_RATIO_WINDOW = 20;          // check last N ticks for idle ratio
+const IDLE_RATIO_THRESHOLD = 0.8;      // if 80%+ idle in window → stop
+const STALL_CLAIM_LIMIT = 5;           // max failed claims before forcing idle
 const CHECKIN_EVERY_N_TASKS = 3;       // generate check-in every N completed tasks
 const CALLBACK_URL = "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback";
 
@@ -66,7 +69,9 @@ const state = {
   lastActionTime: null,
   timer: null,
   budget: { tokens: 0, cost: 0, iterations: 0 },
-  maxIterations: parseInt(process.env.EVENT_LOOP_MAX_ITERATIONS || "200", 10),
+  maxIterations: parseInt(process.env.EVENT_LOOP_MAX_ITERATIONS || "10000", 10),
+  recentTickActions: [],   // last N tick actions for idle ratio guard
+  consecutiveFailedClaims: 0,
   recentActions: [],
   lastSenseTime: null,
   budgetFromDB: null,
@@ -366,29 +371,42 @@ async function act(decision, context) {
     case "claim_task": {
       if (!params.task_id) break;
 
-      // Try v2 atomic claim first
-      if (context?.isV2Available) {
-        const capabilities = state.agentConfig?.capabilities || [];
-        const claimed = await sbRpc("claim_task_v2", {
-          p_org_id: ORG_ID,
-          p_agent_id: AGENT_ID,
-          p_capabilities: capabilities,
-        });
-        if (claimed && Array.isArray(claimed) && claimed.length > 0) {
-          console.log(`[event-loop] Claimed v2 task: ${claimed[0].id} — ${claimed[0].title}`);
-          return "claimed_v2";
-        }
+      // ALWAYS use v2 RPC first (atomic, capability-matched)
+      const capabilities = state.agentConfig?.capabilities || [];
+      const claimed = await sbRpc("claim_task_v2", {
+        p_org_id: ORG_ID,
+        p_agent_id: AGENT_ID,
+        p_capabilities: capabilities,
+      });
+      if (claimed && Array.isArray(claimed) && claimed.length > 0) {
+        state.consecutiveFailedClaims = 0;
+        console.log(`[event-loop] Claimed v2 task: ${claimed[0].id} — ${claimed[0].title}`);
+        state.interval = MIN_INTERVAL; // fast next tick to work on it
+        return "claimed_v2";
       }
 
-      // Fallback: legacy blackboard claim
+      // v2 claim returned nothing — try legacy blackboard as fallback
       const claimRes = await fetch(`${SB_URL}/functions/v1/blackboard`, {
         method: "PATCH",
         headers: sbHeaders,
         body: JSON.stringify({ entry_id: params.task_id, action: "claim", agent_id: AGENT_ID }),
       });
       const claimData = await claimRes.json().catch(() => ({}));
-      console.log(`[event-loop] Claimed legacy task ${params.task_id}: ${claimData.entry?.status || "failed"}`);
-      return claimData.entry?.status === "claimed" ? "claimed" : "claim_failed";
+      if (claimData.entry?.status === "claimed") {
+        state.consecutiveFailedClaims = 0;
+        return "claimed";
+      }
+
+      // Both failed — track consecutive failures
+      state.consecutiveFailedClaims++;
+      console.warn(`[event-loop] Claim failed (${state.consecutiveFailedClaims}/${STALL_CLAIM_LIMIT})`);
+      if (state.consecutiveFailedClaims >= STALL_CLAIM_LIMIT) {
+        console.warn("[event-loop] Claim stall detected — forcing idle to avoid loop");
+        state.consecutiveFailedClaims = 0;
+        state.interval = MAX_INTERVAL;
+        return "claim_stalled";
+      }
+      return "claim_failed";
     }
 
     case "work_on_task": {
@@ -711,6 +729,27 @@ async function reflect(decision) {
     state.interval = MIN_INTERVAL; // immediately fast when working
     state.lastAction = action;
     state.lastActionTime = new Date().toISOString();
+  }
+
+  // --- Idle ratio guard: stop if 80%+ idle in last 20 ticks ---
+  state.recentTickActions.push(action);
+  if (state.recentTickActions.length > IDLE_RATIO_WINDOW) state.recentTickActions.shift();
+  if (state.recentTickActions.length === IDLE_RATIO_WINDOW) {
+    const idleCount = state.recentTickActions.filter(a => a === "idle").length;
+    const ratio = idleCount / IDLE_RATIO_WINDOW;
+    if (ratio >= IDLE_RATIO_THRESHOLD) {
+      console.warn(`[event-loop] Idle ratio ${(ratio * 100).toFixed(0)}% over last ${IDLE_RATIO_WINDOW} ticks — stopping to save costs`);
+      fetch(CALLBACK_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_name: AGENT_NAME,
+          result: { text: `⏸️ ${AGENT_NAME} stopped — idle ${(ratio * 100).toFixed(0)}% of last ${IDLE_RATIO_WINDOW} ticks. No work available. Will restart when new tasks are created.` },
+          whatsapp_number: null,
+        }),
+      }).catch(() => {});
+      stop();
+      return;
+    }
   }
 
   // --- Update agent availability ---
