@@ -547,38 +547,55 @@ async function act(decision, context) {
       const issues = Array.isArray(params.issues) ? params.issues.map(i => ({ issue: i, severity: "medium" })) : [];
       const suggestions = Array.isArray(params.suggestions) ? params.suggestions.map(s => ({ suggestion: s, priority: "medium" })) : [];
 
-      // Get task's latest artifact
-      const artRows = await sbGet(`agent_artifacts?task_id=eq.${params.task_id}&order=version.desc&limit=1&select=id`).catch(() => []);
+      // Resolve the ORIGINAL task ID — the review task has depends_on pointing to the original
+      let originalTaskId = params.task_id;
+      const reviewTaskRows = await sbGet(`agent_tasks_v2?id=eq.${params.task_id}&select=id,depends_on,title`).catch(() => []);
+      const reviewTask = safe(reviewTaskRows)[0];
+      if (reviewTask?.depends_on && reviewTask.depends_on.length > 0 && reviewTask.title?.startsWith("[REVIEW]")) {
+        originalTaskId = reviewTask.depends_on[0]; // The original task
+        console.log(`[event-loop] submit_review: resolved original task ${originalTaskId} from review task ${params.task_id}`);
+      }
+
+      // Get original task's latest artifact
+      const artRows = await sbGet(`agent_artifacts?task_id=eq.${originalTaskId}&order=version.desc&limit=1&select=id`).catch(() => []);
       const artifactId = safe(artRows)[0]?.id || null;
 
-      // Get current review iteration
-      const taskRows = await sbGet(`agent_tasks_v2?id=eq.${params.task_id}&select=review_iteration,max_review_iterations`).catch(() => []);
+      // Get current review iteration from ORIGINAL task
+      const taskRows = await sbGet(`agent_tasks_v2?id=eq.${originalTaskId}&select=review_iteration,max_review_iterations`).catch(() => []);
       const taskInfo = safe(taskRows)[0];
       const iteration = (taskInfo?.review_iteration || 0) + 1;
       const maxIter = taskInfo?.max_review_iterations || 3;
 
-      // Create review record
+      // Create review record (on the ORIGINAL task, not the review task)
       await fetch(`${SB_URL}/rest/v1/agent_reviews`, {
         method: "POST",
         headers: { ...sbHeaders, Prefer: "return=minimal" },
         body: JSON.stringify({
-          org_id: ORG_ID, task_id: params.task_id,
+          org_id: ORG_ID, task_id: originalTaskId,
           artifact_id: artifactId, reviewer_agent_id: AGENT_ID,
           score, passed, issues, suggestions, iteration, max_iterations: maxIter,
         }),
       });
 
-      if (passed) {
-        // Approved → mark original task as done
+      // Also mark the review task itself as done
+      if (originalTaskId !== params.task_id) {
         await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
+          status: "done", completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+          result: { summary: `Review: score=${score}, passed=${passed}, issues=${issues.length}` },
+        });
+      }
+
+      if (passed) {
+        // Approved → mark ORIGINAL task as done (triggers dependency resolution)
+        await sbPatch(`agent_tasks_v2?id=eq.${originalTaskId}`, {
           status: "done", review_score: score, review_iteration: iteration,
           completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
         });
-        console.log(`[event-loop] Review APPROVED: task ${params.task_id} (score ${score})`);
+        console.log(`[event-loop] Review APPROVED: original task ${originalTaskId} (score ${score})`);
         state.tasksCompletedSinceCheckin++;
       } else if (iteration >= maxIter) {
         // Max iterations reached → escalate to human
-        await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
+        await sbPatch(`agent_tasks_v2?id=eq.${originalTaskId}`, {
           status: "failed", review_score: score, review_iteration: iteration,
           error: `Review failed after ${iteration} iterations. Last issues: ${issues.map(i => i.issue).join("; ")}`,
           updated_at: new Date().toISOString(),
@@ -587,14 +604,14 @@ async function act(decision, context) {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             agent_name: AGENT_NAME,
-            result: { text: `⚠️ Tarea "${params.task_id}" no pasó review después de ${iteration} iteraciones.\nScore: ${score}\nIssues: ${issues.map(i => i.issue).join(", ")}\nNecesita intervención humana.` },
+            result: { text: `⚠️ Tarea "${originalTaskId}" no pasó review después de ${iteration} iteraciones.\nScore: ${score}\nIssues: ${issues.map(i => i.issue).join(", ")}\nNecesita intervención humana.` },
             whatsapp_number: null,
           }),
         }).catch(() => {});
         console.log(`[event-loop] Review FAILED after ${iteration} iterations, escalating`);
       } else {
-        // Not passed, more iterations allowed → send back to author
-        await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
+        // Not passed, more iterations allowed → send ORIGINAL task back to author
+        await sbPatch(`agent_tasks_v2?id=eq.${originalTaskId}`, {
           status: "in_progress", review_score: score, review_iteration: iteration,
           context_summary: `Review #${iteration} (score ${score}, NO APROBADO):\nIssues: ${issues.map(i => i.issue).join("; ")}\nSuggestions: ${suggestions.map(s => s.suggestion).join("; ")}\nCorrige estos issues y haz request_review de nuevo.`,
           updated_at: new Date().toISOString(),
