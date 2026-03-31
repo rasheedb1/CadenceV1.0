@@ -30,6 +30,8 @@ RUN npm install --omit=dev --no-audit --no-fund
 COPY --chown=node:node dist/ ./dist/
 
 # A2A server + deps
+# NOTE: event-loop.js is synced from openclaw/agent-template/event-loop.js (source of truth)
+# When updating the event loop, update BOTH files or run: cp openclaw/agent-template/event-loop.js openclaw-dev/event-loop.js
 COPY --chown=node:node a2a-server.js /home/node/.openclaw/a2a-server.js
 COPY --chown=node:node a2a-send.js /home/node/.openclaw/a2a-send.js
 COPY --chown=node:node event-loop.js /home/node/.openclaw/event-loop.js
