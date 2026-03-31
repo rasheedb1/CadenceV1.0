@@ -274,15 +274,20 @@ ONLINE AGENTS: ${context.onlineAgents.length ? context.onlineAgents.map((a) => a
 RESPOND WITH EXACTLY ONE JSON OBJECT:
 {"action":"claim_task","reasoning":"...","params":{"task_id":"..."}}
 {"action":"work_on_task","reasoning":"...","params":{"task_id":"...","instruction":"..."}}
-{"action":"send_message","reasoning":"...","params":{"to_agent":"name","message":"..."}}
 {"action":"complete_task","reasoning":"...","params":{"task_id":"...","result_summary":"..."}}
+{"action":"request_review","reasoning":"...","params":{"task_id":"...","result_summary":"...","review_notes":"what to review"}}
+{"action":"submit_review","reasoning":"...","params":{"task_id":"...","score":0.8,"passed":true,"issues":["issue1"],"suggestions":["suggestion1"]}}
+{"action":"send_message","reasoning":"...","params":{"to_agent":"name","message":"..."}}
 {"action":"idle","reasoning":"nothing to do","params":{}}
 
 RULES:
 1. If AVAILABLE TASKS has entries and MY TASKS is empty → claim_task (pick highest priority)
 2. If MY TASKS has entries → work_on_task (use the task description + DEPENDENCY CONTEXT + FEEDBACK as instruction)
-3. If no tasks at all → idle
-4. ONLY return JSON. No markdown, no explanation, no code blocks.`;
+3. After completing significant work → request_review (if task has review_iteration < max 3)
+4. If task has LAST REVIEW that was NOT APPROVED → work_on_task to fix the issues, then request_review again
+5. If reviewing another agent's work → submit_review with score (0-1), passed, issues, suggestions
+6. If no tasks at all → idle
+7. ONLY return JSON. No markdown, no explanation, no code blocks.`;
 
     execFile(
       "node",
@@ -467,6 +472,138 @@ async function act(decision, context) {
         state.tasksCompletedSinceCheckin++;
       }
       return "completed";
+    }
+
+    case "request_review": {
+      if (!params.task_id) break;
+      const resultText = params.result_summary || "Work completed, ready for review";
+
+      // Create artifact from the work
+      let artId = null;
+      try {
+        const taskInfo = await sbGet(`agent_tasks_v2?id=eq.${params.task_id}&select=title,task_type,review_iteration,org_id`).catch(() => []);
+        const ti = safe(taskInfo)[0];
+        if (ti) {
+          const version = (ti.review_iteration || 0) + 1;
+          const artRes = await fetch(`${SB_URL}/rest/v1/agent_artifacts`, {
+            method: "POST",
+            headers: { ...sbHeaders, Prefer: "return=representation" },
+            body: JSON.stringify({
+              org_id: ORG_ID, task_id: params.task_id,
+              filename: `${(ti.title || "output").substring(0, 40).replace(/[^a-zA-Z0-9-_ ]/g, "").trim().replace(/\s+/g, "-").toLowerCase()}`,
+              version, artifact_type: ti.task_type || "general",
+              content: resultText.substring(0, 10000),
+              content_summary: resultText.substring(0, 400),
+              created_by: AGENT_ID,
+            }),
+          });
+          const ad = await artRes.json();
+          artId = Array.isArray(ad) && ad[0] ? ad[0].id : null;
+        }
+      } catch (e) { console.error("[event-loop] Artifact for review failed:", e.message); }
+
+      // Set task to review status
+      await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
+        status: "review",
+        result: { summary: resultText },
+        artifact_ids: artId ? [artId] : [],
+        updated_at: new Date().toISOString(),
+      });
+
+      // Create a review task for another agent to claim
+      try {
+        const taskInfo = await sbGet(`agent_tasks_v2?id=eq.${params.task_id}&select=title,org_id,project_id,review_iteration`).catch(() => []);
+        const ti = safe(taskInfo)[0];
+        if (ti) {
+          await fetch(`${SB_URL}/rest/v1/agent_tasks_v2`, {
+            method: "POST",
+            headers: { ...sbHeaders, Prefer: "return=minimal" },
+            body: JSON.stringify({
+              org_id: ORG_ID, project_id: ti.project_id,
+              title: `[REVIEW] ${ti.title}`,
+              description: `Revisa el trabajo de ${AGENT_NAME}: ${(params.review_notes || resultText).substring(0, 300)}`,
+              task_type: "review",
+              required_capabilities: [],  // Any agent can review
+              priority: 5,  // High priority — don't block the author
+              status: "ready",
+              parent_result_summary: `Artifact para revisar: ${resultText.substring(0, 400)}`,
+              context_summary: `Esto es una revisión de la tarea "${ti.title}". Evalúa calidad, da score 0-1, lista issues y suggestions. Usa submit_review.`,
+              depends_on: [params.task_id],
+              created_by: AGENT_NAME,
+            }),
+          });
+          console.log(`[event-loop] Review requested for task ${params.task_id}, artifact ${artId?.substring(0, 8) || 'none'}`);
+        }
+      } catch (e) { console.error("[event-loop] Review task creation failed:", e.message); }
+
+      logActivity("event_loop_action", "request_review", `Review requested for: ${params.task_id} | ${resultText.substring(0, 100)}`);
+      return "review_requested";
+    }
+
+    case "submit_review": {
+      if (!params.task_id) break;
+      const score = typeof params.score === "number" ? params.score : 0.5;
+      const passed = params.passed === true;
+      const issues = Array.isArray(params.issues) ? params.issues.map(i => ({ issue: i, severity: "medium" })) : [];
+      const suggestions = Array.isArray(params.suggestions) ? params.suggestions.map(s => ({ suggestion: s, priority: "medium" })) : [];
+
+      // Get task's latest artifact
+      const artRows = await sbGet(`agent_artifacts?task_id=eq.${params.task_id}&order=version.desc&limit=1&select=id`).catch(() => []);
+      const artifactId = safe(artRows)[0]?.id || null;
+
+      // Get current review iteration
+      const taskRows = await sbGet(`agent_tasks_v2?id=eq.${params.task_id}&select=review_iteration,max_review_iterations`).catch(() => []);
+      const taskInfo = safe(taskRows)[0];
+      const iteration = (taskInfo?.review_iteration || 0) + 1;
+      const maxIter = taskInfo?.max_review_iterations || 3;
+
+      // Create review record
+      await fetch(`${SB_URL}/rest/v1/agent_reviews`, {
+        method: "POST",
+        headers: { ...sbHeaders, Prefer: "return=minimal" },
+        body: JSON.stringify({
+          org_id: ORG_ID, task_id: params.task_id,
+          artifact_id: artifactId, reviewer_agent_id: AGENT_ID,
+          score, passed, issues, suggestions, iteration, max_iterations: maxIter,
+        }),
+      });
+
+      if (passed) {
+        // Approved → mark original task as done
+        await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
+          status: "done", review_score: score, review_iteration: iteration,
+          completed_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        });
+        console.log(`[event-loop] Review APPROVED: task ${params.task_id} (score ${score})`);
+        state.tasksCompletedSinceCheckin++;
+      } else if (iteration >= maxIter) {
+        // Max iterations reached → escalate to human
+        await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
+          status: "failed", review_score: score, review_iteration: iteration,
+          error: `Review failed after ${iteration} iterations. Last issues: ${issues.map(i => i.issue).join("; ")}`,
+          updated_at: new Date().toISOString(),
+        });
+        fetch(CALLBACK_URL, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            agent_name: AGENT_NAME,
+            result: { text: `⚠️ Tarea "${params.task_id}" no pasó review después de ${iteration} iteraciones.\nScore: ${score}\nIssues: ${issues.map(i => i.issue).join(", ")}\nNecesita intervención humana.` },
+            whatsapp_number: null,
+          }),
+        }).catch(() => {});
+        console.log(`[event-loop] Review FAILED after ${iteration} iterations, escalating`);
+      } else {
+        // Not passed, more iterations allowed → send back to author
+        await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
+          status: "in_progress", review_score: score, review_iteration: iteration,
+          context_summary: `Review #${iteration} (score ${score}, NO APROBADO):\nIssues: ${issues.map(i => i.issue).join("; ")}\nSuggestions: ${suggestions.map(s => s.suggestion).join("; ")}\nCorrige estos issues y haz request_review de nuevo.`,
+          updated_at: new Date().toISOString(),
+        });
+        console.log(`[event-loop] Review NOT PASSED (iter ${iteration}/${maxIter}), sent back for revision`);
+      }
+
+      logActivity("event_loop_action", "submit_review", `Review for ${params.task_id}: score=${score}, passed=${passed}, issues=${issues.length}`);
+      return passed ? "approved" : "revision_needed";
     }
 
     case "send_message": {

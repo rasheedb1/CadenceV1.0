@@ -749,6 +749,11 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     { name: "standup_equipo", description: "Genera un resumen ejecutivo del equipo: tareas completadas, en progreso, bloqueadas, y check-ins pendientes. Formato WhatsApp-friendly. Usa cuando: 'standup', 'resumen', '¿qué hicieron hoy?'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "cambiar_config_agente", description: "Cambia la configuración de un agente: modelo LLM, temperatura, equipo, tier, capabilities. Usa cuando: 'cambia a Sofi a Opus', 'pon a Juanse en el equipo de ventas', 'hazlo team lead'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_name: { type: "string", description: "Nombre del agente" }, updates: { type: "object", properties: { model: { type: "string", description: "claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001" }, temperature: { type: "number" }, team: { type: "string" }, tier: { type: "string", enum: ["worker", "team_lead", "manager"] }, capabilities: { type: "array", items: { type: "string" } } } } }, required: ["org_id", "agent_name", "updates"] } },
     { name: "pausar_reactivar_proyecto", description: "Pausa o reactiva un proyecto existente. Usa cuando: 'continuar proyecto', 'pausa el proyecto X', 'reactiva'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, project_id: { type: "string" }, action: { type: "string", enum: ["pause", "activate"] } }, required: ["org_id", "project_id", "action"] } },
+    // --- Memory tools ---
+    { name: "ver_artefactos", description: "Ve los artefactos (outputs de trabajo) producidos por los agentes. Filtra por agente, tarea, o proyecto. Usa cuando: 'qué produjo Sofi?', 'muéstrame los entregables', 'resultado de la tarea X'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_name: { type: "string" }, task_id: { type: "string" }, limit: { type: "number" } }, required: ["org_id"] } },
+    { name: "ver_conocimiento", description: "Ve el conocimiento acumulado (facts, lessons, decisions) del equipo o de un agente específico. Usa cuando: 'qué ha aprendido Sofi?', 'lecciones del equipo', 'qué saben sobre X'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_name: { type: "string" }, category: { type: "string", enum: ["fact", "preference", "strategy", "lesson", "decision"] } }, required: ["org_id"] } },
+    { name: "ver_reviews", description: "Ve el historial de reviews de una tarea. Muestra scores, issues y sugerencias de cada iteración. Usa cuando: 'cómo va el review?', 'qué feedback dieron?', 'historial de revisiones'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, task_id: { type: "string" } }, required: ["org_id", "task_id"] } },
+    { name: "ensenar_agente", description: "Inyecta un hecho, lección o decisión en la memoria del equipo o de un agente específico. Usa cuando el usuario dice algo que los agentes deberían recordar siempre: 'recuerda que...', 'los agentes deben saber que...', 'regla del equipo: ...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_name: { type: "string", description: "Nombre del agente (null = conocimiento del equipo)" }, content: { type: "string", description: "El hecho o lección" }, category: { type: "string", enum: ["fact", "preference", "strategy", "lesson", "decision"] }, importance: { type: "number", description: "0.0-1.0, default 0.7" } }, required: ["org_id", "content"] } },
     { name: "analizar_estructura", description: "Analiza la estructura del equipo y sugiere mejoras: si un equipo tiene 4+ workers sin team lead, sugiere crear uno. Si hay agentes sin equipo, sugiere asignarlos. Usa cuando: 'cómo está organizado el equipo?', 'necesitamos más estructura?', 'analiza la jerarquía'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "configurar_standup", description: "Configura el standup diario automático: timezone, hora, y si está activado. Usa cuando: 'estoy en México', 'mándame el standup a las 8am', 'cambia mi zona horaria', 'desactiva el standup'. Timezones comunes: America/Mexico_City, America/Bogota, America/Buenos_Aires, America/Santiago, America/Lima, Europe/Madrid, US/Eastern, US/Pacific.", input_schema: { type: "object", properties: { whatsapp_number: { type: "string", description: "Número WhatsApp del usuario (sessionKey)" }, timezone: { type: "string", description: "IANA timezone (ej: America/Mexico_City, America/Bogota)" }, standup_hour: { type: "number", description: "Hora local para el standup (0-23, default 9)" }, standup_enabled: { type: "boolean", description: "Activar/desactivar standup diario" } }, required: ["whatsapp_number"] } },
   ];
@@ -1941,6 +1946,70 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
             body: JSON.stringify({ status: newStatus, updated_at: new Date().toISOString() }),
           });
           return { success: true, project_id: args.project_id, status: newStatus, message: `Proyecto ${newStatus === 'paused' ? 'pausado' : 'reactivado'}.` };
+        }
+
+        // --- Memory tool implementations ---
+        case "ver_artefactos": {
+          let query = `${SB_URL}/rest/v1/agent_artifacts?org_id=eq.${args.org_id}&order=created_at.desc&limit=${args.limit || 10}&select=id,task_id,filename,version,artifact_type,content_summary,created_by,created_at`;
+          if (args.task_id) query += `&task_id=eq.${args.task_id}`;
+          if (args.agent_name) {
+            const ag = await sbFetch(`${SB_URL}/rest/v1/agents?org_id=eq.${args.org_id}&name=ilike.*${args.agent_name}*&limit=1&select=id`, { headers: sbHeaders() });
+            if (Array.isArray(ag) && ag[0]) query += `&created_by=eq.${ag[0].id}`;
+          }
+          const artifacts = await sbFetch(query, { headers: sbHeaders() });
+          // Enrich with agent names
+          const agentMap = {};
+          const allAgents = await sbFetch(`${SB_URL}/rest/v1/agents?org_id=eq.${args.org_id}&select=id,name`, { headers: sbHeaders() });
+          if (Array.isArray(allAgents)) allAgents.forEach(a => { agentMap[a.id] = a.name; });
+          const enriched = (Array.isArray(artifacts) ? artifacts : []).map(a => ({
+            ...a, agent_name: agentMap[a.created_by] || "Unknown",
+          }));
+          return { success: true, artifacts: enriched, total: enriched.length };
+        }
+
+        case "ver_conocimiento": {
+          let query = `${SB_URL}/rest/v1/agent_knowledge?org_id=eq.${args.org_id}&valid_until=is.null&order=importance.desc&limit=20&select=id,agent_id,content,category,importance,source_type,created_at`;
+          if (args.category) query += `&category=eq.${args.category}`;
+          if (args.agent_name) {
+            const ag = await sbFetch(`${SB_URL}/rest/v1/agents?org_id=eq.${args.org_id}&name=ilike.*${args.agent_name}*&limit=1&select=id`, { headers: sbHeaders() });
+            if (Array.isArray(ag) && ag[0]) query += `&agent_id=eq.${ag[0].id}`;
+          }
+          const knowledge = await sbFetch(query, { headers: sbHeaders() });
+          const agentMap2 = {};
+          const allAg = await sbFetch(`${SB_URL}/rest/v1/agents?org_id=eq.${args.org_id}&select=id,name`, { headers: sbHeaders() });
+          if (Array.isArray(allAg)) allAg.forEach(a => { agentMap2[a.id] = a.name; });
+          const enriched2 = (Array.isArray(knowledge) ? knowledge : []).map(k => ({
+            ...k, agent_name: k.agent_id ? (agentMap2[k.agent_id] || "Agent") : "Equipo",
+          }));
+          return { success: true, knowledge: enriched2, total: enriched2.length };
+        }
+
+        case "ver_reviews": {
+          const reviews = await sbFetch(`${SB_URL}/rest/v1/agent_reviews?task_id=eq.${args.task_id}&order=iteration.asc&select=*`, { headers: sbHeaders() });
+          const agentMap3 = {};
+          const allAg3 = await sbFetch(`${SB_URL}/rest/v1/agents?org_id=eq.${args.org_id}&select=id,name`, { headers: sbHeaders() });
+          if (Array.isArray(allAg3)) allAg3.forEach(a => { agentMap3[a.id] = a.name; });
+          const enriched3 = (Array.isArray(reviews) ? reviews : []).map(r => ({
+            ...r, reviewer_name: agentMap3[r.reviewer_agent_id] || "Unknown",
+          }));
+          return { success: true, reviews: enriched3, total: enriched3.length };
+        }
+
+        case "ensenar_agente": {
+          let agentId = null;
+          if (args.agent_name) {
+            const ag = await sbFetch(`${SB_URL}/rest/v1/agents?org_id=eq.${args.org_id}&name=ilike.*${args.agent_name}*&limit=1&select=id,name`, { headers: sbHeaders() });
+            if (Array.isArray(ag) && ag[0]) agentId = ag[0].id;
+          }
+          await sbFetch(`${SB_URL}/rest/v1/agent_knowledge`, {
+            method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+            body: JSON.stringify({
+              org_id: args.org_id, agent_id: agentId, scope: "/",
+              category: args.category || "fact", content: args.content,
+              importance: args.importance || 0.7, source_type: "user_input",
+            }),
+          });
+          return { success: true, message: `Conocimiento guardado${agentId ? ` para ${args.agent_name}` : " para todo el equipo"}: "${args.content}"` };
         }
 
         case "analizar_estructura": {

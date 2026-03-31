@@ -83,31 +83,49 @@ async function logToAgentMessages(fromAgentId, toAgentId, role, content, metadat
 const fs = require("fs");
 const { execFile } = require("child_process");
 
-// Load recent conversation history from agent_messages for context
+// Load recent conversation history + shared context from agent_messages and artifacts
 async function loadConversationHistory(fromAgentId, limit = 10) {
   if (!SB_URL || !SB_KEY || !fromAgentId) return "";
+  const headers = { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY };
   try {
-    // Get recent messages between this agent and the sender
+    // 1. Recent messages between this agent and the sender
     const params = new URLSearchParams({
       or: `(and(from_agent_id.eq.${fromAgentId},to_agent_id.eq.${AGENT_ID}),and(from_agent_id.eq.${AGENT_ID},to_agent_id.eq.${fromAgentId}))`,
       order: "created_at.desc",
       limit: String(limit),
-      select: "from_agent_id,role,content,created_at",
+      select: "from_agent_id,role,content,metadata,created_at",
     });
-    const res = await fetch(`${SB_URL}/rest/v1/agent_messages?${params}`, {
-      headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
-    });
+    const res = await fetch(`${SB_URL}/rest/v1/agent_messages?${params}`, { headers });
     if (!res.ok) return "";
     const msgs = await res.json();
-    if (!Array.isArray(msgs) || msgs.length === 0) return "";
+
+    // 2. Recent shared artifacts from the other agent (for context)
+    let artifactContext = "";
+    try {
+      const artRes = await fetch(`${SB_URL}/rest/v1/agent_artifacts?created_by=eq.${fromAgentId}&order=created_at.desc&limit=3&select=filename,version,artifact_type,content_summary`, { headers });
+      if (artRes.ok) {
+        const arts = await artRes.json();
+        if (Array.isArray(arts) && arts.length > 0) {
+          artifactContext = "\n--- Artefactos recientes del otro agente ---\n" +
+            arts.map(a => `[${a.artifact_type}] ${a.filename} v${a.version}: ${(a.content_summary || "").substring(0, 200)}`).join("\n") +
+            "\n--- Fin artefactos ---\n";
+        }
+      }
+    } catch {}
+
+    if ((!Array.isArray(msgs) || msgs.length === 0) && !artifactContext) return "";
 
     // Build context string (oldest first)
-    const history = msgs.reverse().map(m => {
+    const history = (Array.isArray(msgs) ? msgs : []).reverse().map(m => {
       const who = m.from_agent_id === AGENT_ID ? "Tú" : "Otro agente";
-      return `[${who}]: ${m.content?.substring(0, 300)}`;
+      return `[${who}]: ${m.content?.substring(0, 400)}`;
     }).join("\n");
 
-    return `\n\n--- Historial reciente de esta conversación ---\n${history}\n--- Fin del historial ---\n\nContinúa la conversación considerando el contexto anterior.\n\n`;
+    let ctx = "";
+    if (history) ctx += `\n\n--- Historial reciente de esta conversación ---\n${history}\n--- Fin del historial ---\n`;
+    if (artifactContext) ctx += artifactContext;
+    if (ctx) ctx += "\nContinúa la conversación considerando el contexto anterior.\n\n";
+    return ctx;
   } catch { return ""; }
 }
 
