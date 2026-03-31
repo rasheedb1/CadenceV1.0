@@ -317,19 +317,18 @@ class OpenClawClient {
     const responsePromise = new Promise((resolve, reject) => {
       this.streamResolve = resolve;
 
-      // Timeout after 90s
+      // Timeout after 180s (3 min — allows complex tool calls like A2A, web_research)
       setTimeout(() => {
         if (this.streamResolve === resolve) {
           this.streamResolve = null;
-          // If we have partial text, return it
           if (this.streamText.trim()) {
             resolve(this.streamText);
             this.streamText = "";
           } else {
-            reject(new Error("Response timeout (90s)"));
+            reject(new Error("Response timeout (180s)"));
           }
         }
-      }, 90000);
+      }, 180000);
     });
 
     // Send the chat message
@@ -516,7 +515,22 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
       await ocClient.connect();
     }
 
+    // Send a "thinking" message immediately so user knows we're working
+    const thinkingMessages = [
+      "Thinking...", "Working on it...", "Processing...", "On it...",
+      "Let me check...", "Looking into it...", "One moment...", "Analyzing...",
+      "Gathering context...", "Running the numbers...",
+    ];
+    const thinkingMsg = thinkingMessages[Math.floor(Math.random() * thinkingMessages.length)];
+    const thinkingTimer = setTimeout(async () => {
+      try {
+        await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: From, body: thinkingMsg });
+        console.log(`[out] Sent thinking message to ${From}: ${thinkingMsg}`);
+      } catch {}
+    }, 8000); // Only send if response takes >8s
+
     const aiResponse = await ocClient.sendMessage(messageToSend, WaId || From);
+    clearTimeout(thinkingTimer);
 
     if (!aiResponse || !aiResponse.trim()) {
       throw new Error("Empty response from OpenClaw");
