@@ -662,45 +662,38 @@ if (!ANTHROPIC_API_KEY || !SB_KEY) {
   }
   if (!SYSTEM_PROMPT) {
     console.log("[gateway] Workspace files not found — using embedded system prompt");
-    SYSTEM_PROMPT = `# Chief — by Laiky AI
+    SYSTEM_PROMPT = `# Chief — AI Workforce Platform
 
-## Identidad
-Eres **Chief**, el asistente de automatización de ventas de Laiky AI.
+## Identity
+You are **Chief**, the AI workforce orchestrator by Laiky AI. You manage teams of AI agents that work like real employees.
 
-## Idioma
-Español es tu idioma principal. Si el usuario escribe en inglés, responde en inglés.
+## Language
+- Match the user's language. If they write in English, respond in English. If Spanish, respond in Spanish.
 
-## Capacidades
-Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
-1. Buscar prospectos (Sales Navigator)
-2. Crear cadencias de outreach
-3. Descubrir empresas (ICP)
-4. Investigar empresas
-5. Enriquecer prospectos (email, teléfono)
-6. Ver actividad (mensajes, respuestas, errores)
-7. Enviar mensajes LinkedIn (DM, InMail, conexión)
-8. Enviar emails (Gmail)
-9. Generar business cases
-10. Ver métricas de cadencias
-11. Gestionar leads (CRUD + asignar a cadencias)
-12. Gestionar AI Prompts (ver, crear, editar, eliminar)
-13. Gestionar Templates (ver, crear, editar, eliminar)
-14. Gestionar Buyer Personas (ver, crear, editar, eliminar)
-15. Gestionar Perfiles ICP (ver, crear, editar, eliminar)
-16. Ver notificaciones (respuestas, errores, emails abiertos)
-17. Ver detalle de cadencia (pasos, leads, estado)
-18. Ver conexiones (LinkedIn, Gmail conectadas)
-19. Ver programación (acciones programadas)
-20. Capturar pantalla del dashboard (SOLO cuando el usuario lo pide)
+## Core capabilities
+You manage AI agent teams + the Chief Outreach sales platform.
+- Create and manage AI agents (with smart defaults — infer everything from role)
+- Create projects with phases that auto-decompose into tasks
+- Agents auto-claim tasks based on capabilities
+- Monitor team status, performance, artifacts, reviews
+- Run sales outreach (cadences, leads, LinkedIn, email)
 
-## Reglas
-- Siempre necesitas org_id y saber quién es el usuario.
-- Si ya tienes contexto guardado, úsalo directamente — no preguntes nada.
-- Si es usuario nuevo, pide org_id y email, verifica con OTP.
-- Confirma antes de enviar mensajes o crear cadencias.
-- Respuestas cortas para WhatsApp, usa emojis para estado.
-- Solo toma screenshots cuando el usuario lo pide explícitamente.
-- Nunca expongas tokens o IDs internos.`;
+## Onboarding rules (CRITICAL)
+1. NEVER ask for information you can infer. If user says "create a QA agent called Oscar", create it immediately with smart defaults (team, tier, caps inferred from role).
+2. ALWAYS show what you inferred after creating: "Created Oscar: QA worker, team product, reports to [lead], caps: research, outreach"
+3. ONE question at a time max. Never present a form with 5+ fields.
+4. VALUE FIRST: Create/execute first, let user adjust after. Don't ask "are you sure?" for reversible actions.
+5. When creating agents: auto-assign to existing team lead if one exists. Don't ask about hierarchy.
+6. When creating projects: auto-decompose into tasks and start immediately. Send plan summary but DON'T wait for approval.
+7. Keep WhatsApp responses SHORT. Use emojis for status. Max 3 paragraphs.
+
+## Rules
+- Always need org_id and know who the user is.
+- If context is saved, use it directly — don't re-ask.
+- New users: ask org_id and email, verify with OTP.
+- Confirm before sending external messages (LinkedIn, email) or spending money.
+- Take screenshots only when explicitly asked.
+- Never expose tokens or internal IDs.`;
   }
 
   const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
@@ -761,7 +754,7 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     { name: "crear_evento_calendario", description: "Crea un evento en Google Calendar y envía invitaciones por email a los asistentes. Genera Google Meet automáticamente si hay invitados. CONFIRMAR con el usuario antes de crear.", input_schema: { type: "object", properties: { user_id: { type: "string" }, org_id: { type: "string" }, title: { type: "string", description: "Título del evento" }, start_datetime: { type: "string", description: "ISO 8601 (ej: 2025-03-28T10:00:00)" }, end_datetime: { type: "string", description: "ISO 8601 (ej: 2025-03-28T11:00:00)" }, timezone: { type: "string", description: "IANA timezone (default: America/Mexico_City)" }, description: { type: "string", description: "Descripción o agenda del evento" }, location: { type: "string" }, attendees: { type: "array", items: { type: "object", properties: { email: { type: "string" }, name: { type: "string" } }, required: ["email"] }, description: "Lista de invitados. Recibirán invitación por email." } }, required: ["user_id", "org_id", "title", "start_datetime", "end_datetime"] } },
     { name: "sincronizar_calendario", description: "Sincroniza el calendario del usuario con Google Calendar. Útil si no ve reuniones recientes o quiere refrescar datos.", input_schema: { type: "object", properties: { user_id: { type: "string" }, org_id: { type: "string" } }, required: ["user_id", "org_id"] } },
     // --- Agent Platform tools ---
-    { name: "gestionar_agentes", description: "Crea, lista o elimina agentes AI de la organización. Cada agente tiene un rol (CPO, Developer, CFO, HR, etc.) y habilidades específicas. Confirma detalles antes de crear.", input_schema: { type: "object", properties: { org_id: { type: "string" }, operation: { type: "string", enum: ["create", "list", "get", "delete"] }, name: { type: "string", description: "Nombre del agente (ej: 'CPO Agent')" }, role: { type: "string", description: "Rol del agente (ej: 'cpo', 'developer', 'cfo', 'hr', 'marketing', 'custom')" }, description: { type: "string", description: "Descripción de qué hace este agente" }, skills: { type: "array", items: { type: "string" }, description: "Lista de skills del skill_registry" }, agent_id: { type: "string", description: "ID del agente (para get/delete)" } }, required: ["org_id", "operation"] } },
+    { name: "gestionar_agentes", description: "Creates, lists, or deletes AI agents. When creating: infer team, tier, capabilities, and parent from the role — DON'T ask the user for these fields. Just create with smart defaults and show what was inferred. The user can adjust after. Roles: sales, ux_designer, developer, cto, cpo, qa, cfo, hr, marketing, custom.", input_schema: { type: "object", properties: { org_id: { type: "string" }, operation: { type: "string", enum: ["create", "list", "get", "delete"] }, name: { type: "string", description: "Agent name" }, role: { type: "string", description: "Role: sales, ux_designer, developer, cto, cpo, qa, cfo, hr, marketing, custom" }, description: { type: "string", description: "What this agent does" }, skills: { type: "array", items: { type: "string" } }, agent_id: { type: "string", description: "Agent ID (for get/delete)" }, model: { type: "string", description: "LLM model (default: claude-sonnet-4-6)" }, tier: { type: "string", description: "worker/team_lead/manager (auto-inferred from role)" }, team: { type: "string", description: "Team name (auto-inferred from role)" }, capabilities: { type: "array", items: { type: "string" }, description: "Capabilities (auto-inferred from role)" }, parent_agent_id: { type: "string", description: "Parent agent UUID (auto-inferred from team lead)" } }, required: ["org_id", "operation"] } },
     { name: "delegar_tarea", description: "Delega una tarea a un agente hijo. Si el agente está desplegado, la envía directamente. Si no, la guarda como pendiente. Usa cuando el usuario dice 'dile a X que haga Y', 'pídele a X que...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente destino" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id, búsqueda por nombre)" }, instruction: { type: "string", description: "La tarea en lenguaje natural" } }, required: ["org_id", "instruction"] } },
     { name: "consultar_agente", description: "Pregunta rápida a un agente sin crear tarea formal. Ideal para '¿qué opina X?', 'pregúntale a X...', 'consulta con el CFO...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id)" }, message: { type: "string", description: "La pregunta o mensaje" } }, required: ["org_id", "message"] } },
     { name: "desplegar_agente", description: "Despliega un agente en Railway como servicio independiente. Crea el servidor, configura variables de entorno, y activa el agente. Usa cuando el usuario quiere que un agente esté operativo: 'despliega al CPO', 'activa a Nando', 'pon a funcionar al agente'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente a desplegar" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id)" } }, required: ["org_id"] } },
@@ -1167,29 +1160,88 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
         case "gestionar_agentes": {
           const op = args.operation;
           if (op === "create") {
+            // --- Smart defaults: infer from role ---
+            const ROLE_DEFAULTS = {
+              sales:        { caps: ["outreach", "research", "writing"], team: "sales", tier: "worker" },
+              ux_designer:  { caps: ["design", "research", "writing"], team: "product", tier: "worker" },
+              developer:    { caps: ["code", "ops", "data"], team: "product", tier: "worker" },
+              cto:          { caps: ["code", "ops", "data", "strategy"], team: "product", tier: "team_lead" },
+              cpo:          { caps: ["strategy", "research", "design"], team: "product", tier: "team_lead" },
+              qa:           { caps: ["research", "outreach"], team: "product", tier: "worker" },
+              cfo:          { caps: ["data", "strategy"], team: "ops", tier: "worker" },
+              hr:           { caps: ["writing", "outreach"], team: "ops", tier: "worker" },
+              marketing:    { caps: ["writing", "research", "outreach"], team: "marketing", tier: "worker" },
+              custom:       { caps: [], team: null, tier: "worker" },
+            };
+            const roleKey = args.role || "custom";
+            const defaults = ROLE_DEFAULTS[roleKey] || ROLE_DEFAULTS.custom;
+
+            // Infer team lead as parent if one exists
+            let parentAgentId = args.parent_agent_id || null;
+            if (!parentAgentId && defaults.team) {
+              const leadRows = await sbFetch(`${base}/rest/v1/agents?org_id=eq.${args.org_id}&team=eq.${defaults.team}&tier=in.(team_lead,manager)&status=neq.destroyed&select=id,name&limit=1`, { headers: sbHeaders() });
+              if (Array.isArray(leadRows) && leadRows[0]) {
+                parentAgentId = leadRows[0].id;
+              }
+            }
+
             const soulMd = args.soul_md || `# ${args.name || "Agent"}
 
-## Identidad
-Eres **${args.name || "Agent"}**, un agente AI con el rol de **${args.role || "custom"}** dentro de la organización.
+## Identity
+You are **${args.name || "Agent"}**, an AI agent with the role of **${args.role || "custom"}** in the organization.
 ${args.description ? `\n${args.description}\n` : ""}
 
-## Idioma
-- Español es tu idioma principal. Si el usuario escribe en inglés, responde en inglés.
+## Language
+- English is your primary language.
 
-## Personalidad
-- Profesional y directo.
-- Eficiente — vas al grano.
-- Proactivo — sugieres siguientes pasos.
+## Personality
+- Professional and direct.
+- Efficient — get to the point.
+- Proactive — suggest next steps.
 
-## Reglas
-- Sé directo, eficiente y profesional.
-- Reporta resultados de forma concisa.
-- Siempre necesitas org_id para operaciones con datos.
-- Nunca expongas tokens, keys o IDs internos al usuario.`;
-            return await sbFetch(`${base}/functions/v1/manage-agent`, {
+## Rules
+- Be direct, efficient, and professional.
+- Report results concisely.
+- You need org_id for data operations.
+- Never expose tokens, keys, or internal IDs.`;
+
+            const createBody = {
+              org_id: args.org_id,
+              name: args.name,
+              role: args.role,
+              description: args.description,
+              soul_md: soulMd,
+              skills: args.skills || [],
+              // v2 workforce fields with smart defaults
+              model: args.model || "claude-sonnet-4-6",
+              model_provider: "anthropic",
+              tier: args.tier || defaults.tier,
+              team: args.team || defaults.team,
+              capabilities: args.capabilities || defaults.caps,
+              parent_agent_id: parentAgentId,
+            };
+
+            const result = await sbFetch(`${base}/functions/v1/manage-agent`, {
               method: "POST", headers: sbHeaders(true),
-              body: JSON.stringify({ org_id: args.org_id, name: args.name, role: args.role, description: args.description, soul_md: soulMd, skills: args.skills || [] }),
+              body: JSON.stringify(createBody),
             });
+
+            // Enrich response with what was inferred
+            if (result?.agent || result?.success) {
+              const agent = result.agent || result;
+              return {
+                ...result,
+                inferred_config: {
+                  team: createBody.team,
+                  tier: createBody.tier,
+                  capabilities: createBody.capabilities,
+                  parent: parentAgentId ? "auto-assigned to team lead" : "reports to Chief",
+                  model: createBody.model,
+                },
+                message: `Agent "${args.name}" created as ${createBody.tier} in team "${createBody.team || 'none'}". Capabilities: ${createBody.capabilities.join(", ")}. ${parentAgentId ? "Auto-assigned to team lead." : "Reports directly to Chief."} Reply to adjust any settings.`,
+              };
+            }
+            return result;
           }
           if (op === "list") {
             return await sbFetch(`${base}/functions/v1/manage-agent?org_id=${encodeURIComponent(args.org_id)}`, {
