@@ -465,6 +465,18 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
   res.type("text/xml").send(twiml.toString());
 
   try {
+    // --- Check message length (WhatsApp limit is 4096, but with context injection it grows) ---
+    const WA_CHAR_LIMIT = 4096;
+    if (Body.length > WA_CHAR_LIMIT) {
+      console.warn(`[in] Message too long: ${Body.length} chars (limit ${WA_CHAR_LIMIT})`);
+      await twilioClient.messages.create({
+        from: TWILIO_WHATSAPP_NUMBER,
+        to: From,
+        body: `⚠️ Your message is too long (${Body.length} chars, max ${WA_CHAR_LIMIT}).\n\nTip: Split it into 2-3 shorter messages, or send the first part now and I'll ask for more details.\n\nAlternatively, use the dashboard to configure complex projects.`,
+      });
+      return;
+    }
+
     // --- Inject team context before sending to Chief ---
     let messageToSend = Body;
     if (SB_KEY) {
@@ -578,10 +590,14 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
   } catch (err) {
     console.error(`[error] ${From}:`, err.message);
     try {
+      const isTimeout = err.message?.includes("timeout") || err.message?.includes("Timeout");
+      const errorMsg = isTimeout
+        ? `⏱️ Response timed out — the request was too complex for a single message.\n\nTry:\n• Splitting into smaller requests\n• Being more specific\n• Using "assign task to [agent]" for long operations`
+        : `⚠️ Something went wrong processing your message.\n\nError: ${(err.message || "Unknown").substring(0, 100)}\n\nTry again in a moment.`;
       await twilioClient.messages.create({
         from: TWILIO_WHATSAPP_NUMBER,
         to: From,
-        body: "⚠️ Lo siento, hubo un error procesando tu mensaje. Intenta de nuevo en unos momentos.",
+        body: errorMsg,
       });
     } catch (sendErr) {
       console.error("[error] Failed to send error msg:", sendErr.message);
