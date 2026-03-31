@@ -1407,7 +1407,7 @@ ${args.description ? `\n${args.description}\n` : ""}
             return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
           };
 
-          // === COLLABORATION MODE ===
+          // === COLLABORATION MODE (v2: generates tasks, no A2A sync) ===
           if (workflow_type === "collaboration") {
             if (!agent_names || agent_names.length < 2) return { success: false, error: "Se necesitan al menos 2 agentes para colaboración." };
 
@@ -1419,31 +1419,76 @@ ${args.description ? `\n${args.description}\n` : ""}
               resolvedAgents.push(agent);
             }
 
+            // Create project
             const projRows = await sbFetch(`${base}/rest/v1/agent_projects`, {
               method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" },
               body: JSON.stringify({
                 org_id, name: projName, description: projDesc || null, status: "active",
                 workflow_type: "collaboration",
                 assigned_agents: resolvedAgents.map(a => a.id),
-                max_iterations: max_iterations || 20,
-                checkpoint_every: checkpoint_every || 3,
+                max_iterations: max_iterations || 100,
+                checkpoint_every: checkpoint_every || 10,
                 current_iteration: 0,
                 success_criteria: success_criteria || null,
-                project_memory: `# Proyecto: ${projName}\n## Criterios de éxito: ${success_criteria || "Definidos por los agentes"}\n## Descripción: ${projDesc || projName}\n\n### Inicio del proyecto\nAgentes asignados: ${resolvedAgents.map(a => a.name).join(", ")}\n`,
               }),
             });
             const project = Array.isArray(projRows) ? projRows[0] : projRows;
             if (!project?.id) return { success: false, error: "No se pudo crear el proyecto." };
 
-            console.log(`[project] Created collaboration "${projName}" with ${resolvedAgents.length} agents, max ${max_iterations || 20} iterations`);
+            // Auto-generate phases if not provided
+            const collabPhases = phases && phases.length > 0 ? phases : [
+              { name: "Fase 1 — Ejecución principal", description: projDesc || projName, agent_name: agent_names[0], reviewer_name: agent_names[1] || agent_names[0] },
+            ];
+
+            // Create phases + set first as in_progress
+            const phaseRows = [];
+            for (let i = 0; i < collabPhases.length; i++) {
+              const ph = collabPhases[i];
+              const agent = await resolveAgentId(ph.agent_name);
+              let reviewerId = null;
+              if (ph.reviewer_name) {
+                const reviewer = await resolveAgentId(ph.reviewer_name);
+                if (reviewer) reviewerId = reviewer.id;
+              }
+              phaseRows.push({
+                project_id: project.id, phase_number: i + 1, name: ph.name,
+                description: ph.description || ph.name, agent_id: agent?.id || resolvedAgents[0].id,
+                reviewer_agent_id: reviewerId, status: i === 0 ? "in_progress" : "pending",
+              });
+            }
+
+            const phaseRes = await sbFetch(`${base}/rest/v1/agent_project_phases`, {
+              method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" },
+              body: JSON.stringify(phaseRows),
+            });
+            const createdPhases = Array.isArray(phaseRes) ? phaseRes : [];
+
+            // Auto-decompose Phase 1 into v2 tasks
+            const phase1 = createdPhases.find(p => p.status === "in_progress") || createdPhases[0];
+            let tasksCreated = 0;
+            if (phase1?.id) {
+              try {
+                const ptRes = await fetch(`${base}/functions/v1/phase-transition`, {
+                  method: "POST", headers: sbHeaders(true),
+                  body: JSON.stringify({ project_id: project.id, phase_id: phase1.id }),
+                });
+                const ptData = await ptRes.json();
+                tasksCreated = ptData?.tasks_created || 0;
+              } catch (e) {
+                console.error(`[project] Phase 1 auto-decompose failed:`, e.message);
+              }
+            }
+
+            console.log(`[project] Created collaboration "${projName}" with ${resolvedAgents.length} agents, ${collabPhases.length} phases, ${tasksCreated} v2 tasks`);
             return {
               success: true,
               project_id: project.id,
               name: projName,
               workflow_type: "collaboration",
               agents: resolvedAgents.map(a => a.name),
-              max_iterations: max_iterations || 20,
-              message: `Proyecto colaborativo "${projName}" creado. ${resolvedAgents.map(a => a.name).join(" y ")} van a iterar automáticamente. Te notifico cada ${checkpoint_every || 3} iteraciones.`,
+              phases: collabPhases.length,
+              tasks_created: tasksCreated,
+              message: `Proyecto "${projName}" creado con ${collabPhases.length} fase(s) y ${tasksCreated} tareas auto-generadas. Los agentes las reclamarán automáticamente. Fase completada → siguiente fase auto-arranca.`,
             };
           }
 
@@ -1520,101 +1565,40 @@ ${args.description ? `\n${args.description}\n` : ""}
         }
 
         case "colaborar_agentes": {
-          const { org_id, producer_name, reviewer_name, task, max_iterations } = args;
-          const maxIter = max_iterations || 3;
+          // v2: Creates produce + review tasks in agent_tasks_v2
+          // Event loop handles execution, artifacts, reviews automatically
+          const { org_id, producer_name, reviewer_name, task: collabTask, max_iterations: collabMax } = args;
 
-          // Resolve both agents
           const resolveAgent = async (name) => {
-            const p = new URLSearchParams({ org_id: `eq.${org_id}`, name: `ilike.%${name}%`, status: "eq.active", select: "id,name,role,railway_url", limit: "1" });
+            const p = new URLSearchParams({ org_id: `eq.${org_id}`, name: `ilike.%${name}%`, status: "neq.destroyed", select: "id,name,role,capabilities", limit: "1" });
             const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
             return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
           };
 
           const producer = await resolveAgent(producer_name);
           const reviewer = await resolveAgent(reviewer_name);
-          if (!producer) return { success: false, error: `Agente ${producer_name} no encontrado o no activo.` };
-          if (!reviewer) return { success: false, error: `Agente ${reviewer_name} no encontrado o no activo.` };
-          if (!producer.railway_url || !reviewer.railway_url) return { success: false, error: "Ambos agentes deben estar desplegados." };
+          if (!producer) return { success: false, error: `Agente ${producer_name} no encontrado.` };
+          if (!reviewer) return { success: false, error: `Agente ${reviewer_name} no encontrado.` };
 
-          // Run collaboration in background — return immediately
-          (async () => {
-            // Call agent with retry + fallback to /api/review for faster responses
-            const callAgent = async (agent, message, isReview = false) => {
-              const endpoint = isReview ? "/api/review" : "/api/chat";
-              for (let attempt = 0; attempt < 2; attempt++) {
-                const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), isReview ? 60000 : 300000);
-                try {
-                  const res = await fetch(`${agent.railway_url}${endpoint}`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}` },
-                    body: JSON.stringify({ message, context: { org_id, collaboration: true }, sync: true }),
-                    signal: controller.signal,
-                  });
-                  clearTimeout(timeout);
-                  if (!res.ok) {
-                    const errText = await res.text();
-                    console.error(`[collab] ${agent.name} ${endpoint} error ${res.status}: ${errText.substring(0, 200)}`);
-                    if (attempt === 0) { console.log(`[collab] Retrying ${agent.name}...`); continue; }
-                    return `[${agent.name} no pudo responder (${res.status})]`;
-                  }
-                  const data = await res.json();
-                  return data.reply || data.result || JSON.stringify(data);
-                } catch (err) {
-                  clearTimeout(timeout);
-                  console.error(`[collab] ${agent.name} attempt ${attempt + 1} failed:`, err.message);
-                  if (attempt === 0) { console.log(`[collab] Retrying ${agent.name}...`); continue; }
-                  return `[Error contactando a ${agent.name} después de 2 intentos: ${err.message}]`;
-                }
-              }
-              return `[${agent.name} no respondió]`;
-            };
-
-            let currentWork = "";
-            const iterations = [];
-
-            for (let i = 0; i < maxIter; i++) {
-              const producerPrompt = i === 0
-                ? `Tarea: ${task}\n\nProduce tu mejor trabajo para esta tarea.`
-                : `Tarea original: ${task}\n\nTu trabajo anterior:\n${currentWork}\n\nFeedback de ${reviewer.name} (${reviewer.role}):\n${iterations[iterations.length - 1]?.feedback}\n\nItera y mejora tu trabajo basándote en el feedback.`;
-
-              currentWork = await callAgent(producer, producerPrompt);
-              console.log(`[collab] Iter ${i + 1}: ${producer.name} produced ${currentWork.length} chars`);
-
-              // Use /api/review for reviewer (faster, Claude API direct, no CLI)
-              const reviewPrompt = `Revisa este trabajo de ${producer.name} (${producer.role}):\n\nTarea: ${task}\n\nTrabajo:\n${currentWork.substring(0, 3000)}\n\n${i < maxIter - 1 ? 'Da feedback constructivo y específico. Si el trabajo es satisfactorio, responde EXACTAMENTE "APROBADO" al inicio.' : 'Esta es la última iteración. Da tu feedback final.'}`;
-
-              const feedback = await callAgent(reviewer, reviewPrompt, true);
-              console.log(`[collab] Iter ${i + 1}: ${reviewer.name} reviewed (${feedback.length} chars)`);
-
-              iterations.push({ iteration: i + 1, work_summary: currentWork.substring(0, 300), feedback_summary: feedback.substring(0, 300) });
-
-              // Notify user on each iteration
-              const approved = feedback.trim().toUpperCase().startsWith("APROBADO");
-              await notifyUserByOrg(org_id, `🔄 *Colaboración — Iteración ${i + 1}/${maxIter}*\n\n*${producer.name}:*\n${currentWork.substring(0, 800)}\n\n*${reviewer.name}:*\n${feedback.substring(0, 800)}${approved ? "\n\n✅ *APROBADO*" : ""}`);
-
-              await sbFetch(`${base}/rest/v1/agent_messages`, {
-                method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
-                body: JSON.stringify([
-                  { org_id, from_agent_id: producer.id, to_agent_id: reviewer.id, role: "assistant", content: currentWork.substring(0, 2000), metadata: { collaboration: true, iteration: i + 1, type: "work" } },
-                  { org_id, from_agent_id: reviewer.id, to_agent_id: producer.id, role: "assistant", content: feedback.substring(0, 2000), metadata: { collaboration: true, iteration: i + 1, type: "feedback" } },
-                ]),
-              });
-
-              if (feedback.trim().toUpperCase().startsWith("APROBADO")) {
-                console.log(`[collab] Approved at iteration ${i + 1}`);
-                break;
-              }
-            }
-
-            // Final notification
-            const finalApproved = iterations[iterations.length - 1]?.feedback_summary?.trim().toUpperCase().startsWith("APROBADO");
-            await notifyUserByOrg(org_id, `🤝 *Colaboración ${producer.name} ↔ ${reviewer.name} finalizada*\n\n📋 Tarea: ${task.substring(0, 200)}\n🔄 Iteraciones: ${iterations.length}\n${finalApproved ? "✅ Status: Aprobado" : "⏹️ Status: Máximo de iteraciones alcanzado"}`);
-          })();
+          // Create produce task (ready for producer to claim)
+          const produceRes = await sbFetch(`${base}/rest/v1/agent_tasks_v2`, {
+            method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" },
+            body: JSON.stringify({
+              org_id, title: collabTask?.substring(0, 80) || "Tarea colaborativa",
+              description: `${collabTask}\n\nProduce tu mejor trabajo. Cuando termines usa request_review para que ${reviewer.name} lo revise.`,
+              task_type: "general",
+              required_capabilities: producer.capabilities || [],
+              priority: 10, status: "ready",
+              max_review_iterations: collabMax || 3,
+              created_by: "chief",
+            }),
+          });
+          const produceTask = Array.isArray(produceRes) && produceRes[0] ? produceRes[0] : null;
 
           return {
             success: true,
-            message: `Colaboración iniciada entre ${producer.name} y ${reviewer.name}. Van a iterar hasta ${maxIter} veces. Te notifico por WhatsApp cuando terminen.`,
+            task_id: produceTask?.id,
+            message: `Tarea creada para ${producer.name}. Cuando produzca su trabajo, ${reviewer.name} lo revisará automáticamente (max ${collabMax || 3} rondas). Todo via artifacts + reviews — sin timeouts.`,
           };
         }
 
@@ -1873,14 +1857,23 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
         }
 
         case "descomponer_proyecto": {
+          // v2: writes to agent_tasks_v2 (not blackboard)
           const { org_id, project_name, description, agent_roles } = args;
+
+          // Map role_hints to capabilities
+          const roleCapMap = {
+            ux_designer: ["design", "research"], cto: ["code", "ops"],
+            developer: ["code"], sales: ["outreach", "research"],
+            marketing: ["writing", "research"], qa: ["research"],
+          };
+
           const anthropic = new (_AnthSdk.default || _AnthSdk)({ apiKey: process.env.ANTHROPIC_API_KEY });
           const decomposition = await anthropic.messages.create({
-            model: "claude-sonnet-4-6",
+            model: "claude-haiku-4-5-20251001",
             max_tokens: 2000,
             messages: [{
               role: "user",
-              content: `Descompón este proyecto en 5-15 tareas concretas y accionables.\n\nProyecto: ${project_name}\nDescripción: ${description}\nRoles disponibles: ${(agent_roles || ["ux_designer", "cto", "sales"]).join(", ")}\n\nRetorna SOLO un JSON array:\n[\n  {\n    "title": "Nombre corto de la tarea",\n    "description": "Instrucción concreta de qué hacer. Incluir archivos, comandos, o URLs si aplica.",\n    "priority": 10,\n    "role_hint": "ux_designer"\n  },\n  ...\n]\n\nReglas:\n- Cada tarea debe ser completable en 1-5 minutos\n- Ordena por prioridad (10=más alta, 1=más baja)\n- Incluye dependencias implícitas en el orden (las primeras tareas deben hacerse antes)\n- role_hint debe ser uno de los roles disponibles\n- Las instrucciones deben ser específicas: "Revisa archivo X" no "Mejora la UX"\n- Incluir tareas de verificación (build, test, review)`
+              content: `Decompose this project into 5-12 concrete tasks.\n\nProject: ${project_name}\nDescription: ${description}\nRoles: ${(agent_roles || ["ux_designer", "cto", "sales"]).join(", ")}\n\nReturn ONLY a JSON array:\n[{"title":"...","description":"...","priority":10,"task_type":"design","role_hint":"ux_designer","depends_on_index":null}]\n\ntask_type: design|code|research|qa|outreach|writing|general\npriority: 0=urgent, 50=normal, 100=low\ndepends_on_index: index of task that must complete first (or null)`
             }],
           });
           const responseText = decomposition.content[0]?.text || "[]";
@@ -1889,30 +1882,31 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
           let tasks;
           try { tasks = JSON.parse(jsonMatch[0]); }
           catch { return { success: false, error: "JSON inválido en la descomposición" }; }
+
           const created = [];
-          for (const task of tasks) {
-            try {
-              const res = await fetch(`${base}/functions/v1/blackboard`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
-                body: JSON.stringify({
-                  org_id,
-                  entry_type: "task",
-                  title: task.title,
-                  content: { description: task.description, role_hint: task.role_hint, project: project_name },
-                  priority: task.priority || 5,
-                }),
-              });
-              const data = await res.json();
-              if (data.entry) created.push({ title: task.title, priority: task.priority, role: task.role_hint });
-            } catch {}
+          const taskIdMap = {};
+          for (let i = 0; i < tasks.length; i++) {
+            const t = tasks[i];
+            const caps = roleCapMap[t.role_hint] || [];
+            const dependsOn = (t.depends_on_index != null && taskIdMap[t.depends_on_index]) ? [taskIdMap[t.depends_on_index]] : [];
+            const taskStatus = dependsOn.length > 0 ? "backlog" : "ready";
+
+            const res = await sbFetch(`${base}/rest/v1/agent_tasks_v2`, {
+              method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" },
+              body: JSON.stringify({
+                org_id, title: t.title, description: t.description,
+                task_type: t.task_type || "general",
+                required_capabilities: caps, priority: t.priority || 50,
+                depends_on: dependsOn, status: taskStatus, created_by: "chief",
+              }),
+            });
+            const row = Array.isArray(res) && res[0] ? res[0] : null;
+            if (row) { taskIdMap[i] = row.id; created.push({ title: t.title, priority: t.priority, type: t.task_type }); }
           }
           return {
-            success: true,
-            project: project_name,
-            tasks_created: created.length,
-            tasks: created,
-            message: `Proyecto "${project_name}" descompuesto en ${created.length} tareas. Los agentes las reclamarán automáticamente.`,
+            success: true, project: project_name,
+            tasks_created: created.length, tasks: created,
+            message: `Proyecto "${project_name}" descompuesto en ${created.length} tareas v2. Los agentes las reclamarán automáticamente según sus capabilities.`,
           };
         }
 
