@@ -372,6 +372,13 @@ async function act(decision, context) {
     case "claim_task": {
       if (!params.task_id) break;
 
+      // Guard: max 1 task per agent
+      const existingTask = await sbGet(`agent_tasks_v2?assigned_agent_id=eq.${AGENT_ID}&status=in.(claimed,in_progress)&limit=1&select=id`).catch(() => []);
+      if (Array.isArray(existingTask) && existingTask.length > 0) {
+        console.log("[event-loop] Already have an active task, skipping claim");
+        return "already_has_task";
+      }
+
       // ALWAYS use v2 RPC first (atomic, capability-matched)
       const capabilities = state.agentConfig?.capabilities || [];
       const claimed = await sbRpc("claim_task_v2", {
@@ -490,6 +497,8 @@ async function act(decision, context) {
         });
         state.tasksCompletedSinceCheckin++;
       }
+      // Fast next tick to claim new work immediately
+      state.interval = MIN_INTERVAL;
       return "completed";
     }
 
@@ -547,7 +556,7 @@ async function act(decision, context) {
               status: "ready",
               parent_result_summary: `Artifact para revisar: ${resultText.substring(0, 400)}`,
               context_summary: `Esto es una revisión de la tarea "${ti.title}". Evalúa calidad, da score 0-1, lista issues y suggestions. Usa submit_review.`,
-              depends_on: [params.task_id],
+              depends_on: [],  // Reviews must be independently claimable (no deadlock)
               created_by: AGENT_NAME,
             }),
           });
@@ -762,17 +771,10 @@ async function reflect(decision) {
     const idleCount = state.recentTickActions.filter(a => a === "idle").length;
     const ratio = idleCount / IDLE_RATIO_WINDOW;
     if (ratio >= IDLE_RATIO_THRESHOLD) {
-      console.warn(`[event-loop] Idle ratio ${(ratio * 100).toFixed(0)}% over last ${IDLE_RATIO_WINDOW} ticks — stopping to save costs`);
-      fetch(CALLBACK_URL, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agent_name: AGENT_NAME,
-          result: { text: `⏸️ ${AGENT_NAME} stopped — idle ${(ratio * 100).toFixed(0)}% of last ${IDLE_RATIO_WINDOW} ticks. No work available. Will restart when new tasks are created.` },
-          whatsapp_number: null,
-        }),
-      }).catch(() => {});
-      stop();
-      return;
+      console.warn(`[event-loop] Idle ratio ${(ratio * 100).toFixed(0)}% — entering deep sleep (probe every 5min)`);
+      state.interval = 300000; // 5 min deep sleep
+      state.recentTickActions = []; // reset window so it doesn't immediately trigger again
+      // Do NOT call stop() — agent stays alive and probes for new work
     }
   }
 
@@ -959,8 +961,10 @@ async function tick() {
   console.log(`[event-loop] === Tick #${state.iteration} (interval=${Math.round(state.interval / 1000)}s) ===`);
 
   if (state.iteration > state.maxIterations) {
-    console.warn("[event-loop] Max iterations reached, stopping.");
-    stop();
+    console.warn("[event-loop] Max iterations reached — deep sleep (probe every 5min)");
+    state.interval = 300000;
+    state.iteration = 0; // reset so it doesn't immediately hit the limit again
+    reschedule();
     return;
   }
 
@@ -1002,11 +1006,17 @@ async function tick() {
   try {
     context = await sense();
 
-    // --- FAST PATH: if v2 tasks available and nothing assigned, skip LLM and claim directly ---
+    // --- Check if agent already has a task (enforce max 1 at a time) ---
+    const myActiveTasks = await sbGet(
+      `agent_tasks_v2?assigned_agent_id=eq.${AGENT_ID}&status=in.(claimed,in_progress)&limit=1&select=id`
+    ).catch(() => []);
+    const alreadyHasTask = Array.isArray(myActiveTasks) && myActiveTasks.length > 0;
+
+    // --- FAST PATH: only if NO active task and v2 tasks available ---
     const hasMyTasks = context.myTasks && context.myTasks.length > 0;
     const hasAvailableV2 = context.isV2Available;
 
-    if (!hasMyTasks && hasAvailableV2) {
+    if (!alreadyHasTask && !hasMyTasks && hasAvailableV2) {
       console.log("[event-loop] FAST PATH: v2 tasks available, claiming directly (skip THINK)");
       const capabilities = state.agentConfig?.capabilities || [];
       const claimed = await sbRpc("claim_task_v2", {
