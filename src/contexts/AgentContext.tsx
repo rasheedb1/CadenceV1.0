@@ -72,6 +72,48 @@ export interface AgentTaskV2 {
   updated_at: string
 }
 
+export interface AgentArtifact {
+  id: string
+  org_id: string
+  task_id: string | null
+  project_id: string | null
+  filename: string
+  version: number
+  artifact_type: string
+  content: string
+  content_summary: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export interface AgentReview {
+  id: string
+  org_id: string
+  task_id: string
+  artifact_id: string | null
+  reviewer_agent_id: string | null
+  score: number
+  passed: boolean
+  issues: Record<string, unknown>[]
+  suggestions: Record<string, unknown>[]
+  iteration: number
+  created_at: string
+}
+
+export interface AgentKnowledge {
+  id: string
+  org_id: string
+  agent_id: string | null
+  scope: string
+  category: string
+  content: string
+  importance: number
+  access_count: number
+  valid_until: string | null
+  source_type: string | null
+  created_at: string
+}
+
 export interface AgentCheckin {
   id: string
   org_id: string
@@ -143,11 +185,15 @@ interface AgentContextType {
   skillRegistry: SkillRegistryItem[]
   tasksV2: AgentTaskV2[]
   checkins: AgentCheckin[]
+  artifacts: AgentArtifact[]
+  knowledge: AgentKnowledge[]
   createAgent: (name: string, role: string, description: string, skills?: string[], extra?: Partial<Agent>) => Promise<Agent | null>
   updateAgent: (id: string, updates: Partial<Agent>) => Promise<void>
   updateAgentSkills: (agentId: string, skills: string[]) => Promise<void>
   deleteAgent: (id: string) => Promise<void>
   getAgentTasks: (agentId: string) => AgentTask[]
+  getAgentArtifacts: (agentId: string) => AgentArtifact[]
+  getAgentKnowledgeItems: (agentId: string) => AgentKnowledge[]
   getAgentTasksV2: (agentId: string) => AgentTaskV2[]
   getAgentLearnings: (agentId: string) => AgentLearning[]
   deleteAgentLearning: (learningId: string) => Promise<void>
@@ -288,6 +334,43 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     refetchInterval: 10000,
   })
 
+  // Artifacts query
+  const { data: allArtifacts = [] } = useQuery({
+    queryKey: ['agent-artifacts', orgId],
+    queryFn: async () => {
+      if (!user || !orgId) return []
+      const { data, error } = await supabase
+        .from('agent_artifacts')
+        .select('*')
+        .eq('org_id', orgId)
+        .order('created_at', { ascending: false })
+        .limit(100)
+      if (error) throw error
+      return (data || []) as AgentArtifact[]
+    },
+    enabled: !!user && !!orgId,
+    refetchInterval: 15000,
+  })
+
+  // Knowledge query
+  const { data: allKnowledge = [] } = useQuery({
+    queryKey: ['agent-knowledge', orgId],
+    queryFn: async () => {
+      if (!user || !orgId) return []
+      const { data, error } = await supabase
+        .from('agent_knowledge')
+        .select('*')
+        .eq('org_id', orgId)
+        .is('valid_until', null)
+        .order('importance', { ascending: false })
+        .limit(100)
+      if (error) throw error
+      return (data || []) as AgentKnowledge[]
+    },
+    enabled: !!user && !!orgId,
+    refetchInterval: 30000,
+  })
+
   // Messages query
   const { data: allMessages = [] } = useQuery({
     queryKey: ['agent-messages', orgId],
@@ -387,6 +470,8 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   })
 
   const getAgentTasks = (agentId: string) => allTasks.filter(t => t.agent_id === agentId)
+  const getAgentArtifacts = (agentId: string) => allArtifacts.filter(a => a.created_by === agentId)
+  const getAgentKnowledgeItems = (agentId: string) => allKnowledge.filter(k => k.agent_id === agentId || k.agent_id === null)
   const getAgentTasksV2 = (agentId: string) => allTasksV2.filter(t => t.assigned_agent_id === agentId)
   const getAgentLearnings = (agentId: string) => allLearnings.filter(l => l.agent_id === agentId)
   const getAgentMessages = (agentId: string) => allMessages.filter(m => m.from_agent_id === agentId || m.to_agent_id === agentId)
@@ -401,11 +486,15 @@ export function AgentProvider({ children }: { children: ReactNode }) {
         skillRegistry,
         tasksV2: allTasksV2,
         checkins: allCheckins,
+        artifacts: allArtifacts,
+        knowledge: allKnowledge,
         createAgent: async (name, role, description, skills, extra) => createAgentMutation.mutateAsync({ name, role, description, skills, extra }),
         updateAgent: async (id, updates) => updateAgentMutation.mutateAsync({ id, updates }),
         updateAgentSkills: async (agentId, skills) => updateSkillsMutation.mutateAsync({ agentId, skills }),
         deleteAgent: async (id) => deleteAgentMutation.mutateAsync(id),
         getAgentTasks,
+        getAgentArtifacts,
+        getAgentKnowledgeItems,
         getAgentTasksV2,
         getAgentLearnings,
         deleteAgentLearning: async (id) => deleteLearningMutation.mutateAsync(id),
