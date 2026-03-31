@@ -35,13 +35,14 @@ Deno.serve(async (req: Request) => {
   try {
     const now = new Date()
 
-    // 1. Expire entries past valid_until
-    const { count: expiredCount } = await supabase
+    // 1. Expire entries past valid_until (delete them)
+    const { data: expiredRows } = await supabase
       .from('agent_knowledge')
-      .delete({ count: 'exact' })
+      .delete()
       .lt('valid_until', now.toISOString())
       .not('valid_until', 'is', null)
-    stats.expired = expiredCount || 0
+      .select('id')
+    stats.expired = expiredRows?.length || 0
 
     // 2. Decay importance of stale entries (not accessed in 7+ days)
     const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString()
@@ -66,14 +67,15 @@ Deno.serve(async (req: Request) => {
 
     // 3. Expire very old entries with zero access
     const staleDaysAgo = new Date(now.getTime() - STALE_DAYS * 86400000).toISOString()
-    const { count: oldExpired } = await supabase
+    const { data: oldExpiredRows } = await supabase
       .from('agent_knowledge')
       .update({ valid_until: now.toISOString() })
       .lt('created_at', staleDaysAgo)
       .eq('access_count', 0)
       .lt('importance', 0.3)
       .is('valid_until', null)
-    stats.expired += (oldExpired || 0)
+      .select('id')
+    stats.expired += (oldExpiredRows?.length || 0)
 
     // 4. Merge near-duplicate entries (per org)
     const { data: orgs } = await supabase
@@ -131,11 +133,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // 5. Cap knowledge per agent (keep top N by importance)
-    const { data: agentCounts } = await supabase.rpc('get_knowledge_counts_per_agent')
-      .catch(() => ({ data: null }))
-
-    // Fallback: manual count if RPC doesn't exist
-    if (!agentCounts) {
+    {
       const { data: allKnowledge } = await supabase
         .from('agent_knowledge')
         .select('agent_id')

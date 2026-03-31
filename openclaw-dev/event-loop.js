@@ -720,7 +720,8 @@ async function reflect(decision) {
   }
 
   // --- Extract knowledge from completed tasks (lightweight, every completion) ---
-  if (action === "complete_task" && taskId && SB_URL && SB_KEY) {
+  const isCompletion = action === "complete_task" || (action === "submit_review" && decision?.params?.passed === true);
+  if (isCompletion && taskId && SB_URL && SB_KEY) {
     try {
       const resultSummary = decision?.params?.result_summary || "";
       // Only extract if result has enough content (>50 chars = likely contains an insight)
