@@ -628,8 +628,39 @@ async function tick() {
 
   try {
     context = await sense();
-    decision = await think(context);
-    await act(decision, context);
+
+    // --- FAST PATH: if v2 tasks available and nothing assigned, skip LLM and claim directly ---
+    const hasMyTasks = context.myTasks && context.myTasks.length > 0;
+    const hasAvailableV2 = context.isV2Available;
+
+    if (!hasMyTasks && hasAvailableV2) {
+      console.log("[event-loop] FAST PATH: v2 tasks available, claiming directly (skip THINK)");
+      const capabilities = state.agentConfig?.capabilities || [];
+      const claimed = await sbRpc("claim_task_v2", {
+        p_org_id: ORG_ID,
+        p_agent_id: AGENT_ID,
+        p_capabilities: capabilities,
+      });
+      if (claimed && Array.isArray(claimed) && claimed.length > 0) {
+        const task = claimed[0];
+        console.log(`[event-loop] FAST CLAIM: ${task.id} — ${task.title}`);
+        logActivity("event_loop_action", "claim_task", `FAST CLAIM: ${task.title} (pri=${task.priority}) | ${(task.description || "").substring(0, 200)}`);
+        decision = { action: "claim_task", reasoning: "Fast path: v2 task available", params: { task_id: task.id } };
+      } else {
+        console.log("[event-loop] FAST PATH: claim returned nothing (capabilities mismatch or race)");
+        decision = await think(context);
+        await act(decision, context);
+      }
+    } else if (hasMyTasks) {
+      // Has assigned tasks — use THINK to decide what to do with them
+      console.log("[event-loop] Has assigned tasks, using THINK");
+      decision = await think(context);
+      await act(decision, context);
+    } else {
+      // No v2 tasks, check legacy or truly idle
+      decision = await think(context);
+      await act(decision, context);
+    }
   } catch (err) {
     console.error("[event-loop] Tick error:", err.message);
     tickError = true;
