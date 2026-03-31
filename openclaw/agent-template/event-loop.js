@@ -23,9 +23,9 @@ const ORG_ID = process.env.ORG_ID || "";
 const SB_URL = process.env.SUPABASE_URL || "";
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-const MIN_INTERVAL = 30000;    // 30s when busy
-const MAX_INTERVAL = 300000;   // 5min when idle
-const DEFAULT_INTERVAL = 60000; // 1min default
+const MIN_INTERVAL = 10000;    // 10s when busy
+const MAX_INTERVAL = 120000;   // 2min when idle
+const DEFAULT_INTERVAL = 20000; // 20s default
 const STALL_WINDOW = 3;
 const IDLE_PAUSE_THRESHOLD = 5;        // consecutive idles before auto-pause
 const CHECKIN_EVERY_N_TASKS = 3;       // generate check-in every N completed tasks
@@ -443,10 +443,10 @@ async function reflect(decision) {
   // --- Adaptive interval ---
   if (action === "idle") {
     state.consecutiveIdles++;
-    state.interval = Math.min(state.interval * 2, MAX_INTERVAL);
+    state.interval = Math.min(state.interval * 1.5, MAX_INTERVAL); // slower ramp-up
   } else {
     state.consecutiveIdles = 0;
-    state.interval = Math.max(Math.floor(state.interval / 2), MIN_INTERVAL);
+    state.interval = MIN_INTERVAL; // immediately fast when working
     state.lastAction = action;
     state.lastActionTime = new Date().toISOString();
   }
@@ -646,6 +646,8 @@ async function tick() {
         console.log(`[event-loop] FAST CLAIM: ${task.id} — ${task.title}`);
         logActivity("event_loop_action", "claim_task", `FAST CLAIM: ${task.title} (pri=${task.priority}) | ${(task.description || "").substring(0, 200)}`);
         decision = { action: "claim_task", reasoning: "Fast path: v2 task available", params: { task_id: task.id } };
+        // Immediately schedule next tick to work on the claimed task
+        state.interval = MIN_INTERVAL;
       } else {
         console.log("[event-loop] FAST PATH: claim returned nothing (capabilities mismatch or race)");
         decision = await think(context);
