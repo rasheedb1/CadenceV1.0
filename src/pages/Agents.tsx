@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'motion/react'
-import { useAgents } from '@/contexts/AgentContext'
+import { useAgents, type Agent, type AgentTier, type AgentAvailability } from '@/contexts/AgentContext'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -12,12 +12,26 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Bot, Plus, MoreVertical, Trash2, Loader2, ChevronDown } from 'lucide-react'
+import { Slider } from '@/components/ui/slider'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Bot, Plus, MoreVertical, Trash2, Loader2, ChevronDown,
+  LayoutGrid, Network, Cpu, Crown, UserCog, User,
+  Circle, Zap, AlertTriangle, WifiOff, Home, Moon, Sun,
+} from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
+import { useTheme } from '@/contexts/ThemeContext'
+
+// ── Constants ────────────────────────────────────────────────────────
 
 const ROLE_TEMPLATES: Record<string, { skills: string[]; description: string }> = {
   sales: {
     skills: ['buscar_prospectos', 'crear_cadencia', 'enviar_mensaje', 'enviar_email', 'investigar_empresa', 'enriquecer_prospectos', 'gestionar_leads', 'business_case', 'ver_actividad', 'ver_metricas', 'ver_notificaciones', 'ver_cadencia_detalle', 'ver_conexiones', 'ver_programacion', 'ver_calendario', 'buscar_slots_disponibles', 'crear_evento_calendario'],
     description: 'Vendedor completo: prospecta, investiga, envia mensajes, gestiona cadencias',
+  },
+  ux_designer: {
+    skills: ['web_research', 'investigar_empresa'],
+    description: 'UX/UI: investiga referencias, diseña interfaces, audita experiencia',
   },
   cpo: {
     skills: ['investigar_empresa', 'gestionar_leads', 'ver_actividad', 'ver_metricas', 'business_case'],
@@ -44,12 +58,36 @@ const ROLE_TEMPLATES: Record<string, { skills: string[]; description: string }> 
 
 const ROLE_OPTIONS = [
   { value: 'sales', label: 'Sales' },
+  { value: 'ux_designer', label: 'UX Designer' },
   { value: 'cpo', label: 'CPO / Product' },
   { value: 'developer', label: 'Developer' },
   { value: 'cfo', label: 'CFO / Finance' },
   { value: 'hr', label: 'HR' },
   { value: 'marketing', label: 'Marketing' },
   { value: 'custom', label: 'Custom' },
+]
+
+const MODEL_OPTIONS = [
+  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6', provider: 'anthropic', badge: 'Opus', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'anthropic', badge: 'Sonnet', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', provider: 'anthropic', badge: 'Haiku', color: 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300' },
+]
+
+const TIER_OPTIONS: { value: AgentTier; label: string; icon: typeof Crown }[] = [
+  { value: 'manager', label: 'Manager', icon: Crown },
+  { value: 'team_lead', label: 'Team Lead', icon: UserCog },
+  { value: 'worker', label: 'Worker', icon: User },
+]
+
+const CAPABILITY_OPTIONS = [
+  { value: 'code', label: 'Programar' },
+  { value: 'research', label: 'Investigar' },
+  { value: 'design', label: 'Diseño UX/UI' },
+  { value: 'outreach', label: 'Outreach / Ventas' },
+  { value: 'data', label: 'Análisis de datos' },
+  { value: 'ops', label: 'Operaciones' },
+  { value: 'writing', label: 'Redacción' },
+  { value: 'strategy', label: 'Estrategia' },
 ]
 
 const STATUS_COLORS: Record<string, string> = {
@@ -60,22 +98,258 @@ const STATUS_COLORS: Record<string, string> = {
   error: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
 }
 
+const AVAILABILITY_CONFIG: Record<AgentAvailability, { label: string; color: string; icon: typeof Circle }> = {
+  available: { label: 'Disponible', color: 'text-green-500', icon: Circle },
+  working: { label: 'Trabajando', color: 'text-blue-500', icon: Zap },
+  blocked: { label: 'Bloqueado', color: 'text-red-500', icon: AlertTriangle },
+  on_project: { label: 'En proyecto', color: 'text-amber-500', icon: Cpu },
+  offline: { label: 'Offline', color: 'text-gray-400', icon: WifiOff },
+}
+
+function getModelBadge(model: string) {
+  return MODEL_OPTIONS.find(m => m.value === model) || { badge: model?.split('-')[1] || 'LLM', color: 'bg-gray-100 text-gray-700' }
+}
+
+// ── Org Chart View ───────────────────────────────────────────────────
+
+function OrgChartNode({ agent, allAgents, onNavigate, level = 0 }: {
+  agent: Agent
+  allAgents: Agent[]
+  onNavigate: (id: string) => void
+  level?: number
+}) {
+  const children = allAgents.filter(a => a.parent_agent_id === agent.id)
+  const availConfig = AVAILABILITY_CONFIG[agent.availability] || AVAILABILITY_CONFIG.offline
+  const AvailIcon = availConfig.icon
+  const modelInfo = getModelBadge(agent.model)
+  const TierIcon = TIER_OPTIONS.find(t => t.value === agent.tier)?.icon || User
+
+  return (
+    <div className="flex flex-col items-center">
+      <motion.div
+        className="cursor-pointer"
+        whileHover={{ scale: 1.03, y: -2 }}
+        transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+        onClick={() => onNavigate(agent.id)}
+      >
+        <Card className={`w-56 border-2 transition-colors ${
+          agent.tier === 'manager' ? 'border-purple-300 dark:border-purple-700' :
+          agent.tier === 'team_lead' ? 'border-blue-300 dark:border-blue-700' :
+          'border-border'
+        }`}>
+          <CardContent className="p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <div className={`flex h-8 w-8 items-center justify-center rounded-full ${
+                agent.tier === 'manager' ? 'bg-purple-100 dark:bg-purple-900' :
+                agent.tier === 'team_lead' ? 'bg-blue-100 dark:bg-blue-900' :
+                'bg-muted'
+              }`}>
+                <TierIcon className={`h-4 w-4 ${
+                  agent.tier === 'manager' ? 'text-purple-600' :
+                  agent.tier === 'team_lead' ? 'text-blue-600' :
+                  'text-muted-foreground'
+                }`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm truncate">{agent.name}</p>
+                <p className="text-xs text-muted-foreground truncate">{ROLE_OPTIONS.find(r => r.value === agent.role)?.label || agent.role}</p>
+              </div>
+              <AvailIcon className={`h-3 w-3 ${availConfig.color} shrink-0`} fill="currentColor" />
+            </div>
+            <div className="flex gap-1 flex-wrap">
+              <Badge className={`text-[10px] px-1.5 py-0 ${modelInfo.color}`}>{modelInfo.badge}</Badge>
+              {agent.team && <Badge variant="outline" className="text-[10px] px-1.5 py-0">{agent.team}</Badge>}
+              <Badge className={`text-[10px] px-1.5 py-0 ${STATUS_COLORS[agent.status] || STATUS_COLORS.draft}`}>{agent.status}</Badge>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {children.length > 0 && (
+        <>
+          <div className="w-px h-6 bg-border" />
+          <div className="flex gap-6 items-start relative">
+            {children.length > 1 && (
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 h-px bg-border"
+                style={{ width: `calc(100% - 14rem)` }} />
+            )}
+            {children.map(child => (
+              <div key={child.id} className="flex flex-col items-center">
+                <div className="w-px h-6 bg-border" />
+                <OrgChartNode agent={child} allAgents={allAgents} onNavigate={onNavigate} level={level + 1} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function OrgChartView({ agents, onNavigate }: { agents: Agent[]; onNavigate: (id: string) => void }) {
+  // Root agents = no parent
+  const roots = agents.filter(a => !a.parent_agent_id)
+  // Agents with parents that point to non-existent agents are also roots
+  const rootsWithOrphans = [
+    ...roots,
+    ...agents.filter(a => a.parent_agent_id && !agents.find(p => p.id === a.parent_agent_id)),
+  ]
+  const uniqueRoots = [...new Map(rootsWithOrphans.map(a => [a.id, a])).values()]
+
+  if (uniqueRoots.length === 0) return <p className="text-center text-muted-foreground py-12">No hay agentes</p>
+
+  return (
+    <div className="overflow-x-auto pb-8">
+      <div className="flex gap-12 justify-center pt-4 min-w-fit px-8">
+        {uniqueRoots.map(agent => (
+          <OrgChartNode key={agent.id} agent={agent} allAgents={agents} onNavigate={onNavigate} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Grid View (improved) ─────────────────────────────────────────────
+
+function GridView({ agents, onNavigate, onDelete, deleting }: {
+  agents: Agent[]
+  onNavigate: (id: string) => void
+  onDelete: (id: string, e: React.MouseEvent) => void
+  deleting: string | null
+}) {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {agents.map((agent, idx) => {
+        const availConfig = AVAILABILITY_CONFIG[agent.availability] || AVAILABILITY_CONFIG.offline
+        const AvailIcon = availConfig.icon
+        const modelInfo = getModelBadge(agent.model)
+        const TierIcon = TIER_OPTIONS.find(t => t.value === agent.tier)?.icon || User
+
+        return (
+          <motion.div
+            key={agent.id}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.06 * idx, duration: 0.3, ease: 'easeOut' }}
+          >
+            <motion.div whileHover={{ scale: 1.02, y: -3 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }}>
+              <Card className="cursor-pointer transition-shadow hover:shadow-md" onClick={() => onNavigate(agent.id)}>
+                <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-full shrink-0 ${
+                      agent.tier === 'manager' ? 'bg-purple-100 dark:bg-purple-900' :
+                      agent.tier === 'team_lead' ? 'bg-blue-100 dark:bg-blue-900' :
+                      'bg-muted'
+                    }`}>
+                      <TierIcon className={`h-5 w-5 ${
+                        agent.tier === 'manager' ? 'text-purple-600' :
+                        agent.tier === 'team_lead' ? 'text-blue-600' :
+                        'text-muted-foreground'
+                      }`} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <CardTitle className="text-base truncate">{agent.name}</CardTitle>
+                      <CardDescription className="truncate">{agent.description || ROLE_OPTIONS.find(r => r.value === agent.role)?.label || agent.role}</CardDescription>
+                    </div>
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0"><MoreVertical className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem className="text-destructive" disabled={deleting === agent.id} onClick={e => onDelete(agent.id, e)}>
+                        <Trash2 className="mr-2 h-4 w-4" />Eliminar
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center gap-1.5 flex-wrap mb-2">
+                    <Badge className={`text-[10px] px-1.5 py-0 ${modelInfo.color}`}>{modelInfo.badge}</Badge>
+                    <Badge className={`text-[10px] px-1.5 py-0 ${STATUS_COLORS[agent.status] || STATUS_COLORS.draft}`}>
+                      {agent.status === 'active' && (
+                        <motion.span
+                          className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mr-1"
+                          animate={{ opacity: [1, 0.3, 1] }}
+                          transition={{ duration: 1.5, repeat: Infinity }}
+                        />
+                      )}
+                      {agent.status}
+                    </Badge>
+                    {agent.team && <Badge variant="outline" className="text-[10px] px-1.5 py-0">{agent.team}</Badge>}
+                    {agent.tier !== 'worker' && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                        {agent.tier === 'manager' ? 'Manager' : 'Team Lead'}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs">
+                      <AvailIcon className={`h-3 w-3 ${availConfig.color}`} fill="currentColor" />
+                      <span className="text-muted-foreground">{availConfig.label}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">{agent.agent_skills?.length || 0} skills</span>
+                  </div>
+                  {agent.capabilities?.length > 0 && (
+                    <div className="flex gap-1 flex-wrap mt-2">
+                      {agent.capabilities.slice(0, 3).map(cap => (
+                        <span key={cap} className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{cap}</span>
+                      ))}
+                      {agent.capabilities.length > 3 && (
+                        <span className="text-[10px] text-muted-foreground">+{agent.capabilities.length - 3}</span>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          </motion.div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Main Page ────────────────────────────────────────────────────────
+
 export function Agents() {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const { agents, isLoading, createAgent, deleteAgent, skillRegistry } = useAgents()
+  const [viewMode, setViewMode] = useState<'grid' | 'org'>('grid')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
+
+  // Form state
   const [name, setName] = useState('')
   const [role, setRole] = useState('')
   const [description, setDescription] = useState('')
   const [selectedSkills, setSelectedSkills] = useState<string[]>([])
   const [skillsOpen, setSkillsOpen] = useState(false)
-  const [deleting, setDeleting] = useState<string | null>(null)
+  const [model, setModel] = useState('claude-sonnet-4-6')
+  const [temperature, setTemperature] = useState(0.7)
+  const [team, setTeam] = useState('')
+  const [tier, setTier] = useState<AgentTier>('worker')
+  const [parentAgentId, setParentAgentId] = useState('')
+  const [capabilities, setCapabilities] = useState<string[]>([])
 
-  // Auto-populate skills when role changes
+  // Teams derived from existing agents
+  const existingTeams = useMemo(() => {
+    const teams = new Set(agents.map(a => a.team).filter(Boolean) as string[])
+    return Array.from(teams).sort()
+  }, [agents])
+
+  // Potential parent agents (team_leads and managers)
+  const potentialParents = useMemo(() =>
+    agents.filter(a => a.tier === 'team_lead' || a.tier === 'manager'),
+  [agents])
+
   useEffect(() => {
     if (role && ROLE_TEMPLATES[role]) {
       setSelectedSkills(ROLE_TEMPLATES[role].skills)
+      if (!description) setDescription(ROLE_TEMPLATES[role].description)
     }
   }, [role])
 
@@ -85,17 +359,35 @@ export function Agents() {
     )
   }
 
+  const toggleCapability = (cap: string) => {
+    setCapabilities(prev =>
+      prev.includes(cap) ? prev.filter(c => c !== cap) : [...prev, cap]
+    )
+  }
+
+  const resetForm = () => {
+    setName(''); setRole(''); setDescription(''); setSelectedSkills([])
+    setModel('claude-sonnet-4-6'); setTemperature(0.7); setTeam('')
+    setTier('worker'); setParentAgentId(''); setCapabilities([])
+    setSkillsOpen(false)
+  }
+
   const handleCreate = async () => {
     if (!name || !role) return
     setCreating(true)
     try {
-      const agent = await createAgent(name, role, description, selectedSkills)
+      const agent = await createAgent(name, role, description, selectedSkills, {
+        model,
+        model_provider: MODEL_OPTIONS.find(m => m.value === model)?.provider || 'anthropic',
+        temperature,
+        team: team || undefined,
+        tier,
+        parent_agent_id: parentAgentId || undefined,
+        capabilities,
+      } as Partial<Agent>)
       if (agent) {
         setIsCreateOpen(false)
-        setName('')
-        setRole('')
-        setDescription('')
-        setSelectedSkills([])
+        resetForm()
       }
     } finally {
       setCreating(false)
@@ -108,7 +400,6 @@ export function Agents() {
     try { await deleteAgent(id) } finally { setDeleting(null) }
   }
 
-  // Group skills by category for the selection UI
   const skillsByCategory = skillRegistry
     .filter(s => !s.is_system)
     .reduce((acc, s) => {
@@ -118,92 +409,218 @@ export function Agents() {
     }, {} as Record<string, typeof skillRegistry>)
 
   if (isLoading) {
-    return <div className="flex h-full items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
   }
 
   return (
-    <motion.div
-      className="p-8"
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
-    >
+    <div className="min-h-screen bg-background">
+      {/* App Header */}
+      <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/')}
+              className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-accent transition-colors"
+              title="Volver al inicio"
+            >
+              <Home className="h-4 w-4" />
+            </button>
+            <div className="flex items-center gap-2">
+              <Bot className="h-5 w-5 text-purple-500" />
+              <span className="font-heading font-semibold text-lg">Agentes IA</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleTheme}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            >
+              {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            </button>
+            <span className="text-sm text-muted-foreground">{user?.email}</span>
+          </div>
+        </div>
+      </header>
+
+      <motion.div
+        className="max-w-7xl mx-auto p-8"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: 'easeOut' }}
+      >
+      {/* Content Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight font-heading">Agentes IA</h1>
-          <p className="text-muted-foreground mt-1">Crea y gestiona agentes de IA con roles específicos</p>
+          <p className="text-muted-foreground mt-1">
+            {agents.length} agentes &middot; {agents.filter(a => a.availability === 'available').length} disponibles &middot; {agents.filter(a => a.availability === 'working').length} trabajando
+          </p>
         </div>
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <DialogTrigger asChild>
-            <Button><Plus className="mr-2 h-4 w-4" />Crear Agente</Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Crear Agente</DialogTitle>
-              <DialogDescription>Crea un nuevo agente de IA con un rol y capacidades específicas</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-2">
-              <div className="space-y-2">
-                <Label htmlFor="agent-name">Nombre</Label>
-                <Input id="agent-name" placeholder="ej. Agente CPO" value={name} onChange={e => setName(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="agent-role">Rol</Label>
-                <Select value={role} onValueChange={setRole}>
-                  <SelectTrigger><SelectValue placeholder="Selecciona un rol" /></SelectTrigger>
-                  <SelectContent>
-                    {ROLE_OPTIONS.map(opt => (
-                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {role && ROLE_TEMPLATES[role] && (
-                  <p className="text-xs text-muted-foreground">{ROLE_TEMPLATES[role].description}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="agent-desc">Descripción</Label>
-                <Textarea id="agent-desc" placeholder="¿Qué debería hacer este agente?" value={description} onChange={e => setDescription(e.target.value)} rows={2} />
-              </div>
+        <div className="flex items-center gap-3">
+          <Tabs value={viewMode} onValueChange={v => setViewMode(v as 'grid' | 'org')}>
+            <TabsList className="h-8">
+              <TabsTrigger value="grid" className="h-6 px-2 text-xs"><LayoutGrid className="h-3.5 w-3.5 mr-1" />Grid</TabsTrigger>
+              <TabsTrigger value="org" className="h-6 px-2 text-xs"><Network className="h-3.5 w-3.5 mr-1" />Org Chart</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Dialog open={isCreateOpen} onOpenChange={v => { setIsCreateOpen(v); if (!v) resetForm() }}>
+            <DialogTrigger asChild>
+              <Button><Plus className="mr-2 h-4 w-4" />Crear Agente</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Crear Agente</DialogTitle>
+                <DialogDescription>Configura un nuevo miembro de tu equipo AI</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                {/* Name + Role row */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="agent-name">Nombre</Label>
+                    <Input id="agent-name" placeholder="ej. Sofia" value={name} onChange={e => setName(e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Rol</Label>
+                    <Select value={role} onValueChange={setRole}>
+                      <SelectTrigger><SelectValue placeholder="Selecciona" /></SelectTrigger>
+                      <SelectContent>
+                        {ROLE_OPTIONS.map(opt => (
+                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
 
-              {/* Skills Selection */}
-              <div>
-                <Button variant="outline" size="sm" className="w-full justify-between" type="button" onClick={() => setSkillsOpen(!skillsOpen)}>
-                  Skills ({selectedSkills.length} seleccionados)
-                  <ChevronDown className={`h-4 w-4 transition-transform ${skillsOpen ? 'rotate-180' : ''}`} />
-                </Button>
-                {skillsOpen && (
-                  <div className="mt-2 space-y-3 max-h-[250px] overflow-y-auto border rounded-md p-3">
-                    {Object.entries(skillsByCategory).map(([category, skills]) => (
-                      <div key={category}>
-                        <p className="text-xs font-medium text-muted-foreground uppercase mb-1.5">{category}</p>
-                        <div className="space-y-1">
-                          {skills.map(skill => (
-                            <label key={skill.name} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
-                              <Checkbox
-                                checked={selectedSkills.includes(skill.name)}
-                                onCheckedChange={() => toggleSkill(skill.name)}
-                              />
-                              <span className="flex-1">{skill.display_name}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
+                <div className="space-y-1.5">
+                  <Label>Descripción</Label>
+                  <Textarea placeholder="¿Qué debería hacer este agente?" value={description} onChange={e => setDescription(e.target.value)} rows={2} />
+                </div>
+
+                {/* Model + Temperature */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Modelo LLM</Label>
+                    <Select value={model} onValueChange={setModel}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {MODEL_OPTIONS.map(m => (
+                          <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Temperatura: {temperature}</Label>
+                    <Slider
+                      value={[temperature]}
+                      onValueChange={v => setTemperature(v[0])}
+                      min={0} max={1} step={0.1}
+                      className="mt-2"
+                    />
+                  </div>
+                </div>
+
+                {/* Tier + Team */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Nivel</Label>
+                    <Select value={tier} onValueChange={v => setTier(v as AgentTier)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {TIER_OPTIONS.map(t => (
+                          <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Equipo</Label>
+                    <Input
+                      placeholder="ej. sales, product"
+                      value={team}
+                      onChange={e => setTeam(e.target.value)}
+                      list="team-suggestions"
+                    />
+                    <datalist id="team-suggestions">
+                      {existingTeams.map(t => <option key={t} value={t} />)}
+                    </datalist>
+                  </div>
+                </div>
+
+                {/* Parent Agent */}
+                {potentialParents.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label>Reporta a</Label>
+                    <Select value={parentAgentId} onValueChange={setParentAgentId}>
+                      <SelectTrigger><SelectValue placeholder="Sin jefe (reporta a Chief)" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Sin jefe (reporta a Chief)</SelectItem>
+                        {potentialParents.map(a => (
+                          <SelectItem key={a.id} value={a.id}>{a.name} ({a.tier})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
+
+                {/* Capabilities */}
+                <div className="space-y-1.5">
+                  <Label>Capacidades</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {CAPABILITY_OPTIONS.map(cap => (
+                      <label key={cap.value} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                        <Checkbox
+                          checked={capabilities.includes(cap.value)}
+                          onCheckedChange={() => toggleCapability(cap.value)}
+                        />
+                        {cap.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Skills */}
+                <div>
+                  <Button variant="outline" size="sm" className="w-full justify-between" type="button" onClick={() => setSkillsOpen(!skillsOpen)}>
+                    Skills ({selectedSkills.length} seleccionados)
+                    <ChevronDown className={`h-4 w-4 transition-transform ${skillsOpen ? 'rotate-180' : ''}`} />
+                  </Button>
+                  {skillsOpen && (
+                    <div className="mt-2 space-y-3 max-h-[200px] overflow-y-auto border rounded-md p-3">
+                      {Object.entries(skillsByCategory).map(([category, skills]) => (
+                        <div key={category}>
+                          <p className="text-xs font-medium text-muted-foreground uppercase mb-1">{category}</p>
+                          <div className="space-y-0.5">
+                            {skills.map(skill => (
+                              <label key={skill.name} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 rounded px-1 py-0.5">
+                                <Checkbox checked={selectedSkills.includes(skill.name)} onCheckedChange={() => toggleSkill(skill.name)} />
+                                <span className="flex-1 text-xs">{skill.display_name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancelar</Button>
-              <Button onClick={handleCreate} disabled={creating || !name || !role}>
-                {creating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creando...</> : 'Crear Agente'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setIsCreateOpen(false); resetForm() }}>Cancelar</Button>
+                <Button onClick={handleCreate} disabled={creating || !name || !role}>
+                  {creating ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Creando...</> : 'Crear Agente'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
+      {/* Content */}
       {agents.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
@@ -213,59 +630,17 @@ export function Agents() {
             <Button onClick={() => setIsCreateOpen(true)}><Plus className="mr-2 h-4 w-4" />Crear Agente</Button>
           </CardContent>
         </Card>
+      ) : viewMode === 'org' ? (
+        <OrgChartView agents={agents} onNavigate={id => navigate(`/agents/${id}`)} />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {agents.map((agent, idx) => (
-            <motion.div
-              key={agent.id}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.08 * idx, duration: 0.35, ease: 'easeOut' }}
-            >
-            <motion.div
-              whileHover={{ scale: 1.02, y: -4 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-            >
-            <Card className="cursor-pointer transition-shadow hover:shadow-md" onClick={() => navigate(`/agents/${agent.id}`)}>
-              <CardHeader className="flex flex-row items-start justify-between space-y-0">
-                <div className="space-y-1 min-w-0 flex-1">
-                  <CardTitle className="text-base truncate">{agent.name}</CardTitle>
-                  <CardDescription className="line-clamp-2">{agent.description || 'Sin descripción'}</CardDescription>
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0"><MoreVertical className="h-4 w-4" /></Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem className="text-destructive" disabled={deleting === agent.id} onClick={e => handleDelete(agent.id, e)}>
-                      <Trash2 className="mr-2 h-4 w-4" />Eliminar
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="outline">{ROLE_OPTIONS.find(r => r.value === agent.role)?.label || agent.role}</Badge>
-                  <Badge className={STATUS_COLORS[agent.status] || STATUS_COLORS.draft}>
-                    {agent.status === 'active' && (
-                      <motion.span
-                        className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mr-1.5"
-                        animate={{ opacity: [1, 0.3, 1] }}
-                        transition={{ duration: 1.5, repeat: Infinity }}
-                      />
-                    )}
-                    {agent.status}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">{agent.agent_skills?.length || 0} skills</span>
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">Creado el {new Date(agent.created_at).toLocaleDateString()}</p>
-              </CardContent>
-            </Card>
-            </motion.div>
-            </motion.div>
-          ))}
-        </div>
+        <GridView
+          agents={agents}
+          onNavigate={id => navigate(`/agents/${id}`)}
+          onDelete={handleDelete}
+          deleting={deleting}
+        />
       )}
     </motion.div>
+    </div>
   )
 }

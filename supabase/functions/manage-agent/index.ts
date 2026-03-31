@@ -42,23 +42,40 @@ Deno.serve(async (req: Request) => {
     // POST — Create agent
     if (method === 'POST') {
       const body = await req.json()
-      const { org_id, name, role, description, soul_md, skills, config, created_by } = body
+      const {
+        org_id, name, role, description, soul_md, skills, config, created_by,
+        // Workforce v2 fields
+        model, model_provider, temperature, max_tokens,
+        parent_agent_id, team, tier, capabilities, objectives,
+      } = body
 
       if (!org_id || !name || !role || !soul_md) {
         return errorResponse('Missing required fields: org_id, name, role, soul_md', 400)
       }
 
+      const insertData: Record<string, unknown> = {
+        org_id,
+        name,
+        role,
+        description: description || null,
+        soul_md,
+        config: config || {},
+        created_by: created_by || null,
+      }
+      // Only set workforce fields if provided (keep DB defaults otherwise)
+      if (model) insertData.model = model
+      if (model_provider) insertData.model_provider = model_provider
+      if (temperature != null) insertData.temperature = temperature
+      if (max_tokens) insertData.max_tokens = max_tokens
+      if (parent_agent_id && parent_agent_id !== 'none') insertData.parent_agent_id = parent_agent_id
+      if (team) insertData.team = team
+      if (tier) insertData.tier = tier
+      if (capabilities && Array.isArray(capabilities)) insertData.capabilities = capabilities
+      if (objectives) insertData.objectives = objectives
+
       const { data: agent, error: agentErr } = await supabase
         .from('agents')
-        .insert({
-          org_id,
-          name,
-          role,
-          description: description || null,
-          soul_md,
-          config: config || {},
-          created_by: created_by || null,
-        })
+        .insert(insertData)
         .select()
         .single()
 

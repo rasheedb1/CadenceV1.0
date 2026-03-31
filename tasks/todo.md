@@ -1,207 +1,238 @@
-# Plan Maestro: Agent-to-Agent Communication via A2A Protocol
+# Plan: AI Workforce Platform — Chief Agent Management v2
 
 ## Visión
-Los agentes OpenClaw (Sofía, Juanse, Nando, etc.) se comunican directamente entre sí como personas independientes — sin depender de Chief como intermediario. Chief orquesta la tarea inicial, los agentes iteran entre ellos con feedback, y notifican a Chief del resultado final.
+Transformar el sistema actual de 3 agentes hardcodeados en una plataforma de workforce AI escalable a N agentes, donde cada agente funciona como un empleado real: tiene rol, objetivos, jerarquía, backlog de trabajo, check-ins con su jefe, y métricas de rendimiento. Todo configurable desde el dashboard Y desde WhatsApp via Chief.
 
-## Estado actual (lo que ya existe)
-- ✅ Agentes en OpenClaw runtime (Sofía, Nando, Juanse) con browser, exec, web_search
-- ✅ Chief bridge funcionando (WhatsApp + gateway)
-- ✅ pgmq infrastructure (migration 076, queues, wrapper) — FUNCIONA como audit trail
-- ✅ agent_messages tabla para logging
-- ✅ Sofía respondió via pgmq → OpenClaw gateway → LLM (verificado)
-- ✅ send-to-agent.sh funciona (Sofía envió mensaje a Juanse, verificado)
-- ✅ SOUL.md de Sofía (Senior UX Designer) y Juanse (Full-Stack Dev) actualizados
-- ✅ Animation libs instaladas (motion, auto-animate, lenis, react-awesome-reveal)
-
-## Problema actual (BLOCKER)
-pgmq tiene problemas fundamentales para comunicación agent-to-agent:
-- **Consumers compitiendo**: bot.ts consumer + pgmq-consumer.js leen la misma cola → race condition
-- **Binary lock**: `activeTask` en Express → "Agent busy" cuando un consumer gana
-- **Polling latency**: 5-300 segundos esperando mensajes
-- **No es peer-to-peer real**: requiere consumer + polling, no es HTTP directo
-
-**Resultado**: Sofía envía mensaje a Juanse → Juanse responde "Agent busy" → comunicación falla.
-
-## Solución: Google A2A Protocol (v0.3.0)
-
-Estándar abierto adoptado por CrewAI, LangGraph y OpenClaw. SDK oficial: `@a2a-js/sdk` v0.3.13 (npm).
-
-**Cómo funciona:**
-```
-Sofía quiere hablar con Juanse:
-  1. Sofía POST https://juanse.railway.app/a2a/jsonrpc {method: "message/send", message: "..."}
-  2. Juanse procesa con su OpenClaw gateway + LLM
-  3. Juanse retorna respuesta directa (sync) o {task_id, state: "working"} (async)
-  4. Si async → Juanse POST webhook a Sofía cuando termine
-
-NO hay queue. NO hay polling. NO hay lock. HTTP directo.
-```
+## Contexto del research
+- Máximo 4-5 agentes por grupo → equipos con team leads para escalar
+- Task claiming atómico con `FOR UPDATE SKIP LOCKED` para evitar race conditions
+- Check-ins entre tareas (no durante) — patrón de Devin/Cognition
+- Confidence-based routing para decidir cuándo escalar a humano
+- Model tiering: Haiku para routing, Sonnet para ejecución, Opus para planning
+- Error amplification 17x sin estructura jerárquica
 
 ---
 
-## FASES DE IMPLEMENTACIÓN
+## FASE 0 — Database Foundation (migraciones)
+> Sin esto, nada de lo demás funciona. Son las tablas y columnas que faltan.
 
-### Fase 1: A2A Server (`a2a-server.js`)
-**Archivos:**
-- [ ] `openclaw/agent-template/a2a-server.js` — NUEVO
-- [ ] `openclaw/agent-template/package.json` — agregar @a2a-js/sdk, http-proxy-middleware, uuid
+- [ ] **0.1** Migration: Agregar columnas a `agents`
+  - `model TEXT DEFAULT 'claude-sonnet-4-6'` — modelo LLM
+  - `model_provider TEXT DEFAULT 'anthropic'` — provider (anthropic, openai)
+  - `temperature DECIMAL(3,2) DEFAULT 0.7`
+  - `max_tokens INTEGER DEFAULT 4096`
+  - `parent_agent_id UUID REFERENCES agents(id)` — jerarquía (null = reporta a Chief)
+  - `team TEXT` — nombre del equipo (sales, product, ops, etc.)
+  - `capabilities TEXT[]` — qué puede hacer (code, research, design, outreach, etc.)
+  - `tier TEXT DEFAULT 'worker'` — worker | team_lead | manager
+  - `objectives JSONB` — OKRs del agente
+  - `availability TEXT DEFAULT 'available'` — available, working, blocked, on_project, offline
 
-**Qué hace:**
-- Express server en `$PORT` (Railway-exposed)
-- Sirve Agent Card en `/.well-known/agent-card.json` (nombre, capabilities, URL)
-- Maneja `message/send` en `/a2a/jsonrpc` via @a2a-js/sdk handlers
-- `OpenClawA2AExecutor`: recibe mensaje → POST a `localhost:18789/v1/chat/completions` → retorna respuesta
-- Proxy todo lo demás a OpenClaw gateway en `localhost:18789`
-- Health check en `/healthz`
-- Bearer token auth via env `A2A_TOKEN`
-- Log cada intercambio a `agent_messages` tabla (audit trail)
+- [ ] **0.2** Migration: Tabla `agent_tasks_v2` (reemplaza el backlog del blackboard)
+  - Priority queue con `FOR UPDATE SKIP LOCKED`
+  - Campos: title, description, task_type, priority (0-100), story_points
+  - Dependencies: `depends_on UUID[]`, resolved automáticamente
+  - Assignment: `assigned_agent_id`, `assigned_at`
+  - Status flow: backlog → ready → claimed → in_progress → review → done | failed
+  - Sprint support: `sprint_id` opcional
+  - Subtasks: `parent_task_id` para descomposición
+  - Resultado: `result JSONB`, `error TEXT`, retry tracking
 
-**Agent Card generado dinámicamente:**
-```json
-{
-  "name": "Sofia UX Agent",
-  "description": "Senior UX/UI Designer",
-  "url": "https://agent-sofi-production.up.railway.app/a2a/jsonrpc",
-  "protocolVersion": "0.3.0",
-  "skills": [{"id": "ux-research", "name": "UX Research"}, ...],
-  "capabilities": {"streaming": true, "pushNotifications": true},
-  "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}}
-}
-```
+- [ ] **0.3** Migration: Tabla `agent_checkins` (standups automatizados)
+  - `agent_id`, `checkin_type` (standup, phase_complete, blocked, milestone)
+  - `summary TEXT` — resumen de lo hecho
+  - `next_steps TEXT` — qué sigue
+  - `blockers TEXT` — qué lo frena
+  - `needs_approval BOOLEAN` — requiere respuesta del jefe
+  - `approved_at`, `feedback TEXT` — respuesta del humano
+  - `expires_at`, `fallback_action` — qué hacer si no responden
 
-### Fase 2: A2A Send Script (`a2a-send.js`)
-**Archivos:**
-- [ ] `openclaw/agent-template/a2a-send.js` — NUEVO
+- [ ] **0.4** Migration: Tabla `agent_performance` (métricas)
+  - Por agente por período: tasks_completed, tasks_failed, avg_completion_time
+  - Quality: tasks_requiring_rework, human_escalations, error_rate
+  - Cost: total_tokens_used, total_api_cost, cost_per_task
+  - Efficiency: idle_time_pct, utilization_pct
 
-**Qué hace:**
-Script ejecutable que cualquier agente corre via `exec`:
-```bash
-node /home/node/.openclaw/a2a-send.js "Juanse" "Implementa este spec de UX..."
-```
-1. Busca agente por nombre en tabla `agents` (Supabase REST)
-2. Fetch Agent Card desde `{railway_url}/.well-known/agent-card.json`
-3. POST `message/send` al endpoint A2A de Juanse
-4. Si respuesta sync → retorna resultado
-5. Si respuesta async (task working) → poll `tasks/get` hasta completado
-6. Imprime resultado en stdout (para que el LLM lo vea)
+- [ ] **0.5** Migration: Función SQL `claim_task_v2` con `FOR UPDATE SKIP LOCKED`
+  - Input: org_id, agent_id, capabilities[]
+  - Busca tarea ready, sin asignar, que el agente pueda hacer (capabilities match)
+  - Respeta dependencias (no claims si depends_on no está done)
+  - Atómica — no hay race conditions con 20 agentes
 
-### Fase 3: Startup + Dockerfile
-**Archivos:**
-- [ ] `openclaw/agent-template/startup.sh` — modificar
-- [ ] `openclaw/agent-template/Dockerfile` — modificar
-
-**Cambio en startup.sh:**
-```bash
-# ANTES: OpenClaw gateway en $PORT
-# AHORA: OpenClaw gateway en 18789 (interno), A2A server en $PORT (expuesto)
-node dist/index.js gateway --bind lan --port 18789 &
-exec node /home/node/.openclaw/a2a-server.js  # en $PORT
-```
-
-**Cambio en Dockerfile:**
-- Copiar a2a-server.js, a2a-send.js
-- `npm install` en build (no en runtime) para @a2a-js/sdk deps
-- Eliminar pgmq-consumer.js del COPY (ya no se necesita como transporte)
-- Mantener pgmq.js (para audit trail)
-
-### Fase 4: Chief usa A2A Client
-**Archivos:**
-- [ ] `openclaw/bridge/server.js` — modificar delegar_tarea, consultar_agente
-- [ ] `openclaw/bridge/package.json` — agregar @a2a-js/sdk
-
-**En `delegar_tarea`:**
-```javascript
-// ANTES: pgmq.sendMessage(queue, envelope) o fetch(railway_url/api/task)
-// AHORA:
-const { ClientFactory } = require("@a2a-js/sdk/client");
-const client = await new ClientFactory().createFromUrl(agent.railway_url);
-const response = await client.sendMessage({
-  message: { messageId: uuid(), role: "user", parts: [{kind: "text", text: instruction}], kind: "message" }
-});
-// response.kind === "message" → respuesta directa
-// response.kind === "task" → estado "working", poll o stream
-```
-
-**En `consultar_agente`:** mismo patrón pero espera respuesta sync.
-
-### Fase 5: Mismo patrón para Juanse
-**Archivos:**
-- [ ] `openclaw-dev/startup-openclaw.sh` — gateway en 18789, A2A en $PORT
-- [ ] Copiar a2a-server.js y a2a-send.js al workspace de Juanse
-
-### Fase 6: Auth + env vars
-- [ ] Generar A2A_TOKEN por agente (openssl rand -hex 32)
-- [ ] Agregar env vars en Railway: A2A_TOKEN, AGENT_NAME, AGENT_ROLE
-- [ ] Push → auto-deploy bridge + juanse
-- [ ] Redeploy sofi + nando manualmente
-
-### Fase 7: Verificación end-to-end
-- [ ] `curl https://agent-sofi.railway.app/.well-known/agent-card.json` → Agent Card
-- [ ] `curl -X POST .../a2a/jsonrpc -d '{message/send}'` → respuesta LLM
-- [ ] WhatsApp: "Sofi pregúntale a Juanse..." → A2A directo
-- [ ] Sofía ejecuta `a2a-send.js "Juanse" "spec..."` → Juanse recibe y responde
-- [ ] Feedback loop: Sofía↔Juanse iteran sin Chief
+- [ ] **0.6** Migration: View `agent_standup` — resumen automático por agente
+  - Tareas completadas últimas 24h
+  - Tareas en progreso
+  - Bloqueados
+  - Backlog count
 
 ---
 
-## FEATURES SOBRE A2A (después de que fases 1-7 funcionen)
+## FASE 1 — Dashboard: Agent Configuration Hub
+> El usuario puede configurar todo desde la UI.
 
-### 8.1 — Chief notification on peer-to-peer
-**Problema:** Cuando Sofía habla con Juanse directo, Chief no se entera.
-**Solución:** El A2A server de cada agente, después de procesar un `message/send`, notifica a Chief via su endpoint A2A con un mensaje tipo `a2a_notification`:
-- [ ] En a2a-server.js: después de ejecutar, POST a Chief A2A endpoint con resumen
-- [ ] En bridge: handler para `a2a_notification` que logea y opcionalmente muestra al usuario por WhatsApp
-- [ ] Config: env var `NOTIFY_CHIEF=true/false` para controlar
+- [ ] **1.1** Página `Agents.tsx` — rediseño completo
+  - Vista de **org chart** visual (jerarquía tipo árbol): Chief → Team Leads → Workers
+  - Vista alternativa de **grid cards** (como hoy pero mejorada)
+  - Toggle entre vistas
+  - Indicador de availability en tiempo real (verde=available, amarillo=working, rojo=blocked)
+  - Badge con modelo actual (Sonnet, Opus, Haiku)
+  - Badge con team (Sales, Product, Ops)
 
-### 8.2 — Reuniones multi-agente via A2A
-**Problema:** `reunion_agentes` solo funciona por HTTP legacy.
-**Solución:** Reescribir sobre A2A:
-- [ ] Chief envía `message/send` en paralelo a todos los agentes convocados
-- [ ] Cada agente responde con su perspectiva
-- [ ] Chief recopila respuestas y sintetiza
-- [ ] Los agentes también pueden convocar reuniones entre ellos via a2a-send.js
-- [ ] Añadir un tool `convocar_reunion` al SKILL.md de cada agente
+- [ ] **1.2** Modal de creación de agente mejorado
+  - Todo lo actual (nombre, rol, descripción, skills)
+  - **Nuevo: Model selector** — dropdown con modelos disponibles (Claude Opus/Sonnet/Haiku, GPT-4o, etc.)
+  - **Nuevo: Temperature slider** (0.0 - 1.0)
+  - **Nuevo: Team selector** — asignar a equipo existente o crear nuevo
+  - **Nuevo: Parent agent** — dropdown para seleccionar jefe/team lead
+  - **Nuevo: Tier** — worker / team_lead / manager
+  - **Nuevo: Capabilities** — multi-select de qué puede hacer
+  - **Nuevo: Objectives** — textarea para OKRs/metas
 
-### 8.3 — Workflows: chained agent pipelines
-**Problema:** No hay forma de definir Sofía → Juanse → Sofía (review) automáticamente.
-**Solución:** Usar A2A `contextId` threading:
-- [ ] Nueva tabla: `agent_workflows` (id, org_id, name, steps JSONB, status)
-- [ ] Nueva tabla: `agent_workflow_runs` (id, workflow_id, current_step, status, results JSONB)
-- [ ] Edge function `agent-workflow`: CRUD + execute
-- [ ] Cada paso es un A2A `message/send` al agente correspondiente
-- [ ] Resultado de un paso se pasa como contexto al siguiente via `contextId`
-- [ ] Chief tool: `iniciar_workflow`, `ver_workflows`
-- [ ] Ejemplo workflow: "UX Review" = Sofía(research) → Sofía(spec) → Juanse(implement) → Sofía(review) → Juanse(fix)
+- [ ] **1.3** Página `AgentDetail.tsx` — tabs mejorados
+  - **Tab Overview** mejorado:
+    - Card de modelo + configuración LLM (editable inline)
+    - Card de jerarquía: quién es su jefe, quiénes son sus reportes
+    - Card de objetivos/OKRs con progreso
+    - Card de métricas recientes (tasks done, success rate, tokens used)
+  - **Tab nuevo: Workload**
+    - Backlog del agente (tareas asignadas + pendientes)
+    - Drag & drop para reordenar prioridad
+    - Botón para asignar nueva tarea manualmente
+    - Timeline visual de tareas completadas
+  - **Tab nuevo: Performance**
+    - Gráficas: tasks/semana, success rate, avg time, cost
+    - Comparación con otros agentes del mismo equipo
+  - **Tab Config** mejorado:
+    - Soul.md editor (ya existe)
+    - Model config (modelo, temperature, max_tokens)
+    - Budget limits (max tokens/día, max cost/mes)
+    - Capabilities checkboxes
 
-### 8.4 — Inter-agent permissions
-**Problema:** Cualquier agente puede hablar con cualquier otro.
-**Solución:**
-- [ ] Nueva tabla: `agent_permissions` (from_agent_id, to_agent_id, permission_type)
-- [ ] Default: allow all dentro de la misma org
-- [ ] A2A server verifica permiso antes de procesar `message/send`
-- [ ] Admin puede restringir via dashboard o Chief command
+- [ ] **1.4** Componente: **Team Hierarchy Builder**
+  - Vista visual tipo org chart (React Flow o similar)
+  - Drag & drop para mover agentes entre equipos
+  - Click en línea de conexión para cambiar reporting
+  - Crear nuevo equipo desde el canvas
+  - Cada nodo muestra: nombre, rol, status, modelo, workload count
 
 ---
 
-## Qué se elimina con A2A
-- `pgmq-consumer.js` — reemplazado por A2A server (Express)
-- `send-to-agent.sh` / `read-messages.sh` — reemplazados por `a2a-send.js`
-- Binary lock / `activeTask` — no existe en A2A (HTTP stateless)
-- pgmq como transporte — se mantiene SOLO como audit trail
+## FASE 2 — Backend: Event Loop v2 + Task Engine
+> El cerebro que hace que los agentes trabajen como empleados.
 
-## Referencias técnicas
-- A2A Protocol Spec: https://a2a-protocol.org/latest/specification/
-- @a2a-js/sdk: https://github.com/a2aproject/a2a-js (v0.3.13, Apache 2.0)
-- Agent Card schema: protocolVersion, name, url, skills, capabilities, securitySchemes
-- Task states: submitted → working → completed/failed/canceled
-- JSON-RPC methods: message/send, message/stream, tasks/get, tasks/cancel
-- Auth: Bearer token via HTTP header
-- CrewAI A2A: https://docs.crewai.com/en/learn/a2a-agent-delegation
-- OpenClaw A2A plugin: https://github.com/win4r/openclaw-a2a-gateway
+- [ ] **2.1** Event loop v2 — reescribir el ciclo SENSE→THINK→ACT→REFLECT
+  - **SENSE**: Además de blackboard, ahora consulta `agent_tasks_v2` con capabilities match
+  - **CLAIM**: Usa `claim_task_v2` (FOR UPDATE SKIP LOCKED) en vez de PATCH
+  - **EXECUTE**: Respeta token budget, timeout por tarea, step count cap
+  - **CHECK-IN**: Cada N tareas completadas → genera resumen → inserta en `agent_checkins`
+  - **REFLECT**: Actualiza `availability`, métricas, heartbeat
+  - **AUTO-PAUSE**: Si 5 idles consecutivos + tiene proyecto activo → pause + notify WhatsApp
 
-## Archivos clave del proyecto (contexto para el implementador)
-- `openclaw/agent-template/` — Dockerfile, startup.sh, server.js, pgmq.js, pgmq-consumer.js, openclaw.json, workspace/
-- `openclaw/bridge/server.js` — Chief bridge (~2100 líneas), tools: delegar_tarea (L1122), consultar_agente (L1209), desplegar_agente (L1530)
-- `openclaw-dev/` — Juanse: Dockerfile, startup-openclaw.sh, src/bot.ts, workspace/
-- `supabase/migrations/076_pgmq_agent_queues.sql` — pgmq setup
-- Memory files: `~/.claude/projects/.../memory/project_openclaw_migration.md`
+- [ ] **2.2** Task decomposition engine
+  - Chief recibe objetivo (ej: "Mejorar la UX de toda la plataforma")
+  - Descompone en tareas con dependencias (DAG)
+  - Asigna `task_type` y `capabilities` requeridas
+  - Asigna prioridades (0=crítica, 100=baja)
+  - Inserta en `agent_tasks_v2` como `ready`
+  - Agentes las reclaman automáticamente según sus capabilities
+
+- [ ] **2.3** Dependency resolution automática
+  - Cuando tarea se completa → check si desbloquea otras tareas
+  - Tareas desbloqueadas pasan de `backlog` a `ready`
+  - Detección de deadlocks con query recursiva (DAG cycle detection)
+
+- [ ] **2.4** Check-in engine
+  - Configurable: cada N tareas, o al completar fase de proyecto
+  - Genera resumen vía LLM (barato, Haiku): qué hizo, qué sigue, si necesita input
+  - Si `needs_approval=true` → pausa y espera respuesta vía WhatsApp
+  - Timeout configurable → fallback action (continuar, pausar, escalar)
+
+- [ ] **2.5** Model tiering en el event loop
+  - Lee `model` de la tabla `agents` para cada agente
+  - Routing decisions → Haiku (barato, rápido)
+  - Task execution → el modelo configurado del agente
+  - Planning/decomposition → Opus (caro, inteligente)
+
+---
+
+## FASE 3 — Bridge + Chief: Smart Orchestration
+> Chief se vuelve un manager inteligente, no solo un router.
+
+- [ ] **3.1** Bridge: contexto de equipo en cada mensaje
+  - Antes de forward a Chief, query: proyectos activos/pausados, agentes disponibles, check-ins pendientes
+  - Inyectar como contexto del sistema
+
+- [ ] **3.2** Chief: nuevas tools para workforce management
+  - `ver_equipo` — org chart, quién está libre, workload
+  - `asignar_objetivo` — crea objetivo + descompone + asigna
+  - `reasignar_tarea` — mueve tarea de un agente a otro
+  - `pausar_proyecto` / `reactivar_proyecto`
+  - `aprobar_checkin` — responde a check-in de un agente
+  - `ver_rendimiento` — métricas de un agente o equipo
+  - `cambiar_modelo` — cambia el modelo de un agente
+  - `crear_equipo` — crea equipo con team lead + workers
+  - `standup` — genera resumen de todo el equipo
+
+- [ ] **3.3** Chief: detección inteligente de intención
+  - "Ponlos a trabajar en X" → `asignar_objetivo`
+  - "¿Qué están haciendo?" → `ver_equipo`
+  - "Continuar" → reactivar proyecto pausado
+  - "Sofi está libre?" → `ver_equipo` filtrado
+  - "Cambia a Sofi a Opus" → `cambiar_modelo`
+
+- [ ] **3.4** WhatsApp standup automático (cron diario)
+  - Genera resumen de todo el equipo vía `agent_standup` view
+  - Envía por WhatsApp: quién hizo qué, quién está libre, check-ins pendientes
+
+---
+
+## FASE 4 — Dashboard: Mission Control v2
+
+- [ ] **4.1** Mission Control mejorado
+  - Org chart en vivo con jerarquía real
+  - Panel de métricas (tasks done, success rate, tokens, cost)
+  - Activity feed con filtros y check-ins inline
+
+- [ ] **4.2** Kanban board de tareas
+  - Columnas: Backlog → Ready → In Progress → Review → Done
+  - Drag & drop, filtros por agente/equipo/prioridad
+
+- [ ] **4.3** Performance dashboard
+  - Métricas por agente, comparación, trends, alertas
+
+---
+
+## FASE 5 — Scaling & Production
+
+- [ ] **5.1** Team lead agents automáticos (cuando equipo > 4 workers)
+- [ ] **5.2** Auto-scaling de Railway containers
+- [ ] **5.3** Cost optimization (model tiering automático + budgets)
+- [ ] **5.4** Audit trail completo e inmutable
+
+---
+
+## Orden de implementación
+
+```
+Semana 1-2: FASE 0 (DB) + FASE 1.1-1.2 (UI config básica)
+Semana 3-4: FASE 2.1-2.3 (event loop v2 + task engine)
+Semana 5:   FASE 3.1-3.2 (bridge + Chief tools)
+Semana 6:   FASE 1.3-1.4 (UI avanzada + hierarchy builder)
+Semana 7:   FASE 2.4-2.5 (check-ins + model tiering)
+Semana 8:   FASE 3.3-3.4 (Chief inteligente + standup)
+Semana 9:   FASE 4 (Mission Control v2)
+Semana 10:  FASE 5 (scaling)
+```
+
+## Principios
+
+1. **Dual-interface**: Todo configurable desde dashboard Y WhatsApp
+2. **Graceful degradation**: Si un agente falla, el sistema sigue
+3. **Observable**: Toda acción visible en Mission Control en tiempo real
+4. **Affordable**: Model tiering + budgets + auto-scaling
+5. **Scalable**: Equipos de 3-5 con team leads, no grupos planos
+
+---
+
+## Review
+- [ ] Plan revisado y aprobado

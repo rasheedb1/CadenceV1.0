@@ -96,6 +96,9 @@ function App() {
                 <Route path="/invite/:token" element={<AcceptInvite />} />
                 <Route path="/" element={<AppLauncher />} />
                 <Route path="/mission-control" element={<MissionControl />} />
+                {/* Agents — standalone app (not inside Chief Outreach) */}
+                <Route path="/agents" element={<Agents />} />
+                <Route path="/agents/:id" element={<AgentDetail />} />
                 <Route element={<MainLayout />}>
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/cadences" element={<FeatureRoute flag="section_cadences"><Cadences /></FeatureRoute>} />
@@ -120,8 +123,6 @@ function App() {
                   <Route path="/account-executive/:id" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><AccountExecutiveDetail /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/account-executive/calendar" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><AccountExecutiveCalendar /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/lead-search" element={<FeatureRoute flag="section_lead_search"><LeadSearch /></FeatureRoute>} />
-                  <Route path="/agents" element={<FeatureRoute flag="section_agents"><Agents /></FeatureRoute>} />
-                  <Route path="/agents/:id" element={<FeatureRoute flag="section_agents"><AgentDetail /></FeatureRoute>} />
                   <Route path="/leads" element={<FeatureRoute flag="section_leads"><Leads /></FeatureRoute>} />
                   <Route path="/inbox" element={<FeatureRoute flag="section_linkedin_inbox"><LinkedInInbox /></FeatureRoute>} />
                   <Route path="/templates" element={<FeatureRoute flag="section_templates"><Templates /></FeatureRoute>} />

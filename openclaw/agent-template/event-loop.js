@@ -1,15 +1,19 @@
 /**
- * Agent Event Loop — Proactive autonomous work cycle
+ * Agent Event Loop v2 — AI Workforce Engine
  *
- * Runs alongside the A2A server via setInterval. Every tick:
+ * Runs alongside the A2A server via setTimeout. Every tick:
  *   SENSE → THINK → ACT → REFLECT
  *
- * Adaptive interval: 30s when busy, up to 5min when idle.
- * Shares a mutex lock with the A2A server to avoid concurrent LLM calls.
+ * v2 changes:
+ * - Queries agent_tasks_v2 with capabilities matching
+ * - Atomic task claiming via claim_task_v2 RPC (FOR UPDATE SKIP LOCKED)
+ * - Check-in engine: every N completed tasks → summary to agent_checkins
+ * - Auto-pause: 5 consecutive idles → pause active projects + WhatsApp notify
+ * - Model tiering: reads model config from agents table
+ * - Updates agent availability in agents table
  */
 
 const { execFile } = require("child_process");
-const { randomUUID } = require("crypto");
 
 // --- Config from env ---
 const AGENT_ID = process.env.AGENT_ID || "";
@@ -23,11 +27,14 @@ const MIN_INTERVAL = 30000;    // 30s when busy
 const MAX_INTERVAL = 300000;   // 5min when idle
 const DEFAULT_INTERVAL = 60000; // 1min default
 const STALL_WINDOW = 3;
+const IDLE_PAUSE_THRESHOLD = 5;        // consecutive idles before auto-pause
+const CHECKIN_EVERY_N_TASKS = 3;       // generate check-in every N completed tasks
+const CALLBACK_URL = "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback";
 
 // --- Circuit breaker for agent-to-agent messaging ---
-const messageCounts = {}; // { agentName: { count: N, resetAt: timestamp } }
+const messageCounts = {};
 const MSG_CIRCUIT_LIMIT = 10;
-const MSG_CIRCUIT_WINDOW = 5 * 60 * 1000; // 5 minutes
+const MSG_CIRCUIT_WINDOW = 5 * 60 * 1000;
 
 // --- State ---
 const state = {
@@ -41,10 +48,13 @@ const state = {
   timer: null,
   budget: { tokens: 0, cost: 0, iterations: 0 },
   maxIterations: parseInt(process.env.EVENT_LOOP_MAX_ITERATIONS || "200", 10),
-  recentActions: [], // last N (action, taskId) for stall detection
+  recentActions: [],
   lastSenseTime: null,
-  budgetFromDB: null,       // cached budget row from agent_budgets
-  consecutiveErrors: 0,     // track consecutive tick errors for error recovery
+  budgetFromDB: null,
+  consecutiveErrors: 0,
+  // v2 additions
+  agentConfig: null,           // cached agent row (model, capabilities, tier, etc.)
+  tasksCompletedSinceCheckin: 0,
 };
 
 const sbHeaders = {
@@ -53,20 +63,11 @@ const sbHeaders = {
   apikey: SB_KEY,
 };
 
-// --- Supabase REST helper ---
+// --- Supabase REST helpers ---
 async function sbGet(path) {
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: sbHeaders });
   if (!res.ok) return [];
   return res.json();
-}
-
-async function sbPost(path, body) {
-  const res = await fetch(`${SB_URL}/${path}`, {
-    method: "POST",
-    headers: { ...sbHeaders, Prefer: "return=minimal" },
-    body: JSON.stringify(body),
-  });
-  return res;
 }
 
 async function sbPatch(path, body) {
@@ -78,8 +79,18 @@ async function sbPatch(path, body) {
   return res;
 }
 
+async function sbRpc(fnName, body) {
+  const res = await fetch(`${SB_URL}/rest/v1/rpc/${fnName}`, {
+    method: "POST",
+    headers: sbHeaders,
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
 // ============================================================
-// SENSE — gather context from DB
+// SENSE — gather context from DB (v2: agent_tasks_v2 + agent config)
 // ============================================================
 async function sense() {
   if (!SB_URL || !SB_KEY || !AGENT_ID) return {};
@@ -88,39 +99,66 @@ async function sense() {
   const now = new Date().toISOString();
   state.lastSenseTime = now;
 
-  const [inbox, myTasks, availableTasks, budget, heartbeats] = await Promise.all([
+  // Load agent config every 10 iterations (model, capabilities, tier)
+  if (!state.agentConfig || state.iteration % 10 === 0) {
+    const agentRows = await sbGet(
+      `agents?id=eq.${AGENT_ID}&select=model,capabilities,tier,team,availability,temperature,max_tokens`
+    ).catch(() => []);
+    state.agentConfig = Array.isArray(agentRows) && agentRows[0] ? agentRows[0] : null;
+  }
+
+  const capabilities = state.agentConfig?.capabilities || [];
+
+  const [inbox, myTasksV2, availableTasksV2, myTasksLegacy, availableTasksLegacy, budget, heartbeats] = await Promise.all([
     // 1. Inbox messages (recent, to me)
     sbGet(
       `agent_messages?to_agent_id=eq.${AGENT_ID}&created_at=gt.${since}&order=created_at.desc&limit=5&select=from_agent_id,content,created_at`
     ).catch(() => []),
 
-    // 2. My assigned tasks on the blackboard
+    // 2. My assigned tasks on agent_tasks_v2
+    sbGet(
+      `agent_tasks_v2?assigned_agent_id=eq.${AGENT_ID}&status=in.(claimed,in_progress)&order=priority.asc&limit=5&select=id,title,description,task_type,status,priority`
+    ).catch(() => []),
+
+    // 3. Available v2 tasks I could claim (capabilities match done in claim_task_v2 RPC)
+    sbGet(
+      `agent_tasks_v2?status=eq.ready&assigned_agent_id=is.null&org_id=eq.${ORG_ID}&order=priority.asc&limit=5&select=id,title,description,task_type,priority,required_capabilities`
+    ).catch(() => []),
+
+    // 4. My assigned tasks on legacy blackboard (backward compat)
     sbGet(
       `project_board?assignee_agent_id=eq.${AGENT_ID}&status=in.(claimed,working)&order=priority.desc&limit=5&select=id,title,content,status,priority`
     ).catch(() => []),
 
-    // 3. Available tasks I could claim
+    // 5. Available legacy tasks
     sbGet(
       `project_board?status=eq.available&entry_type=eq.task&org_id=eq.${ORG_ID}&order=priority.desc&limit=5&select=id,title,content,priority`
     ).catch(() => []),
 
-    // 4. My budget
+    // 6. My budget
     sbGet(
       `agent_budgets?agent_id=eq.${AGENT_ID}&limit=1&select=tokens_used,max_tokens,cost_usd,max_cost_usd,iterations_used,max_iterations`
     ).catch(() => []),
 
-    // 5. Who's online
+    // 7. Who's online
     sbGet(
       `agent_heartbeats?last_seen=gt.${new Date(Date.now() - 300000).toISOString()}&select=agent_id,status,current_task`
     ).catch(() => []),
   ]);
 
+  // Merge v2 + legacy tasks
+  const safe = (arr) => Array.isArray(arr) ? arr : [];
+  const myTasks = [...safe(myTasksV2), ...safe(myTasksLegacy)];
+  const availableTasks = [...safe(availableTasksV2), ...safe(availableTasksLegacy)];
+
   return {
-    inbox: Array.isArray(inbox) ? inbox : [],
-    myTasks: Array.isArray(myTasks) ? myTasks : [],
-    availableTasks: Array.isArray(availableTasks) ? availableTasks : [],
+    inbox: safe(inbox),
+    myTasks,
+    availableTasks,
     budget: Array.isArray(budget) && budget[0] ? budget[0] : null,
-    onlineAgents: Array.isArray(heartbeats) ? heartbeats : [],
+    onlineAgents: safe(heartbeats),
+    capabilities,
+    isV2Available: safe(availableTasksV2).length > 0,
   };
 }
 
@@ -128,21 +166,23 @@ async function sense() {
 // THINK — ask LLM what to do next
 // ============================================================
 function think(context) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const budgetStr = context.budget
       ? `${context.budget.tokens_used || 0}/${context.budget.max_tokens || "∞"} tokens, $${context.budget.cost_usd || 0}/${context.budget.max_cost_usd || "∞"}`
       : "No budget tracking";
 
-    // Format tasks with their content/description
     const fmtTask = (t) => {
-      const desc = typeof t.content === "object" ? (t.content.description || JSON.stringify(t.content)) : (t.content || "");
-      return `- [${t.id}] ${t.title} (pri=${t.priority}) — ${desc.substring(0, 150)}`;
+      const desc = typeof t.content === "object"
+        ? (t.content?.description || JSON.stringify(t.content))
+        : (t.description || t.content || "");
+      return `- [${t.id}] ${t.title} (pri=${t.priority}, type=${t.task_type || "general"}) — ${(desc || "").substring(0, 150)}`;
     };
 
     const prompt = `SYSTEM: You are an autonomous AI agent. Return ONLY a JSON object, no other text.
 
 CONTEXT:
 - Name: ${AGENT_NAME}, Role: ${AGENT_ROLE}
+- Capabilities: ${(context.capabilities || []).join(", ") || "general"}
 - Loop iteration: ${state.iteration}
 - Budget: ${budgetStr}
 
@@ -186,11 +226,9 @@ RULES:
           return resolve({ action: "idle", reasoning: "LLM call failed", params: {} });
         }
         const raw = (stdout || "").trim();
-        // Estimate tokens for budget tracking (~4 chars/token)
         state.budget.tokens += Math.ceil((prompt.length + raw.length) / 4);
         state.budget.iterations++;
 
-        // Extract JSON from response (may be wrapped in markdown)
         const jsonMatch = raw.match(/\{[\s\S]*\}/);
         if (!jsonMatch) {
           console.warn("[event-loop] THINK: no JSON in response:", raw.substring(0, 150));
@@ -207,7 +245,7 @@ RULES:
   });
 }
 
-// --- Log action to agent_activity_events (visible in Mission Control) ---
+// --- Log to agent_activity_events (Mission Control) ---
 async function logActivity(eventType, toolName, content) {
   if (!SB_URL || !SB_KEY || !AGENT_ID) return;
   fetch(`${SB_URL}/rest/v1/agent_activity_events`, {
@@ -221,7 +259,7 @@ async function logActivity(eventType, toolName, content) {
   }).catch(() => {});
 }
 
-// --- Log message exchange to agent_messages (visible in Mission Control) ---
+// --- Log to agent_messages ---
 async function logMessage(fromId, toId, role, content, metadata = {}) {
   if (!SB_URL || !SB_KEY) return;
   fetch(`${SB_URL}/rest/v1/agent_messages`, {
@@ -235,55 +273,107 @@ async function logMessage(fromId, toId, role, content, metadata = {}) {
 }
 
 // ============================================================
-// ACT — execute the decision
+// ACT — execute the decision (v2: atomic claiming + v2 task ops)
 // ============================================================
-async function act(decision) {
+async function act(decision, context) {
   const { action, params = {} } = decision;
   console.log(`[event-loop] ACT: ${action} — ${decision.reasoning || ""}`);
 
-  // Log every non-idle action to Mission Control
   if (action !== "idle") {
     logActivity("event_loop_action", action, `${decision.reasoning || ""} | ${JSON.stringify(params).substring(0, 200)}`);
   }
 
   switch (action) {
-    case "work_on_task": {
-      if (!params.task_id || !params.instruction) break;
-      await sbPatch(`project_board?id=eq.${params.task_id}`, { status: "working" });
-      const result = await callGateway(params.instruction, `task-${params.task_id}`);
-      console.log(`[event-loop] Task ${params.task_id} result: ${(result || "").substring(0, 100)}`);
-      logActivity("task_result", "work_on_task", `Task: ${params.task_id} | Result: ${(result || "").substring(0, 300)}`);
-      return result;
-    }
-
     case "claim_task": {
       if (!params.task_id) break;
-      // Use PATCH to blackboard edge function for atomic claim
+
+      // Try v2 atomic claim first
+      if (context?.isV2Available) {
+        const capabilities = state.agentConfig?.capabilities || [];
+        const claimed = await sbRpc("claim_task_v2", {
+          p_org_id: ORG_ID,
+          p_agent_id: AGENT_ID,
+          p_capabilities: capabilities,
+        });
+        if (claimed && Array.isArray(claimed) && claimed.length > 0) {
+          console.log(`[event-loop] Claimed v2 task: ${claimed[0].id} — ${claimed[0].title}`);
+          return "claimed_v2";
+        }
+      }
+
+      // Fallback: legacy blackboard claim
       const claimRes = await fetch(`${SB_URL}/functions/v1/blackboard`, {
         method: "PATCH",
         headers: sbHeaders,
         body: JSON.stringify({ entry_id: params.task_id, action: "claim", agent_id: AGENT_ID }),
       });
       const claimData = await claimRes.json().catch(() => ({}));
-      console.log(`[event-loop] Claimed task ${params.task_id}: ${claimData.entry?.status || "failed"}`);
+      console.log(`[event-loop] Claimed legacy task ${params.task_id}: ${claimData.entry?.status || "failed"}`);
       return claimData.entry?.status === "claimed" ? "claimed" : "claim_failed";
+    }
+
+    case "work_on_task": {
+      if (!params.task_id || !params.instruction) break;
+
+      // Check if v2 task
+      const isV2 = await sbGet(`agent_tasks_v2?id=eq.${params.task_id}&select=id`).catch(() => []);
+      if (Array.isArray(isV2) && isV2.length > 0) {
+        // Update v2 task status
+        await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
+          status: "in_progress", started_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        });
+      } else {
+        // Legacy blackboard
+        await sbPatch(`project_board?id=eq.${params.task_id}`, { status: "working" });
+      }
+
+      const result = await callGateway(params.instruction, `task-${params.task_id}`);
+      console.log(`[event-loop] Task ${params.task_id} result: ${(result || "").substring(0, 100)}`);
+      logActivity("task_result", "work_on_task", `Task: ${params.task_id} | Result: ${(result || "").substring(0, 300)}`);
+      return result;
+    }
+
+    case "complete_task": {
+      if (!params.task_id) break;
+
+      // Check if v2 task
+      const isV2c = await sbGet(`agent_tasks_v2?id=eq.${params.task_id}&select=id`).catch(() => []);
+      if (Array.isArray(isV2c) && isV2c.length > 0) {
+        await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
+          status: "done",
+          completed_at: new Date().toISOString(),
+          result: { summary: params.result_summary || "Done" },
+          tokens_used: state.budget.tokens,
+          updated_at: new Date().toISOString(),
+        });
+        // Dependency resolution happens via DB trigger
+        state.tasksCompletedSinceCheckin++;
+        console.log(`[event-loop] Completed v2 task ${params.task_id} (${state.tasksCompletedSinceCheckin} since last check-in)`);
+      } else {
+        // Legacy blackboard
+        await fetch(`${SB_URL}/functions/v1/blackboard`, {
+          method: "PATCH",
+          headers: sbHeaders,
+          body: JSON.stringify({ entry_id: params.task_id, action: "complete", result: params.result_summary || "Done" }),
+        });
+        state.tasksCompletedSinceCheckin++;
+      }
+      return "completed";
     }
 
     case "send_message": {
       if (!params.to_agent || !params.message) break;
-      // --- Circuit breaker: max 10 msgs to same agent in 5min ---
       const now = Date.now();
       const mc = messageCounts[params.to_agent];
       if (mc && mc.resetAt > now) {
         if (mc.count >= MSG_CIRCUIT_LIMIT) {
-          console.warn(`[event-loop] Circuit breaker: ${mc.count} msgs to ${params.to_agent} in 5min, skipping`);
+          console.warn(`[event-loop] Circuit breaker: ${mc.count} msgs to ${params.to_agent}, skipping`);
           return "circuit_breaker";
         }
         mc.count++;
       } else {
         messageCounts[params.to_agent] = { count: 1, resetAt: now + MSG_CIRCUIT_WINDOW };
       }
-      // Log outgoing message (visible in Mission Control)
       logMessage(AGENT_ID, null, "user", `→ ${params.to_agent}: ${params.message.substring(0, 3000)}`, { a2a_direct: true, to_agent_name: params.to_agent });
       return new Promise((resolve) => {
         execFile(
@@ -310,17 +400,6 @@ async function act(decision) {
       return "posted";
     }
 
-    case "complete_task": {
-      if (!params.task_id) break;
-      await fetch(`${SB_URL}/functions/v1/blackboard`, {
-        method: "PATCH",
-        headers: sbHeaders,
-        body: JSON.stringify({ entry_id: params.task_id, action: "complete", result: params.result_summary || "Done" }),
-      });
-      console.log(`[event-loop] Completed task ${params.task_id}`);
-      return "completed";
-    }
-
     case "idle":
     default:
       return null;
@@ -328,9 +407,9 @@ async function act(decision) {
   return null;
 }
 
-// --- Call OpenClaw gateway (same pattern as a2a-server.js) ---
+// --- Call OpenClaw gateway ---
 function callGateway(message, sessionKey = "event-loop") {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     execFile(
       "node",
       [
@@ -341,7 +420,7 @@ function callGateway(message, sessionKey = "event-loop") {
         "--timeout", "300",
       ],
       { cwd: "/app", timeout: 300000, env: { ...process.env, HOME: "/home/node" } },
-      (error, stdout, stderr) => {
+      (error, stdout) => {
         if (error) {
           console.error("[event-loop] Gateway error:", error.message);
           return resolve(`(error: ${error.message})`);
@@ -355,7 +434,7 @@ function callGateway(message, sessionKey = "event-loop") {
 }
 
 // ============================================================
-// REFLECT — update state, heartbeat, budget, stall guard
+// REFLECT — update state, heartbeat, check-in, auto-pause
 // ============================================================
 async function reflect(decision) {
   const action = decision?.action || "idle";
@@ -372,6 +451,88 @@ async function reflect(decision) {
     state.lastActionTime = new Date().toISOString();
   }
 
+  // --- Update agent availability ---
+  if (SB_URL && SB_KEY && AGENT_ID) {
+    const newAvailability = action === "idle" ? "available" : "working";
+    sbPatch(`agents?id=eq.${AGENT_ID}`, { availability: newAvailability, updated_at: new Date().toISOString() }).catch(() => {});
+  }
+
+  // --- Auto-pause inactive projects ---
+  if (action === "idle" && state.consecutiveIdles === IDLE_PAUSE_THRESHOLD && SB_URL && SB_KEY && AGENT_ID) {
+    console.log(`[event-loop] ${IDLE_PAUSE_THRESHOLD} consecutive idles — auto-pausing active projects`);
+    try {
+      const activeProjects = await sbGet(
+        `agent_projects?status=eq.active&assigned_agents=cs.{${AGENT_ID}}&select=id,name`
+      ).catch(() => []);
+      for (const proj of (Array.isArray(activeProjects) ? activeProjects : [])) {
+        console.warn(`[event-loop] Auto-pausing project "${proj.name}" (${proj.id})`);
+        await sbPatch(`agent_projects?id=eq.${proj.id}`, { status: "paused", updated_at: new Date().toISOString() });
+        fetch(CALLBACK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            agent_name: AGENT_NAME,
+            result: { text: `⏸️ Proyecto "${proj.name}" pausado — ${AGENT_NAME} no tiene más tareas. Envía un mensaje para reactivar.` },
+            whatsapp_number: null,
+          }),
+        }).catch(() => {});
+      }
+    } catch (err) {
+      console.error("[event-loop] Auto-pause error:", err.message);
+    }
+  }
+
+  // --- Check-in engine: every N completed tasks → generate summary ---
+  if (state.tasksCompletedSinceCheckin >= CHECKIN_EVERY_N_TASKS && SB_URL && SB_KEY && AGENT_ID) {
+    console.log(`[event-loop] Check-in: ${state.tasksCompletedSinceCheckin} tasks completed, generating summary`);
+    state.tasksCompletedSinceCheckin = 0;
+    try {
+      // Get recently completed tasks for the summary
+      const recentDone = await sbGet(
+        `agent_tasks_v2?assigned_agent_id=eq.${AGENT_ID}&status=eq.done&order=completed_at.desc&limit=${CHECKIN_EVERY_N_TASKS}&select=title,result`
+      ).catch(() => []);
+      const taskNames = (Array.isArray(recentDone) ? recentDone : []).map(t => t.title).join(", ");
+
+      // Get pending tasks count
+      const pending = await sbGet(
+        `agent_tasks_v2?assigned_agent_id=eq.${AGENT_ID}&status=in.(ready,backlog)&select=id`
+      ).catch(() => []);
+      const pendingCount = Array.isArray(pending) ? pending.length : 0;
+
+      const summary = `Completé ${CHECKIN_EVERY_N_TASKS} tareas: ${taskNames || "varias"}. ${pendingCount > 0 ? `Tengo ${pendingCount} más en mi backlog.` : "Mi backlog está vacío."}`;
+
+      await fetch(`${SB_URL}/rest/v1/agent_checkins`, {
+        method: "POST",
+        headers: { ...sbHeaders, Prefer: "return=minimal" },
+        body: JSON.stringify({
+          org_id: ORG_ID,
+          agent_id: AGENT_ID,
+          checkin_type: "standup",
+          summary,
+          next_steps: pendingCount > 0 ? "Continuar con las siguientes tareas del backlog" : "Esperando nuevas tareas",
+          needs_approval: pendingCount === 0,
+          fallback_action: "continue",
+          expires_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
+        }),
+      });
+
+      // Notify via WhatsApp
+      fetch(CALLBACK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_name: AGENT_NAME,
+          result: { text: `📋 Check-in de ${AGENT_NAME}: ${summary}` },
+          whatsapp_number: null,
+        }),
+      }).catch(() => {});
+
+      logActivity("checkin", "standup", summary);
+    } catch (err) {
+      console.error("[event-loop] Check-in error:", err.message);
+    }
+  }
+
   // --- Stall detection ---
   state.recentActions.push({ action, taskId });
   if (state.recentActions.length > STALL_WINDOW) state.recentActions.shift();
@@ -384,15 +545,13 @@ async function reflect(decision) {
       console.warn(`[event-loop] STALL detected: repeated ${action} on ${taskId} — forcing idle`);
       state.interval = MAX_INTERVAL;
       state.recentActions = [];
-
-      // --- Human escalation via WhatsApp ---
-      fetch("https://twilio-bridge-production-241b.up.railway.app/api/agent-callback", {
+      fetch(CALLBACK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           agent_name: AGENT_NAME,
           result: { text: `⚠️ ${AGENT_NAME} está trabado en: ${action} on ${taskId}. Necesita ayuda.` },
-          whatsapp_number: null, // bridge will look up from org
+          whatsapp_number: null,
         }),
       }).catch(() => {});
     }
@@ -400,22 +559,20 @@ async function reflect(decision) {
 
   // --- Heartbeat ---
   if (SB_URL && SB_KEY && AGENT_ID) {
-    const heartbeat = {
-      agent_id: AGENT_ID,
-      status: action === "idle" ? "idle" : "working",
-      current_task: action === "idle" ? null : (taskId || action),
-      last_seen: new Date().toISOString(),
-      loop_iteration: state.iteration,
-    };
-    // Upsert via POST with on-conflict
     await fetch(`${SB_URL}/rest/v1/agent_heartbeats`, {
       method: "POST",
       headers: { ...sbHeaders, Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify(heartbeat),
+      body: JSON.stringify({
+        agent_id: AGENT_ID,
+        status: action === "idle" ? "idle" : "working",
+        current_task: action === "idle" ? null : (taskId || action),
+        last_seen: new Date().toISOString(),
+        loop_iteration: state.iteration,
+      }),
     }).catch(() => {});
   }
 
-  // --- Sync budget to DB (after every non-idle action) ---
+  // --- Sync budget ---
   if (action !== "idle" && SB_URL && SB_KEY && AGENT_ID) {
     await fetch(`${SB_URL}/rest/v1/agent_budgets`, {
       method: "POST",
@@ -430,7 +587,6 @@ async function reflect(decision) {
     }).catch(() => {});
   }
 
-  // Reschedule
   reschedule();
 }
 
@@ -440,7 +596,7 @@ async function reflect(decision) {
 async function tick() {
   if (!state.running) return;
   if (state.busy) {
-    console.log("[event-loop] Skipping tick — busy (A2A request in progress)");
+    console.log("[event-loop] Skipping tick — busy");
     reschedule();
     return;
   }
@@ -448,40 +604,32 @@ async function tick() {
   state.iteration++;
   console.log(`[event-loop] === Tick #${state.iteration} (interval=${Math.round(state.interval / 1000)}s) ===`);
 
-  // Budget guard
   if (state.iteration > state.maxIterations) {
     console.warn("[event-loop] Max iterations reached, stopping.");
     stop();
     return;
   }
 
-  // --- Cost budget enforcement (cached, refresh every 10 iterations) ---
+  // Budget enforcement (cached, refresh every 10 iterations)
   if (SB_URL && SB_KEY && AGENT_ID && (state.iteration % 10 === 0 || !state.budgetFromDB)) {
     const budgetRows = await sbGet(`agent_budgets?agent_id=eq.${AGENT_ID}&limit=1`).catch(() => []);
     state.budgetFromDB = Array.isArray(budgetRows) && budgetRows[0] ? budgetRows[0] : null;
   }
   if (state.budgetFromDB) {
     const b = state.budgetFromDB;
-    if ((b.iterations_used || 0) >= (b.max_iterations || 200)) {
-      console.warn("[event-loop] Budget: max iterations reached, stopping");
-      stop();
-      return;
-    }
-    if ((b.cost_usd || 0) >= (b.max_cost_usd || 10)) {
-      console.warn("[event-loop] Budget: max cost reached, stopping");
-      stop();
-      return;
-    }
+    if ((b.iterations_used || 0) >= (b.max_iterations || 200)) { console.warn("[event-loop] Budget: max iterations"); stop(); return; }
+    if ((b.cost_usd || 0) >= (b.max_cost_usd || 10)) { console.warn("[event-loop] Budget: max cost"); stop(); return; }
   }
 
   state.busy = true;
   let decision = { action: "idle", reasoning: "default", params: {} };
   let tickError = false;
+  let context = {};
 
   try {
-    const context = await sense();
+    context = await sense();
     decision = await think(context);
-    await act(decision);
+    await act(decision, context);
   } catch (err) {
     console.error("[event-loop] Tick error:", err.message);
     tickError = true;
@@ -489,7 +637,7 @@ async function tick() {
     state.busy = false;
   }
 
-  // --- Error recovery: 3 consecutive errors → pause 10min ---
+  // Error recovery: 3 consecutive errors → pause 10min
   if (tickError && decision.action !== "idle") {
     state.consecutiveErrors++;
   } else {
@@ -497,7 +645,7 @@ async function tick() {
   }
   if (state.consecutiveErrors >= 3) {
     console.error("[event-loop] 3 consecutive errors, pausing 10min");
-    state.interval = 600000; // 10 min
+    state.interval = 600000;
     state.consecutiveErrors = 0;
   }
 
@@ -520,44 +668,33 @@ function start() {
     console.warn("[event-loop] No AGENT_ID set — event loop disabled");
     return;
   }
-  console.log(`[event-loop] Starting for ${AGENT_NAME} (${AGENT_ID}), interval=${DEFAULT_INTERVAL / 1000}s`);
+  console.log(`[event-loop] v2 Starting for ${AGENT_NAME} (${AGENT_ID}), interval=${DEFAULT_INTERVAL / 1000}s`);
   state.running = true;
   state.interval = DEFAULT_INTERVAL;
-  // First tick after a short delay to let the A2A server boot
   state.timer = setTimeout(tick, 5000);
 }
 
 function stop() {
   console.log("[event-loop] Stopping");
   state.running = false;
-  if (state.timer) {
-    clearTimeout(state.timer);
-    state.timer = null;
+  if (state.timer) { clearTimeout(state.timer); state.timer = null; }
+  // Mark agent as offline
+  if (SB_URL && SB_KEY && AGENT_ID) {
+    sbPatch(`agents?id=eq.${AGENT_ID}`, { availability: "offline" }).catch(() => {});
   }
 }
 
-/** A2A server calls this before processing a request */
-function acquireLock() {
-  state.busy = true;
-}
-
-/** A2A server calls this after processing a request */
-function releaseLock() {
-  state.busy = false;
-}
+function acquireLock() { state.busy = true; }
+function releaseLock() { state.busy = false; }
 
 function getState() {
   return {
-    running: state.running,
-    busy: state.busy,
-    iteration: state.iteration,
-    interval: state.interval,
-    consecutiveIdles: state.consecutiveIdles,
-    consecutiveErrors: state.consecutiveErrors,
-    lastAction: state.lastAction,
-    lastActionTime: state.lastActionTime,
-    budget: { ...state.budget },
-    budgetFromDB: state.budgetFromDB,
+    running: state.running, busy: state.busy, iteration: state.iteration,
+    interval: state.interval, consecutiveIdles: state.consecutiveIdles,
+    consecutiveErrors: state.consecutiveErrors, lastAction: state.lastAction,
+    lastActionTime: state.lastActionTime, budget: { ...state.budget },
+    budgetFromDB: state.budgetFromDB, agentConfig: state.agentConfig,
+    tasksCompletedSinceCheckin: state.tasksCompletedSinceCheckin,
   };
 }
 
