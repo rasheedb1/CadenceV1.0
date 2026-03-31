@@ -317,7 +317,7 @@ class OpenClawClient {
     const responsePromise = new Promise((resolve, reject) => {
       this.streamResolve = resolve;
 
-      // Timeout after 180s (3 min — allows complex tool calls like A2A, web_research)
+      // Timeout after 300s (5 min — allows complex multi-tool chains)
       setTimeout(() => {
         if (this.streamResolve === resolve) {
           this.streamResolve = null;
@@ -325,10 +325,10 @@ class OpenClawClient {
             resolve(this.streamText);
             this.streamText = "";
           } else {
-            reject(new Error("Response timeout (180s)"));
+            reject(new Error("Response timeout (300s)"));
           }
         }
-      }, 180000);
+      }, 300000);
     });
 
     // Send the chat message
@@ -2241,7 +2241,7 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
   }
 
   const gwSessions = new Map(); // sessionKey -> { history: [], systemPrompt: string }
-  const GW_MAX_HISTORY = 50;
+  const GW_MAX_HISTORY = 15;  // Reduced from 50 — less history = faster LLM responses
 
   async function loadUserContext(waId) {
     try {
