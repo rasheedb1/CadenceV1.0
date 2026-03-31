@@ -466,13 +466,57 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
   res.type("text/xml").send(twiml.toString());
 
   try {
+    // --- Inject team context before sending to Chief ---
+    let messageToSend = Body;
+    if (SB_KEY) {
+      try {
+        const [projRes, agentsRes, checkinsRes] = await Promise.all([
+          fetch(`${SB_URL}/rest/v1/agent_projects?status=in.(active,paused)&order=updated_at.desc&limit=3&select=id,name,status,current_iteration,updated_at`, { headers: sbHeaders() }),
+          fetch(`${SB_URL}/rest/v1/agent_standup`, { headers: sbHeaders() }),
+          fetch(`${SB_URL}/rest/v1/agent_checkins?needs_approval=eq.true&status=eq.sent&order=created_at.desc&limit=5&select=id,agent_id,summary,checkin_type,created_at`, { headers: sbHeaders() }),
+        ]);
+        const projects = projRes.ok ? await projRes.json() : [];
+        const standup = agentsRes.ok ? await agentsRes.json() : [];
+        const pendingCheckins = checkinsRes.ok ? await checkinsRes.json() : [];
+
+        const parts = [];
+        if (Array.isArray(standup) && standup.length > 0) {
+          const teamStatus = standup.map(a => {
+            const status = a.availability === 'working' ? '🔵 trabajando' : a.availability === 'blocked' ? '🔴 bloqueado' : '🟢 disponible';
+            const workload = (a.tasks_in_progress || 0) + (a.tasks_backlog || 0);
+            return `- ${a.agent_name} (${a.agent_role}, ${a.model?.split('-')[1] || 'LLM'}): ${status}, ${a.tasks_done_24h || 0} completadas hoy, ${workload} pendientes`;
+          }).join('\n');
+          parts.push(`EQUIPO:\n${teamStatus}`);
+        }
+        if (Array.isArray(projects) && projects.length > 0) {
+          const projList = projects.map(p => {
+            const ago = Math.round((Date.now() - new Date(p.updated_at).getTime()) / 60000);
+            return `- "${p.name}" (${p.status}, iter ${p.current_iteration || 0}, hace ${ago}min)`;
+          }).join('\n');
+          parts.push(`PROYECTOS:\n${projList}`);
+        }
+        if (Array.isArray(pendingCheckins) && pendingCheckins.length > 0) {
+          const names = {};
+          standup.forEach(a => { names[a.agent_id] = a.agent_name; });
+          const ckList = pendingCheckins.map(c => `- ${names[c.agent_id] || 'Agente'}: ${(c.summary || '').substring(0, 80)}`).join('\n');
+          parts.push(`CHECK-INS PENDIENTES (necesitan tu respuesta):\n${ckList}`);
+        }
+        if (parts.length > 0) {
+          messageToSend = `[CONTEXTO DEL EQUIPO]\n${parts.join('\n\n')}\n\nSi el usuario pide crear un proyecto y hay uno activo/pausado, pregunta si quiere reemplazarlo o continuar.\nSi hay check-ins pendientes, menciónalos.\n[FIN CONTEXTO]\n\n${Body}`;
+          console.log(`[in] Injected team context (${standup.length} agents, ${projects.length} projects, ${pendingCheckins.length} checkins)`);
+        }
+      } catch (ctxErr) {
+        console.error("[in] Team context injection failed:", ctxErr.message);
+      }
+    }
+
     // Ensure connected
     if (!ocClient.isReady()) {
       console.log("[oc] Not connected, reconnecting...");
       await ocClient.connect();
     }
 
-    const aiResponse = await ocClient.sendMessage(Body, WaId || From);
+    const aiResponse = await ocClient.sendMessage(messageToSend, WaId || From);
 
     if (!aiResponse || !aiResponse.trim()) {
       throw new Error("Empty response from OpenClaw");
@@ -698,6 +742,13 @@ Tienes acceso a 24+ herramientas para gestionar TODO el dashboard de Chief:
     { name: "ver_tarea_agente", description: "Consulta el estado y resultado de la última tarea de un agente. Usa cuando el usuario pregunta '¿ya terminó X?', '¿qué encontró X?', 'resultado de la tarea de X'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string" }, agent_name: { type: "string", description: "Nombre del agente" }, task_id: { type: "string", description: "ID específico de tarea (opcional)" } }, required: ["org_id"] } },
     { name: "reunion_agentes", description: "Convoca una reunión con múltiples agentes sobre un tema. Cada agente da su perspectiva según su rol. Usa cuando: 'haz una reunión con X y Y sobre...', 'quiero que X y Y discutan...', 'junta a los agentes para hablar de...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_names: { type: "array", items: { type: "string" }, description: "Nombres de los agentes a convocar" }, topic: { type: "string", description: "El tema a discutir" } }, required: ["org_id", "agent_names", "topic"] } },
     { name: "descomponer_proyecto", description: "Descompone un proyecto grande en tareas pequeñas en el blackboard. Los agentes las reclamarán automáticamente. Usa esto cuando el usuario pide algo complejo que requiere múltiples pasos.", input_schema: { type: "object", properties: { org_id: { type: "string" }, project_name: { type: "string", description: "Nombre del proyecto" }, description: { type: "string", description: "Descripción detallada de lo que se necesita" }, agent_roles: { type: "array", items: { type: "string" }, description: "Roles de los agentes disponibles (ej: ux_designer, cto)" } }, required: ["org_id", "project_name", "description"] } },
+    // --- Workforce v2 tools ---
+    { name: "ver_equipo", description: "Muestra el estado completo del equipo de agentes: quién está disponible, trabajando o bloqueado, qué tareas tienen, métricas. Usa cuando: '¿qué están haciendo?', '¿quién está libre?', 'estado del equipo', 'dashboard'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    { name: "asignar_objetivo", description: "Crea tareas en agent_tasks_v2 que los agentes reclaman automáticamente según sus capabilities. Cada tarea tiene tipo, prioridad y capabilities requeridas. Usa cuando: 'ponlos a trabajar en X', 'que alguien haga Y', 'asigna esta tarea'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, tasks: { type: "array", items: { type: "object", properties: { title: { type: "string" }, description: { type: "string" }, task_type: { type: "string", description: "Tipo: code, design, research, outreach, writing, data, ops, general" }, required_capabilities: { type: "array", items: { type: "string" }, description: "Capabilities necesarias: code, design, research, outreach, writing, data, ops, strategy" }, priority: { type: "number", description: "0=urgente, 50=normal, 100=baja" }, depends_on: { type: "array", items: { type: "string" }, description: "IDs de tareas que deben completarse primero" } }, required: ["title", "task_type"] } } }, required: ["org_id", "tasks"] } },
+    { name: "aprobar_checkin", description: "Responde a un check-in pendiente de un agente. Usa cuando el agente reportó progreso y necesita aprobación para continuar, o cuando quieres dar feedback.", input_schema: { type: "object", properties: { org_id: { type: "string" }, checkin_id: { type: "string", description: "ID del check-in (viene en el contexto)" }, action: { type: "string", enum: ["approve", "reject"], description: "Aprobar o rechazar" }, feedback: { type: "string", description: "Feedback o instrucciones para el agente" } }, required: ["org_id", "checkin_id", "action"] } },
+    { name: "standup_equipo", description: "Genera un resumen ejecutivo del equipo: tareas completadas, en progreso, bloqueadas, y check-ins pendientes. Formato WhatsApp-friendly. Usa cuando: 'standup', 'resumen', '¿qué hicieron hoy?'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    { name: "cambiar_config_agente", description: "Cambia la configuración de un agente: modelo LLM, temperatura, equipo, tier, capabilities. Usa cuando: 'cambia a Sofi a Opus', 'pon a Juanse en el equipo de ventas', 'hazlo team lead'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_name: { type: "string", description: "Nombre del agente" }, updates: { type: "object", properties: { model: { type: "string", description: "claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001" }, temperature: { type: "number" }, team: { type: "string" }, tier: { type: "string", enum: ["worker", "team_lead", "manager"] }, capabilities: { type: "array", items: { type: "string" } } } } }, required: ["org_id", "agent_name", "updates"] } },
+    { name: "pausar_reactivar_proyecto", description: "Pausa o reactiva un proyecto existente. Usa cuando: 'continuar proyecto', 'pausa el proyecto X', 'reactiva'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, project_id: { type: "string" }, action: { type: "string", enum: ["pause", "activate"] } }, required: ["org_id", "project_id", "action"] } },
   ];
 
   async function gwExecuteTool(name, args) {
@@ -1807,6 +1858,87 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
             tasks: created,
             message: `Proyecto "${project_name}" descompuesto en ${created.length} tareas. Los agentes las reclamarán automáticamente.`,
           };
+        }
+
+        // --- Workforce v2 tool implementations ---
+        case "ver_equipo": {
+          const standup = await sbFetch(`${SB_URL}/rest/v1/agent_standup`, { headers: sbHeaders() });
+          const projects = await sbFetch(`${SB_URL}/rest/v1/agent_projects?status=in.(active,paused)&order=updated_at.desc&limit=5&select=id,name,status,current_iteration,updated_at`, { headers: sbHeaders() });
+          const checkins = await sbFetch(`${SB_URL}/rest/v1/agent_checkins?needs_approval=eq.true&status=eq.sent&order=created_at.desc&limit=5&select=id,agent_id,summary,checkin_type`, { headers: sbHeaders() });
+          return {
+            success: true,
+            agents: Array.isArray(standup) ? standup.map(a => ({
+              name: a.agent_name, role: a.agent_role, team: a.team, tier: a.tier, model: a.model,
+              availability: a.availability, tasks_done_24h: a.tasks_done_24h,
+              tasks_in_progress: a.tasks_in_progress, tasks_backlog: a.tasks_backlog,
+              tasks_blocked: a.tasks_blocked, pending_checkins: a.pending_checkins,
+            })) : [],
+            projects: Array.isArray(projects) ? projects : [],
+            pending_checkins: Array.isArray(checkins) ? checkins : [],
+          };
+        }
+
+        case "asignar_objetivo": {
+          if (!args.tasks || !Array.isArray(args.tasks)) return { success: false, error: "Missing tasks array" };
+          const created = [];
+          for (const task of args.tasks) {
+            const row = {
+              org_id: args.org_id,
+              title: task.title,
+              description: task.description || null,
+              task_type: task.task_type || "general",
+              required_capabilities: task.required_capabilities || [],
+              priority: task.priority ?? 50,
+              depends_on: task.depends_on || [],
+              status: "ready",
+              created_by: "chief",
+            };
+            const res = await sbFetch(`${SB_URL}/rest/v1/agent_tasks_v2`, {
+              method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" }, body: JSON.stringify(row),
+            });
+            if (Array.isArray(res) && res[0]) created.push({ id: res[0].id, title: task.title, priority: row.priority });
+          }
+          return { success: true, tasks_created: created.length, tasks: created, message: `${created.length} tarea(s) creada(s). Los agentes las reclamarán automáticamente según sus capabilities.` };
+        }
+
+        case "aprobar_checkin": {
+          const ckStatus = args.action === "approve" ? "approved" : "rejected";
+          await sbFetch(`${SB_URL}/rest/v1/agent_checkins?id=eq.${args.checkin_id}`, {
+            method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+            body: JSON.stringify({ status: ckStatus, feedback: args.feedback || null, responded_at: new Date().toISOString() }),
+          });
+          return { success: true, checkin_id: args.checkin_id, status: ckStatus, message: `Check-in ${ckStatus}${args.feedback ? ': ' + args.feedback : ''}` };
+        }
+
+        case "standup_equipo": {
+          const su = await sbFetch(`${SB_URL}/rest/v1/agent_standup`, { headers: sbHeaders() });
+          if (!Array.isArray(su) || su.length === 0) return { success: true, message: "No hay agentes activos." };
+          const lines = su.map(a => {
+            const icon = a.availability === 'working' ? '🔵' : a.availability === 'blocked' ? '🔴' : '🟢';
+            return `${icon} *${a.agent_name}* (${a.agent_role})\n   Modelo: ${a.model?.split('-')[1] || '?'} | Equipo: ${a.team || '—'}\n   Hoy: ${a.tasks_done_24h || 0} completadas | En progreso: ${a.tasks_in_progress || 0} | Backlog: ${a.tasks_backlog || 0}${a.tasks_blocked ? ` | ⚠️ ${a.tasks_blocked} bloqueadas` : ''}${a.pending_checkins ? `\n   📋 ${a.pending_checkins} check-in(s) esperando tu respuesta` : ''}`;
+          });
+          return { success: true, standup: lines.join('\n\n'), agent_count: su.length };
+        }
+
+        case "cambiar_config_agente": {
+          // Find agent by name
+          const agentRows = await sbFetch(`${SB_URL}/rest/v1/agents?org_id=eq.${args.org_id}&name=ilike.*${args.agent_name}*&status=neq.destroyed&limit=1&select=id,name`, { headers: sbHeaders() });
+          if (!Array.isArray(agentRows) || agentRows.length === 0) return { success: false, error: `Agente "${args.agent_name}" no encontrado` };
+          const agentId = agentRows[0].id;
+          const updates = { ...args.updates, updated_at: new Date().toISOString() };
+          await sbFetch(`${SB_URL}/rest/v1/agents?id=eq.${agentId}`, {
+            method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" }, body: JSON.stringify(updates),
+          });
+          return { success: true, agent: agentRows[0].name, updates: args.updates, message: `Configuración de ${agentRows[0].name} actualizada.` };
+        }
+
+        case "pausar_reactivar_proyecto": {
+          const newStatus = args.action === "pause" ? "paused" : "active";
+          await sbFetch(`${SB_URL}/rest/v1/agent_projects?id=eq.${args.project_id}`, {
+            method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+            body: JSON.stringify({ status: newStatus, updated_at: new Date().toISOString() }),
+          });
+          return { success: true, project_id: args.project_id, status: newStatus, message: `Proyecto ${newStatus === 'paused' ? 'pausado' : 'reactivado'}.` };
         }
 
         default: return { success: false, error: `Tool desconocida: ${name}` };
