@@ -1474,18 +1474,37 @@ ${args.description ? `\n${args.description}\n` : ""}
             });
           }
 
-          await sbFetch(`${base}/rest/v1/agent_project_phases`, {
-            method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+          // Set first phase as in_progress
+          phaseRows[0].status = "in_progress";
+
+          const phaseRes = await sbFetch(`${base}/rest/v1/agent_project_phases`, {
+            method: "POST", headers: { ...sbHeaders(), Prefer: "return=representation" },
             body: JSON.stringify(phaseRows),
           });
+          const createdPhases = Array.isArray(phaseRes) ? phaseRes : [];
 
-          console.log(`[project] Created "${projName}" with ${phases.length} phases`);
+          // --- AUTO-DECOMPOSE: Generate tasks for Phase 1 ---
+          const phase1 = createdPhases.find(p => p.status === "in_progress") || createdPhases[0];
+          if (phase1?.id) {
+            try {
+              console.log(`[project] Auto-decomposing Phase 1: ${phase1.name}`);
+              await fetch(`${base}/functions/v1/phase-transition`, {
+                method: "POST",
+                headers: sbHeaders(true),
+                body: JSON.stringify({ project_id: project.id, phase_id: phase1.id }),
+              });
+            } catch (e) {
+              console.error(`[project] Phase 1 auto-decompose failed:`, e.message);
+            }
+          }
+
+          console.log(`[project] Created "${projName}" with ${phases.length} phases + auto-decomposed Phase 1`);
           return {
             success: true,
             project_id: project.id,
             name: projName,
             phases: phases.map((p, i) => `${i + 1}. ${p.name} (${p.agent_name}${p.reviewer_name ? ` → review: ${p.reviewer_name}` : ""})`),
-            message: `Proyecto "${projName}" creado con ${phases.length} fases. Se ejecutará automáticamente. Te notifico en cada fase.`,
+            message: `Proyecto "${projName}" creado con ${phases.length} fases. Fase 1 arrancando con tareas auto-generadas. Los agentes las reclamarán automáticamente.`,
           };
         }
 
