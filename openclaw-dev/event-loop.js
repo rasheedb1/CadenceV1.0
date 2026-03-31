@@ -283,6 +283,7 @@ RESPOND WITH EXACTLY ONE JSON OBJECT:
 {"action":"request_review","reasoning":"...","params":{"task_id":"...","result_summary":"...","review_notes":"what to review"}}
 {"action":"submit_review","reasoning":"...","params":{"task_id":"...","score":0.8,"passed":true,"issues":["issue1"],"suggestions":["suggestion1"]}}
 {"action":"send_message","reasoning":"...","params":{"to_agent":"name","message":"..."}}
+{"action":"ask_human","reasoning":"...","params":{"question":"...","priority":"normal"}}
 {"action":"idle","reasoning":"nothing to do","params":{}}
 
 RULES:
@@ -639,6 +640,29 @@ async function act(decision, context) {
 
       logActivity("event_loop_action", "submit_review", `Review for ${params.task_id}: score=${score}, passed=${passed}, issues=${issues.length}`);
       return passed ? "approved" : "revision_needed";
+    }
+
+    case "ask_human": {
+      if (!params.question) break;
+      // Write to outbound_human_messages — Gateway Worker will send via WhatsApp (NO LLM)
+      try {
+        await fetch(`${SB_URL}/rest/v1/outbound_human_messages`, {
+          method: "POST",
+          headers: { ...sbHeaders, Prefer: "return=minimal" },
+          body: JSON.stringify({
+            org_id: ORG_ID,
+            from_agent_id: AGENT_ID,
+            message: params.question,
+            priority: params.priority || "normal",
+            context: { task_id: params.task_id || null, agent_name: AGENT_NAME },
+          }),
+        });
+        console.log(`[event-loop] ask_human: "${params.question.substring(0, 80)}"`);
+        logActivity("event_loop_action", "ask_human", `Question to human: ${params.question.substring(0, 200)}`);
+      } catch (e) {
+        console.error("[event-loop] ask_human failed:", e.message);
+      }
+      return "question_sent";
     }
 
     case "send_message": {

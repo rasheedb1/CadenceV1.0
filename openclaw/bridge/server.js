@@ -465,6 +465,92 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
   res.type("text/xml").send(twiml.toString());
 
   try {
+    // --- GATEWAY: Check if human is replying to an agent (no LLM needed) ---
+    if (SB_KEY) {
+      try {
+        // Check conversation_control: is an agent waiting for a reply?
+        const ctrlRes = await fetch(`${SB_URL}/rest/v1/conversation_control?whatsapp_number=eq.${WaId || From.replace('whatsapp:+', '')}&select=active_agent_id,active_message_id`, {
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+        });
+        const ctrl = await ctrlRes.json();
+        const activeCtrl = Array.isArray(ctrl) && ctrl[0] ? ctrl[0] : null;
+
+        // Also check @agent mentions for explicit routing
+        const mentionMatch = Body.match(/^@(\w+)\s/);
+
+        if (activeCtrl?.active_agent_id || mentionMatch) {
+          let targetAgentId = activeCtrl?.active_agent_id;
+          let targetName = null;
+
+          // @mention overrides conversation_control
+          if (mentionMatch) {
+            const agRes = await fetch(`${SB_URL}/rest/v1/agents?name=ilike.*${mentionMatch[1]}*&status=neq.destroyed&select=id,name&limit=1`, {
+              headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+            });
+            const ags = await agRes.json();
+            if (Array.isArray(ags) && ags[0]) {
+              targetAgentId = ags[0].id;
+              targetName = ags[0].name;
+            }
+          }
+
+          if (targetAgentId) {
+            // Route reply directly to agent's inbox (no LLM!)
+            const replyText = mentionMatch ? Body.replace(mentionMatch[0], '').trim() : Body;
+
+            // Write to agent_messages as human reply
+            await fetch(`${SB_URL}/rest/v1/agent_messages`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
+              body: JSON.stringify({
+                org_id: ctrl[0]?.org_id || null,
+                to_agent_id: targetAgentId,
+                role: "user",
+                content: replyText,
+                metadata: { source: "whatsapp_reply", from_human: true },
+              }),
+            });
+
+            // Update outbound message as replied
+            if (activeCtrl?.active_message_id) {
+              await fetch(`${SB_URL}/rest/v1/outbound_human_messages?id=eq.${activeCtrl.active_message_id}`, {
+                method: "PATCH",
+                headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
+                body: JSON.stringify({ status: "replied", reply: replyText, replied_at: new Date().toISOString() }),
+              });
+            }
+
+            // Clear conversation control
+            await fetch(`${SB_URL}/rest/v1/conversation_control?whatsapp_number=eq.${WaId || From.replace('whatsapp:+', '')}`, {
+              method: "PATCH",
+              headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
+              body: JSON.stringify({ active_agent_id: null, active_message_id: null, updated_at: new Date().toISOString() }),
+            });
+
+            // Get agent name for confirmation
+            if (!targetName) {
+              const nRes = await fetch(`${SB_URL}/rest/v1/agents?id=eq.${targetAgentId}&select=name`, {
+                headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+              });
+              const ns = await nRes.json();
+              targetName = Array.isArray(ns) && ns[0] ? ns[0].name : "Agent";
+            }
+
+            // Confirm to human (no LLM)
+            await twilioClient.messages.create({
+              from: TWILIO_WHATSAPP_NUMBER, to: From,
+              body: `✅ Reply sent to ${targetName}.`,
+            });
+            console.log(`[gateway] Routed human reply to ${targetName} (${targetAgentId.substring(0, 8)}) — no LLM`);
+            return;
+          }
+        }
+      } catch (gwErr) {
+        console.error("[gateway] Conversation routing error:", gwErr.message);
+        // Fall through to Chief if routing fails
+      }
+    }
+
     // --- Check message length (WhatsApp limit is 4096, but with context injection it grows) ---
     const WA_CHAR_LIMIT = 4096;
     if (Body.length > WA_CHAR_LIMIT) {
@@ -614,7 +700,142 @@ app.listen(PORT, () => {
   console.log(`  Webhook: POST /api/whatsapp/incoming`);
   console.log(`  Gateway: ${OPENCLAW_GATEWAY_URL}`);
   console.log(`  Session: ${OPENCLAW_SESSION_KEY}`);
+  console.log(`  Gateway Worker: polling outbound_human_messages every 10s`);
 });
+
+// =============================================================================
+// GATEWAY WORKER — Polls agent→human messages and sends via WhatsApp (NO LLM)
+// =============================================================================
+const GW_POLL_INTERVAL = 10_000; // 10 seconds
+const GW_NOTIFICATION_BUFFER = new Map(); // agent_id → { messages: [], timer }
+const GW_BUFFER_FLUSH_MS = 60_000; // flush after 1 min of quiet
+const GW_BUFFER_MAX = 5; // force flush at 5 messages
+
+async function gatewayWorkerTick() {
+  if (!SB_KEY) return;
+  try {
+    // 1. Fetch pending outbound messages
+    const res = await fetch(`${SB_URL}/rest/v1/outbound_human_messages?status=eq.pending&order=created_at.asc&limit=10&select=id,org_id,from_agent_id,message,priority,context`, {
+      headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+    });
+    const messages = await res.json();
+    if (!Array.isArray(messages) || messages.length === 0) return;
+
+    // 2. Load agent names
+    const agentIds = [...new Set(messages.map(m => m.from_agent_id))];
+    const agentRes = await fetch(`${SB_URL}/rest/v1/agents?id=in.(${agentIds.join(",")})&select=id,name`, {
+      headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+    });
+    const agents = await agentRes.json();
+    const nameMap = {};
+    if (Array.isArray(agents)) agents.forEach(a => { nameMap[a.id] = a.name; });
+
+    // 3. Process each message
+    for (const msg of messages) {
+      const agentName = nameMap[msg.from_agent_id] || "Agent";
+
+      if (msg.priority === "urgent") {
+        // Urgent: send immediately
+        await sendOutboundMessage(msg, agentName);
+      } else {
+        // Normal: buffer for digest
+        bufferOutboundMessage(msg, agentName);
+      }
+
+      // Mark as sent
+      await fetch(`${SB_URL}/rest/v1/outbound_human_messages?id=eq.${msg.id}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ status: "sent" }),
+      });
+    }
+  } catch (err) {
+    console.error("[gateway-worker] Error:", err.message);
+  }
+}
+
+async function sendOutboundMessage(msg, agentName) {
+  try {
+    // Find WhatsApp number for this org
+    const sessRes = await fetch(`${SB_URL}/rest/v1/chief_sessions?org_id=eq.${msg.org_id}&select=whatsapp_number&limit=1`, {
+      headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+    });
+    const sessions = await sessRes.json();
+    const waNum = Array.isArray(sessions) && sessions[0] ? sessions[0].whatsapp_number : null;
+    if (!waNum) return;
+
+    const formatted = `[${agentName}] ${msg.message}`;
+    const chunks = splitMessage(formatted);
+    for (const chunk of chunks) {
+      await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: `whatsapp:+${waNum}`, body: chunk });
+    }
+
+    // Set conversation control so reply routes back to this agent
+    await fetch(`${SB_URL}/rest/v1/conversation_control`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({
+        org_id: msg.org_id, whatsapp_number: waNum,
+        active_agent_id: msg.from_agent_id, active_message_id: msg.id,
+        context: msg.context || {}, updated_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      }),
+    });
+
+    console.log(`[gateway-worker] Sent [${agentName}] message to ${waNum}`);
+  } catch (err) {
+    console.error(`[gateway-worker] Send failed:`, err.message);
+  }
+}
+
+function bufferOutboundMessage(msg, agentName) {
+  const key = msg.org_id;
+  if (!GW_NOTIFICATION_BUFFER.has(key)) {
+    GW_NOTIFICATION_BUFFER.set(key, { messages: [], timer: null });
+  }
+  const buf = GW_NOTIFICATION_BUFFER.get(key);
+  buf.messages.push({ agentName, message: msg.message, id: msg.id, from_agent_id: msg.from_agent_id, org_id: msg.org_id });
+
+  // Flush after quiet period (debounce)
+  clearTimeout(buf.timer);
+  buf.timer = setTimeout(() => flushBuffer(key), GW_BUFFER_FLUSH_MS);
+
+  // Force flush if buffer exceeds max
+  if (buf.messages.length >= GW_BUFFER_MAX) {
+    clearTimeout(buf.timer);
+    flushBuffer(key);
+  }
+}
+
+async function flushBuffer(orgId) {
+  const buf = GW_NOTIFICATION_BUFFER.get(orgId);
+  if (!buf || buf.messages.length === 0) return;
+
+  const messages = [...buf.messages];
+  buf.messages = [];
+
+  // Format as digest
+  const digest = messages.length === 1
+    ? `[${messages[0].agentName}] ${messages[0].message}`
+    : `📋 *Team Update (${messages.length} messages)*\n\n` +
+      messages.map(m => `[${m.agentName}] ${m.message.substring(0, 200)}`).join('\n\n');
+
+  // Set conversation control to last agent who sent
+  const lastMsg = messages[messages.length - 1];
+  try {
+    await sendOutboundMessage({
+      org_id: lastMsg.org_id,
+      from_agent_id: lastMsg.from_agent_id,
+      message: digest,
+      context: {},
+    }, lastMsg.agentName);
+  } catch (err) {
+    console.error("[gateway-worker] Flush failed:", err.message);
+  }
+}
+
+// Start polling
+setInterval(gatewayWorkerTick, GW_POLL_INTERVAL);
 
 // =============================================================================
 // EMBEDDED GATEWAY — OpenClaw AI (Anthropic Claude + tool calling)
