@@ -81,9 +81,11 @@ export async function executeWithSDK(
   let totalCost = 0;
   let totalTokens = 0;
   let numTurns = 0;
+  const stderrLines: string[] = [];
 
   try {
     const safeName = agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+    log.info(`Starting SDK query for ${agent.name}, model=${model}, cwd=/workspace/${safeName}`);
     for await (const message of query({
       prompt: taskPrompt,
       options: {
@@ -99,7 +101,10 @@ export async function executeWithSDK(
         settingSources: [],
         // Capture stderr for debugging
         stderr: (data: string) => {
-          if (data.trim()) log.warn(`[SDK stderr] ${data.trim().substring(0, 200)}`);
+          if (data.trim()) {
+            stderrLines.push(data.trim());
+            log.warn(`[SDK stderr] ${data.trim().substring(0, 300)}`);
+          }
         },
       },
     })) {
@@ -126,13 +131,15 @@ export async function executeWithSDK(
     }
   } catch (err: any) {
     const errDetail = err.stack || err.message || String(err);
+    const stderrOutput = stderrLines.join('\n');
     log.error(`SDK query error: ${errDetail.substring(0, 500)}`);
-    // Write detailed error to activity log for debugging
+    if (stderrOutput) log.error(`SDK stderr output: ${stderrOutput.substring(0, 500)}`);
+    // Write detailed error + stderr to activity log for debugging
     const { sbPost } = await import('./supabase-client.js');
     sbPost('agent_activity_events', {
       agent_id: agent.id, org_id: agent.orgId,
       event_type: 'sdk_error', tool_name: 'executeWithSDK',
-      content: `SDK CRASH: ${errDetail.substring(0, 2000)}`,
+      content: `SDK CRASH: ${errDetail.substring(0, 1000)}\n\nSTDERR: ${stderrOutput.substring(0, 1000)}`,
     }).catch(() => {});
     resultText = `(error: ${err.message})`;
   }
