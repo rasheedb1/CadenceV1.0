@@ -718,43 +718,50 @@ app.listen(PORT, () => {
 });
 
 // =============================================================================
-// MESSAGE FORMATTER — Translates raw agent messages to human-friendly format
+// MESSAGE FORMATTER — Translates + formats agent messages via Haiku (~$0.001/msg)
 // =============================================================================
-function formatAgentMessage(rawMessage, agentName, priority) {
+const _FormatterSdk = require("@anthropic-ai/sdk");
+const formatterClient = new (_FormatterSdk.default || _FormatterSdk)({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+async function formatAgentMessage(rawMessage, agentName, priority, language = "es") {
   let msg = rawMessage || "";
 
-  // Remove duplicate agent name prefixes like "[Juanse] [Juanse]"
+  // Quick cleanup: remove duplicate [AgentName] prefixes
   const namePattern = new RegExp(`\\[${agentName}\\]\\s*`, 'gi');
   msg = msg.replace(namePattern, '').trim();
 
-  // Translate common technical patterns to human-friendly language
-  const translations = [
-    // Approval/permission requests → explain what it means
-    [/\/approve\s+([a-f0-9]+)\s+allow-always/gi, '_(Chief handles permissions automatically — no action needed from you)_'],
-    [/\/approve\s+([a-f0-9]+)\s+allow-once/gi, '_(Chief handles permissions automatically)_'],
-    [/exec\s+(policy|approval|blocked|ask=on-miss)/gi, 'shell command access'],
-    [/approval\s+id[s]?:?\s*[a-f0-9,\s]+/gi, ''],
-    // Technical IDs → remove
-    [/\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b/g, (match) => match.substring(0, 8)],
-    // Iteration/loop references
-    [/iteration\s+\d+/gi, ''],
-    [/loop_iteration\s*=?\s*\d+/gi, ''],
-  ];
+  // Try LLM formatting (Haiku — fast, cheap)
+  try {
+    const langName = { es: "Spanish", en: "English", pt: "Portuguese", fr: "French" }[language] || "Spanish";
+    const res = await formatterClient.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 300,
+      messages: [{ role: "user", content: `Rewrite this agent message for a non-technical CEO reading on WhatsApp. Language: ${langName}. Keep it SHORT (max 3 lines). Remove technical jargon (/approve commands, UUIDs, exec policies, iteration numbers). Add context if unclear. Use one emoji at the start.
 
-  for (const [pattern, replacement] of translations) {
-    msg = msg.replace(pattern, replacement);
+Agent: ${agentName}
+Priority: ${priority || "normal"}
+Message: ${msg.substring(0, 500)}
+
+Reply with ONLY the formatted message, nothing else.` }],
+    });
+    const formatted = res.content?.[0]?.text?.trim();
+    if (formatted && formatted.length > 5) {
+      return `*${agentName}:*\n${formatted}`;
+    }
+  } catch (e) {
+    console.error("[formatter] Haiku failed, using fallback:", e.message);
   }
 
-  // Clean up extra whitespace
-  msg = msg.replace(/\s{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  // Fallback: basic regex cleanup
+  msg = msg.replace(/\/approve\s+[a-f0-9]+\s+allow-\w+/gi, '').trim();
+  msg = msg.replace(/\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b/g, m => m.substring(0, 8));
+  msg = msg.replace(/\s{2,}/g, ' ').trim();
 
-  // Add emoji header based on priority/content
   let emoji = '💬';
   if (priority === 'urgent') emoji = '🚨';
   else if (/block|stuck|fail|error/i.test(msg)) emoji = '⚠️';
   else if (/complet|done|finish|success/i.test(msg)) emoji = '✅';
-  else if (/question|help|need|should/i.test(msg)) emoji = '❓';
-  else if (/update|status|progress/i.test(msg)) emoji = '📊';
+  else if (/question|help|need/i.test(msg)) emoji = '❓';
 
   return `${emoji} *${agentName}:*\n${msg}`;
 }
@@ -811,15 +818,16 @@ async function gatewayWorkerTick() {
 
 async function sendOutboundMessage(msg, agentName) {
   try {
-    // Find WhatsApp number for this org
-    const sessRes = await fetch(`${SB_URL}/rest/v1/chief_sessions?org_id=eq.${msg.org_id}&select=whatsapp_number&limit=1`, {
+    // Find WhatsApp number + language preference for this org
+    const sessRes = await fetch(`${SB_URL}/rest/v1/chief_sessions?org_id=eq.${msg.org_id}&select=whatsapp_number,language&limit=1`, {
       headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
     });
     const sessions = await sessRes.json();
     const waNum = Array.isArray(sessions) && sessions[0] ? sessions[0].whatsapp_number : null;
+    const language = (Array.isArray(sessions) && sessions[0]?.language) || "es";
     if (!waNum) return;
 
-    const formatted = formatAgentMessage(msg.message, agentName, msg.priority);
+    const formatted = await formatAgentMessage(msg.message, agentName, msg.priority, language);
     const chunks = splitMessage(formatted);
     for (const chunk of chunks) {
       await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: `whatsapp:+${waNum}`, body: chunk });
@@ -869,11 +877,21 @@ async function flushBuffer(orgId) {
   const messages = [...buf.messages];
   buf.messages = [];
 
+  // Load user language
+  const sessRes2 = await fetch(`${SB_URL}/rest/v1/chief_sessions?org_id=eq.${orgId}&select=language&limit=1`, {
+    headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+  }).catch(() => ({ json: () => [] }));
+  const sess2 = await sessRes2.json();
+  const lang = (Array.isArray(sess2) && sess2[0]?.language) || "es";
+
   // Format as digest
-  const digest = messages.length === 1
-    ? formatAgentMessage(messages[0].message, messages[0].agentName)
-    : `📋 *Team Update (${messages.length} messages)*\n\n` +
-      messages.map(m => formatAgentMessage(m.message.substring(0, 200), m.agentName)).join('\n\n');
+  let digest;
+  if (messages.length === 1) {
+    digest = await formatAgentMessage(messages[0].message, messages[0].agentName, null, lang);
+  } else {
+    const parts = await Promise.all(messages.map(m => formatAgentMessage(m.message.substring(0, 200), m.agentName, null, lang)));
+    digest = `📋 *Team Update (${messages.length})*\n\n` + parts.join('\n\n');
+  }
 
   // Set conversation control to last agent who sent
   const lastMsg = messages[messages.length - 1];
@@ -1103,6 +1121,7 @@ You manage AI agent teams + the Chief Outreach sales platform.
     { name: "ensenar_agente", description: "Inyecta un hecho, lección o decisión en la memoria del equipo o de un agente específico. Usa cuando el usuario dice algo que los agentes deberían recordar siempre: 'recuerda que...', 'los agentes deben saber que...', 'regla del equipo: ...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_name: { type: "string", description: "Nombre del agente (null = conocimiento del equipo)" }, content: { type: "string", description: "El hecho o lección" }, category: { type: "string", enum: ["fact", "preference", "strategy", "lesson", "decision"] }, importance: { type: "number", description: "0.0-1.0, default 0.7" } }, required: ["org_id", "content"] } },
     { name: "analizar_estructura", description: "Analiza la estructura del equipo y sugiere mejoras: si un equipo tiene 4+ workers sin team lead, sugiere crear uno. Si hay agentes sin equipo, sugiere asignarlos. Usa cuando: 'cómo está organizado el equipo?', 'necesitamos más estructura?', 'analiza la jerarquía'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "configurar_standup", description: "Configura el standup diario automático: timezone, hora, y si está activado. Usa cuando: 'estoy en México', 'mándame el standup a las 8am', 'cambia mi zona horaria', 'desactiva el standup'. Timezones comunes: America/Mexico_City, America/Bogota, America/Buenos_Aires, America/Santiago, America/Lima, Europe/Madrid, US/Eastern, US/Pacific.", input_schema: { type: "object", properties: { whatsapp_number: { type: "string", description: "Número WhatsApp del usuario (sessionKey)" }, timezone: { type: "string", description: "IANA timezone (ej: America/Mexico_City, America/Bogota)" }, standup_hour: { type: "number", description: "Hora local para el standup (0-23, default 9)" }, standup_enabled: { type: "boolean", description: "Activar/desactivar standup diario" } }, required: ["whatsapp_number"] } },
+    { name: "configurar_idioma", description: "Configura el idioma para TODOS los mensajes — tanto los de Chief como los de los agentes. Usa cuando: 'habla en español', 'everything in English', 'manda todo en español', 'change language'. Idiomas: es (español), en (English), pt (português).", input_schema: { type: "object", properties: { whatsapp_number: { type: "string", description: "Número WhatsApp del usuario (sessionKey)" }, language: { type: "string", enum: ["es", "en", "pt"], description: "Código de idioma" } }, required: ["whatsapp_number", "language"] } },
   ];
 
   // Tools that should run in background (>30s expected)
@@ -2581,6 +2600,15 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
           if (args.standup_hour != null) parts.push(`Hora: ${args.standup_hour}:00`);
           if (args.standup_enabled != null) parts.push(`Standup: ${args.standup_enabled ? 'activado' : 'desactivado'}`);
           return { success: true, updated: parts.join(', '), message: `Configuración actualizada. ${parts.join(', ')}.` };
+        }
+
+        case "configurar_idioma": {
+          const langNames = { es: "Español", en: "English", pt: "Português" };
+          await sbFetch(`${SB_URL}/rest/v1/chief_sessions?whatsapp_number=eq.${args.whatsapp_number}`, {
+            method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+            body: JSON.stringify({ language: args.language, updated_at: new Date().toISOString() }),
+          });
+          return { success: true, message: `Language set to ${langNames[args.language] || args.language}. All messages from Chief and agents will now be in ${langNames[args.language] || args.language}.` };
         }
 
         default: return { success: false, error: `Tool desconocida: ${name}` };
