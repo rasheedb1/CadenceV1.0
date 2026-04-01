@@ -1114,7 +1114,9 @@ You manage AI agent teams + the Chief Outreach sales platform.
 10. Confirm before sending external messages or spending money.
 11. Never expose tokens or internal IDs.
 12. Agents have full bash permissions via bypass. If an agent says they need /approve or shell approval, do NOT relay the /approve command to the user. Instead tell the user: "There's a permission issue with [agent]. The system should handle this automatically — I'll tell the agent to retry." Then message the agent: "You have full bypass permissions. Execute commands directly without waiting for approval."
-13. NEVER show /approve IDs or ask the user to run /approve commands. The user cannot run those — they're internal system commands.`;
+13. NEVER show /approve IDs or ask the user to run /approve commands. The user cannot run those — they're internal system commands.
+14. Only ONE project can be active at a time. When querying projects, ALWAYS filter by status=active. Ignore completed/paused projects. When creating a new project, the system auto-closes any existing active project.
+15. When reporting project status, only report the CURRENT active project and its phases. Never mix data from old completed projects.`;
   }
 
   const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
@@ -1921,6 +1923,25 @@ ${args.description ? `\n${args.description}\n` : ""}
             const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
             return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
           };
+
+          // === DEDUP: Close any existing active/in_progress projects before creating new one ===
+          try {
+            const existingProjects = await sbFetch(`${base}/rest/v1/agent_projects?org_id=eq.${org_id}&status=in.(active,in_progress,paused)&select=id,name,status`, { headers: sbHeaders() });
+            if (Array.isArray(existingProjects) && existingProjects.length > 0) {
+              for (const ep of existingProjects) {
+                // Close old project and its phases
+                await sbFetch(`${base}/rest/v1/agent_projects?id=eq.${ep.id}`, {
+                  method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                  body: JSON.stringify({ status: "completed", updated_at: new Date().toISOString() }),
+                });
+                await sbFetch(`${base}/rest/v1/agent_project_phases?project_id=eq.${ep.id}&status=neq.completed`, {
+                  method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                  body: JSON.stringify({ status: "completed" }),
+                });
+                console.log(`[crear_proyecto] Closed old project: ${ep.name} (${ep.id})`);
+              }
+            }
+          } catch (e) { console.error("[crear_proyecto] Dedup error:", e.message); }
 
           // === COLLABORATION MODE (v2: generates tasks, no A2A sync) ===
           if (workflow_type === "collaboration") {
