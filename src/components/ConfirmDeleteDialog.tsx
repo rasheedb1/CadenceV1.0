@@ -206,6 +206,17 @@ export function ConfirmDeleteDialog({
     onOpenChange(next)
   }, [isLoading, onOpenChange])
 
+  // Build a grammatically correct loading label.
+  // "Delete" → "Deleting…", "Remove" → "Removing…", "Confirm" → "Confirming…"
+  // Rule: if label ends in 'e' (and not 'ee'), drop the 'e' before adding 'ing'.
+  const loadingLabel = (() => {
+    const base = confirmLabel ?? 'Delete'
+    if (/e$/i.test(base) && !/ee$/i.test(base)) {
+      return base.slice(0, -1) + 'ing…'
+    }
+    return base + 'ing…'
+  })()
+
   const confirmButtonClass = cn(
     'inline-flex items-center justify-center gap-2 rounded-lg text-sm font-medium',
     'h-9 px-4 py-2 transition-colors duration-150',
@@ -320,7 +331,7 @@ export function ConfirmDeleteDialog({
                     {isLoading ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                        <span>{confirmLabel}ing…</span>
+                        <span>{loadingLabel}</span>
                       </>
                     ) : (
                       <>

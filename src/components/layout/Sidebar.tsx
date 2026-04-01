@@ -90,7 +90,6 @@ const sdr_sections: NavSection[] = [
     items: [
       { name: 'Leads', href: '/leads', icon: Users, featureFlag: 'section_leads' },
       { name: 'Business Cases', href: '/business-cases?view=tracker', icon: Briefcase, featureFlag: 'section_business_cases' },
-      { name: 'Research', href: '/company-research', icon: Building2, featureFlag: 'section_company_research' },
       { name: 'Company Registry', href: '/company-registry', icon: ShieldCheck, featureFlag: 'section_company_registry' },
     ],
   },
@@ -149,10 +148,11 @@ export function Sidebar() {
 
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     cn(
-      'flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium transition-all',
+      'flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium',
+      'transition-all duration-150 ease-out',
       isActive
-        ? 'nav-active-gradient text-foreground'
-        : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+        ? 'nav-active-gradient text-foreground shadow-sm'
+        : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground hover:shadow-sm'
     )
 
   return (
@@ -240,7 +240,7 @@ export function Sidebar() {
                   {/* Section header */}
                   <button
                     onClick={() => toggleSection(section.id)}
-                    className="flex w-full items-center justify-between px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70 hover:text-muted-foreground transition-colors"
+                    className="flex w-full items-center justify-between px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 hover:text-muted-foreground transition-colors duration-150 ease-out"
                   >
                     <span>{section.label}</span>
                     <ChevronDown
@@ -259,14 +259,14 @@ export function Sidebar() {
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: 'auto', opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2, ease: 'easeInOut' }}
+                      transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
                     >
                       {visibleItems.map((item, idx) => (
                         <motion.div
                           key={item.name}
-                          initial={{ opacity: 0, x: -8 }}
+                          initial={{ opacity: 0, x: -6 }}
                           animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: idx * 0.03, duration: 0.2 }}
+                          transition={{ delay: idx * 0.025, duration: 0.16, ease: [0.4, 0, 0.2, 1] }}
                         >
                         <NavLink
                           to={item.href}

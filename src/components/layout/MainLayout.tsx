@@ -46,7 +46,7 @@ export function MainLayout() {
     const origin = sessionStorage.getItem('gmailOAuthOrigin') || '/settings'
     sessionStorage.removeItem('gmailOAuthOrigin')
 
-    toast.loading('Conectando cuenta de Google...')
+    toast.loading('Connecting Google account...')
     fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ae-google-callback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -56,15 +56,15 @@ export function MainLayout() {
       .then(result => {
         toast.dismiss()
         if (result.error) {
-          toast.error('Error al conectar Google: ' + result.error)
+          toast.error('Failed to connect Google: ' + result.error)
         } else {
-          toast.success('Google conectado' + (result.email ? ' como ' + result.email : '') + '!')
+          toast.success('Google connected' + (result.email ? ' as ' + result.email : '') + '!')
         }
         navigate(origin)
       })
       .catch(() => {
         toast.dismiss()
-        toast.error('Error al conectar Google')
+        toast.error('Failed to connect Google')
         navigate(origin)
       })
   }, [session?.access_token, navigate])
@@ -98,7 +98,7 @@ export function MainLayout() {
           <button
             onClick={toggleTheme}
             className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-            aria-label={`Cambiar a modo ${theme === 'light' ? 'oscuro' : 'claro'}`}
+            aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
           >
             {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
           </button>
@@ -117,12 +117,12 @@ export function MainLayout() {
             <DropdownMenuContent align="end" className="w-[200px]">
               <DropdownMenuItem onClick={() => navigate('/settings')}>
                 <Settings className="h-4 w-4 mr-2" />
-                Configuración
+                Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={signOut} className="text-red-600 focus:text-red-600">
                 <LogOut className="h-4 w-4 mr-2" />
-                Cerrar sesión
+                Sign out
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

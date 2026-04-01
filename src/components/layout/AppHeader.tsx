@@ -19,10 +19,10 @@ const APP_NAMES: Record<string, string> = {
   '/lead-search': 'Chief Outreach',
   '/notifications': 'Chief Outreach',
   '/outreach': 'Chief Outreach',
-  '/agents': 'Agentes IA',
-  '/mission-control': 'Centro de Control',
-  '/settings': 'Configuración',
-  '/admin': 'Administración',
+  '/agents': 'AI Agents',
+  '/mission-control': 'Mission Control',
+  '/settings': 'Settings',
+  '/admin': 'Admin',
 }
 
 function getAppName(pathname: string): string {
@@ -46,7 +46,7 @@ export function AppHeader() {
         size="sm"
         className="h-6 w-6 p-0"
         onClick={() => navigate('/')}
-        title="Volver al inicio"
+        title="Go to home"
       >
         <Home className="h-3.5 w-3.5" />
       </Button>
