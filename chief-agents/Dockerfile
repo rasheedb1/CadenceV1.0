@@ -26,7 +26,11 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # Create non-root user "agent" — Claude Code refuses bypassPermissions as root
-RUN useradd -m -s /bin/bash agent
+RUN useradd -m -s /bin/bash agent \
+    && ln -sf /usr/local/bin/node /usr/bin/node \
+    && ln -sf /usr/local/bin/npx /usr/bin/npx \
+    && ln -sf /usr/local/bin/npm /usr/bin/npm \
+    && ln -sf $(which claude) /usr/bin/claude 2>/dev/null || true
 
 # Create workspace directories owned by agent
 RUN mkdir -p /workspace/juanse /workspace/sofi /workspace/oscar /workspace/nando /workspace/hernando--nando- \
