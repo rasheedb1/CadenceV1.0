@@ -99,8 +99,8 @@ export async function executeWithSDK(
         mcpServers,
         // Load user settings (for Bash permission allow list)
         settingSources: ['user'],
-        // Ensure HOME is set correctly for non-root user
-        env: { HOME: process.env.HOME || '/home/agent' },
+        // Merge all env vars + ensure HOME is correct for non-root user
+        env: { ...process.env, HOME: process.env.HOME || '/home/agent' },
         // Capture stderr for debugging
         stderr: (data: string) => {
           if (data.trim()) {
