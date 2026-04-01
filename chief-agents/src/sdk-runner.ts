@@ -125,7 +125,15 @@ export async function executeWithSDK(
       }
     }
   } catch (err: any) {
-    log.error(`SDK query error: ${err.message}`);
+    const errDetail = err.stack || err.message || String(err);
+    log.error(`SDK query error: ${errDetail.substring(0, 500)}`);
+    // Write detailed error to activity log for debugging
+    const { sbPost } = await import('./supabase-client.js');
+    sbPost('agent_activity_events', {
+      agent_id: agent.id, org_id: agent.orgId,
+      event_type: 'sdk_error', tool_name: 'executeWithSDK',
+      content: `SDK CRASH: ${errDetail.substring(0, 2000)}`,
+    }).catch(() => {});
     resultText = `(error: ${err.message})`;
   }
 
