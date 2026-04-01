@@ -148,9 +148,90 @@ export function buildChiefToolsServer(agent: AgentConfig) {
     },
   );
 
+  // --- Firecrawl tools (web scraping, screenshots, search) ---
+  const FIRECRAWL_KEY = process.env.FIRECRAWL_API_KEY || '';
+  const FIRECRAWL_URL = 'https://api.firecrawl.dev/v2';
+
+  const screenshotPage = tool(
+    'screenshot_page',
+    'Take a screenshot of a web page. Returns a screenshot URL. Use this to visually audit UI pages, check layouts, verify designs.',
+    {
+      url: z.string().describe('Full URL to screenshot (e.g. https://laiky-cadence.vercel.app/leads)'),
+      wait_ms: z.number().optional().describe('Wait time in ms for page to load (default 5000)'),
+    },
+    async ({ url, wait_ms }) => {
+      if (!FIRECRAWL_KEY) return { content: [{ type: 'text' as const, text: 'FIRECRAWL_API_KEY not configured' }] };
+      try {
+        const res = await fetch(`${FIRECRAWL_URL}/scrape`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${FIRECRAWL_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, formats: ['screenshot'], waitFor: wait_ms || 5000 }),
+        });
+        const data = await res.json() as any;
+        if (data?.success && data?.data?.screenshot) {
+          return { content: [{ type: 'text' as const, text: `Screenshot captured: ${data.data.screenshot}` }] };
+        }
+        return { content: [{ type: 'text' as const, text: `Screenshot failed: ${JSON.stringify(data).substring(0, 300)}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Screenshot error: ${e.message}` }] };
+      }
+    },
+  );
+
+  const scrapeUrl = tool(
+    'scrape_url',
+    'Scrape a web page and return its content as markdown. Use this for research, reading documentation, analyzing competitor UIs.',
+    {
+      url: z.string().describe('URL to scrape'),
+    },
+    async ({ url }) => {
+      if (!FIRECRAWL_KEY) return { content: [{ type: 'text' as const, text: 'FIRECRAWL_API_KEY not configured' }] };
+      try {
+        const res = await fetch(`${FIRECRAWL_URL}/scrape`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${FIRECRAWL_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, formats: ['markdown'], onlyMainContent: true }),
+        });
+        const data = await res.json() as any;
+        if (data?.success && data?.data?.markdown) {
+          return { content: [{ type: 'text' as const, text: data.data.markdown.substring(0, 5000) }] };
+        }
+        return { content: [{ type: 'text' as const, text: `Scrape failed: ${JSON.stringify(data).substring(0, 300)}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Scrape error: ${e.message}` }] };
+      }
+    },
+  );
+
+  const firecrawlSearch = tool(
+    'web_search_firecrawl',
+    'Search the web using Firecrawl. Returns titles, URLs, and descriptions. Use for research, finding design references, checking competitors.',
+    {
+      query: z.string().describe('Search query'),
+      limit: z.number().optional().describe('Max results (default 5)'),
+    },
+    async ({ query: q, limit }) => {
+      if (!FIRECRAWL_KEY) return { content: [{ type: 'text' as const, text: 'FIRECRAWL_API_KEY not configured' }] };
+      try {
+        const res = await fetch(`${FIRECRAWL_URL}/search`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${FIRECRAWL_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: q, limit: limit || 5 }),
+        });
+        const data = await res.json() as any;
+        const results = Array.isArray(data?.data) ? data.data : data?.data?.web || [];
+        if (results.length === 0) return { content: [{ type: 'text' as const, text: 'No results found' }] };
+        const formatted = results.map((r: any) => `- ${r.title}\n  ${r.url}\n  ${r.description || ''}`).join('\n\n');
+        return { content: [{ type: 'text' as const, text: formatted }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Search error: ${e.message}` }] };
+      }
+    },
+  );
+
   return createSdkMcpServer({
     name: 'chief-tools',
     version: '1.0.0',
-    tools: [sendMessage, saveArtifact, createSubtask, queryKnowledge, askHuman],
+    tools: [sendMessage, saveArtifact, createSubtask, queryKnowledge, askHuman, screenshotPage, scrapeUrl, firecrawlSearch],
   });
 }

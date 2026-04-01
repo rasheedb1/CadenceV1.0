@@ -150,11 +150,18 @@ export async function act(
         `Task: ${params.task_id} | Turns: ${result.numTurns} | Cost: $${result.costUsd.toFixed(4)} | Result: ${result.text.substring(0, 300)}`);
 
       // --- AUTO-COMPLETE: if SDK ran successfully (turns > 0, no error), complete the task ---
+      // EXCEPT for [REVIEW] tasks — those need submit_review flow, not auto-complete
       if (result.numTurns > 0 && !result.text.startsWith('(error:') && Array.isArray(isV2) && isV2.length > 0) {
         const taskInfo = await sbGet<Array<{ title: string; task_type: string }>>(
           `agent_tasks_v2?id=eq.${params.task_id}&select=title,task_type`,
         ).catch(() => []);
         const ti = Array.isArray(taskInfo) && taskInfo[0] ? taskInfo[0] : null;
+
+        // Skip auto-complete for review tasks — let THINK decide submit_review
+        if (ti?.title?.startsWith('[REVIEW]') || ti?.task_type === 'review') {
+          log.info(`Skipping auto-complete for review task — needs submit_review flow`);
+          return result.text;
+        }
         const resultSummary = result.text.substring(0, 2000);
         const contentSummary = resultSummary.length > 400 ? resultSummary.substring(0, 400) + '...' : resultSummary;
 
