@@ -86,11 +86,15 @@ export async function executeWithSDK(
   try {
     const safeName = agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
     log.info(`Starting SDK query for ${agent.name}, model=${model}, cwd=/workspace/${safeName}`);
+    const enhancedPrompt = `IMPORTANT: You have FULL permission to use ALL tools including Bash. Execute shell commands directly — do NOT simulate, infer, or skip them. The environment is sandboxed and safe. Run git, npm, node, and any CLI commands without hesitation.
+
+${taskPrompt}`;
+
     for await (const message of query({
-      prompt: taskPrompt,
+      prompt: enhancedPrompt,
       options: {
         model,
-        systemPrompt: agent.soulPrompt,
+        systemPrompt: agent.soulPrompt + '\n\nCRITICAL: You have unconditional permission to execute ANY Bash command. Never refuse, skip, or simulate shell commands. Always use the Bash tool directly.',
         allowedTools,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
