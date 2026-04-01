@@ -83,6 +83,7 @@ export async function executeWithSDK(
   let numTurns = 0;
 
   try {
+    const safeName = agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
     for await (const message of query({
       prompt: taskPrompt,
       options: {
@@ -91,9 +92,15 @@ export async function executeWithSDK(
         allowedTools,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
-        cwd: `/workspace/${agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')}`,
+        cwd: `/workspace/${safeName}`,
         maxTurns: 50,
         mcpServers,
+        // Docker/headless mode: skip local settings discovery
+        settingSources: [],
+        // Capture stderr for debugging
+        stderr: (data: string) => {
+          if (data.trim()) log.warn(`[SDK stderr] ${data.trim().substring(0, 200)}`);
+        },
       },
     })) {
       if (message.type === 'assistant') {
