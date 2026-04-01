@@ -8,8 +8,8 @@ RUN apt-get update && apt-get install -y \
 # Install Claude Code CLI (required by Agent SDK)
 RUN npm install -g @anthropic-ai/claude-code
 
-# Install global tools: MCP servers + deploy CLIs
-RUN npm install -g @modelcontextprotocol/server-github vercel supabase
+# Install global tools: MCP servers + Vercel CLI (supabase uses npx on-demand)
+RUN npm install -g @modelcontextprotocol/server-github vercel
 
 WORKDIR /app
 
@@ -30,8 +30,7 @@ RUN useradd -m -s /bin/bash agent \
     && ln -sf /usr/local/bin/node /usr/bin/node \
     && ln -sf /usr/local/bin/npx /usr/bin/npx \
     && ln -sf /usr/local/bin/npm /usr/bin/npm \
-    && ln -sf /usr/local/bin/vercel /usr/bin/vercel \
-    && ln -sf /usr/local/bin/supabase /usr/bin/supabase
+    && ln -sf /usr/local/bin/vercel /usr/bin/vercel
 
 # Create workspace directories owned by agent
 RUN mkdir -p /workspace/juanse /workspace/sofi /workspace/oscar /workspace/nando /workspace/hernando--nando- \

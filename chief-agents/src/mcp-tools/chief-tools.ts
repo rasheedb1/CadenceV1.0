@@ -298,7 +298,7 @@ export function buildChiefToolsServer(agent: AgentConfig) {
         const { promisify } = await import('node:util');
         const execFileAsync = promisify(execFile);
         const cwd = `/workspace/${agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')}`;
-        const { stdout } = await execFileAsync('supabase', ['functions', 'deploy', function_name, '--no-verify-jwt', '--project-ref', SB_PROJECT_REF], {
+        const { stdout } = await execFileAsync('npx', ['supabase', 'functions', 'deploy', function_name, '--no-verify-jwt', '--project-ref', SB_PROJECT_REF], {
           cwd, timeout: 120_000,
           env: { ...process.env, HOME: '/home/agent', SUPABASE_ACCESS_TOKEN: SB_ACCESS_TOKEN },
         });
