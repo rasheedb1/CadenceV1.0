@@ -108,6 +108,14 @@ export interface ConfirmDeleteDialogProps {
   cancelLabel?: string
 
   /**
+   * External loading state — pass your own `isPending` from `useMutation` or
+   * similar to keep the dialog in a loading state even after `onConfirm` resolves.
+   * The dialog merges this with its internal async loading state.
+   * @default false
+   */
+  isLoading?: boolean
+
+  /**
    * Called when the user confirms the action.
    * Can be async — the dialog will show a loading spinner while the promise is pending.
    * If the promise rejects, the dialog stays open (so the user can retry or cancel).
@@ -149,13 +157,16 @@ export function ConfirmDeleteDialog({
   entityType,
   confirmLabel = 'Delete',
   cancelLabel = 'Cancel',
+  isLoading: externalIsLoading = false,
   onConfirm,
   closeOnConfirm = true,
   warningText,
   className,
   variant = 'destructive',
 }: ConfirmDeleteDialogProps) {
-  const [isLoading, setIsLoading] = useState(false)
+  const [isActionLoading, setIsActionLoading] = useState(false)
+  // Merge internal async loading with any external loading state (e.g. from useMutation)
+  const isLoading = isActionLoading || externalIsLoading
   const descriptionId = useId()
 
   // Auto-generate title if not provided
@@ -175,7 +186,7 @@ export function ConfirmDeleteDialog({
     e.preventDefault()
     if (isLoading) return
 
-    setIsLoading(true)
+    setIsActionLoading(true)
     try {
       await onConfirm()
       if (closeOnConfirm) {
@@ -185,7 +196,7 @@ export function ConfirmDeleteDialog({
       // Keep dialog open on error — caller is responsible for showing a toast
       console.error('[ConfirmDeleteDialog] onConfirm threw:', err)
     } finally {
-      setIsLoading(false)
+      setIsActionLoading(false)
     }
   }, [onConfirm, closeOnConfirm, onOpenChange, isLoading])
 
@@ -309,7 +320,7 @@ export function ConfirmDeleteDialog({
                     {isLoading ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                        <span>Deleting…</span>
+                        <span>{confirmLabel}ing…</span>
                       </>
                     ) : (
                       <>
@@ -347,7 +358,7 @@ export function ConfirmDeleteDialog({
  *
  * <ConfirmDeleteDialog {...dialogProps} />
  */
-export function useConfirmDelete<T = string>({
+export function useConfirmDelete<T extends string | number | Record<string, unknown> = string>({
   entityType,
   onConfirm,
   confirmLabel,
