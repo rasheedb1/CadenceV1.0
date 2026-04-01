@@ -50,6 +50,7 @@ RUN chown -R agent:agent /home/agent \
     && chmod 666 /root/.claude.json \
     && chmod -R 777 /root/.claude \
     && mkdir -p /root/.cache/claude-cli-nodejs && chmod -R 777 /root/.cache \
+    && mkdir -p /root/.npm && chmod -R 777 /root/.npm \
     && chmod 755 /root \
     && chown -R agent:agent /app
 
