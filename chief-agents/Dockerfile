@@ -1,6 +1,6 @@
 FROM node:22-slim
 
-# Install system dependencies
+# Install system dependencies (as root)
 RUN apt-get update && apt-get install -y \
     git curl jq openssh-client chromium \
     && rm -rf /var/lib/apt/lists/*
@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y \
 # Install Claude Code CLI (required by Agent SDK)
 RUN npm install -g @anthropic-ai/claude-code
 
-# Install global MCP servers (playwright MCP installed on-demand via npx)
+# Install global MCP servers
 RUN npm install -g @modelcontextprotocol/server-github
 
 WORKDIR /app
@@ -25,16 +25,18 @@ RUN npm run build
 # Remove dev dependencies after build
 RUN npm prune --omit=dev
 
-# Create isolated workspace directories
-RUN mkdir -p /workspace/juanse /workspace/sofi /workspace/oscar /workspace/nando /workspace/hernando--nando-
+# Create non-root user "agent" — Claude Code refuses bypassPermissions as root
+RUN useradd -m -s /bin/bash agent
 
-# Git config for agent operations
-RUN git config --global user.email "agents@chief.ai" \
-    && git config --global user.name "Chief Agent"
+# Create workspace directories owned by agent
+RUN mkdir -p /workspace/juanse /workspace/sofi /workspace/oscar /workspace/nando /workspace/hernando--nando- \
+    && chown -R agent:agent /workspace
 
-# Claude Code settings — bypass permissions for ALL tool invocations
-# This is critical: the Agent SDK reads this file to determine permissions
-RUN mkdir -p /root/.claude && echo '{ \
+# Git config for agent user
+RUN su - agent -c 'git config --global user.email "agents@chief.ai" && git config --global user.name "Chief Agent"'
+
+# Claude Code settings for agent user
+RUN mkdir -p /home/agent/.claude && echo '{ \
   "permissions": { \
     "allow": [ \
       "Bash(*)", "Read(*)", "Write(*)", "Edit(*)", "MultiEdit(*)", \
@@ -42,11 +44,16 @@ RUN mkdir -p /root/.claude && echo '{ \
       "mcp__chief-tools__*", "mcp__github__*", "mcp__playwright__*" \
     ] \
   } \
-}' > /root/.claude/settings.json
+}' > /home/agent/.claude/settings.json \
+    && chown -R agent:agent /home/agent/.claude
 
-# Also set env var for Claude Code subprocess bypass
-ENV CLAUDE_DANGEROUSLY_SKIP_PERMISSIONS=true
-ENV HOME=/root
+# Give agent ownership of the app
+RUN chown -R agent:agent /app
+
+# Switch to non-root user
+USER agent
+ENV HOME=/home/agent
+
 ENV NODE_ENV=production
 ENV ANTHROPIC_API_KEY=""
 ENV SUPABASE_URL=""
