@@ -498,12 +498,26 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
             // Route reply directly to agent's inbox (no LLM!)
             const replyText = mentionMatch ? Body.replace(mentionMatch[0], '').trim() : Body;
 
+            // Resolve org_id: from conversation_control, or from the agent record
+            let routeOrgId = (Array.isArray(ctrl) && ctrl[0]) ? ctrl[0].org_id : null;
+            if (!routeOrgId) {
+              const orgRes = await fetch(`${SB_URL}/rest/v1/agents?id=eq.${targetAgentId}&select=org_id`, {
+                headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+              });
+              const orgData = await orgRes.json();
+              routeOrgId = Array.isArray(orgData) && orgData[0] ? orgData[0].org_id : null;
+            }
+
+            if (!routeOrgId) {
+              console.error("[gateway] Cannot route: no org_id found for agent", targetAgentId);
+            }
+
             // Write to agent_messages as human reply
             await fetch(`${SB_URL}/rest/v1/agent_messages`, {
               method: "POST",
               headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
               body: JSON.stringify({
-                org_id: ctrl[0]?.org_id || null,
+                org_id: routeOrgId,
                 to_agent_id: targetAgentId,
                 role: "user",
                 content: replyText,
