@@ -73,7 +73,7 @@ export async function executeWithSDK(
     mcpServers.playwright = {
       type: 'stdio' as const,
       command: 'npx',
-      args: ['-y', '@anthropic-ai/mcp-server-playwright'],
+      args: ['-y', '@playwright/mcp'],
     };
   }
 

@@ -8,8 +8,8 @@ RUN apt-get update && apt-get install -y \
 # Install Claude Code CLI (required by Agent SDK)
 RUN npm install -g @anthropic-ai/claude-code
 
-# Install global MCP servers
-RUN npm install -g @anthropic-ai/mcp-server-playwright @modelcontextprotocol/server-github
+# Install global MCP servers (playwright MCP installed on-demand via npx)
+RUN npm install -g @modelcontextprotocol/server-github
 
 WORKDIR /app
 
