@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
 RUN npm install -g @anthropic-ai/claude-code
 
 # Install global tools: MCP servers + deploy CLIs
-RUN npm install -g @modelcontextprotocol/server-github vercel @supabase/cli
+RUN npm install -g @modelcontextprotocol/server-github vercel supabase
 
 WORKDIR /app
 
