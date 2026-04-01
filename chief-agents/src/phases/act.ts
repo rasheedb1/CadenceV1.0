@@ -178,9 +178,12 @@ export async function act(
         // 2. npm install if needed
         try {
           await runCmd('test', ['-d', `${repoDir}/node_modules`], { cwd } as any);
+          log.info(`[pre-exec] node_modules exists`);
         } catch {
           log.info(`[pre-exec] npm install...`);
-          preExecContext += `npm install → ${(await shell('npm', ['install'])).substring(0, 200)}\n`;
+          const npmOut = await shell('npm', ['install']);
+          preExecContext += `npm install → ${npmOut.substring(0, 200)}\n`;
+          log.info(`[pre-exec] npm install result: ${npmOut.substring(0, 100)}`);
         }
       }
 
@@ -233,8 +236,9 @@ ${preExecContext ? `\nSETUP:\n${preExecContext}` : ''}`;
 
         // 1. Build
         const buildOut = await shell('npm', ['run', 'build']);
-        const buildOk = !buildOut.includes('ERROR:');
-        postLog += `build: ${buildOk ? 'OK' : 'FAILED'}\n`;
+        const buildOk = !buildOut.startsWith('ERROR:');
+        postLog += `build: ${buildOk ? 'OK' : 'FAILED — ' + buildOut.substring(0, 300)}\n`;
+        log.info(`[post-exec] build output: ${buildOut.substring(0, 200)}`);
         if (buildOk) {
           // 2. Check for changes
           const diff = await shell('git', ['diff', '--stat']);
