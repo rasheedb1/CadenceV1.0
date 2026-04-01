@@ -97,8 +97,7 @@ export async function executeWithSDK(
         cwd: `/workspace/${safeName}`,
         maxTurns: 50,
         mcpServers,
-        // Load user settings (for Bash permission allow list)
-        settingSources: ['user'],
+        // Don't load local settings — bypassPermissions should handle everything
         // Merge all env vars + ensure HOME is correct for non-root user
         env: { ...process.env, HOME: process.env.HOME || '/home/agent' },
         // Capture stderr for debugging
