@@ -54,6 +54,7 @@ RUN chown -R agent:agent /app
 # Switch to non-root user
 USER agent
 ENV HOME=/home/agent
+ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ENV NODE_ENV=production
 ENV ANTHROPIC_API_KEY=""
 ENV SUPABASE_URL=""
