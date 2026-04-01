@@ -145,6 +145,48 @@ export async function act(
       const safeName = agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
       const cwd = `/workspace/${safeName}`;
 
+      // For code-capable agents: ALWAYS ensure repo is cloned + pull latest
+      if (agent.capabilities.includes('code')) {
+        try {
+          const { execFile: execFileCb2 } = await import('node:child_process');
+          const { promisify: promisify2 } = await import('node:util');
+          const execF = promisify2(execFileCb2);
+          const repoDir = `${cwd}/repo`;
+          const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
+          const repoUrl = GITHUB_TOKEN
+            ? `https://${GITHUB_TOKEN}@github.com/rasheedb1/CadenceV1.0.git`
+            : 'https://github.com/rasheedb1/CadenceV1.0.git';
+
+          // Check if repo exists, clone if not, pull if yes
+          try {
+            await execF('test', ['-d', `${repoDir}/.git`], { cwd });
+            // Repo exists — pull latest
+            const { stdout: pullOut } = await execF('git', ['pull', '--rebase'], { cwd: repoDir, timeout: 60_000, env: { ...process.env, HOME: process.env.HOME || '/home/agent' } });
+            preExecContext += `\n$ git pull (in ${repoDir})\n${(pullOut || 'Already up to date').trim()}\n`;
+            log.info(`[pre-exec] git pull OK in ${repoDir}`);
+          } catch {
+            // Repo doesn't exist — clone
+            log.info(`[pre-exec] Cloning repo to ${repoDir}...`);
+            try {
+              const { stdout: cloneOut } = await execF('git', ['clone', repoUrl, repoDir], { cwd, timeout: 120_000, env: { ...process.env, HOME: process.env.HOME || '/home/agent' } });
+              preExecContext += `\n$ git clone → ${repoDir}\n${(cloneOut || 'Cloned successfully').trim()}\n`;
+              log.info(`[pre-exec] Clone OK`);
+            } catch (cloneErr: any) {
+              preExecContext += `\n$ git clone FAILED: ${(cloneErr.stderr || cloneErr.message || '').substring(0, 200)}\n`;
+              log.warn(`[pre-exec] Clone failed: ${(cloneErr.stderr || cloneErr.message || '').substring(0, 100)}`);
+            }
+          }
+
+          // List repo contents for context
+          try {
+            const { stdout: lsOut } = await execF('ls', ['-la', repoDir], { cwd, timeout: 5_000 });
+            preExecContext += `\n$ ls ${repoDir}\n${(lsOut || '').trim()}\n`;
+          } catch {}
+        } catch (e: any) {
+          log.error(`[pre-exec] Repo setup error: ${e.message}`);
+        }
+      }
+
       // Auto-detect bash commands in the instruction and run them directly
       const bashPatterns = [
         /git\s+clone\s+\S+/i,
