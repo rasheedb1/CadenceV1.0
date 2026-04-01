@@ -181,7 +181,7 @@ export async function act(
           log.info(`[pre-exec] node_modules exists`);
         } catch {
           log.info(`[pre-exec] npm install...`);
-          const npmOut = await shell('npm', ['install']);
+          const npmOut = await shell('npm', ['install', '--include=dev']);
           preExecContext += `npm install → ${npmOut.substring(0, 200)}\n`;
           log.info(`[pre-exec] npm install result: ${npmOut.substring(0, 100)}`);
         }
@@ -234,11 +234,11 @@ ${preExecContext ? `\nSETUP:\n${preExecContext}` : ''}`;
       if (isCodeAgent && result.numTurns > 0 && !result.text.startsWith('(error:')) {
         log.info(`[post-exec] Build → commit → push → deploy...`);
 
-        // 1. Build
-        const buildOut = await shell('npm', ['run', 'build']);
-        const buildOk = !buildOut.startsWith('ERROR:');
+        // 1. Build (use npx to ensure local binaries are found)
+        const buildOut = await shell('npx', ['--no-install', 'vite', 'build']);
+        const buildOk = !buildOut.startsWith('ERROR:') && !buildOut.includes('not found');
         postLog += `build: ${buildOk ? 'OK' : 'FAILED — ' + buildOut.substring(0, 300)}\n`;
-        log.info(`[post-exec] build output: ${buildOut.substring(0, 200)}`);
+        log.info(`[post-exec] build: ${buildOut.substring(0, 200)}`);
         if (buildOk) {
           // 2. Check for changes
           const diff = await shell('git', ['diff', '--stat']);
