@@ -52,6 +52,11 @@ RUN mkdir -p /home/agent/.claude && echo '{ \
     && touch /home/agent/.claude.json \
     && chown -R agent:agent /home/agent
 
+# Give agent write access to /root/.claude.json (SDK hardcodes this path)
+RUN touch /root/.claude.json && chmod 666 /root/.claude.json \
+    && mkdir -p /root/.claude && chmod 777 /root/.claude \
+    && chmod 755 /root
+
 # Give agent ownership of the app
 RUN chown -R agent:agent /app
 
