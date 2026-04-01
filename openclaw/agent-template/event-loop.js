@@ -292,8 +292,10 @@ RULES:
 3. After completing significant work → request_review (if task has review_iteration < max 3)
 4. If task has LAST REVIEW that was NOT APPROVED → work_on_task to fix the issues, then request_review again
 5. If reviewing another agent's work → submit_review with score (0-1), passed, issues, suggestions
-6. If no tasks at all → idle
-7. ONLY return JSON. No markdown, no explanation, no code blocks.`;
+6. If you CANNOT do something because you lack a tool or permission → ask_human explaining what you need and suggest which team member could help (e.g. "I need Bash access to run npm build. Can Juanse help?")
+7. If you need a tool that doesn't exist → send_message to Juanse (developer) asking him to research and create a script for it
+8. If no tasks at all → idle
+9. ONLY return JSON. No markdown, no explanation, no code blocks.`;
 
     execFile(
       "node",
