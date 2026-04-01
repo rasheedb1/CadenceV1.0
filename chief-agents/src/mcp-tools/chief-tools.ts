@@ -254,9 +254,87 @@ export function buildChiefToolsServer(agent: AgentConfig) {
     },
   );
 
+  // --- Deploy tools (Vercel + Supabase) ---
+  const VERCEL_TOKEN = process.env.VERCEL_TOKEN || '';
+  const VERCEL_PROJECT = process.env.VERCEL_PROJECT_NAME || 'chief.ai';
+  const VERCEL_SCOPE = process.env.VERCEL_SCOPE || '';
+  const SB_ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN || '';
+  const SB_PROJECT_REF = process.env.SUPABASE_PROJECT_REF || '';
+
+  const deployFrontend = tool(
+    'deploy_frontend',
+    'Deploy the frontend to Vercel production. Run this after git push to deploy changes live. Only use after npm run build succeeds locally.',
+    {
+      confirm: z.string().describe('Type "deploy" to confirm production deployment'),
+    },
+    async ({ confirm }) => {
+      if (confirm !== 'deploy') return { content: [{ type: 'text' as const, text: 'Cancelled — type "deploy" to confirm' }] };
+      if (!VERCEL_TOKEN) return { content: [{ type: 'text' as const, text: 'VERCEL_TOKEN not configured' }] };
+      try {
+        const { execFile } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const execFileAsync = promisify(execFile);
+        const cwd = `/workspace/${agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')}`;
+        const args = ['--prod', '--yes', `--token=${VERCEL_TOKEN}`, `--name`, VERCEL_PROJECT];
+        if (VERCEL_SCOPE) args.push('--scope', VERCEL_SCOPE);
+        const { stdout } = await execFileAsync('vercel', args, { cwd, timeout: 300_000, env: { ...process.env, HOME: '/home/agent' } });
+        return { content: [{ type: 'text' as const, text: `Deploy successful!\n${stdout.substring(0, 1000)}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Deploy failed: ${(e.stderr || e.message || '').substring(0, 500)}` }] };
+      }
+    },
+  );
+
+  const deployEdgeFunction = tool(
+    'deploy_edge_function',
+    'Deploy a Supabase Edge Function to production. Use after modifying files in supabase/functions/.',
+    {
+      function_name: z.string().describe('Edge function name (e.g. "phase-transition", "task-hygiene")'),
+    },
+    async ({ function_name }) => {
+      if (!SB_ACCESS_TOKEN || !SB_PROJECT_REF) return { content: [{ type: 'text' as const, text: 'SUPABASE_ACCESS_TOKEN not configured' }] };
+      try {
+        const { execFile } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const execFileAsync = promisify(execFile);
+        const cwd = `/workspace/${agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')}`;
+        const { stdout } = await execFileAsync('supabase', ['functions', 'deploy', function_name, '--no-verify-jwt', '--project-ref', SB_PROJECT_REF], {
+          cwd, timeout: 120_000,
+          env: { ...process.env, HOME: '/home/agent', SUPABASE_ACCESS_TOKEN: SB_ACCESS_TOKEN },
+        });
+        return { content: [{ type: 'text' as const, text: `Edge function deployed!\n${stdout.substring(0, 500)}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Deploy failed: ${(e.stderr || e.message || '').substring(0, 500)}` }] };
+      }
+    },
+  );
+
+  const pushMigration = tool(
+    'push_db_migration',
+    'Push a SQL migration to the Supabase database. Use after creating a new migration file in supabase/migrations/.',
+    {
+      sql: z.string().describe('The SQL to execute on the production database'),
+    },
+    async ({ sql }) => {
+      if (!SB_ACCESS_TOKEN || !SB_PROJECT_REF) return { content: [{ type: 'text' as const, text: 'SUPABASE_ACCESS_TOKEN not configured' }] };
+      try {
+        const res = await fetch(`https://api.supabase.com/v1/projects/${SB_PROJECT_REF}/database/query`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${SB_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: sql }),
+        });
+        const data = await res.json();
+        if (res.ok) return { content: [{ type: 'text' as const, text: `Migration applied: ${JSON.stringify(data).substring(0, 500)}` }] };
+        return { content: [{ type: 'text' as const, text: `Migration failed: ${JSON.stringify(data).substring(0, 500)}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Migration error: ${e.message}` }] };
+      }
+    },
+  );
+
   return createSdkMcpServer({
     name: 'chief-tools',
     version: '1.0.0',
-    tools: [sendMessage, saveArtifact, createSubtask, queryKnowledge, askHuman, reportToChief, screenshotPage, scrapeUrl, firecrawlSearch],
+    tools: [sendMessage, saveArtifact, createSubtask, queryKnowledge, askHuman, reportToChief, screenshotPage, scrapeUrl, firecrawlSearch, deployFrontend, deployEdgeFunction, pushMigration],
   });
 }
