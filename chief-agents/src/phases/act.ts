@@ -17,6 +17,10 @@ const safe = <T>(arr: unknown): T[] => (Array.isArray(arr) ? arr : []);
 // Circuit breaker for agent-to-agent messaging (ported from event-loop.js)
 const messageCounts: Record<string, { count: number; resetAt: number }> = {};
 
+// Rate limiter for ask_human — max 1 message per 30 min per agent
+const askHumanLast: Record<string, number> = {};
+const ASK_HUMAN_COOLDOWN = 30 * 60 * 1000; // 30 minutes
+
 /** Log to agent_activity_events (Mission Control depends on this) */
 async function logActivity(agentId: string, orgId: string, eventType: string, toolName: string, content: string): Promise<void> {
   sbPost('agent_activity_events', {
@@ -385,6 +389,13 @@ export async function act(
     // ==============================
     case 'ask_human': {
       if (!params.question) break;
+      // Rate limit: max 1 ask_human per 30 min per agent
+      const lastAsk = askHumanLast[agent.id] || 0;
+      if (Date.now() - lastAsk < ASK_HUMAN_COOLDOWN) {
+        log.info(`ask_human rate limited (${Math.round((ASK_HUMAN_COOLDOWN - (Date.now() - lastAsk)) / 60000)}min cooldown)`);
+        return 'rate_limited';
+      }
+      askHumanLast[agent.id] = Date.now();
       try {
         await sbPost('outbound_human_messages', {
           org_id: agent.orgId,
