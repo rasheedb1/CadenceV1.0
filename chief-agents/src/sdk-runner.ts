@@ -97,7 +97,12 @@ export async function executeWithSDK(
         cwd: `/workspace/${safeName}`,
         maxTurns: 50,
         mcpServers,
-        // Don't load local settings — bypassPermissions should handle everything
+        // Auto-approve ALL tool calls — this is the belt-and-suspenders fix
+        // for bypassPermissions not fully bypassing Bash in Docker
+        canUseTool: async (_toolName: string, input: Record<string, unknown>) => ({
+          behavior: 'allow' as const,
+          updatedInput: input,
+        }),
         // Merge all env vars + ensure HOME is correct for non-root user
         env: { ...process.env, HOME: process.env.HOME || '/home/agent' },
         // Capture stderr for debugging
