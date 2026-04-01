@@ -718,6 +718,47 @@ app.listen(PORT, () => {
 });
 
 // =============================================================================
+// MESSAGE FORMATTER — Translates raw agent messages to human-friendly format
+// =============================================================================
+function formatAgentMessage(rawMessage, agentName, priority) {
+  let msg = rawMessage || "";
+
+  // Remove duplicate agent name prefixes like "[Juanse] [Juanse]"
+  const namePattern = new RegExp(`\\[${agentName}\\]\\s*`, 'gi');
+  msg = msg.replace(namePattern, '').trim();
+
+  // Translate common technical patterns to human-friendly language
+  const translations = [
+    // Approval/permission requests → explain what it means
+    [/\/approve\s+([a-f0-9]+)\s+allow-always/gi, '_(Chief handles permissions automatically — no action needed from you)_'],
+    [/\/approve\s+([a-f0-9]+)\s+allow-once/gi, '_(Chief handles permissions automatically)_'],
+    [/exec\s+(policy|approval|blocked|ask=on-miss)/gi, 'shell command access'],
+    [/approval\s+id[s]?:?\s*[a-f0-9,\s]+/gi, ''],
+    // Technical IDs → remove
+    [/\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b/g, (match) => match.substring(0, 8)],
+    // Iteration/loop references
+    [/iteration\s+\d+/gi, ''],
+    [/loop_iteration\s*=?\s*\d+/gi, ''],
+  ];
+
+  for (const [pattern, replacement] of translations) {
+    msg = msg.replace(pattern, replacement);
+  }
+
+  // Clean up extra whitespace
+  msg = msg.replace(/\s{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+
+  // Add emoji header based on priority/content
+  let emoji = '💬';
+  if (priority === 'urgent') emoji = '🚨';
+  else if (/block|stuck|fail|error/i.test(msg)) emoji = '⚠️';
+  else if (/complet|done|finish|success/i.test(msg)) emoji = '✅';
+  else if (/question|help|need|should/i.test(msg)) emoji = '❓';
+  else if (/update|status|progress/i.test(msg)) emoji = '📊';
+
+  return `${emoji} *${agentName}:*\n${msg}`;
+}
+
 // GATEWAY WORKER — Polls agent→human messages and sends via WhatsApp (NO LLM)
 // =============================================================================
 const GW_POLL_INTERVAL = 10_000; // 10 seconds
@@ -778,7 +819,7 @@ async function sendOutboundMessage(msg, agentName) {
     const waNum = Array.isArray(sessions) && sessions[0] ? sessions[0].whatsapp_number : null;
     if (!waNum) return;
 
-    const formatted = `[${agentName}] ${msg.message}`;
+    const formatted = formatAgentMessage(msg.message, agentName, msg.priority);
     const chunks = splitMessage(formatted);
     for (const chunk of chunks) {
       await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: `whatsapp:+${waNum}`, body: chunk });
@@ -830,9 +871,9 @@ async function flushBuffer(orgId) {
 
   // Format as digest
   const digest = messages.length === 1
-    ? `[${messages[0].agentName}] ${messages[0].message}`
+    ? formatAgentMessage(messages[0].message, messages[0].agentName)
     : `📋 *Team Update (${messages.length} messages)*\n\n` +
-      messages.map(m => `[${m.agentName}] ${m.message.substring(0, 200)}`).join('\n\n');
+      messages.map(m => formatAgentMessage(m.message.substring(0, 200), m.agentName)).join('\n\n');
 
   // Set conversation control to last agent who sent
   const lastMsg = messages[messages.length - 1];
