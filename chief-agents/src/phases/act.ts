@@ -177,6 +177,23 @@ export async function act(
             }
           }
 
+          // npm install if node_modules doesn't exist
+          try {
+            await execF('test', ['-d', `${repoDir}/node_modules`], { cwd });
+            preExecContext += `\n$ node_modules exists — skipping npm install\n`;
+          } catch {
+            log.info(`[pre-exec] Running npm install in ${repoDir}...`);
+            try {
+              const { stdout: npmOut, stderr: npmErr } = await execF('npm', ['install'], { cwd: repoDir, timeout: 180_000, env: { ...process.env, HOME: process.env.HOME || '/home/agent' } });
+              preExecContext += `\n$ npm install (in ${repoDir})\n${(npmOut || '').trim().substring(0, 300)}\n`;
+              if (npmErr) preExecContext += `STDERR: ${npmErr.substring(0, 200)}\n`;
+              log.info(`[pre-exec] npm install OK`);
+            } catch (npmErr: any) {
+              preExecContext += `\n$ npm install FAILED: ${(npmErr.stderr || npmErr.message || '').substring(0, 300)}\n`;
+              log.warn(`[pre-exec] npm install failed: ${(npmErr.stderr || npmErr.message || '').substring(0, 100)}`);
+            }
+          }
+
           // List repo contents for context
           try {
             const { stdout: lsOut } = await execF('ls', ['-la', repoDir], { cwd, timeout: 5_000 });
@@ -235,10 +252,11 @@ export async function act(
         }
       }
 
-      // Build the prompt: if we pre-executed commands, include their output
+      // Build the prompt: include pre-exec results + repo location
+      const repoPath = agent.capabilities.includes('code') ? `${cwd}/repo` : cwd;
       const sdkInstruction = preExecContext
-        ? `${instruction}\n\nPRE-EXECUTED SHELL RESULTS:\n${preExecContext}\n\nThe commands above were already executed. Use their output to continue your work. For any additional shell commands, use the Bash tool directly.`
-        : instruction;
+        ? `${instruction}\n\nENVIRONMENT:\n- Working directory: ${repoPath}\n- The repo is cloned and npm installed. node_modules are ready.\n- You can read/edit files directly using their paths under ${repoPath}/\n\nPRE-EXECUTED SHELL RESULTS:\n${preExecContext}\n\nThe commands above were already executed successfully. Focus on reading/editing code. Do NOT try to run git or npm — they are handled automatically.`
+        : `${instruction}\n\nENVIRONMENT:\n- Working directory: ${repoPath}`;
 
       // *** Agent SDK for reasoning/coding tasks ***
       const result = await executeWithSDK(agent, sdkInstruction, log);
