@@ -41,7 +41,8 @@ async function main(): Promise<void> {
 
   // Ensure workspace directories exist
   for (const agent of agents) {
-    const dir = `/workspace/${agent.name.toLowerCase()}`;
+    const safeName = agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+    const dir = `/workspace/${safeName}`;
     await fs.mkdir(dir, { recursive: true }).catch(() => {});
     console.log(`[Orchestrator] Workspace ready: ${dir}`);
   }

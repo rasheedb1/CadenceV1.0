@@ -26,20 +26,27 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # Create isolated workspace directories
-RUN mkdir -p /workspace/juanse /workspace/sofi /workspace/oscar /workspace/nando
+RUN mkdir -p /workspace/juanse /workspace/sofi /workspace/oscar /workspace/nando /workspace/hernando--nando-
 
 # Git config for agent operations
 RUN git config --global user.email "agents@chief.ai" \
     && git config --global user.name "Chief Agent"
 
-# Claude Code settings (bypass permissions for all invocations)
+# Claude Code settings — bypass permissions for ALL tool invocations
+# This is critical: the Agent SDK reads this file to determine permissions
 RUN mkdir -p /root/.claude && echo '{ \
   "permissions": { \
-    "allow": ["Bash(*)", "Read(*)", "Write(*)", "Edit(*)", "Grep(*)", "Glob(*)", "WebSearch(*)", "WebFetch(*)"] \
+    "allow": [ \
+      "Bash(*)", "Read(*)", "Write(*)", "Edit(*)", "MultiEdit(*)", \
+      "Grep(*)", "Glob(*)", "WebSearch(*)", "WebFetch(*)", \
+      "mcp__chief-tools__*", "mcp__github__*", "mcp__playwright__*" \
+    ] \
   } \
 }' > /root/.claude/settings.json
 
-# Environment
+# Also set env var for Claude Code subprocess bypass
+ENV CLAUDE_DANGEROUSLY_SKIP_PERMISSIONS=true
+ENV HOME=/root
 ENV NODE_ENV=production
 ENV ANTHROPIC_API_KEY=""
 ENV SUPABASE_URL=""

@@ -91,7 +91,7 @@ export async function executeWithSDK(
         allowedTools,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
-        cwd: `/workspace/${agent.name.toLowerCase()}`,
+        cwd: `/workspace/${agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')}`,
         maxTurns: 50,
         mcpServers,
       },
