@@ -17,9 +17,7 @@ const safe = <T>(arr: unknown): T[] => (Array.isArray(arr) ? arr : []);
 // Circuit breaker for agent-to-agent messaging (ported from event-loop.js)
 const messageCounts: Record<string, { count: number; resetAt: number }> = {};
 
-// Rate limiter for ask_human — max 1 message per 30 min per agent
-const askHumanLast: Record<string, number> = {};
-const ASK_HUMAN_COOLDOWN = 30 * 60 * 1000; // 30 minutes
+// ask_human dedup uses DB query (no in-memory state needed)
 
 /** Log to agent_activity_events (Mission Control depends on this) */
 async function logActivity(agentId: string, orgId: string, eventType: string, toolName: string, content: string): Promise<void> {
@@ -147,9 +145,52 @@ export async function act(
       // Track SDK token usage
       state.budget.tokens += result.tokensUsed;
 
-      log.info(`Task ${(params.task_id as string).substring(0, 8)} result: ${result.text.substring(0, 100)}`);
+      log.info(`Task ${(params.task_id as string).substring(0, 8)} result (${result.numTurns} turns, $${result.costUsd.toFixed(4)}): ${result.text.substring(0, 100)}`);
       logActivity(agent.id, agent.orgId, 'task_result', 'work_on_task',
         `Task: ${params.task_id} | Turns: ${result.numTurns} | Cost: $${result.costUsd.toFixed(4)} | Result: ${result.text.substring(0, 300)}`);
+
+      // --- AUTO-COMPLETE: if SDK ran successfully (turns > 0, no error), complete the task ---
+      if (result.numTurns > 0 && !result.text.startsWith('(error:') && Array.isArray(isV2) && isV2.length > 0) {
+        const taskInfo = await sbGet<Array<{ title: string; task_type: string }>>(
+          `agent_tasks_v2?id=eq.${params.task_id}&select=title,task_type`,
+        ).catch(() => []);
+        const ti = Array.isArray(taskInfo) && taskInfo[0] ? taskInfo[0] : null;
+        const resultSummary = result.text.substring(0, 2000);
+        const contentSummary = resultSummary.length > 400 ? resultSummary.substring(0, 400) + '...' : resultSummary;
+
+        // Create artifact
+        let artifactId: string | null = null;
+        try {
+          const artData = await sbPostReturn<{ id: string }>('agent_artifacts', {
+            org_id: agent.orgId,
+            task_id: params.task_id,
+            filename: `${((ti?.title || 'output').substring(0, 40)).replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '-').toLowerCase()}-result`,
+            version: 1,
+            artifact_type: ti?.task_type || 'general',
+            content: resultSummary,
+            content_summary: contentSummary,
+            created_by: agent.id,
+          });
+          artifactId = artData?.id || null;
+        } catch {}
+
+        // Mark task done
+        const taskCost = getTokenCost(state.budget.tokens, state.agentConfig?.model as string || 'claude-sonnet-4-6');
+        await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
+          status: 'done',
+          completed_at: new Date().toISOString(),
+          result: { summary: resultSummary },
+          tokens_used: state.budget.tokens,
+          cost_usd: taskCost,
+          artifact_ids: artifactId ? [artifactId] : [],
+          updated_at: new Date().toISOString(),
+        });
+        state.tasksCompletedSinceCheckin++;
+        state.interval = MIN_INTERVAL; // fast next tick to claim new work
+        log.info(`Auto-completed task ${(params.task_id as string).substring(0, 8)} (${result.numTurns} turns, $${result.costUsd.toFixed(4)})`);
+        return 'auto_completed';
+      }
+
       return result.text;
     }
 
@@ -389,24 +430,44 @@ export async function act(
     // ==============================
     case 'ask_human': {
       if (!params.question) break;
-      // Rate limit: max 1 ask_human per 30 min per agent
-      const lastAsk = askHumanLast[agent.id] || 0;
-      if (Date.now() - lastAsk < ASK_HUMAN_COOLDOWN) {
-        log.info(`ask_human rate limited (${Math.round((ASK_HUMAN_COOLDOWN - (Date.now() - lastAsk)) / 60000)}min cooldown)`);
-        return 'rate_limited';
-      }
-      askHumanLast[agent.id] = Date.now();
+      const question = params.question as string;
+
+      // --- Smart dedup: check if a similar question was already sent in the last 2 hours ---
+      try {
+        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+        const recentMsgs = await sbGet<Array<{ message: string }>>(
+          `outbound_human_messages?from_agent_id=eq.${agent.id}&created_at=gt.${twoHoursAgo}&select=message`,
+        ).catch(() => []);
+
+        if (Array.isArray(recentMsgs) && recentMsgs.length > 0) {
+          // Check if any recent message is >60% similar (shared words)
+          const questionWords = new Set(question.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+          const isDuplicate = recentMsgs.some((m) => {
+            const msgWords = new Set((m.message || '').toLowerCase().split(/\s+/).filter(w => w.length > 3));
+            const shared = [...questionWords].filter(w => msgWords.has(w)).length;
+            const similarity = shared / Math.max(questionWords.size, 1);
+            return similarity > 0.6;
+          });
+
+          if (isDuplicate) {
+            log.info(`ask_human dedup: similar question already sent in last 2h, skipping`);
+            return 'dedup_skipped';
+          }
+        }
+      } catch {}
+
+      // Not a duplicate — send it
       try {
         await sbPost('outbound_human_messages', {
           org_id: agent.orgId,
           from_agent_id: agent.id,
-          message: params.question,
+          message: question,
           priority: params.priority || 'normal',
           context: { task_id: params.task_id || null, agent_name: agent.name },
         });
-        log.info(`ask_human: "${(params.question as string).substring(0, 80)}"`);
+        log.info(`ask_human: "${question.substring(0, 80)}"`);
         logActivity(agent.id, agent.orgId, 'event_loop_action', 'ask_human',
-          `Question to human: ${(params.question as string).substring(0, 200)}`);
+          `Question to human: ${question.substring(0, 200)}`);
       } catch (e: any) {
         log.error(`ask_human failed: ${e.message}`);
       }
