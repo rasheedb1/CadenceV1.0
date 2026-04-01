@@ -29,8 +29,7 @@ RUN npm prune --omit=dev
 RUN useradd -m -s /bin/bash agent \
     && ln -sf /usr/local/bin/node /usr/bin/node \
     && ln -sf /usr/local/bin/npx /usr/bin/npx \
-    && ln -sf /usr/local/bin/npm /usr/bin/npm \
-    && ln -sf $(which claude) /usr/bin/claude 2>/dev/null || true
+    && ln -sf /usr/local/bin/npm /usr/bin/npm
 
 # Create workspace directories owned by agent
 RUN mkdir -p /workspace/juanse /workspace/sofi /workspace/oscar /workspace/nando /workspace/hernando--nando- \
@@ -39,30 +38,19 @@ RUN mkdir -p /workspace/juanse /workspace/sofi /workspace/oscar /workspace/nando
 # Git config for agent user
 RUN su - agent -c 'git config --global user.email "agents@chief.ai" && git config --global user.name "Chief Agent"'
 
-# Claude Code settings for agent user (both /home/agent and /root for safety)
-RUN mkdir -p /home/agent/.claude && echo '{ \
-  "permissions": { \
-    "allow": [ \
-      "Bash(*)", "Read(*)", "Write(*)", "Edit(*)", "MultiEdit(*)", \
-      "Grep(*)", "Glob(*)", "WebSearch(*)", "WebFetch(*)", \
-      "mcp__chief-tools__*", "mcp__github__*", "mcp__playwright__*" \
-    ] \
-  } \
-}' > /home/agent/.claude/settings.json \
-    && cp /home/agent/.claude/settings.json /root/.claude/settings.json \
-    && echo '{"hasCompletedOnboarding":true,"hasAcknowledgedCostThreshold":true}' > /home/agent/.claude.json \
-    && chown -R agent:agent /home/agent
+# Claude Code settings — use COPY instead of inline echo (avoids shell escaping issues)
+COPY config/settings.json /home/agent/.claude/settings.json
+COPY config/settings.json /root/.claude/settings.json
+COPY config/claude.json /home/agent/.claude.json
+COPY config/claude.json /root/.claude.json
 
-# Give agent write access to /root/ dirs (SDK hardcodes /root paths)
-# Pre-accept TOS so Claude Code doesn't output text instead of JSON
-RUN echo '{"hasCompletedOnboarding":true,"hasAcknowledgedCostThreshold":true,"primaryApiKey":"env"}' > /root/.claude.json \
+# Fix ownership and permissions
+RUN chown -R agent:agent /home/agent \
     && chmod 666 /root/.claude.json \
-    && mkdir -p /root/.claude && chmod -R 777 /root/.claude \
+    && chmod -R 777 /root/.claude \
     && mkdir -p /root/.cache/claude-cli-nodejs && chmod -R 777 /root/.cache \
-    && chmod 755 /root
-
-# Give agent ownership of the app
-RUN chown -R agent:agent /app
+    && chmod 755 /root \
+    && chown -R agent:agent /app
 
 # Switch to non-root user
 USER agent
