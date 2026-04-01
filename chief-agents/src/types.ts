@@ -265,10 +265,11 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
 };
 export const DEFAULT_BLENDED_PRICE = 9.00;
 
+// SDK tools — NO Bash. All shell commands run via pre/post-exec in act.ts
 export const ROLE_TOOLS: Record<string, string[]> = {
-  cto:         ['Bash', 'Read', 'Write', 'Edit', 'MultiEdit', 'Grep', 'Glob', 'WebSearch', 'WebFetch'],
-  ux_designer: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
-  qa_engineer: ['Bash', 'Read', 'Write', 'Grep', 'Glob', 'WebSearch', 'WebFetch'],
+  cto:         ['Read', 'Write', 'Edit', 'MultiEdit', 'Grep', 'Glob', 'WebSearch', 'WebFetch'],
+  ux_designer: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
+  qa_engineer: ['Read', 'Write', 'Grep', 'Glob', 'WebSearch', 'WebFetch'],
   sales:       ['Read', 'Write', 'WebSearch', 'WebFetch', 'Glob'],
 };
 

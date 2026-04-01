@@ -125,198 +125,177 @@ export async function act(
     case 'work_on_task': {
       if (!params.task_id || !params.instruction) break;
 
-      // Check if v2 task
-      const isV2 = await sbGet<Array<{ id: string }>>(
-        `agent_tasks_v2?id=eq.${params.task_id}&select=id`,
-      ).catch(() => []);
+      const isV2 = await sbGet<Array<{ id: string }>>(`agent_tasks_v2?id=eq.${params.task_id}&select=id`).catch(() => []);
       if (Array.isArray(isV2) && isV2.length > 0) {
-        await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
-          status: 'in_progress',
-          started_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
+        await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, { status: 'in_progress', started_at: new Date().toISOString(), updated_at: new Date().toISOString() });
       } else {
         await sbPatch(`project_board?id=eq.${params.task_id}`, { status: 'working' });
       }
 
-      // --- Pre-execute: run bash setup commands directly (bypass Claude Code CLI) ---
       const instruction = params.instruction as string;
-      let preExecContext = '';
       const safeName = agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
       const cwd = `/workspace/${safeName}`;
+      const repoDir = `${cwd}/repo`;
+      const isCodeAgent = agent.capabilities.includes('code');
+      const shellEnv = { ...process.env, HOME: process.env.HOME || '/home/agent' };
+      let preExecContext = '';
 
-      // For code-capable agents: ALWAYS ensure repo is cloned + pull latest
-      if (agent.capabilities.includes('code')) {
+      // Shell helper using execFile (safe, no shell injection)
+      const { execFile: _execFile } = await import('node:child_process');
+      const { promisify: _promisify } = await import('node:util');
+      const runCmd = _promisify(_execFile);
+      const shell = async (cmd: string, args: string[], runCwd?: string): Promise<string> => {
         try {
-          const { execFile: execFileCb2 } = await import('node:child_process');
-          const { promisify: promisify2 } = await import('node:util');
-          const execF = promisify2(execFileCb2);
-          const repoDir = `${cwd}/repo`;
-          const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
-          const repoUrl = GITHUB_TOKEN
-            ? `https://${GITHUB_TOKEN}@github.com/rasheedb1/CadenceV1.0.git`
-            : 'https://github.com/rasheedb1/CadenceV1.0.git';
-
-          // Check if repo exists, clone if not, pull if yes
-          try {
-            await execF('test', ['-d', `${repoDir}/.git`], { cwd });
-            // Repo exists — pull latest
-            const { stdout: pullOut } = await execF('git', ['pull', '--rebase'], { cwd: repoDir, timeout: 60_000, env: { ...process.env, HOME: process.env.HOME || '/home/agent' } });
-            preExecContext += `\n$ git pull (in ${repoDir})\n${(pullOut || 'Already up to date').trim()}\n`;
-            log.info(`[pre-exec] git pull OK in ${repoDir}`);
-          } catch {
-            // Repo doesn't exist — clone
-            log.info(`[pre-exec] Cloning repo to ${repoDir}...`);
-            try {
-              const { stdout: cloneOut } = await execF('git', ['clone', repoUrl, repoDir], { cwd, timeout: 120_000, env: { ...process.env, HOME: process.env.HOME || '/home/agent' } });
-              preExecContext += `\n$ git clone → ${repoDir}\n${(cloneOut || 'Cloned successfully').trim()}\n`;
-              log.info(`[pre-exec] Clone OK`);
-            } catch (cloneErr: any) {
-              preExecContext += `\n$ git clone FAILED: ${(cloneErr.stderr || cloneErr.message || '').substring(0, 200)}\n`;
-              log.warn(`[pre-exec] Clone failed: ${(cloneErr.stderr || cloneErr.message || '').substring(0, 100)}`);
-            }
-          }
-
-          // npm install if node_modules doesn't exist
-          try {
-            await execF('test', ['-d', `${repoDir}/node_modules`], { cwd });
-            preExecContext += `\n$ node_modules exists — skipping npm install\n`;
-          } catch {
-            log.info(`[pre-exec] Running npm install in ${repoDir}...`);
-            try {
-              const { stdout: npmOut, stderr: npmErr } = await execF('npm', ['install'], { cwd: repoDir, timeout: 180_000, env: { ...process.env, HOME: process.env.HOME || '/home/agent' } });
-              preExecContext += `\n$ npm install (in ${repoDir})\n${(npmOut || '').trim().substring(0, 300)}\n`;
-              if (npmErr) preExecContext += `STDERR: ${npmErr.substring(0, 200)}\n`;
-              log.info(`[pre-exec] npm install OK`);
-            } catch (npmErr: any) {
-              preExecContext += `\n$ npm install FAILED: ${(npmErr.stderr || npmErr.message || '').substring(0, 300)}\n`;
-              log.warn(`[pre-exec] npm install failed: ${(npmErr.stderr || npmErr.message || '').substring(0, 100)}`);
-            }
-          }
-
-          // List repo contents for context
-          try {
-            const { stdout: lsOut } = await execF('ls', ['-la', repoDir], { cwd, timeout: 5_000 });
-            preExecContext += `\n$ ls ${repoDir}\n${(lsOut || '').trim()}\n`;
-          } catch {}
+          const { stdout, stderr } = await runCmd(cmd, args, { cwd: runCwd || repoDir, timeout: 180_000, env: shellEnv } as any);
+          const out = String(stdout || '').trim();
+          const err = String(stderr || '').trim();
+          return `${out}${err ? '\n' + err : ''}`;
         } catch (e: any) {
-          log.error(`[pre-exec] Repo setup error: ${e.message}`);
+          return `ERROR: ${(e.stderr || e.message || '').substring(0, 300)}`;
+        }
+      };
+
+      // ================================================================
+      // PRE-EXEC: All bash runs HERE, not in the SDK
+      // ================================================================
+      if (isCodeAgent) {
+        log.info(`[pre-exec] Setting up repo for ${agent.name}...`);
+
+        // 1. Clone or pull
+        try {
+          await runCmd('test', ['-d', `${repoDir}/.git`], { cwd } as any);
+          const pullOut = await shell('git', ['pull', '--rebase']);
+          preExecContext += `git pull → ${pullOut.substring(0, 100)}\n`;
+          log.info(`[pre-exec] git pull OK`);
+        } catch {
+          const ghToken = process.env.GITHUB_TOKEN || '';
+          const url = ghToken ? `https://${ghToken}@github.com/rasheedb1/CadenceV1.0.git` : 'https://github.com/rasheedb1/CadenceV1.0.git';
+          log.info(`[pre-exec] Cloning...`);
+          const cloneOut = await shell('git', ['clone', url, repoDir], cwd);
+          preExecContext += `git clone → ${cloneOut.substring(0, 150)}\n`;
+        }
+
+        // 2. npm install if needed
+        try {
+          await runCmd('test', ['-d', `${repoDir}/node_modules`], { cwd } as any);
+        } catch {
+          log.info(`[pre-exec] npm install...`);
+          preExecContext += `npm install → ${(await shell('npm', ['install'])).substring(0, 200)}\n`;
         }
       }
 
-      // Auto-detect bash commands in the instruction and run them directly
-      const bashPatterns = [
-        /git\s+clone\s+\S+/i,
-        /git\s+pull/i,
-        /git\s+push/i,
-        /git\s+add/i,
-        /git\s+commit/i,
-        /npm\s+(run\s+build|install|test|ci)/i,
-        /cd\s+\S+\s*&&/i,
-        /ls\s+/i,
-        /echo\s+/i,
-      ];
-      const hasBashCommands = bashPatterns.some(p => p.test(instruction));
-
-      if (hasBashCommands && agent.capabilities.includes('code')) {
-        try {
-          const { execFile: execFileCb } = await import('node:child_process');
-          const { promisify } = await import('node:util');
-          const execFileAsync = promisify(execFileCb);
-
-          // Extract and run bash commands from the instruction
-          const cmdMatches = instruction.match(/(?:^|\n)\s*((?:cd\s+\S+\s*&&\s*)?(?:git|npm|node|echo|ls|cat|pwd|mkdir|rm|cp|mv|find|grep|curl|chmod|whoami)\s+[^\n]*)/gim);
-          if (cmdMatches) {
-            for (const cmd of cmdMatches.slice(0, 10)) { // Max 10 commands
-              const cleanCmd = cmd.trim();
-              log.info(`[pre-exec] Running: ${cleanCmd.substring(0, 80)}`);
-              try {
-                const { stdout, stderr } = await execFileAsync('bash', ['-c', cleanCmd], {
-                  cwd,
-                  timeout: 120_000,
-                  env: { ...process.env, HOME: process.env.HOME || '/home/agent' },
-                });
-                const output = (stdout || '').trim();
-                const errOutput = (stderr || '').trim();
-                preExecContext += `\n$ ${cleanCmd}\n${output}${errOutput ? '\nSTDERR: ' + errOutput : ''}\n`;
-                log.info(`[pre-exec] OK: ${output.substring(0, 100)}`);
-              } catch (cmdErr: any) {
-                const errMsg = cmdErr.stderr || cmdErr.message || '';
-                preExecContext += `\n$ ${cleanCmd}\nERROR: ${errMsg.substring(0, 200)}\n`;
-                log.warn(`[pre-exec] Failed: ${errMsg.substring(0, 100)}`);
-              }
+      // 3. Write team artifacts to workspace (FIX #2)
+      try {
+        const projId = agent.currentProjectId;
+        if (projId) {
+          const arts = await sbGet<Array<{ filename: string; content: string; content_summary: string }>>(
+            `agent_artifacts?project_id=eq.${projId}&created_by=neq.${agent.id}&order=created_at.desc&limit=5&select=filename,content,content_summary`,
+          ).catch(() => []);
+          if (Array.isArray(arts) && arts.length > 0) {
+            const { writeFile, mkdir } = await import('node:fs/promises');
+            const artDir = `${cwd}/team-artifacts`;
+            await mkdir(artDir, { recursive: true }).catch(() => {});
+            for (const a of arts) {
+              await writeFile(`${artDir}/${a.filename}.md`, a.content || a.content_summary || '', 'utf-8').catch(() => {});
             }
+            preExecContext += `Team artifacts: ${arts.length} files in ${artDir}/\n`;
+            log.info(`[pre-exec] Wrote ${arts.length} team artifacts`);
           }
-        } catch (e: any) {
-          log.error(`[pre-exec] Setup error: ${e.message}`);
         }
-      }
+      } catch {}
 
-      // Build the prompt: include pre-exec results + repo location
-      const repoPath = agent.capabilities.includes('code') ? `${cwd}/repo` : cwd;
-      const sdkInstruction = preExecContext
-        ? `${instruction}\n\nENVIRONMENT:\n- Working directory: ${repoPath}\n- The repo is cloned and npm installed. node_modules are ready.\n- You can read/edit files directly using their paths under ${repoPath}/\n\nPRE-EXECUTED SHELL RESULTS:\n${preExecContext}\n\nThe commands above were already executed successfully. Focus on reading/editing code. Do NOT try to run git or npm — they are handled automatically.`
-        : `${instruction}\n\nENVIRONMENT:\n- Working directory: ${repoPath}`;
+      // ================================================================
+      // SDK: Read/Write/Edit only — NO Bash
+      // ================================================================
+      const workDir = isCodeAgent ? repoDir : cwd;
+      const sdkPrompt = `${instruction}
 
-      // *** Agent SDK for reasoning/coding tasks ***
-      const result = await executeWithSDK(agent, sdkInstruction, log);
+ENVIRONMENT:
+- Working directory: ${workDir}
+${isCodeAgent ? `- Repo cloned, npm installed, ready to edit code.
+- Team artifacts in ${cwd}/team-artifacts/ — read these for specs/context from other agents.
+- Do NOT use Bash tool. Git, npm, build, deploy are automated after you finish.
+- Just use Read, Edit, Write, Grep, Glob to modify code. Describe what you changed when done.` : `- Use Read, Write, Grep, Glob, WebSearch, screenshot_page as needed.`}
+${preExecContext ? `\nSETUP:\n${preExecContext}` : ''}`;
 
-      // Track SDK token usage
+      const result = await executeWithSDK(agent, sdkPrompt, log);
       state.budget.tokens += result.tokensUsed;
-
-      log.info(`Task ${(params.task_id as string).substring(0, 8)} result (${result.numTurns} turns, $${result.costUsd.toFixed(4)}): ${result.text.substring(0, 100)}`);
+      log.info(`Task ${(params.task_id as string).substring(0, 8)} (${result.numTurns} turns, $${result.costUsd.toFixed(4)})`);
       logActivity(agent.id, agent.orgId, 'task_result', 'work_on_task',
         `Task: ${params.task_id} | Turns: ${result.numTurns} | Cost: $${result.costUsd.toFixed(4)} | Result: ${result.text.substring(0, 300)}`);
 
-      // --- AUTO-COMPLETE: if SDK ran successfully (turns > 0, no error), complete the task ---
-      // EXCEPT for [REVIEW] tasks — those need submit_review flow, not auto-complete
-      if (result.numTurns > 0 && !result.text.startsWith('(error:') && Array.isArray(isV2) && isV2.length > 0) {
-        const taskInfo = await sbGet<Array<{ title: string; task_type: string }>>(
-          `agent_tasks_v2?id=eq.${params.task_id}&select=title,task_type`,
-        ).catch(() => []);
-        const ti = Array.isArray(taskInfo) && taskInfo[0] ? taskInfo[0] : null;
+      // ================================================================
+      // POST-EXEC: Build → commit → push → deploy (FIX #3)
+      // ================================================================
+      let postLog = '';
+      if (isCodeAgent && result.numTurns > 0 && !result.text.startsWith('(error:')) {
+        log.info(`[post-exec] Build → commit → push → deploy...`);
 
-        // Skip auto-complete for review tasks — let THINK decide submit_review
-        if (ti?.title?.startsWith('[REVIEW]') || ti?.task_type === 'review') {
-          log.info(`Skipping auto-complete for review task — needs submit_review flow`);
-          return result.text;
+        // 1. Build
+        const buildOut = await shell('npm', ['run', 'build']);
+        const buildOk = !buildOut.includes('ERROR:');
+        postLog += `build: ${buildOk ? 'OK' : 'FAILED'}\n`;
+        if (buildOk) {
+          // 2. Check for changes
+          const diff = await shell('git', ['diff', '--stat']);
+          const untracked = await shell('git', ['ls-files', '--others', '--exclude-standard']);
+          if (diff.trim() || untracked.trim()) {
+            // 3. Commit + push
+            await shell('git', ['add', '-A']);
+            const title = ((await sbGet<Array<{ title: string }>>(`agent_tasks_v2?id=eq.${params.task_id}&select=title`).catch(() => []))?.[0]?.title || 'update').substring(0, 50);
+            await shell('git', ['-c', 'user.name=Chief Agent', '-c', 'user.email=agents@chief.ai', 'commit', '-m', `${title} — ${agent.name}`]);
+            const pushOut = await shell('git', ['push']);
+            postLog += `push: ${pushOut.substring(0, 80)}\n`;
+            log.info(`[post-exec] pushed`);
+
+            // 4. Deploy
+            const vToken = process.env.VERCEL_TOKEN;
+            if (vToken) {
+              const dArgs = ['--prod', '--yes', `--token=${vToken}`, '--name', process.env.VERCEL_PROJECT_NAME || 'chief.ai'];
+              if (process.env.VERCEL_SCOPE) dArgs.push('--scope', process.env.VERCEL_SCOPE);
+              const dOut = await shell('vercel', dArgs);
+              postLog += `deploy: ${dOut.includes('vercel.app') || dOut.includes('Production') ? 'OK' : dOut.substring(0, 80)}\n`;
+              log.info(`[post-exec] deployed`);
+            }
+          } else {
+            postLog += `no changes\n`;
+          }
+        } else {
+          postLog += `build failed — skipping push/deploy\n`;
+          log.warn(`[post-exec] build failed`);
         }
-        const resultSummary = result.text.substring(0, 2000);
-        const contentSummary = resultSummary.length > 400 ? resultSummary.substring(0, 400) + '...' : resultSummary;
-
-        // Create artifact
-        let artifactId: string | null = null;
-        try {
-          const artData = await sbPostReturn<{ id: string }>('agent_artifacts', {
-            org_id: agent.orgId,
-            task_id: params.task_id,
-            filename: `${((ti?.title || 'output').substring(0, 40)).replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '-').toLowerCase()}-result`,
-            version: 1,
-            artifact_type: ti?.task_type || 'general',
-            content: resultSummary,
-            content_summary: contentSummary,
-            created_by: agent.id,
-          });
-          artifactId = artData?.id || null;
-        } catch {}
-
-        // Mark task done
-        const taskCost = getTokenCost(state.budget.tokens, state.agentConfig?.model as string || 'claude-sonnet-4-6');
-        await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
-          status: 'done',
-          completed_at: new Date().toISOString(),
-          result: { summary: resultSummary },
-          tokens_used: state.budget.tokens,
-          cost_usd: taskCost,
-          artifact_ids: artifactId ? [artifactId] : [],
-          updated_at: new Date().toISOString(),
-        });
-        state.tasksCompletedSinceCheckin++;
-        state.interval = MIN_INTERVAL; // fast next tick to claim new work
-        log.info(`Auto-completed task ${(params.task_id as string).substring(0, 8)} (${result.numTurns} turns, $${result.costUsd.toFixed(4)})`);
-        return 'auto_completed';
       }
 
+      // ================================================================
+      // AUTO-COMPLETE
+      // ================================================================
+      if (result.numTurns > 0 && !result.text.startsWith('(error:') && Array.isArray(isV2) && isV2.length > 0) {
+        const ti = ((await sbGet<Array<{ title: string; task_type: string }>>(`agent_tasks_v2?id=eq.${params.task_id}&select=title,task_type`).catch(() => [])) as any)?.[0];
+        if (ti?.title?.startsWith('[REVIEW]') || ti?.task_type === 'review') return result.text;
+
+        const fullResult = postLog ? `${result.text.substring(0, 1500)}\n\n--- Pipeline ---\n${postLog}` : result.text.substring(0, 2000);
+        const summary = fullResult.length > 400 ? fullResult.substring(0, 400) + '...' : fullResult;
+        let artId: string | null = null;
+        try {
+          artId = ((await sbPostReturn<{ id: string }>('agent_artifacts', {
+            org_id: agent.orgId, task_id: params.task_id,
+            filename: `${((ti?.title || 'output').substring(0, 40)).replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '-').toLowerCase()}-result`,
+            version: 1, artifact_type: ti?.task_type || 'general',
+            content: fullResult, content_summary: summary, created_by: agent.id,
+          })) as any)?.id || null;
+        } catch {}
+
+        await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
+          status: 'done', completed_at: new Date().toISOString(),
+          result: { summary: fullResult }, tokens_used: state.budget.tokens,
+          cost_usd: getTokenCost(state.budget.tokens, state.agentConfig?.model as string || 'claude-sonnet-4-6'),
+          artifact_ids: artId ? [artId] : [], updated_at: new Date().toISOString(),
+        });
+        state.tasksCompletedSinceCheckin++;
+        state.interval = MIN_INTERVAL;
+        log.info(`Auto-completed ${(params.task_id as string).substring(0, 8)}`);
+        return 'auto_completed';
+      }
       return result.text;
     }
 
