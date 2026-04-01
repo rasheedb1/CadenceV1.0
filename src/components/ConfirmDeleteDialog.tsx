@@ -31,10 +31,12 @@
  */
 
 import { useState, useCallback, useId } from 'react'
+import { motion, AnimatePresence, type Transition } from 'motion/react'
 import { Loader2, Trash2, AlertTriangle } from 'lucide-react'
+import * as AlertDialogPrimitive from '@radix-ui/react-alert-dialog'
+import { cn } from '@/lib/utils'
 import {
   AlertDialog,
-  AlertDialogContent,
   AlertDialogHeader,
   AlertDialogFooter,
   AlertDialogTitle,
@@ -42,7 +44,30 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from '@/components/ui/alert-dialog'
-import { cn } from '@/lib/utils'
+
+// ─── Animation constants ──────────────────────────────────────────────────────
+
+/**
+ * Spring config: stiffness 400 + damping 30
+ * → snappy, controlled, ~150ms perceived entry, no oscillation.
+ * Damping ratio ≈ 0.95 (nearly critically damped) — intentional urgency signal
+ * for a destructive confirmation dialog.
+ */
+const springTransition: Transition = {
+  type: 'spring',
+  stiffness: 400,
+  damping: 30,
+}
+
+/**
+ * Overlay uses a simple opacity tween — a spring backdrop would feel jarring.
+ * Slightly faster than the content so it appears to "come from behind."
+ */
+const overlayTransition: Transition = {
+  type: 'tween',
+  duration: 0.15,
+  ease: [0, 0, 0.4, 1], // equivalent to CSS cubic-bezier easeOut
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,10 +101,10 @@ export interface ConfirmDeleteDialogProps {
    */
   entityType?: string
 
-  /** Label for the confirm button. Defaults to "Delete". */
+  /** Label for the confirm button. @default "Delete" */
   confirmLabel?: string
 
-  /** Label for the cancel button. Defaults to "Cancel". */
+  /** Label for the cancel button. @default "Cancel" */
   cancelLabel?: string
 
   /**
@@ -90,13 +115,13 @@ export interface ConfirmDeleteDialogProps {
   onConfirm: () => void | Promise<void>
 
   /**
-   * Optional: if true, the dialog will close automatically after onConfirm resolves.
-   * Defaults to true.
+   * If true, the dialog closes automatically after onConfirm resolves.
+   * @default true
    */
   closeOnConfirm?: boolean
 
   /**
-   * Show an additional warning below the description.
+   * Show an additional warning callout below the description.
    * Useful for "this action cannot be undone" style notices.
    */
   warningText?: string
@@ -108,6 +133,7 @@ export interface ConfirmDeleteDialogProps {
    * Variant for the confirm button.
    * - "destructive" (default): red button — for delete / remove actions
    * - "warning": amber button — for soft destructive actions
+   * @default "destructive"
    */
   variant?: 'destructive' | 'warning'
 }
@@ -134,9 +160,7 @@ export function ConfirmDeleteDialog({
 
   // Auto-generate title if not provided
   const resolvedTitle = title ?? (
-    entityType
-      ? `Delete ${entityType}?`
-      : 'Are you sure?'
+    entityType ? `Delete ${entityType}?` : 'Are you sure?'
   )
 
   // Auto-generate description if not provided
@@ -147,8 +171,9 @@ export function ConfirmDeleteDialog({
   )
 
   const handleConfirm = useCallback(async (e: React.MouseEvent) => {
-    // Prevent AlertDialog from auto-closing via its default behavior
+    // Guard against double-fire; prevent AlertDialog from auto-closing
     e.preventDefault()
+    if (isLoading) return
 
     setIsLoading(true)
     try {
@@ -162,7 +187,7 @@ export function ConfirmDeleteDialog({
     } finally {
       setIsLoading(false)
     }
-  }, [onConfirm, closeOnConfirm, onOpenChange])
+  }, [onConfirm, closeOnConfirm, onOpenChange, isLoading])
 
   const handleOpenChange = useCallback((next: boolean) => {
     // Block closing while an async action is in flight
@@ -171,112 +196,136 @@ export function ConfirmDeleteDialog({
   }, [isLoading, onOpenChange])
 
   const confirmButtonClass = cn(
-    // Base: override AlertDialogAction default (which uses buttonVariants())
     'inline-flex items-center justify-center gap-2 rounded-lg text-sm font-medium',
-    'h-9 px-4 py-2 transition-colors',
+    'h-9 px-4 py-2 transition-colors duration-150',
     'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
     'disabled:pointer-events-none disabled:opacity-50',
     variant === 'destructive'
       ? 'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90'
-      : 'bg-warning text-white shadow-sm hover:bg-warning/90'
+      : 'bg-amber-500 text-white shadow-sm hover:bg-amber-500/90'
   )
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
-      <AlertDialogContent
-        className={cn('sm:max-w-[420px]', className)}
-        aria-describedby={descriptionId}
-      >
-        {/* ── Header ── */}
-        <AlertDialogHeader>
-          {/* Icon row */}
-          <div
-            className={cn(
-              'mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full',
-              variant === 'destructive'
-                ? 'bg-destructive/10'
-                : 'bg-warning/10'
-            )}
-            aria-hidden="true"
-          >
-            {variant === 'destructive' ? (
-              <Trash2
-                className={cn(
-                  'h-6 w-6',
-                  'text-destructive'
-                )}
+      {/*
+       * We use AnimatePresence + forceMount so Motion controls enter/exit.
+       * The portal renders overlay and content separately so we can animate
+       * them with different transitions (tween overlay vs spring content).
+       */}
+      <AnimatePresence>
+        {open && (
+          <AlertDialogPrimitive.Portal forceMount>
+            {/* ── Overlay: tween opacity only — spring would feel jarring ── */}
+            <AlertDialogPrimitive.Overlay asChild>
+              <motion.div
+                className="fixed inset-0 z-50 bg-black/80"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={overlayTransition}
+                aria-hidden="true"
               />
-            ) : (
-              <AlertTriangle
+            </AlertDialogPrimitive.Overlay>
+
+            {/* ── Content: spring entrance — stiffness:400, damping:30 ── */}
+            <AlertDialogPrimitive.Content asChild aria-describedby={descriptionId}>
+              <motion.div
                 className={cn(
-                  'h-6 w-6',
-                  'text-warning'
+                  // Base layout — matches shadcn AlertDialogContent
+                  'fixed left-[50%] top-[50%] z-50 grid w-full translate-x-[-50%] translate-y-[-50%]',
+                  'gap-4 border bg-background p-6 shadow-lg sm:rounded-lg',
+                  'sm:max-w-[420px]',
+                  className
                 )}
-              />
-            )}
-          </div>
+                initial={{ opacity: 0, scale: 0.95, y: 4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 4 }}
+                transition={springTransition}
+              >
+                {/* ── Header ── */}
+                <AlertDialogHeader className="items-center gap-1">
+                  {/* Icon ring */}
+                  <div
+                    className={cn(
+                      'mb-4 flex h-12 w-12 items-center justify-center rounded-full',
+                      variant === 'destructive'
+                        ? 'bg-destructive/10'
+                        : 'bg-amber-500/10'
+                    )}
+                    aria-hidden="true"
+                  >
+                    {variant === 'destructive' ? (
+                      <Trash2 className="h-6 w-6 text-destructive" />
+                    ) : (
+                      <AlertTriangle className="h-6 w-6 text-amber-500" />
+                    )}
+                  </div>
 
-          <AlertDialogTitle className="text-center sm:text-center">
-            {resolvedTitle}
-          </AlertDialogTitle>
+                  <AlertDialogTitle className="text-center sm:text-center">
+                    {resolvedTitle}
+                  </AlertDialogTitle>
 
-          <AlertDialogDescription
-            id={descriptionId}
-            className="text-center sm:text-center"
-          >
-            {resolvedDescription}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
+                  <AlertDialogDescription
+                    id={descriptionId}
+                    className="text-center sm:text-center"
+                  >
+                    {resolvedDescription}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
 
-        {/* ── Optional warning callout ── */}
-        {warningText && (
-          <div
-            className={cn(
-              'flex items-start gap-2 rounded-lg px-3 py-2.5 text-sm',
-              'border',
-              variant === 'destructive'
-                ? 'border-destructive/20 bg-destructive/5 text-destructive'
-                : 'border-warning/20 bg-warning/5 text-warning'
-            )}
-            role="alert"
-          >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            <span>{warningText}</span>
-          </div>
+                {/* ── Optional warning callout ── */}
+                {warningText && (
+                  <div
+                    className={cn(
+                      'mt-1 flex items-start gap-2 rounded-lg px-3 py-2.5 text-sm',
+                      'border',
+                      variant === 'destructive'
+                        ? 'border-destructive/20 bg-destructive/5 text-destructive'
+                        : 'border-amber-500/20 bg-amber-500/5 text-amber-600'
+                    )}
+                    role="alert"
+                  >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>{warningText}</span>
+                  </div>
+                )}
+
+                {/* ── Footer ── */}
+                <AlertDialogFooter className="mt-2 flex-row justify-center gap-2 sm:justify-center">
+                  {/* Cancel — disabled while loading */}
+                  <AlertDialogCancel
+                    disabled={isLoading}
+                    className="flex-1 sm:flex-none sm:min-w-[100px]"
+                  >
+                    {cancelLabel}
+                  </AlertDialogCancel>
+
+                  {/* Confirm — shows spinner while async action runs */}
+                  <AlertDialogAction
+                    onClick={handleConfirm}
+                    disabled={isLoading}
+                    className={cn(confirmButtonClass, 'flex-1 sm:flex-none sm:min-w-[100px]')}
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        <span>Deleting…</span>
+                      </>
+                    ) : (
+                      <>
+                        {variant === 'destructive' && (
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        )}
+                        <span>{confirmLabel}</span>
+                      </>
+                    )}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </motion.div>
+            </AlertDialogPrimitive.Content>
+          </AlertDialogPrimitive.Portal>
         )}
-
-        {/* ── Footer ── */}
-        <AlertDialogFooter className="flex-row justify-center gap-2 sm:justify-center">
-          {/* Cancel — disabled while loading */}
-          <AlertDialogCancel
-            disabled={isLoading}
-            className="flex-1 sm:flex-none sm:min-w-[100px]"
-          >
-            {cancelLabel}
-          </AlertDialogCancel>
-
-          {/* Confirm — shows spinner while async action runs */}
-          <AlertDialogAction
-            onClick={handleConfirm}
-            disabled={isLoading}
-            className={cn(confirmButtonClass, 'flex-1 sm:flex-none sm:min-w-[100px]')}
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                <span>Deleting...</span>
-              </>
-            ) : (
-              <>
-                {variant === 'destructive' && (
-                  <Trash2 className="h-4 w-4" aria-hidden="true" />
-                )}
-                <span>{confirmLabel}</span>
-              </>
-            )}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
+      </AnimatePresence>
     </AlertDialog>
   )
 }
