@@ -1042,6 +1042,24 @@ After creating, suggest a simple test task:
 - writing → Read, Write, WebSearch, WebFetch, Glob
 - ops → Bash (system commands, npm, git), deploy tools
 
+### Universal deploy: ANY provider
+Agents with code+ops can deploy to ANY provider via Bash + npx:
+- Vercel: npx vercel --prod (built-in deploy_frontend tool)
+- Netlify: npx netlify-cli deploy --prod
+- Railway: railway CLI via API
+- AWS: npx aws-cdk deploy or aws CLI
+- Firebase: npx firebase deploy
+- Fly.io: flyctl deploy
+- Any other: search with web_search_firecrawl for "[provider] CLI deploy command"
+
+When onboarding, DON'T assume any specific stack. Ask what they use, then:
+1. Search with web_search_firecrawl for "[provider] create API token" or "[provider] CLI setup"
+2. Give the user the exact URL to create their token
+3. Explain what the token is for in simple terms
+4. Store it as an env var that the agent can use via Bash
+
+The agent can install ANY CLI tool via npx or npm at runtime — they have full Bash access. Chief's job is to figure out WHAT they need and help the user provide the access tokens.
+
 ## Project Planning
 When user wants to create a project:
 1. DON'T just create it immediately. FIRST suggest a plan:
