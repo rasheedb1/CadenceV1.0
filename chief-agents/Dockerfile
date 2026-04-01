@@ -39,7 +39,7 @@ RUN mkdir -p /workspace/juanse /workspace/sofi /workspace/oscar /workspace/nando
 # Git config for agent user
 RUN su - agent -c 'git config --global user.email "agents@chief.ai" && git config --global user.name "Chief Agent"'
 
-# Claude Code settings for agent user
+# Claude Code settings for agent user (both /home/agent and /root for safety)
 RUN mkdir -p /home/agent/.claude && echo '{ \
   "permissions": { \
     "allow": [ \
@@ -49,7 +49,8 @@ RUN mkdir -p /home/agent/.claude && echo '{ \
     ] \
   } \
 }' > /home/agent/.claude/settings.json \
-    && touch /home/agent/.claude.json \
+    && cp /home/agent/.claude/settings.json /root/.claude/settings.json \
+    && echo '{"hasCompletedOnboarding":true,"hasAcknowledgedCostThreshold":true}' > /home/agent/.claude.json \
     && chown -R agent:agent /home/agent
 
 # Give agent write access to /root/ dirs (SDK hardcodes /root paths)

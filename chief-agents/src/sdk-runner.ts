@@ -97,8 +97,8 @@ export async function executeWithSDK(
         cwd: `/workspace/${safeName}`,
         maxTurns: 50,
         mcpServers,
-        // Docker/headless mode: skip local settings discovery
-        settingSources: [],
+        // Load user settings (for Bash permission allow list)
+        settingSources: ['user'],
         // Ensure HOME is set correctly for non-root user
         env: { HOME: process.env.HOME || '/home/agent' },
         // Capture stderr for debugging
