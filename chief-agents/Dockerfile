@@ -53,7 +53,9 @@ RUN mkdir -p /home/agent/.claude && echo '{ \
     && chown -R agent:agent /home/agent
 
 # Give agent write access to /root/ dirs (SDK hardcodes /root paths)
-RUN touch /root/.claude.json && chmod 666 /root/.claude.json \
+# Pre-accept TOS so Claude Code doesn't output text instead of JSON
+RUN echo '{"hasCompletedOnboarding":true,"hasAcknowledgedCostThreshold":true,"primaryApiKey":"env"}' > /root/.claude.json \
+    && chmod 666 /root/.claude.json \
     && mkdir -p /root/.claude && chmod -R 777 /root/.claude \
     && mkdir -p /root/.cache/claude-cli-nodejs && chmod -R 777 /root/.cache \
     && chmod 755 /root
