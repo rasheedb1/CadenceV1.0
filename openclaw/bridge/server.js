@@ -1011,6 +1011,8 @@ You manage AI agent teams + the Chief Outreach sales platform.
     { name: "ver_artefactos", description: "Ve los artefactos (outputs de trabajo) producidos por los agentes. Filtra por agente, tarea, o proyecto. Usa cuando: 'qué produjo Sofi?', 'muéstrame los entregables', 'resultado de la tarea X'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_name: { type: "string" }, task_id: { type: "string" }, limit: { type: "number" } }, required: ["org_id"] } },
     { name: "ver_conocimiento", description: "Ve el conocimiento acumulado (facts, lessons, decisions) del equipo o de un agente específico. Usa cuando: 'qué ha aprendido Sofi?', 'lecciones del equipo', 'qué saben sobre X'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_name: { type: "string" }, category: { type: "string", enum: ["fact", "preference", "strategy", "lesson", "decision"] } }, required: ["org_id"] } },
     { name: "ver_reviews", description: "Ve el historial de reviews de una tarea. Muestra scores, issues y sugerencias de cada iteración. Usa cuando: 'cómo va el review?', 'qué feedback dieron?', 'historial de revisiones'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, task_id: { type: "string" } }, required: ["org_id", "task_id"] } },
+    { name: "ver_backlog", description: "Ve el backlog de items que los agentes necesitan del humano: blockers, decisiones, aprobaciones, feedback. Filtra por status (open/resolved/all). Usa cuando: 'qué necesitan los agentes?', 'backlog', 'pendientes de mi lado', 'qué está bloqueado?'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, status: { type: "string", enum: ["open", "resolved", "all"], description: "Filter by status (default: open)" }, agent_name: { type: "string", description: "Filter by agent name (optional)" } }, required: ["org_id"] } },
+    { name: "resolver_backlog", description: "Marca un item del backlog como resuelto con una resolución. Usa cuando el usuario responde a un pedido del backlog: 'listo', 'aprobado', 'ya lo hice', 'resuelto'.", input_schema: { type: "object", properties: { backlog_id: { type: "string", description: "ID del item del backlog" }, resolution: { type: "string", description: "Qué se hizo para resolverlo" } }, required: ["backlog_id", "resolution"] } },
     { name: "ensenar_agente", description: "Inyecta un hecho, lección o decisión en la memoria del equipo o de un agente específico. Usa cuando el usuario dice algo que los agentes deberían recordar siempre: 'recuerda que...', 'los agentes deben saber que...', 'regla del equipo: ...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_name: { type: "string", description: "Nombre del agente (null = conocimiento del equipo)" }, content: { type: "string", description: "El hecho o lección" }, category: { type: "string", enum: ["fact", "preference", "strategy", "lesson", "decision"] }, importance: { type: "number", description: "0.0-1.0, default 0.7" } }, required: ["org_id", "content"] } },
     { name: "analizar_estructura", description: "Analiza la estructura del equipo y sugiere mejoras: si un equipo tiene 4+ workers sin team lead, sugiere crear uno. Si hay agentes sin equipo, sugiere asignarlos. Usa cuando: 'cómo está organizado el equipo?', 'necesitamos más estructura?', 'analiza la jerarquía'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "configurar_standup", description: "Configura el standup diario automático: timezone, hora, y si está activado. Usa cuando: 'estoy en México', 'mándame el standup a las 8am', 'cambia mi zona horaria', 'desactiva el standup'. Timezones comunes: America/Mexico_City, America/Bogota, America/Buenos_Aires, America/Santiago, America/Lima, Europe/Madrid, US/Eastern, US/Pacific.", input_schema: { type: "object", properties: { whatsapp_number: { type: "string", description: "Número WhatsApp del usuario (sessionKey)" }, timezone: { type: "string", description: "IANA timezone (ej: America/Mexico_City, America/Bogota)" }, standup_hour: { type: "number", description: "Hora local para el standup (0-23, default 9)" }, standup_enabled: { type: "boolean", description: "Activar/desactivar standup diario" } }, required: ["whatsapp_number"] } },
@@ -2362,6 +2364,33 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
             ...r, reviewer_name: agentMap3[r.reviewer_agent_id] || "Unknown",
           }));
           return { success: true, reviews: enriched3, total: enriched3.length };
+        }
+
+        case "ver_backlog": {
+          let backlogQuery = `${SB_URL}/rest/v1/agent_backlog?org_id=eq.${args.org_id}`;
+          const bStatus = args.status || "open";
+          if (bStatus !== "all") backlogQuery += `&status=eq.${bStatus}`;
+          if (args.agent_name) {
+            const ag = await sbFetch(`${SB_URL}/rest/v1/agents?org_id=eq.${args.org_id}&name=ilike.*${args.agent_name}*&limit=1&select=id`, { headers: sbHeaders() });
+            if (Array.isArray(ag) && ag[0]) backlogQuery += `&agent_id=eq.${ag[0].id}`;
+          }
+          backlogQuery += `&order=created_at.desc&limit=20&select=id,agent_id,category,title,details,status,resolution,created_at`;
+          const backlogItems = await sbFetch(backlogQuery, { headers: sbHeaders() });
+          const agMap = {};
+          const allAg = await sbFetch(`${SB_URL}/rest/v1/agents?org_id=eq.${args.org_id}&select=id,name`, { headers: sbHeaders() });
+          if (Array.isArray(allAg)) allAg.forEach(a => { agMap[a.id] = a.name; });
+          const enriched = (Array.isArray(backlogItems) ? backlogItems : []).map(b => ({
+            ...b, agent_name: agMap[b.agent_id] || "Unknown",
+          }));
+          return { success: true, backlog: enriched, total: enriched.length, status_filter: bStatus };
+        }
+
+        case "resolver_backlog": {
+          await sbFetch(`${SB_URL}/rest/v1/agent_backlog?id=eq.${args.backlog_id}`, {
+            method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+            body: JSON.stringify({ status: "resolved", resolution: args.resolution, resolved_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
+          });
+          return { success: true, message: `Backlog item resolved: "${args.resolution}"` };
         }
 
         case "ensenar_agente": {

@@ -148,6 +148,31 @@ export function buildChiefToolsServer(agent: AgentConfig) {
     },
   );
 
+  // --- Report to Chief backlog (instead of spamming WhatsApp) ---
+  const reportToChief = tool(
+    'report_to_chief',
+    'Add an item to Chief\'s backlog for human review. Use this instead of ask_human for non-urgent items: blockers, decisions needed, approval requests, or feedback. Chief reviews the backlog on their schedule — no WhatsApp spam. Use ask_human ONLY for truly urgent/blocking issues.',
+    {
+      category: z.string().describe('request|blocker|decision|approval|feedback'),
+      title: z.string().describe('Short summary (1 line, shown in backlog list)'),
+      details: z.string().optional().describe('Full context, what you tried, what you need'),
+    },
+    async ({ category, title, details }) => {
+      await sbPost('agent_backlog', {
+        org_id: agent.orgId,
+        agent_id: agent.id,
+        category,
+        title,
+        details: details || '',
+        task_id: agent.currentTaskId,
+        project_id: agent.currentProjectId,
+      });
+      return {
+        content: [{ type: 'text' as const, text: `Added to Chief's backlog: [${category}] ${title}. Chief will review and respond.` }],
+      };
+    },
+  );
+
   // --- Firecrawl tools (web scraping, screenshots, search) ---
   const FIRECRAWL_KEY = process.env.FIRECRAWL_API_KEY || '';
   const FIRECRAWL_URL = 'https://api.firecrawl.dev/v2';
@@ -232,6 +257,6 @@ export function buildChiefToolsServer(agent: AgentConfig) {
   return createSdkMcpServer({
     name: 'chief-tools',
     version: '1.0.0',
-    tools: [sendMessage, saveArtifact, createSubtask, queryKnowledge, askHuman, screenshotPage, scrapeUrl, firecrawlSearch],
+    tools: [sendMessage, saveArtifact, createSubtask, queryKnowledge, askHuman, reportToChief, screenshotPage, scrapeUrl, firecrawlSearch],
   });
 }
