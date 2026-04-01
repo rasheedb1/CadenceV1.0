@@ -126,6 +126,7 @@ function FlowView({ agents, nodes, edges, filteredEvents, expandedEvent, setExpa
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-medium text-xs">{event.agent_name}</span>
+                          {event.detail?.startsWith('→') && <span className="text-[10px] text-muted-foreground">{event.detail}</span>}
                           {event.status && <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4">{event.status}</Badge>}
                           {isRecent && <span className="text-[9px] text-amber-600 font-medium">NUEVO</span>}
                         </div>
@@ -356,9 +357,20 @@ export function MissionControl() {
           if (seenIds.has(id)) continue; seenIds.add(id)
           const agent = agents.find(a => a.id === evt.agent_id)
           const icon = evt.tool_name ? (TOOL_ICONS[evt.tool_name] || '⚡') : '⚡'
+          // Extract target agent from content for message-type events
+          let detail = evt.event_type
+          if (['reply_message', 'send_message', 'ask_human'].includes(evt.tool_name || '')) {
+            const toMatch = (evt.content || '').match(/"to_agent_id"\s*:\s*"([^"]+)"/) || (evt.content || '').match(/to_agent(?:_name)?[:\s]+["']?(\w+)/)
+            if (toMatch) {
+              const targetAgent = agents.find(a => a.id === toMatch[1] || a.name.toLowerCase().includes(toMatch[1].toLowerCase()))
+              detail = `→ ${targetAgent?.name || toMatch[1].substring(0, 8)}`
+            } else if (evt.tool_name === 'ask_human') {
+              detail = '→ Human'
+            }
+          }
           events.push({ id, type: 'activity', agent_name: agent?.name || 'Agent',
             agent_id: evt.agent_id, content: `${icon} ${evt.tool_name || evt.event_type}: ${evt.content?.substring(0, 500) || ''}`,
-            detail: evt.event_type, status: evt.event_type === 'tool_call' ? 'in_progress' : 'completed',
+            detail, status: evt.event_type === 'tool_call' ? 'in_progress' : 'completed',
             timestamp: evt.created_at })
         }
       }
@@ -391,9 +403,15 @@ export function MissionControl() {
       const evt = payload.new as { agent_id: string; event_type: string; tool_name: string; content: string; created_at: string }
       const agent = agents.find(a => a.id === evt.agent_id)
       const icon = evt.tool_name ? (TOOL_ICONS[evt.tool_name] || '⚡') : '⚡'
+      let evtDetail = evt.event_type
+      if (['reply_message', 'send_message', 'ask_human'].includes(evt.tool_name || '')) {
+        const toM = (evt.content || '').match(/"to_agent_id"\s*:\s*"([^"]+)"/) || (evt.content || '').match(/to_agent(?:_name)?[:\s]+["']?(\w+)/)
+        if (toM) { const ta = agents.find(a => a.id === toM[1] || a.name.toLowerCase().includes(toM[1].toLowerCase())); evtDetail = `→ ${ta?.name || toM[1].substring(0, 8)}` }
+        else if (evt.tool_name === 'ask_human') evtDetail = '→ Human'
+      }
       setLiveEvents(prev => [{ id: `evt-${Date.now()}`, type: 'activity' as const, agent_name: agent?.name || 'Agent',
         agent_id: evt.agent_id, content: `${icon} ${evt.tool_name || evt.event_type}: ${evt.content?.substring(0, 300) || ''}`,
-        detail: evt.event_type, status: evt.event_type === 'tool_call' ? 'in_progress' : 'completed',
+        detail: evtDetail, status: evt.event_type === 'tool_call' ? 'in_progress' : 'completed',
         timestamp: evt.created_at }, ...prev].slice(0, 50))
     })
     channel.subscribe()
