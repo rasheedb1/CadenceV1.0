@@ -72,8 +72,7 @@ export async function runClaudeTask(
     "--output-format",
     "stream-json",
     "--verbose",
-    "--allowedTools",
-    "Read,Write,Edit,Bash(npm test:*),Bash(npx:*),Bash(git:*),Bash(ls:*),Bash(cat:*),Bash(find:*),Bash(grep:*),Bash(node:*),Bash(curl:*),Bash(cd:*),Bash(mkdir:*),Bash(cp:*),Bash(mv:*),Bash(echo:*),Bash(head:*),Bash(tail:*),Bash(wc:*),Bash(sort:*),Bash(diff:*),Bash(gh:*),Glob,Grep",
+    "--dangerouslySkipPermissions",
   ];
 
   console.log(`[claude] Starting task model=${model}`);
