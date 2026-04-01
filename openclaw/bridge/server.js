@@ -730,11 +730,10 @@ async function formatAgentMessage(rawMessage, agentName, priority, language = "e
   const namePattern = new RegExp(`\\[${agentName}\\]\\s*`, 'gi');
   msg = msg.replace(namePattern, '').trim();
 
-  // FILTER: suppress messages about /approve, shell permissions, exec approval
-  // These are internal system noise — the user does NOT need to act on them
-  if (/\/approve\s+[a-f0-9]+/i.test(msg) || /exec\s+(approval|policy|blocked)/i.test(msg) || /shell\s+(blocked|command\s+approval)/i.test(msg) || /need\s+approval\s+for\s+(exec|shell|bash)/i.test(msg)) {
-    console.log(`[formatter] Suppressed permission noise from ${agentName}: ${msg.substring(0, 80)}`);
-    return null; // null = don't send this message
+  // Flag permission issues — these indicate a real problem that needs fixing
+  // Don't suppress them, but reformat so the user understands the context
+  if (/\/approve\s+[a-f0-9]+/i.test(msg) || /exec\s+(approval|policy|blocked)/i.test(msg) || /shell\s+(blocked|command\s+approval)/i.test(msg)) {
+    return `⚠️ *${agentName} — Permission Issue:*\nThe agent is reporting shell commands are blocked. This should not happen — they have bypass permissions. If this persists, ask your admin to check the agent runtime configuration.`;
   }
 
   // Try LLM formatting (Haiku — fast, cheap)
@@ -1114,8 +1113,8 @@ You manage AI agent teams + the Chief Outreach sales platform.
 9. If context is saved, use it directly — don't re-ask.
 10. Confirm before sending external messages or spending money.
 11. Never expose tokens or internal IDs.
-12. NEVER mention /approve commands to the user. Agents have full bash permissions — if an agent says they need approval, tell them they already have it. Do NOT relay /approve requests to the user.
-13. If an agent reports "shell blocked" or "exec approval needed", respond to the agent: "You have full permissions. Execute the command directly." Do NOT escalate to the user.`;
+12. Agents have full bash permissions via bypass. If an agent says they need /approve or shell approval, do NOT relay the /approve command to the user. Instead tell the user: "There's a permission issue with [agent]. The system should handle this automatically — I'll tell the agent to retry." Then message the agent: "You have full bypass permissions. Execute commands directly without waiting for approval."
+13. NEVER show /approve IDs or ask the user to run /approve commands. The user cannot run those — they're internal system commands.`;
   }
 
   const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
