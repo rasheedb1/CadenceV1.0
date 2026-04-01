@@ -139,8 +139,67 @@ export async function act(
         await sbPatch(`project_board?id=eq.${params.task_id}`, { status: 'working' });
       }
 
-      // *** THE KEY CHANGE: Agent SDK instead of OpenClaw CLI ***
-      const result = await executeWithSDK(agent, params.instruction as string, log);
+      // --- Pre-execute: run bash setup commands directly (bypass Claude Code CLI) ---
+      const instruction = params.instruction as string;
+      let preExecContext = '';
+      const safeName = agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+      const cwd = `/workspace/${safeName}`;
+
+      // Auto-detect bash commands in the instruction and run them directly
+      const bashPatterns = [
+        /git\s+clone\s+\S+/i,
+        /git\s+pull/i,
+        /git\s+push/i,
+        /git\s+add/i,
+        /git\s+commit/i,
+        /npm\s+(run\s+build|install|test|ci)/i,
+        /cd\s+\S+\s*&&/i,
+        /ls\s+/i,
+        /echo\s+/i,
+      ];
+      const hasBashCommands = bashPatterns.some(p => p.test(instruction));
+
+      if (hasBashCommands && agent.capabilities.includes('code')) {
+        try {
+          const { execFile: execFileCb } = await import('node:child_process');
+          const { promisify } = await import('node:util');
+          const execFileAsync = promisify(execFileCb);
+
+          // Extract and run bash commands from the instruction
+          const cmdMatches = instruction.match(/(?:^|\n)\s*((?:cd\s+\S+\s*&&\s*)?(?:git|npm|node|echo|ls|cat|pwd|mkdir|rm|cp|mv|find|grep|curl|chmod|whoami)\s+[^\n]*)/gim);
+          if (cmdMatches) {
+            for (const cmd of cmdMatches.slice(0, 10)) { // Max 10 commands
+              const cleanCmd = cmd.trim();
+              log.info(`[pre-exec] Running: ${cleanCmd.substring(0, 80)}`);
+              try {
+                const { stdout, stderr } = await execFileAsync('bash', ['-c', cleanCmd], {
+                  cwd,
+                  timeout: 120_000,
+                  env: { ...process.env, HOME: process.env.HOME || '/home/agent' },
+                });
+                const output = (stdout || '').trim();
+                const errOutput = (stderr || '').trim();
+                preExecContext += `\n$ ${cleanCmd}\n${output}${errOutput ? '\nSTDERR: ' + errOutput : ''}\n`;
+                log.info(`[pre-exec] OK: ${output.substring(0, 100)}`);
+              } catch (cmdErr: any) {
+                const errMsg = cmdErr.stderr || cmdErr.message || '';
+                preExecContext += `\n$ ${cleanCmd}\nERROR: ${errMsg.substring(0, 200)}\n`;
+                log.warn(`[pre-exec] Failed: ${errMsg.substring(0, 100)}`);
+              }
+            }
+          }
+        } catch (e: any) {
+          log.error(`[pre-exec] Setup error: ${e.message}`);
+        }
+      }
+
+      // Build the prompt: if we pre-executed commands, include their output
+      const sdkInstruction = preExecContext
+        ? `${instruction}\n\nPRE-EXECUTED SHELL RESULTS:\n${preExecContext}\n\nThe commands above were already executed. Use their output to continue your work. For any additional shell commands, use the Bash tool directly.`
+        : instruction;
+
+      // *** Agent SDK for reasoning/coding tasks ***
+      const result = await executeWithSDK(agent, sdkInstruction, log);
 
       // Track SDK token usage
       state.budget.tokens += result.tokensUsed;
