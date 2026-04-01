@@ -13,12 +13,17 @@ RUN npm install -g @anthropic-ai/mcp-server-playwright @modelcontextprotocol/ser
 
 WORKDIR /app
 
-# Copy and install dependencies
+# Copy and install ALL dependencies (need devDeps for build)
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
-# Copy compiled TypeScript
-COPY dist/ ./dist/
+# Copy source and build
+COPY tsconfig.json ./
+COPY src/ ./src/
+RUN npm run build
+
+# Remove dev dependencies after build
+RUN npm prune --omit=dev
 
 # Create isolated workspace directories
 RUN mkdir -p /workspace/juanse /workspace/sofi /workspace/oscar /workspace/nando
