@@ -45,7 +45,8 @@ RUN mkdir -p /home/agent/.claude && echo '{ \
     ] \
   } \
 }' > /home/agent/.claude/settings.json \
-    && chown -R agent:agent /home/agent/.claude
+    && touch /home/agent/.claude.json \
+    && chown -R agent:agent /home/agent
 
 # Give agent ownership of the app
 RUN chown -R agent:agent /app
@@ -53,7 +54,6 @@ RUN chown -R agent:agent /app
 # Switch to non-root user
 USER agent
 ENV HOME=/home/agent
-
 ENV NODE_ENV=production
 ENV ANTHROPIC_API_KEY=""
 ENV SUPABASE_URL=""

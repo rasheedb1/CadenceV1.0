@@ -99,6 +99,8 @@ export async function executeWithSDK(
         mcpServers,
         // Docker/headless mode: skip local settings discovery
         settingSources: [],
+        // Ensure HOME is set correctly for non-root user
+        env: { HOME: process.env.HOME || '/home/agent' },
         // Capture stderr for debugging
         stderr: (data: string) => {
           if (data.trim()) {
