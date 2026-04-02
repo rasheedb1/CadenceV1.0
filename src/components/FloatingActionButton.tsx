@@ -8,9 +8,9 @@ import { Plus, Workflow, Users, Bot, X } from 'lucide-react'
  */
 
 const ACTIONS = [
-  { icon: Workflow, label: 'Nueva Cadencia', href: '/cadences', color: '#EC4899' },
-  { icon: Users, label: 'Importar Leads', href: '/leads', color: '#F59E0B' },
-  { icon: Bot, label: 'Crear Agente', href: '/agents', color: '#A855F7' },
+  { icon: Workflow, label: 'New Cadence', href: '/cadences', color: '#EC4899' },
+  { icon: Users, label: 'Import Leads', href: '/leads', color: '#F59E0B' },
+  { icon: Bot, label: 'Create Agent', href: '/agents', color: '#A855F7' },
 ]
 
 export function FloatingActionButton() {
@@ -49,7 +49,7 @@ export function FloatingActionButton() {
         animate={{ rotate: open ? 45 : 0 }}
         transition={{ type: 'spring', stiffness: 300, damping: 20 }}
         onClick={() => setOpen(!open)}
-        aria-label={open ? 'Cerrar menú' : 'Abrir acciones rápidas'}
+        aria-label={open ? 'Close menu' : 'Open quick actions'}
       >
         {open ? <X className="h-6 w-6" /> : <Plus className="h-6 w-6" />}
       </motion.button>

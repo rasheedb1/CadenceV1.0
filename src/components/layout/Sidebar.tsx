@@ -236,7 +236,7 @@ export function Sidebar() {
               const isOpen = openSections[section.id]
 
               return (
-                <div key={section.id} className="mb-3">
+                <div key={section.id} className="mb-4">
                   {/* Section header */}
                   <button
                     onClick={() => toggleSection(section.id)}

@@ -199,7 +199,7 @@ export function Settings() {
     if (error) {
       setMessage({ type: 'error', text: error.message })
     } else {
-      setMessage({ type: 'success', text: 'Contraseña actualizada correctamente' })
+      setMessage({ type: 'success', text: 'Password updated successfully' })
       e.currentTarget.reset()
     }
     setLoading(false)
@@ -219,8 +219,8 @@ export function Settings() {
   return (
     <PageTransition className="p-8">
       <div className="mb-8">
-        <h1 className="text-[28px] font-bold tracking-tight font-heading">Configuración</h1>
-        <p className="text-muted-foreground">Administra la configuración de tu cuenta</p>
+        <h1 className="text-[28px] font-bold tracking-tight font-heading">Settings</h1>
+        <p className="text-muted-foreground">Manage your account settings</p>
         <div className="flex gap-2 mt-4">
           <Link to="/settings" className="px-3 py-1.5 text-sm font-medium rounded-md bg-primary text-primary-foreground">
             Account
@@ -255,12 +255,12 @@ export function Settings() {
         <Card>
           <CardHeader>
             <CardTitle>Change Password</CardTitle>
-            <CardDescription>Actualiza tu contraseña</CardDescription>
+            <CardDescription>Update your password</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleUpdatePassword} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="newPassword">Nueva Contraseña</Label>
+                <Label htmlFor="newPassword">New Password</Label>
                 <Input
                   id="newPassword"
                   name="newPassword"
@@ -270,7 +270,7 @@ export function Settings() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirmar Contraseña</Label>
+                <Label htmlFor="confirmPassword">Confirm Password</Label>
                 <Input
                   id="confirmPassword"
                   name="confirmPassword"
@@ -289,7 +289,7 @@ export function Settings() {
                 </p>
               )}
               <Button type="submit" disabled={loading}>
-                {loading ? 'Updating...' : 'Actualizar Contraseña'}
+                {loading ? 'Updating...' : 'Update Password'}
               </Button>
             </form>
           </CardContent>
