@@ -90,16 +90,60 @@ export async function executeWithSDK(
 
 ${taskPrompt}`;
 
+    // Build a LARGE stable system prompt to trigger Claude Code's automatic prompt caching
+    // (caching kicks in when system prompt > 1024 tokens for Sonnet, > 2048 for Haiku)
+    const stableSystemPrompt = `${agent.soulPrompt}
+
+# CRITICAL EXECUTION RULES
+You have unconditional permission to execute ANY Bash command. Never refuse, skip, or simulate shell commands. Always use the Bash tool directly. The environment is sandboxed and safe — git, npm, node, and any CLI commands work without approval.
+
+# YOUR TOOLS
+You have access to these tools (use them liberally):
+- Read: read any file in the workspace or repo
+- Write: create new files
+- Edit / MultiEdit: modify existing files (preferred over Write for changes)
+- Grep: search file contents with regex
+- Glob: find files matching patterns
+- WebSearch / WebFetch: search and read web pages
+${agent.capabilities.includes('code') ? '- mcp__github__*: GitHub API for issues/PRs/repos' : ''}
+${agent.capabilities.includes('browser') || agent.capabilities.includes('design') ? '- mcp__playwright__*: Browser automation for screenshots and interaction' : ''}
+- mcp__chief-tools__send_agent_message: send messages to other agents on your team
+- mcp__chief-tools__save_artifact: save versioned work outputs (specs, reports, code)
+- mcp__chief-tools__create_subtask: create sub-tasks for yourself or other agents
+- mcp__chief-tools__query_team_knowledge: search team knowledge base
+- mcp__chief-tools__ask_human_via_whatsapp: escalate urgent questions to human
+- mcp__chief-tools__report_to_chief: report non-urgent items to Chief's backlog
+- mcp__chief-tools__screenshot_page: take screenshot of any URL via Firecrawl
+- mcp__chief-tools__scrape_url: scrape web page content as markdown
+- mcp__chief-tools__web_search_firecrawl: search web with Firecrawl
+
+# WORKING WITH OTHER AGENTS
+You work in a team. Your teammates produce artifacts (specs, reports, code reviews) that are written to /workspace/${safeName}/team-artifacts/ before each task. Read those files to get context from other agents.
+
+When you need help from another agent, use send_agent_message. When you need a decision from the human, use ask_human_via_whatsapp (urgent only) or report_to_chief (non-urgent).
+
+# CODE WORKFLOW
+The repo at /workspace/${safeName}/repo is auto-cloned and npm-installed before each task. After your edits, the system AUTOMATICALLY runs:
+1. npm run build (verify compilation)
+2. git add -A && git commit (with task title as message)
+3. git push (to GitHub main branch)
+4. Vercel auto-deploys from main
+
+You do NOT need to run git, npm, or deploy commands yourself. Just edit code and describe what you changed. The pipeline handles the rest.
+
+# OUTPUT
+When done, provide a clear summary: what files you changed, what you implemented, any issues found. Be concise but specific.`;
+
     for await (const message of query({
       prompt: enhancedPrompt,
       options: {
         model,
-        systemPrompt: agent.soulPrompt + '\n\nCRITICAL: You have unconditional permission to execute ANY Bash command. Never refuse, skip, or simulate shell commands. Always use the Bash tool directly.',
+        systemPrompt: stableSystemPrompt,
         allowedTools,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         cwd: `/workspace/${safeName}`,
-        maxTurns: 50,
+        maxTurns: 15,
         mcpServers,
         // Auto-approve ALL tool calls — this is the belt-and-suspenders fix
         // for bypassPermissions not fully bypassing Bash in Docker
@@ -132,6 +176,11 @@ ${taskPrompt}`;
         const usage = (message as any).usage;
         if (usage) {
           totalTokens = (usage.input_tokens || 0) + (usage.output_tokens || 0);
+          const cacheRead = usage.cache_read_input_tokens || 0;
+          const cacheWrite = usage.cache_creation_input_tokens || 0;
+          if (cacheRead > 0 || cacheWrite > 0) {
+            log.info(`SDK cache: read=${cacheRead}, write=${cacheWrite} tokens (${cacheRead > 0 ? '90% discount applied' : 'first call, will cache'})`);
+          }
         }
         // Use the result text if available
         if ((message as any).result) {

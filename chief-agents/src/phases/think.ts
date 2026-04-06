@@ -98,11 +98,9 @@ function buildPrompt(agent: AgentConfig, context: SenseContext, state: LoopState
     }
   }
 
-  return `SYSTEM: You are an autonomous AI agent. Return ONLY a JSON object, no other text.
-
-CONTEXT:
+  // Variable section only — system prompt is built separately for caching
+  return `CONTEXT:
 - Name: ${agent.name}, Role: ${agent.role}
-- Capabilities: ${agent.capabilities.join(', ') || 'general'}
 - Loop iteration: ${state.iteration}
 - Budget: ${budgetStr}
 ${memoryContext}
@@ -117,7 +115,21 @@ ${context.availableTasks.length ? context.availableTasks.map(fmtTask).join('\n')
 
 ONLINE AGENTS: ${context.onlineAgents.length ? context.onlineAgents.map((a) => a.agent_id?.substring(0, 8)).join(', ') : 'none'}
 
-RESPOND WITH EXACTLY ONE JSON OBJECT:
+Respond with ONE JSON action object now.`;
+}
+
+// Static system prompt — cached across all THINK calls (90% savings on cache hits)
+function buildSystemPrompt(agent: AgentConfig): string {
+  return `You are an autonomous AI agent in a multi-agent workforce platform called Chief. You decide what action to take next based on your tasks, inbox, and team context. You return ONE JSON action per call.
+
+YOUR IDENTITY:
+- Name: ${agent.name}
+- Role: ${agent.role}
+- Capabilities: ${agent.capabilities.join(', ') || 'general'}
+
+CRITICAL REVIEW RULE: If a task title starts with "[REVIEW]" or has task_type="review", you are REVIEWING another agent's work. You MUST use action="submit_review" with score (0-1), passed (boolean), issues, and suggestions. NEVER use work_on_task on a [REVIEW] task — that creates infinite loops.
+
+AVAILABLE ACTIONS (return EXACTLY ONE JSON object):
 {"action":"claim_task","reasoning":"...","params":{"task_id":"..."}}
 {"action":"work_on_task","reasoning":"...","params":{"task_id":"...","instruction":"..."}}
 {"action":"complete_task","reasoning":"...","params":{"task_id":"...","result_summary":"..."}}
@@ -129,17 +141,19 @@ RESPOND WITH EXACTLY ONE JSON OBJECT:
 {"action":"reply_message","reasoning":"...","params":{"to_agent_id":"...","message":"...","thread_id":"..."}}
 {"action":"idle","reasoning":"nothing to do","params":{}}
 
-RULES:
-1. If AVAILABLE TASKS has entries and MY TASKS is empty → claim_task (pick highest priority)
-2. If MY TASKS has entries → work_on_task (use the task description + DEPENDENCY CONTEXT + FEEDBACK as instruction)
-3. After completing significant work → request_review (if task has review_iteration < max 3)
-4. If task has LAST REVIEW that was NOT APPROVED → work_on_task to fix the issues, then request_review again
-5. If reviewing another agent's work → submit_review with score (0-1), passed, issues, suggestions
-6. If you CANNOT do something because you lack a tool or permission → ask_human explaining what you need and suggest which team member could help
-7. If you need a tool that doesn't exist → send_message to Juanse (developer) asking him to research and create a script for it
+DECISION RULES (in order of priority):
+1. If MY TASKS has a task with title starting with "[REVIEW]" → submit_review with score, passed, issues, suggestions. NEVER work_on_task on a review task.
+2. If AVAILABLE TASKS has entries and MY TASKS is empty → claim_task (pick highest priority)
+3. If MY TASKS has a non-review task → work_on_task (use the task description + DEPENDENCY CONTEXT + FEEDBACK as instruction)
+4. After completing significant work → request_review (if task has review_iteration < max 3)
+5. If task has LAST REVIEW that was NOT APPROVED → work_on_task to fix the issues, then request_review again
+6. If you CANNOT do something because you lack a tool or permission → ask_human explaining what you need
+7. If you need a tool that doesn't exist → send_message to Juanse (developer)
 8. If UNREAD MESSAGES need a response → reply_message
 9. If no tasks at all → idle
-10. ONLY return JSON. No markdown, no explanation, no code blocks.`;
+10. ONLY return JSON. No markdown, no explanation, no code blocks.
+
+RESPONSE FORMAT: Return ONLY a JSON object with the action. No surrounding text, no markdown, no code blocks. Just raw JSON.`;
 }
 
 /** Call Anthropic API directly to get action decision */
@@ -149,17 +163,26 @@ export async function think(
   state: LoopState,
   log: Logger,
 ): Promise<ParsedAction> {
-  const prompt = buildPrompt(agent, context, state);
+  const userPrompt = buildPrompt(agent, context, state);
+  const systemPrompt = buildSystemPrompt(agent);
   const client = getClient();
 
-  // Use haiku for THINK (cheaper routing decision) or agent's model
+  // Use haiku for THINK (cheaper routing decision)
   const thinkModel = 'claude-haiku-4-5-20251001';
 
   try {
+    // Use cache_control on system prompt — saves 90% on subsequent calls
     const response = await client.messages.create({
       model: thinkModel,
       max_tokens: 512,
-      messages: [{ role: 'user', content: prompt }],
+      system: [
+        {
+          type: 'text',
+          text: systemPrompt,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      messages: [{ role: 'user', content: userPrompt }],
     });
 
     const raw = response.content
@@ -167,11 +190,16 @@ export async function think(
       .map((b) => (b as { type: 'text'; text: string }).text)
       .join('');
 
-    // Track token usage
+    // Track token usage (including cache stats)
     const inputTokens = response.usage?.input_tokens || 0;
     const outputTokens = response.usage?.output_tokens || 0;
-    state.budget.tokens += inputTokens + outputTokens;
+    const cacheRead = (response.usage as any)?.cache_read_input_tokens || 0;
+    const cacheWrite = (response.usage as any)?.cache_creation_input_tokens || 0;
+    state.budget.tokens += inputTokens + outputTokens + cacheRead + cacheWrite;
     state.budget.iterations++;
+    if (cacheRead > 0) {
+      log.info(`THINK cache hit: ${cacheRead} tokens read from cache (90% discount)`);
+    }
 
     // Parse JSON from response
     const jsonMatch = raw.match(/\{[\s\S]*\}/);

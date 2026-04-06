@@ -125,6 +125,37 @@ export async function act(
     case 'work_on_task': {
       if (!params.task_id || !params.instruction) break;
 
+      // ============================================
+      // BUDGET HARD CAP — block before executing
+      // ============================================
+      try {
+        const budgetCheck = await sbRpc<{ allowed: boolean; reason?: string; spent_today?: number; cap?: number }>(
+          'check_budget_allows_task',
+          { p_agent_id: agent.id }
+        );
+        if (budgetCheck && budgetCheck.allowed === false) {
+          log.warn(`[budget] Task BLOCKED: ${budgetCheck.reason} — spent $${budgetCheck.spent_today}/$${budgetCheck.cap}`);
+          // Mark task back to ready so another agent (or tomorrow) can pick it up
+          await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
+            status: 'ready',
+            assigned_agent_id: null,
+            updated_at: new Date().toISOString(),
+          });
+          // Notify human via backlog (deduplicates automatically)
+          await sbPost('agent_backlog', {
+            org_id: agent.orgId,
+            agent_id: agent.id,
+            category: 'blocker',
+            title: `${agent.name} hit daily budget cap ($${budgetCheck.cap})`,
+            details: `Spent $${budgetCheck.spent_today} today. Task released back to queue. Cap resets in 24h.`,
+          }).catch(() => {});
+          state.interval = MAX_INTERVAL; // back off
+          return 'budget_capped';
+        }
+      } catch (e: any) {
+        log.warn(`[budget] Check failed: ${e.message}, allowing task`);
+      }
+
       const isV2 = await sbGet<Array<{ id: string }>>(`agent_tasks_v2?id=eq.${params.task_id}&select=id`).catch(() => []);
       if (Array.isArray(isV2) && isV2.length > 0) {
         await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, { status: 'in_progress', started_at: new Date().toISOString(), updated_at: new Date().toISOString() });
@@ -226,6 +257,21 @@ ${preExecContext ? `\nSETUP:\n${preExecContext}` : ''}`;
       log.info(`Task ${(params.task_id as string).substring(0, 8)} (${result.numTurns} turns, $${result.costUsd.toFixed(4)})`);
       logActivity(agent.id, agent.orgId, 'task_result', 'work_on_task',
         `Task: ${params.task_id} | Turns: ${result.numTurns} | Cost: $${result.costUsd.toFixed(4)} | Result: ${result.text.substring(0, 300)}`);
+
+      // Record cost in DB (updates daily counter, returns cap status)
+      try {
+        const costRecord = await sbRpc<{ spent_today: number; cap: number; over_cap: boolean; over_80: boolean }>(
+          'record_task_cost',
+          { p_agent_id: agent.id, p_cost: result.costUsd, p_tokens: result.tokensUsed }
+        );
+        if (costRecord?.over_cap) {
+          log.warn(`[budget] OVER CAP after task: $${costRecord.spent_today}/$${costRecord.cap}`);
+        } else if (costRecord?.over_80) {
+          log.warn(`[budget] 80%+ used: $${costRecord.spent_today}/$${costRecord.cap}`);
+        }
+      } catch (e: any) {
+        log.warn(`[budget] Cost recording failed: ${e.message}`);
+      }
 
       // ================================================================
       // POST-EXEC: Build → commit → push → deploy (FIX #3)
