@@ -335,10 +335,12 @@ ${preExecContext ? `\nSETUP:\n${preExecContext}` : ''}`;
           })) as any)?.id || null;
         } catch {}
 
+        // Save REAL per-task cost/tokens (from SDK), not the agent's running total
         await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
           status: 'done', completed_at: new Date().toISOString(),
-          result: { summary: fullResult }, tokens_used: state.budget.tokens,
-          cost_usd: getTokenCost(state.budget.tokens, state.agentConfig?.model as string || 'claude-sonnet-4-6'),
+          result: { summary: fullResult },
+          tokens_used: result.tokensUsed,
+          cost_usd: result.costUsd,
           artifact_ids: artId ? [artId] : [], updated_at: new Date().toISOString(),
         });
         state.tasksCompletedSinceCheckin++;

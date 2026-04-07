@@ -392,20 +392,23 @@ CRITICAL RULE: A task with "[REVIEW]" in the title means you are evaluating anot
 
 ## FASE 3 — Observability y Guardrails (2-3 días)
 
-### 3.1 Dashboard de costos en tiempo real (Mission Control)
-**Por qué:** Hoy descubrimos el sangrado DESPUÉS de gastar $1,600. Necesitamos verlo en tiempo real.
+### 3.1 Dashboard de costos en tiempo real (Mission Control) ✅ HECHO
 
-**Qué hacer:**
-- Nuevo widget en `src/pages/MissionControl.tsx`:
-  - Total spent today (org level)
-  - Per-agent: tokens, cost, % de budget consumido
-  - Top 5 most expensive tasks (last 24h)
-  - Alerta visual cuando cualquier agente > 80% budget
-- Realtime via Supabase channel
+**Por qué:** El dashboard viejo mostraba números IRREALES porque sumaba `cost_usd` de cada task — pero ese campo guardaba el RUNNING TOTAL del agente al momento de completar, no el costo per-task. Eso causaba double-counting geométrico.
 
-**Archivos:**
-- `src/pages/MissionControl.tsx`
-- Posible: `supabase/functions/cost-aggregator/index.ts`
+**Qué se hizo:**
+- ✅ Fix en `chief-agents/src/phases/act.ts`: ahora guarda `result.tokensUsed` y `result.costUsd` reales del SDK (no `state.budget.tokens`)
+- ✅ Update `src/pages/MissionControl.tsx` PerformanceView:
+  - Lee directamente de `agent_budgets` (fuente de verdad)
+  - Muestra `cost_usd_today` (gastado hoy) vs `cost_usd` (acumulado total)
+  - Visual alert cuando agente > 80% del cap diario
+  - Refresh cada 10s (polling)
+- ✅ Cards: Done, $ Hoy (con cap %), $ Total acumulado, Tokens hoy
+- ✅ Tabla per-agent: model badge, $ hoy, % cap, $ total, tokens hoy
+
+**Archivos modificados:**
+- `chief-agents/src/phases/act.ts` (línea ~340)
+- `src/pages/MissionControl.tsx` (PerformanceView function)
 
 ### 3.2 Telemetry: cost per task type
 **Por qué:** Necesitamos saber qué tipo de task es más caro para optimizar.
