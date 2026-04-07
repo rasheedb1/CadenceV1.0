@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'motion/react'
-import { useAgents, type Agent, type AgentTier, type AgentAvailability } from '@/contexts/AgentContext'
+import { supabase } from '@/integrations/supabase/client'
+import { useAgents, type Agent, type AgentTier, type AgentAvailability, type AgentTask, type AgentMessage, type AgentTaskV2, type AgentCheckin } from '@/contexts/AgentContext'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -18,6 +19,7 @@ import {
   Bot, Plus, MoreVertical, Trash2, Loader2, ChevronDown,
   LayoutGrid, Network, Cpu, Crown, UserCog, User,
   Circle, Zap, AlertTriangle, WifiOff, Home, Moon, Sun,
+  Radio, ListTodo, BarChart3, CheckCircle, XCircle, Clock, MessageSquare,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -310,14 +312,343 @@ function GridView({ agents, onNavigate, onDelete, deleting }: {
   )
 }
 
+// ── Mission Control: Live Activity Feed ──────────────────────────────
+
+const TOOL_ICONS: Record<string, string> = {
+  web_research: '🔍', buscar_prospectos: '🎯', investigar_empresa: '🏢', enviar_mensaje: '📨',
+  enviar_email: '📧', crear_cadencia: '🔄', business_case: '💼', gestionar_leads: '👥',
+  comunicar_agente: '💬', registrar_aprendizaje: '🧠', ver_metricas: '📊',
+  claim_task: '📋', work_on_task: '⚡', complete_task: '✅', checkin: '📋',
+}
+
+const TASK_V2_STATUS_COLORS: Record<string, string> = {
+  backlog: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+  ready: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
+  claimed: 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300',
+  in_progress: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200',
+  review: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
+  done: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
+  failed: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
+  cancelled: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500',
+}
+
+interface LiveEvent {
+  id: string; type: 'task' | 'message' | 'activity'; agent_name: string; agent_id: string
+  content: string; detail: string; status?: string; timestamp: string
+}
+
+function timeAgo(ts: string) {
+  const diff = Date.now() - new Date(ts).getTime()
+  if (diff < 60000) return `${Math.floor(diff / 1000)}s`
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`
+  return `${Math.floor(diff / 86400000)}d`
+}
+
+function ActivityView({ agents, checkins, respondToCheckin }: {
+  agents: Agent[]; checkins: AgentCheckin[]
+  respondToCheckin: (id: string, status: 'approved' | 'rejected', feedback?: string) => Promise<void>
+}) {
+  const { getAgentTasks, getAgentMessages } = useAgents()
+  const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([])
+  const [expandedEvent, setExpandedEvent] = useState<string | null>(null)
+
+  const [, setTick] = useState(0)
+  useEffect(() => { const id = setInterval(() => setTick(t => t + 1), 10000); return () => clearInterval(id) }, [])
+
+  useEffect(() => {
+    if (!agents.length) return
+    const orgId = agents[0]?.org_id || ''
+    const seenIds = new Set<string>()
+
+    async function loadAllEvents() {
+      const events: LiveEvent[] = []
+      for (const agent of agents) {
+        for (const task of getAgentTasks(agent.id).slice(0, 10)) {
+          const id = `task-${task.id}`
+          if (seenIds.has(id)) continue; seenIds.add(id)
+          events.push({ id, type: 'task', agent_name: agent.name, agent_id: agent.id,
+            content: task.instruction?.substring(0, 2000) || '', detail: task.status, status: task.status,
+            timestamp: task.completed_at || task.created_at })
+        }
+        for (const msg of getAgentMessages(agent.id).slice(0, 50)) {
+          const id = `msg-${msg.id}`
+          if (seenIds.has(id)) continue; seenIds.add(id)
+          const from = agents.find(a => a.id === msg.from_agent_id)
+          const to = agents.find(a => a.id === msg.to_agent_id)
+          events.push({ id, type: 'message', agent_name: from?.name || 'Chief',
+            agent_id: msg.from_agent_id || '', content: typeof msg.content === 'string' ? msg.content : 'Message',
+            detail: `→ ${to?.name || 'Chief'}`, timestamp: msg.created_at })
+        }
+      }
+      const { data: actEvents } = await supabase
+        .from('agent_activity_events')
+        .select('agent_id, event_type, tool_name, content, created_at')
+        .eq('org_id', orgId).order('created_at', { ascending: false }).limit(200)
+      if (actEvents) {
+        for (const evt of actEvents) {
+          const id = `evt-${evt.created_at}`
+          if (seenIds.has(id)) continue; seenIds.add(id)
+          const agent = agents.find(a => a.id === evt.agent_id)
+          const icon = evt.tool_name ? (TOOL_ICONS[evt.tool_name] || '⚡') : '⚡'
+          events.push({ id, type: 'activity', agent_name: agent?.name || 'Agent',
+            agent_id: evt.agent_id, content: `${icon} ${evt.tool_name || evt.event_type}: ${evt.content?.substring(0, 500) || ''}`,
+            detail: evt.event_type, status: evt.event_type === 'tool_call' ? 'in_progress' : 'completed',
+            timestamp: evt.created_at })
+        }
+      }
+      events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      setLiveEvents(events.slice(0, 300))
+    }
+    loadAllEvents()
+  }, [agents, getAgentTasks, getAgentMessages])
+
+  useEffect(() => {
+    const channel = supabase.channel('agents-activity')
+    channel.on('postgres_changes', { event: '*', schema: 'public', table: 'agent_tasks' }, (payload) => {
+      const task = payload.new as AgentTask
+      if (!task?.agent_id) return
+      const agent = agents.find(a => a.id === task.agent_id)
+      setLiveEvents(prev => [{ id: `task-${task.id}-${Date.now()}`, type: 'task' as const, agent_name: agent?.name || 'Agent',
+        agent_id: task.agent_id, content: task.instruction?.substring(0, 2000) || '', detail: task.status,
+        status: task.status, timestamp: task.completed_at || task.created_at }, ...prev].slice(0, 300))
+    })
+    channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'agent_messages' }, (payload) => {
+      const msg = payload.new as AgentMessage
+      const from = agents.find(a => a.id === msg.from_agent_id)
+      const to = agents.find(a => a.id === msg.to_agent_id)
+      setLiveEvents(prev => [{ id: `msg-${msg.id}-${Date.now()}`, type: 'message' as const, agent_name: from?.name || 'Chief',
+        agent_id: msg.from_agent_id || '', content: typeof msg.content === 'string' ? msg.content.substring(0, 2000) : 'Message',
+        detail: `→ ${to?.name || 'Chief'}`, timestamp: msg.created_at }, ...prev].slice(0, 300))
+    })
+    channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'agent_activity_events' }, (payload) => {
+      const evt = payload.new as { agent_id: string; event_type: string; tool_name: string; content: string; created_at: string }
+      const agent = agents.find(a => a.id === evt.agent_id)
+      const icon = evt.tool_name ? (TOOL_ICONS[evt.tool_name] || '⚡') : '⚡'
+      setLiveEvents(prev => [{ id: `evt-${Date.now()}`, type: 'activity' as const, agent_name: agent?.name || 'Agent',
+        agent_id: evt.agent_id, content: `${icon} ${evt.tool_name || evt.event_type}: ${evt.content?.substring(0, 300) || ''}`,
+        detail: evt.event_type, status: evt.event_type === 'tool_call' ? 'in_progress' : 'completed',
+        timestamp: evt.created_at }, ...prev].slice(0, 300))
+    })
+    channel.subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [agents])
+
+  const pendingCheckins = checkins.filter(c => c.needs_approval && c.status === 'sent')
+
+  return (
+    <div className="space-y-4">
+      {pendingCheckins.length > 0 && (
+        <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
+          <CardContent className="p-4">
+            <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-2">⏳ Check-ins pendientes</p>
+            {pendingCheckins.slice(0, 5).map(c => {
+              const agent = agents.find(a => a.id === c.agent_id)
+              return (
+                <div key={c.id} className="flex items-center justify-between gap-2 mb-1.5">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-xs font-medium">{agent?.name || 'Agente'}: </span>
+                    <span className="text-xs text-muted-foreground">{c.summary?.substring(0, 80)}</span>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => respondToCheckin(c.id, 'rejected')}>✗</Button>
+                    <Button size="sm" className="h-6 px-2 text-[10px]" onClick={() => respondToCheckin(c.id, 'approved')}>✓</Button>
+                  </div>
+                </div>
+              )
+            })}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Radio className="h-3.5 w-3.5 text-green-500" />Actividad en Vivo
+            <Badge variant="outline" className="ml-auto bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-400 text-[10px]">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1 animate-pulse" />EN VIVO
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {liveEvents.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              <Bot className="h-8 w-8 mb-2 opacity-50" /><p className="text-sm">Sin actividad aún</p>
+            </div>
+          ) : (
+            <div className="divide-y max-h-[600px] overflow-y-auto">
+              {liveEvents.slice(0, 100).map(event => {
+                const isRecent = Date.now() - new Date(event.timestamp).getTime() < 120000
+                const isActivity = event.type === 'activity'
+                const isTask = event.type === 'task'
+                return (
+                  <div key={event.id} className={`px-4 py-3 cursor-pointer transition-all ${isRecent ? 'bg-amber-50/50 dark:bg-amber-950/20' : 'hover:bg-muted/30'}`}
+                    onClick={() => setExpandedEvent(expandedEvent === event.id ? null : event.id)}>
+                    <div className="flex items-start gap-2.5">
+                      <div className={`mt-0.5 shrink-0 ${isActivity ? 'text-purple-500' : isTask ? (event.status === 'completed' || event.status === 'done' ? 'text-green-500' : event.status === 'failed' ? 'text-red-500' : 'text-blue-500') : 'text-amber-500'}`}>
+                        {isActivity ? <Zap className="h-3.5 w-3.5" /> : isTask ? (event.status === 'completed' || event.status === 'done' ? <CheckCircle className="h-3.5 w-3.5" /> : event.status === 'failed' ? <XCircle className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />) : <MessageSquare className="h-3.5 w-3.5" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-medium text-xs">{event.agent_name}</span>
+                          {event.status && <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4">{event.status}</Badge>}
+                          {isRecent && <span className="text-[9px] text-amber-600 font-medium">NUEVO</span>}
+                        </div>
+                        <p className={`text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap ${expandedEvent === event.id ? '' : 'line-clamp-2'}`}>{event.content}</p>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(event.timestamp)}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// ── Mission Control: Kanban ──────────────────────────────────────────
+
+const KANBAN_COLUMNS = [
+  { key: 'backlog', label: 'Backlog', icon: Circle },
+  { key: 'ready', label: 'Ready', icon: Clock },
+  { key: 'claimed,in_progress', label: 'En progreso', icon: Zap },
+  { key: 'review', label: 'Review', icon: AlertTriangle },
+  { key: 'done', label: 'Done', icon: CheckCircle },
+]
+
+function KanbanView({ tasks, agents }: { tasks: AgentTaskV2[]; agents: Agent[] }) {
+  return (
+    <div className="overflow-x-auto pb-4">
+      <div className="flex gap-4 min-w-fit">
+        {KANBAN_COLUMNS.map(col => {
+          const statuses = col.key.split(',')
+          const colTasks = tasks.filter(t => statuses.includes(t.status))
+          const Icon = col.icon
+          return (
+            <div key={col.key} className="w-72 flex flex-col shrink-0">
+              <div className="flex items-center gap-2 mb-3 px-1">
+                <Icon className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">{col.label}</span>
+                <Badge variant="secondary" className="text-[10px] ml-auto">{colTasks.length}</Badge>
+              </div>
+              <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                {colTasks.length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">Vacío</div>
+                ) : colTasks.map(task => {
+                  const agent = agents.find(a => a.id === task.assigned_agent_id)
+                  return (
+                    <Card key={task.id} className="shadow-sm">
+                      <CardContent className="p-3">
+                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                          <p className="text-sm font-medium line-clamp-2">{task.title}</p>
+                          <Badge className={`text-[10px] px-1.5 py-0 shrink-0 ${TASK_V2_STATUS_COLORS[task.status] || ''}`}>P{task.priority}</Badge>
+                        </div>
+                        {task.description && <p className="text-xs text-muted-foreground line-clamp-1 mb-2">{task.description}</p>}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            {agent ? (
+                              <>
+                                <div className={`h-5 w-5 rounded-full flex items-center justify-center text-[10px] ${agent.tier === 'manager' ? 'bg-purple-100 text-purple-600' : agent.tier === 'team_lead' ? 'bg-blue-100 text-blue-600' : 'bg-muted text-muted-foreground'}`}>{agent.name[0]}</div>
+                                <span className="text-[10px] text-muted-foreground">{agent.name}</span>
+                              </>
+                            ) : <span className="text-[10px] text-muted-foreground">Sin asignar</span>}
+                          </div>
+                          <span className="text-[10px] text-muted-foreground">{task.task_type}</span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Mission Control: Performance ─────────────────────────────────────
+
+function PerformanceView({ agents, tasksV2 }: { agents: Agent[]; tasksV2: AgentTaskV2[] }) {
+  const agentStats = useMemo(() => {
+    return agents.map(a => {
+      const tasks = tasksV2.filter(t => t.assigned_agent_id === a.id)
+      const done = tasks.filter(t => t.status === 'done').length
+      const failed = tasks.filter(t => t.status === 'failed').length
+      const total = done + failed
+      const tokens = tasks.reduce((acc, t) => acc + (t.tokens_used || 0), 0)
+      const cost = tasks.reduce((acc, t) => acc + Number(t.cost_usd || 0), 0)
+      return { ...a, done, failed, total, successRate: total > 0 ? Math.round((done / total) * 100) : 0,
+        tokens, cost, inProgress: tasks.filter(t => t.status === 'in_progress' || t.status === 'claimed').length }
+    }).sort((a, b) => b.done - a.done)
+  }, [agents, tasksV2])
+
+  const totals = useMemo(() => ({
+    done: agentStats.reduce((a, s) => a + s.done, 0),
+    failed: agentStats.reduce((a, s) => a + s.failed, 0),
+    tokens: agentStats.reduce((a, s) => a + s.tokens, 0),
+    cost: agentStats.reduce((a, s) => a + s.cost, 0),
+  }), [agentStats])
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-4 gap-4">
+        <Card><CardContent className="pt-6 text-center"><p className="text-3xl font-bold text-green-600">{totals.done}</p><p className="text-xs text-muted-foreground mt-1">Completadas</p></CardContent></Card>
+        <Card><CardContent className="pt-6 text-center"><p className="text-3xl font-bold text-red-600">{totals.failed}</p><p className="text-xs text-muted-foreground mt-1">Fallidas</p></CardContent></Card>
+        <Card><CardContent className="pt-6 text-center"><p className="text-3xl font-bold">{totals.tokens.toLocaleString()}</p><p className="text-xs text-muted-foreground mt-1">Tokens totales</p></CardContent></Card>
+        <Card><CardContent className="pt-6 text-center"><p className="text-3xl font-bold">${totals.cost.toFixed(2)}</p><p className="text-xs text-muted-foreground mt-1">Costo total</p></CardContent></Card>
+      </div>
+      <Card>
+        <CardHeader><CardTitle className="text-sm">Rendimiento por agente</CardTitle></CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="pb-2 font-medium">Agente</th><th className="pb-2 font-medium">Modelo</th>
+                  <th className="pb-2 font-medium text-center">Completadas</th><th className="pb-2 font-medium text-center">Fallidas</th>
+                  <th className="pb-2 font-medium text-center">Success %</th><th className="pb-2 font-medium text-center">En progreso</th>
+                  <th className="pb-2 font-medium text-right">Tokens</th><th className="pb-2 font-medium text-right">Costo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {agentStats.map(a => {
+                  const TierIcon = a.tier === 'manager' ? Crown : a.tier === 'team_lead' ? UserCog : User
+                  const modelBadge = (a.model || '').split('-')[1] || '?'
+                  return (
+                    <tr key={a.id} className="hover:bg-muted/30">
+                      <td className="py-2.5"><div className="flex items-center gap-2"><TierIcon className={`h-3.5 w-3.5 ${a.tier === 'manager' ? 'text-purple-500' : a.tier === 'team_lead' ? 'text-blue-500' : 'text-gray-400'}`} /><span className="font-medium">{a.name}</span></div></td>
+                      <td><Badge variant="secondary" className="text-[10px]">{modelBadge}</Badge></td>
+                      <td className="text-center font-medium text-green-600">{a.done}</td>
+                      <td className="text-center font-medium text-red-600">{a.failed}</td>
+                      <td className="text-center"><span className={`font-medium ${a.successRate >= 80 ? 'text-green-600' : a.successRate >= 50 ? 'text-amber-600' : 'text-red-600'}`}>{a.successRate}%</span></td>
+                      <td className="text-center text-blue-600">{a.inProgress}</td>
+                      <td className="text-right text-muted-foreground">{a.tokens.toLocaleString()}</td>
+                      <td className="text-right text-muted-foreground">${a.cost.toFixed(2)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 // ── Main Page ────────────────────────────────────────────────────────
 
 export function Agents() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const { theme, toggleTheme } = useTheme()
-  const { agents, isLoading, createAgent, deleteAgent, skillRegistry } = useAgents()
-  const [viewMode, setViewMode] = useState<'grid' | 'org'>('grid')
+  const { agents, isLoading, createAgent, deleteAgent, skillRegistry, tasksV2, checkins, respondToCheckin } = useAgents()
+  const [viewMode, setViewMode] = useState<'grid' | 'org' | 'activity' | 'kanban' | 'performance'>('grid')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
@@ -461,10 +792,13 @@ export function Agents() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Tabs value={viewMode} onValueChange={v => setViewMode(v as 'grid' | 'org')}>
+          <Tabs value={viewMode} onValueChange={v => setViewMode(v as typeof viewMode)}>
             <TabsList className="h-8">
               <TabsTrigger value="grid" className="h-6 px-2 text-xs"><LayoutGrid className="h-3.5 w-3.5 mr-1" />Grid</TabsTrigger>
-              <TabsTrigger value="org" className="h-6 px-2 text-xs"><Network className="h-3.5 w-3.5 mr-1" />Org Chart</TabsTrigger>
+              <TabsTrigger value="org" className="h-6 px-2 text-xs"><Network className="h-3.5 w-3.5 mr-1" />Org</TabsTrigger>
+              <TabsTrigger value="activity" className="h-6 px-2 text-xs"><Radio className="h-3.5 w-3.5 mr-1" />Actividad</TabsTrigger>
+              <TabsTrigger value="kanban" className="h-6 px-2 text-xs"><ListTodo className="h-3.5 w-3.5 mr-1" />Kanban</TabsTrigger>
+              <TabsTrigger value="performance" className="h-6 px-2 text-xs"><BarChart3 className="h-3.5 w-3.5 mr-1" />Rendimiento</TabsTrigger>
             </TabsList>
           </Tabs>
           <Dialog open={isCreateOpen} onOpenChange={v => { setIsCreateOpen(v); if (!v) resetForm() }}>
@@ -632,6 +966,12 @@ export function Agents() {
         </Card>
       ) : viewMode === 'org' ? (
         <OrgChartView agents={agents} onNavigate={id => navigate(`/agents/${id}`)} />
+      ) : viewMode === 'activity' ? (
+        <ActivityView agents={agents} checkins={checkins} respondToCheckin={respondToCheckin} />
+      ) : viewMode === 'kanban' ? (
+        <KanbanView tasks={tasksV2} agents={agents} />
+      ) : viewMode === 'performance' ? (
+        <PerformanceView agents={agents} tasksV2={tasksV2} />
       ) : (
         <GridView
           agents={agents}

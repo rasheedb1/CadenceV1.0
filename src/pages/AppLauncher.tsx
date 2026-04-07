@@ -38,7 +38,7 @@ export function AppLauncher() {
             Bienvenido a Chief
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Selecciona un módulo para comenzar
+            Tres apps. Tus agentes en el centro.
           </p>
         </motion.div>
 

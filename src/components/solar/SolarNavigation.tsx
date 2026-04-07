@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, type Variants } from 'motion/react'
 import { useAgents } from '@/contexts/AgentContext'
@@ -19,24 +20,14 @@ interface Planet {
 
 /* ── Data ───────────────────────────────────────────────────────────────── */
 
-const ORBIT_RADII = [140, 230, 310]
-const ORBIT_DURATIONS = [90, 120, 160] // seconds
+const ORBIT_RADII = [200]
+const ORBIT_DURATIONS = [120] // seconds
 
 const PLANETS: Planet[] = [
-  // Orbit 0 — core apps
-  { id: 'outreach', label: 'Outreach', icon: '🚀', href: '/dashboard', color: '#6366F1', glow: 'rgba(99,102,241,0.4)', size: 64, orbit: 0, startAngle: 0, description: 'Cadencias, prospectos y ventas' },
-  { id: 'agents', label: 'Agentes IA', icon: '🤖', href: '/agents', color: '#A855F7', glow: 'rgba(168,85,247,0.4)', size: 64, orbit: 0, startAngle: 120, description: 'Crea y gestiona agentes autónomos' },
-  { id: 'mission-control', label: 'Control de Misión', icon: '🛰️', href: '/mission-control', color: '#10B981', glow: 'rgba(16,185,129,0.4)', size: 64, orbit: 0, startAngle: 240, description: 'Actividad en tiempo real' },
-  // Orbit 1 — tools
-  { id: 'leads', label: 'Leads', icon: '👥', href: '/leads', color: '#F59E0B', glow: 'rgba(245,158,11,0.35)', size: 52, orbit: 1, startAngle: 30, description: 'Pipeline y gestión de leads' },
-  { id: 'research', label: 'Investigación', icon: '🔍', href: '/company-research', color: '#06B6D4', glow: 'rgba(6,182,212,0.35)', size: 52, orbit: 1, startAngle: 102, description: 'Research de empresas' },
-  { id: 'cadences', label: 'Cadencias', icon: '🔄', href: '/cadences', color: '#EC4899', glow: 'rgba(236,72,153,0.35)', size: 52, orbit: 1, startAngle: 174, description: 'Secuencias automatizadas' },
-  { id: 'business-cases', label: 'Business Cases', icon: '💼', href: '/business-cases', color: '#8B5CF6', glow: 'rgba(139,92,246,0.35)', size: 52, orbit: 1, startAngle: 246, description: 'Propuestas de valor' },
-  { id: 'inbox', label: 'Inbox', icon: '💬', href: '/inbox', color: '#14B8A6', glow: 'rgba(20,184,166,0.35)', size: 52, orbit: 1, startAngle: 318, description: 'Bandeja de LinkedIn' },
-  // Orbit 2 — config
-  { id: 'settings', label: 'Configuración', icon: '⚙️', href: '/settings', color: '#64748B', glow: 'rgba(100,116,139,0.3)', size: 42, orbit: 2, startAngle: 60, description: 'Ajustes de cuenta' },
-  { id: 'templates', label: 'Templates', icon: '📝', href: '/templates', color: '#78716C', glow: 'rgba(120,113,108,0.3)', size: 42, orbit: 2, startAngle: 180, description: 'Plantillas de mensajes' },
-  { id: 'prompts', label: 'AI Prompts', icon: '🧠', href: '/ai-prompts', color: '#7C3AED', glow: 'rgba(124,58,237,0.3)', size: 42, orbit: 2, startAngle: 300, description: 'Prompts personalizados' },
+  // Single orbit — only the 3 core apps
+  { id: 'outreach', label: 'Chief Outreach', icon: '🚀', href: '/dashboard', color: '#6366F1', glow: 'rgba(99,102,241,0.5)', size: 76, orbit: 0, startAngle: 270, description: 'Ventas, cadencias, leads, templates, inbox' },
+  { id: 'account-exec', label: 'Account Executive', icon: '🎯', href: '/account-executive', color: '#E11D48', glow: 'rgba(225,29,72,0.5)', size: 76, orbit: 0, startAngle: 30, description: 'Gestión de cuentas y calendario' },
+  { id: 'agents', label: 'Agentes IA', icon: '🤖', href: '/agents', color: '#A855F7', glow: 'rgba(168,85,247,0.5)', size: 76, orbit: 0, startAngle: 150, description: 'Configura agentes y ve su actividad en vivo' },
 ]
 
 /* ── Variants ───────────────────────────────────────────────────────────── */
@@ -63,8 +54,21 @@ export function SolarNavigation() {
   const { agents } = useAgents()
   const activeAgents = agents.filter(a => a.status === 'active').length
 
-  const viewSize = ORBIT_RADII[2] * 2 + 100
+  const viewSize = ORBIT_RADII[ORBIT_RADII.length - 1] * 2 + 140
   const center = viewSize / 2
+
+  // Stable star positions — computed once via seeded PRNG so they don't shuffle on re-render
+  const stars = useMemo(() => {
+    let seed = 42
+    const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+    return Array.from({ length: 30 }, () => ({
+      x: rand() * viewSize,
+      y: rand() * viewSize,
+      size: 1 + rand() * 2,
+      duration: 2 + rand() * 3,
+      delay: rand() * 2,
+    }))
+  }, [viewSize])
 
   return (
     <motion.div
@@ -86,31 +90,26 @@ export function SolarNavigation() {
         />
       ))}
 
-      {/* ── Stars (decorative dots) ──────────────────────────────────── */}
-      {Array.from({ length: 30 }).map((_, i) => {
-        const sx = Math.random() * viewSize
-        const sy = Math.random() * viewSize
-        const ss = 1 + Math.random() * 2
-        return (
-          <motion.div
-            key={`star-${i}`}
-            className="absolute rounded-full bg-foreground/10 pointer-events-none"
-            style={{ width: ss, height: ss, left: sx, top: sy }}
-            animate={{ opacity: [0.15, 0.5, 0.15] }}
-            transition={{ duration: 2 + Math.random() * 3, repeat: Infinity, delay: Math.random() * 2 }}
-          />
-        )
-      })}
+      {/* ── Stars (decorative dots — stable positions) ───────────────── */}
+      {stars.map((star, i) => (
+        <motion.div
+          key={`star-${i}`}
+          className="absolute rounded-full bg-foreground/10 pointer-events-none"
+          style={{ width: star.size, height: star.size, left: star.x, top: star.y }}
+          animate={{ opacity: [0.15, 0.5, 0.15] }}
+          transition={{ duration: star.duration, repeat: Infinity, delay: star.delay }}
+        />
+      ))}
 
-      {/* ── Sun ──────────────────────────────────────────────────────── */}
+      {/* ── Sun (Chief) ──────────────────────────────────────────────── */}
       <motion.button
         className="absolute z-20 flex items-center justify-center border-0 bg-transparent p-0 cursor-pointer"
-        style={{ width: 88, height: 88, left: center - 44, top: center - 44 }}
+        style={{ width: 100, height: 100, left: center - 50, top: center - 50 }}
         variants={sunVariants}
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => navigate('/dashboard')}
-        aria-label="Chief — Ir al dashboard"
+        aria-label="Chief"
       >
         {/* Pulse */}
         <motion.div
@@ -121,7 +120,7 @@ export function SolarNavigation() {
         />
         {/* Body */}
         <div
-          className="relative flex h-full w-full items-center justify-center rounded-full text-white font-heading font-bold text-2xl"
+          className="relative flex h-full w-full items-center justify-center rounded-full text-white font-heading font-bold text-3xl"
           style={{
             background: 'linear-gradient(135deg, #4338CA, #6366F1, #818CF8)',
             boxShadow: '0 0 30px rgba(99,102,241,0.5), 0 0 60px rgba(99,102,241,0.2)',
@@ -129,6 +128,17 @@ export function SolarNavigation() {
         >
           C
         </div>
+
+        {/* Active agents badge — shown on the sun */}
+        {activeAgents > 0 && (
+          <motion.span
+            className="absolute -top-1 -right-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-green-500 px-1.5 text-xs font-bold text-white z-30"
+            animate={{ scale: [1, 1.15, 1] }}
+            transition={{ duration: 2, repeat: Infinity }}
+          >
+            {activeAgents}
+          </motion.span>
+        )}
       </motion.button>
 
       {/* ── Orbit containers (rotate) with Planets ───────────────────── */}
