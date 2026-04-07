@@ -160,7 +160,7 @@ export async function reflect(
     }
   }
 
-  // --- Stall detection ---
+  // --- Stall detection (action loops) ---
   state.recentActions.push({ action, taskId });
   if (state.recentActions.length > STALL_WINDOW) state.recentActions.shift();
 
@@ -181,6 +181,38 @@ export async function reflect(
           whatsapp_number: null,
         }),
       }).catch(() => {});
+    }
+  }
+
+  // --- Phase 3.3: RUNAWAY COST DETECTION ---
+  // If agent is burning money fast without completing tasks, force pause.
+  // Tracks rolling cost in a 30-min window and aborts if it exceeds threshold
+  // without proportional task completions.
+  if (action !== 'idle' && state.budgetFromDB) {
+    const costToday = (state.budgetFromDB as any).cost_usd_today || 0;
+    const dailyCap = (state.budgetFromDB as any).max_cost_usd_today || 5;
+    const ratio = costToday / dailyCap;
+
+    // If we hit 50% of daily cap with fewer than 5 tasks completed → likely loop
+    if (ratio >= 0.5 && state.tasksCompletedSinceCheckin < 2 && state.iteration > 20) {
+      log.warn(`RUNAWAY: ${(ratio * 100).toFixed(0)}% of daily cap used with only ${state.tasksCompletedSinceCheckin} tasks completed — forcing pause`);
+      state.interval = DEEP_SLEEP_INTERVAL;
+      state.recentActions = [];
+      // Notify via backlog (deduplicates)
+      sbPost('agent_backlog', {
+        org_id: agent.orgId,
+        agent_id: agent.id,
+        category: 'blocker',
+        title: `${agent.name} runaway detected: $${costToday.toFixed(2)} burned with ${state.tasksCompletedSinceCheckin} tasks done`,
+        details: `Used ${(ratio * 100).toFixed(0)}% of daily cap. Forced into deep sleep (5min probe). Investigate task loops.`,
+      }).catch(() => {});
+    }
+
+    // Hard stop at 100% cap (extra safety net)
+    if (ratio >= 1.0) {
+      log.error(`HARD STOP: Daily cap reached ($${costToday.toFixed(2)}/$${dailyCap})`);
+      state.running = false;
+      sbPatch(`agents?id=eq.${agent.id}`, { availability: 'offline' }).catch(() => {});
     }
   }
 
