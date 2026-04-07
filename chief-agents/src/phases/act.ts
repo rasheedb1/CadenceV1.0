@@ -80,6 +80,20 @@ export async function act(
         return 'already_has_task';
       }
 
+      // Phase 2.3: SERIAL CODE EXECUTION (Cognition pattern)
+      // Only ONE code task in_progress at a time across the org to avoid
+      // 17× error amplification when multiple agents edit the same files.
+      if (agent.capabilities.includes('code')) {
+        const codeInProgress = await sbGet<Array<{ id: string }>>(
+          `agent_tasks_v2?org_id=eq.${agent.orgId}&task_type=eq.code&status=in.(claimed,in_progress)&limit=1&select=id`,
+        ).catch(() => []);
+        if (Array.isArray(codeInProgress) && codeInProgress.length > 0) {
+          log.info('[serial] Another code task in progress — waiting');
+          state.interval = MIN_INTERVAL * 2;
+          return 'waiting_serial';
+        }
+      }
+
       // ALWAYS use v2 RPC first (atomic, capability-matched)
       const capabilities = state.agentConfig?.capabilities || agent.capabilities;
       const claimed = await sbRpc<Array<{ id: string; title: string; priority: number }>>(
@@ -218,22 +232,35 @@ export async function act(
         }
       }
 
-      // 3. Write team artifacts to workspace (FIX #2)
+      // 3. Team artifacts by REFERENCE (Phase 2.2 — Anthropic pattern)
+      // Don't inject full markdown content (~50KB each = inflates context).
+      // Instead, write only an INDEX with summaries. Agent reads full file with Read tool ONLY if needed.
+      let artifactsIndex = '';
       try {
         const projId = agent.currentProjectId;
         if (projId) {
-          const arts = await sbGet<Array<{ filename: string; content: string; content_summary: string }>>(
-            `agent_artifacts?project_id=eq.${projId}&created_by=neq.${agent.id}&order=created_at.desc&limit=5&select=filename,content,content_summary`,
+          const arts = await sbGet<Array<{ id: string; filename: string; content: string; content_summary: string; artifact_type: string; created_by: string }>>(
+            `agent_artifacts?project_id=eq.${projId}&created_by=neq.${agent.id}&order=created_at.desc&limit=8&select=id,filename,content,content_summary,artifact_type,created_by`,
           ).catch(() => []);
           if (Array.isArray(arts) && arts.length > 0) {
             const { writeFile, mkdir } = await import('node:fs/promises');
             const artDir = `${cwd}/team-artifacts`;
             await mkdir(artDir, { recursive: true }).catch(() => {});
+
+            // Write each artifact as a file (full content available on demand)
             for (const a of arts) {
-              await writeFile(`${artDir}/${a.filename}.md`, a.content || a.content_summary || '', 'utf-8').catch(() => {});
+              await writeFile(`${artDir}/${a.filename}.md`, a.content || '', 'utf-8').catch(() => {});
             }
-            preExecContext += `Team artifacts: ${arts.length} files in ${artDir}/\n`;
-            log.info(`[pre-exec] Wrote ${arts.length} team artifacts`);
+
+            // Build a compact INDEX for the prompt (only summaries, ~200 chars each)
+            artifactsIndex = `\nAvailable team artifacts (use Read tool to load full content if needed):\n`;
+            for (const a of arts) {
+              const sizeKb = Math.ceil((a.content?.length || 0) / 1024);
+              const summary = (a.content_summary || '').substring(0, 150);
+              artifactsIndex += `- ${a.filename}.md (${sizeKb}KB, ${a.artifact_type}) — ${summary}\n`;
+            }
+            preExecContext += `Team artifacts: ${arts.length} files indexed (loaded on-demand)\n`;
+            log.info(`[pre-exec] Indexed ${arts.length} team artifacts (by reference, not inline)`);
           }
         }
       } catch {}
@@ -247,10 +274,10 @@ export async function act(
 ENVIRONMENT:
 - Working directory: ${workDir}
 ${isCodeAgent ? `- Repo cloned, npm installed, ready to edit code.
-- Team artifacts in ${cwd}/team-artifacts/ — read these for specs/context from other agents.
 - Do NOT use Bash tool. Git, npm, build, deploy are automated after you finish.
 - Just use Read, Edit, Write, Grep, Glob to modify code. Describe what you changed when done.` : `- Use Read, Write, Grep, Glob, WebSearch, screenshot_page as needed.`}
-${preExecContext ? `\nSETUP:\n${preExecContext}` : ''}`;
+${artifactsIndex}
+${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
 
       const result = await executeWithSDK(agent, sdkPrompt, log);
       state.budget.tokens += result.tokensUsed;
@@ -278,19 +305,51 @@ ${preExecContext ? `\nSETUP:\n${preExecContext}` : ''}`;
       // ================================================================
       let postLog = '';
       if (isCodeAgent && result.numTurns > 0 && !result.text.startsWith('(error:')) {
-        log.info(`[post-exec] Build → commit → push → deploy...`);
+        log.info(`[post-exec] Deterministic QA → Build → commit → push → deploy...`);
 
-        // 1. Build (use npx to ensure local binaries are found)
+        // ================================================================
+        // DETERMINISTIC QA — runs FREE checks before invoking expensive QA agents
+        // (Phase 2.4: replaces 50-70% of agent QA calls with $0 tooling)
+        // ================================================================
+        const qaResults: { check: string; ok: boolean; output: string }[] = [];
+
+        // 1. TypeScript check (catches type errors immediately)
+        const tscOut = await shell('npx', ['--no-install', 'tsc', '--noEmit']);
+        const tscOk = !tscOut.startsWith('ERROR:') && !tscOut.includes('error TS');
+        qaResults.push({ check: 'tsc', ok: tscOk, output: tscOut.substring(0, 200) });
+        log.info(`[qa] tsc: ${tscOk ? 'OK' : 'FAIL'}`);
+
+        // 2. Build (Vite)
         const buildOut = await shell('npx', ['--no-install', 'vite', 'build']);
         const buildOk = !buildOut.startsWith('ERROR:') && !buildOut.includes('not found');
-        postLog += `build: ${buildOk ? 'OK' : 'FAILED — ' + buildOut.substring(0, 300)}\n`;
-        log.info(`[post-exec] build: ${buildOut.substring(0, 200)}`);
-        if (buildOk) {
-          // 2. Check for changes
+        qaResults.push({ check: 'build', ok: buildOk, output: buildOut.substring(0, 200) });
+        log.info(`[qa] build: ${buildOk ? 'OK' : 'FAIL'}`);
+
+        // 3. Tests (if test script exists in package.json)
+        let testsOk = true;
+        try {
+          const pkgRaw = await runCmd('cat', [`${repoDir}/package.json`], { cwd: repoDir, env: shellEnv } as any);
+          const pkg = JSON.parse(String(pkgRaw.stdout || '{}'));
+          if (pkg.scripts?.test && !pkg.scripts.test.includes('no test')) {
+            const testOut = await shell('npm', ['test', '--', '--run']);
+            testsOk = !testOut.startsWith('ERROR:') && !testOut.includes('FAIL ') && !testOut.includes('failed');
+            qaResults.push({ check: 'tests', ok: testsOk, output: testOut.substring(0, 200) });
+            log.info(`[qa] tests: ${testsOk ? 'OK' : 'FAIL'}`);
+          }
+        } catch {}
+
+        // Aggregate QA result
+        const allQaPassed = qaResults.every(r => r.ok);
+        const qaSummary = qaResults.map(r => `${r.check}: ${r.ok ? '✅' : '❌'}`).join(' · ');
+        postLog += `qa: ${qaSummary}\n`;
+
+        // Only push if ALL deterministic checks pass
+        if (allQaPassed) {
+          // 4. Check for changes
           const diff = await shell('git', ['diff', '--stat']);
           const untracked = await shell('git', ['ls-files', '--others', '--exclude-standard']);
           if (diff.trim() || untracked.trim()) {
-            // 3. Commit + push
+            // 5. Commit + push
             await shell('git', ['add', '-A']);
             const title = ((await sbGet<Array<{ title: string }>>(`agent_tasks_v2?id=eq.${params.task_id}&select=title`).catch(() => []))?.[0]?.title || 'update').substring(0, 50);
             await shell('git', ['-c', 'user.name=Chief Agent', '-c', 'user.email=agents@chief.ai', 'commit', '-m', `${title} — ${agent.name}`]);
@@ -298,7 +357,7 @@ ${preExecContext ? `\nSETUP:\n${preExecContext}` : ''}`;
             postLog += `push: ${pushOut.substring(0, 80)}\n`;
             log.info(`[post-exec] pushed`);
 
-            // 4. Deploy
+            // 6. Deploy
             const vToken = process.env.VERCEL_TOKEN;
             if (vToken) {
               const dArgs = ['--prod', '--yes', `--token=${vToken}`, '--name', process.env.VERCEL_PROJECT_NAME || 'chief.ai'];
@@ -307,12 +366,20 @@ ${preExecContext ? `\nSETUP:\n${preExecContext}` : ''}`;
               postLog += `deploy: ${dOut.includes('vercel.app') || dOut.includes('Production') ? 'OK' : dOut.substring(0, 80)}\n`;
               log.info(`[post-exec] deployed`);
             }
+
+            // 7. Auto-tag as QA-passed (saves invoking QA agent later)
+            postLog += `qa_status: AUTO_PASSED — no agent QA needed\n`;
           } else {
             postLog += `no changes\n`;
           }
         } else {
-          postLog += `build failed — skipping push/deploy\n`;
-          log.warn(`[post-exec] build failed`);
+          // Save failures so the agent can fix in next iteration
+          const failedChecks = qaResults.filter(r => !r.ok);
+          postLog += `❌ QA FAILED — push/deploy blocked\n`;
+          for (const f of failedChecks) {
+            postLog += `  ${f.check}: ${f.output}\n`;
+          }
+          log.warn(`[post-exec] QA failed (${failedChecks.length} checks), not pushing`);
         }
       }
 
