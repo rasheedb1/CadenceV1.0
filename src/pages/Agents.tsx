@@ -573,68 +573,160 @@ function KanbanView({ tasks, agents }: { tasks: AgentTaskV2[]; agents: Agent[] }
 
 // ── Mission Control: Performance ─────────────────────────────────────
 
+interface AgentBudget {
+  agent_id: string
+  cost_usd: number          // all-time
+  tokens_used: number       // all-time
+  cost_usd_today: number    // today only
+  tokens_used_today: number
+  max_cost_usd_today: number
+  max_cost_per_task: number
+  day_started_at: string
+}
+
 function PerformanceView({ agents, tasksV2 }: { agents: Agent[]; tasksV2: AgentTaskV2[] }) {
+  const [budgets, setBudgets] = useState<AgentBudget[]>([])
+
+  // Fetch real budget data from agent_budgets table
+  useEffect(() => {
+    let mounted = true
+    const fetchBudgets = async () => {
+      const { data } = await supabase
+        .from('agent_budgets')
+        .select('agent_id,cost_usd,tokens_used,cost_usd_today,tokens_used_today,max_cost_usd_today,max_cost_per_task,day_started_at')
+      if (mounted && data) setBudgets(data as AgentBudget[])
+    }
+    fetchBudgets()
+    const interval = setInterval(fetchBudgets, 10000) // refresh every 10s
+    return () => { mounted = false; clearInterval(interval) }
+  }, [])
+
   const agentStats = useMemo(() => {
     return agents.map(a => {
       const tasks = tasksV2.filter(t => t.assigned_agent_id === a.id)
       const done = tasks.filter(t => t.status === 'done').length
       const failed = tasks.filter(t => t.status === 'failed').length
       const total = done + failed
-      const tokens = tasks.reduce((acc, t) => acc + (t.tokens_used || 0), 0)
-      const cost = tasks.reduce((acc, t) => acc + Number(t.cost_usd || 0), 0)
-      return { ...a, done, failed, total, successRate: total > 0 ? Math.round((done / total) * 100) : 0,
-        tokens, cost, inProgress: tasks.filter(t => t.status === 'in_progress' || t.status === 'claimed').length }
+      // REAL cost data from agent_budgets (not summed from tasks which had bug)
+      const budget = budgets.find(b => b.agent_id === a.id)
+      const costToday = Number(budget?.cost_usd_today || 0)
+      const costAllTime = Number(budget?.cost_usd || 0)
+      const tokensToday = Number(budget?.tokens_used_today || 0)
+      const tokensAllTime = Number(budget?.tokens_used || 0)
+      const dailyCap = Number(budget?.max_cost_usd_today || 5)
+      const capPct = dailyCap > 0 ? Math.round((costToday / dailyCap) * 100) : 0
+      return {
+        ...a, done, failed, total,
+        successRate: total > 0 ? Math.round((done / total) * 100) : 0,
+        costToday, costAllTime, tokensToday, tokensAllTime, dailyCap, capPct,
+        inProgress: tasks.filter(t => t.status === 'in_progress' || t.status === 'claimed').length,
+        backlog: tasks.filter(t => t.status === 'ready' || t.status === 'backlog').length,
+      }
     }).sort((a, b) => b.done - a.done)
-  }, [agents, tasksV2])
+  }, [agents, tasksV2, budgets])
 
   const totals = useMemo(() => ({
     done: agentStats.reduce((a, s) => a + s.done, 0),
     failed: agentStats.reduce((a, s) => a + s.failed, 0),
-    tokens: agentStats.reduce((a, s) => a + s.tokens, 0),
-    cost: agentStats.reduce((a, s) => a + s.cost, 0),
+    tokensToday: agentStats.reduce((a, s) => a + s.tokensToday, 0),
+    tokensAllTime: agentStats.reduce((a, s) => a + s.tokensAllTime, 0),
+    costToday: agentStats.reduce((a, s) => a + s.costToday, 0),
+    costAllTime: agentStats.reduce((a, s) => a + s.costAllTime, 0),
+    dailyCap: agentStats.reduce((a, s) => a + s.dailyCap, 0),
   }), [agentStats])
+
+  const orgCapPct = totals.dailyCap > 0 ? Math.round((totals.costToday / totals.dailyCap) * 100) : 0
 
   return (
     <div className="space-y-6">
+      {/* Real-time spend cards */}
       <div className="grid grid-cols-4 gap-4">
-        <Card><CardContent className="pt-6 text-center"><p className="text-3xl font-bold text-green-600">{totals.done}</p><p className="text-xs text-muted-foreground mt-1">Completadas</p></CardContent></Card>
-        <Card><CardContent className="pt-6 text-center"><p className="text-3xl font-bold text-red-600">{totals.failed}</p><p className="text-xs text-muted-foreground mt-1">Fallidas</p></CardContent></Card>
-        <Card><CardContent className="pt-6 text-center"><p className="text-3xl font-bold">{totals.tokens.toLocaleString()}</p><p className="text-xs text-muted-foreground mt-1">Tokens totales</p></CardContent></Card>
-        <Card><CardContent className="pt-6 text-center"><p className="text-3xl font-bold">${totals.cost.toFixed(2)}</p><p className="text-xs text-muted-foreground mt-1">Costo total</p></CardContent></Card>
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <p className="text-3xl font-bold text-green-600">{totals.done}</p>
+            <p className="text-xs text-muted-foreground mt-1">Tareas completadas</p>
+          </CardContent>
+        </Card>
+        <Card className={orgCapPct >= 80 ? 'border-red-500' : orgCapPct >= 50 ? 'border-amber-500' : ''}>
+          <CardContent className="pt-6 text-center">
+            <p className={`text-3xl font-bold ${orgCapPct >= 80 ? 'text-red-600' : orgCapPct >= 50 ? 'text-amber-600' : 'text-blue-600'}`}>
+              ${totals.costToday.toFixed(2)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">Gastado hoy</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Cap: ${totals.dailyCap.toFixed(0)} ({orgCapPct}%)</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <p className="text-3xl font-bold">${totals.costAllTime.toFixed(2)}</p>
+            <p className="text-xs text-muted-foreground mt-1">Gasto total acumulado</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <p className="text-3xl font-bold">{totals.tokensToday.toLocaleString()}</p>
+            <p className="text-xs text-muted-foreground mt-1">Tokens hoy</p>
+            <p className="text-[10px] text-muted-foreground mt-1">{(totals.tokensAllTime / 1000).toFixed(0)}K acumulados</p>
+          </CardContent>
+        </Card>
       </div>
+
+      {/* Per-agent table — REAL cost data from agent_budgets */}
       <Card>
-        <CardHeader><CardTitle className="text-sm">Rendimiento por agente</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center justify-between">
+            <span>Costos reales por agente</span>
+            <span className="text-[10px] font-normal text-muted-foreground">Datos en vivo desde agent_budgets · refresh 10s</span>
+          </CardTitle>
+        </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
-                  <th className="pb-2 font-medium">Agente</th><th className="pb-2 font-medium">Modelo</th>
-                  <th className="pb-2 font-medium text-center">Completadas</th><th className="pb-2 font-medium text-center">Fallidas</th>
-                  <th className="pb-2 font-medium text-center">Success %</th><th className="pb-2 font-medium text-center">En progreso</th>
-                  <th className="pb-2 font-medium text-right">Tokens</th><th className="pb-2 font-medium text-right">Costo</th>
+                  <th className="pb-2 font-medium">Agente</th>
+                  <th className="pb-2 font-medium">Modelo</th>
+                  <th className="pb-2 font-medium text-center">Done</th>
+                  <th className="pb-2 font-medium text-center">In Progress</th>
+                  <th className="pb-2 font-medium text-right">$ Hoy</th>
+                  <th className="pb-2 font-medium text-center">% Cap</th>
+                  <th className="pb-2 font-medium text-right">$ Total</th>
+                  <th className="pb-2 font-medium text-right">Tokens hoy</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {agentStats.map(a => {
                   const TierIcon = a.tier === 'manager' ? Crown : a.tier === 'team_lead' ? UserCog : User
-                  const modelBadge = (a.model || '').split('-')[1] || '?'
+                  const modelBadge = (a.model || '').includes('opus') ? 'opus' : (a.model || '').includes('haiku') ? 'haiku' : (a.model || '').includes('sonnet') ? 'sonnet' : '?'
+                  const modelColor = modelBadge === 'opus' ? 'bg-purple-100 text-purple-700' : modelBadge === 'haiku' ? 'bg-green-100 text-green-700' : modelBadge === 'sonnet' ? 'bg-blue-100 text-blue-700' : ''
                   return (
                     <tr key={a.id} className="hover:bg-muted/30">
-                      <td className="py-2.5"><div className="flex items-center gap-2"><TierIcon className={`h-3.5 w-3.5 ${a.tier === 'manager' ? 'text-purple-500' : a.tier === 'team_lead' ? 'text-blue-500' : 'text-gray-400'}`} /><span className="font-medium">{a.name}</span></div></td>
-                      <td><Badge variant="secondary" className="text-[10px]">{modelBadge}</Badge></td>
+                      <td className="py-2.5">
+                        <div className="flex items-center gap-2">
+                          <TierIcon className={`h-3.5 w-3.5 ${a.tier === 'manager' ? 'text-purple-500' : a.tier === 'team_lead' ? 'text-blue-500' : 'text-gray-400'}`} />
+                          <span className="font-medium">{a.name}</span>
+                        </div>
+                      </td>
+                      <td><Badge variant="secondary" className={`text-[10px] ${modelColor}`}>{modelBadge}</Badge></td>
                       <td className="text-center font-medium text-green-600">{a.done}</td>
-                      <td className="text-center font-medium text-red-600">{a.failed}</td>
-                      <td className="text-center"><span className={`font-medium ${a.successRate >= 80 ? 'text-green-600' : a.successRate >= 50 ? 'text-amber-600' : 'text-red-600'}`}>{a.successRate}%</span></td>
                       <td className="text-center text-blue-600">{a.inProgress}</td>
-                      <td className="text-right text-muted-foreground">{a.tokens.toLocaleString()}</td>
-                      <td className="text-right text-muted-foreground">${a.cost.toFixed(2)}</td>
+                      <td className="text-right font-medium tabular-nums">${a.costToday.toFixed(4)}</td>
+                      <td className="text-center">
+                        <span className={`font-medium ${a.capPct >= 80 ? 'text-red-600' : a.capPct >= 50 ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                          {a.capPct}%
+                        </span>
+                      </td>
+                      <td className="text-right text-muted-foreground tabular-nums">${a.costAllTime.toFixed(2)}</td>
+                      <td className="text-right text-muted-foreground tabular-nums">{a.tokensToday.toLocaleString()}</td>
                     </tr>
                   )
                 })}
               </tbody>
             </table>
           </div>
+          <p className="text-[10px] text-muted-foreground mt-3">
+            💡 Cap diario por agente: ${agentStats[0]?.dailyCap.toFixed(0) || '5'} · Reset cada 24h · Hard stop al 100%
+          </p>
         </CardContent>
       </Card>
     </div>
