@@ -1,52 +1,45 @@
-# Migration: OpenClaw → Claude Agent SDK
+# Plan: Paralelismo + Plan-Aprobación + Delegación Inteligente + Paula (email)
 
-## Plan
+**Objetivo:** Chief corre múltiples proyectos en paralelo con subconjuntos distintos de agentes, propone plan antes de ejecutar, y tiene un agente nuevo (Paula) para triage de correos.
 
-### Phase 1 — Database (1 file)
-- [ ] `supabase/migrations/082_agent_sdk_migration.sql` — Add columns to agent_messages + project_context view
+**Restricciones:** No tocar fases 1-3 de cost optimization. No tocar event loop. No tocar RLS/esquema de agentes existente.
 
-### Phase 2 — Scaffold (3 files)
-- [ ] `chief-agents/package.json` — Dependencies: @anthropic-ai/claude-agent-sdk, @supabase/supabase-js, zod
-- [ ] `chief-agents/tsconfig.json` — Strict TS, target ES2022, outDir dist/
-- [ ] `chief-agents/.env.example` — Required env vars
+---
 
-### Phase 3 — Core modules (6 files)
-- [ ] `chief-agents/src/types.ts` — All interfaces (AgentConfig, SenseContext, ParsedAction, LoopState, etc.)
-- [ ] `chief-agents/src/supabase-client.ts` — Shared Supabase REST helpers (port sbGet/sbPatch/sbRpc)
-- [ ] `chief-agents/src/agent-config.ts` — Load agent config from agents table
-- [ ] `chief-agents/src/utils/heartbeat.ts` — Update agent_heartbeats
-- [ ] `chief-agents/src/utils/budget.ts` — Token/cost tracking, 80% alert
-- [ ] `chief-agents/src/utils/logger.ts` — Per-agent structured logging
+## Fase A — Paralelismo de proyectos
 
-### Phase 4 — Event loop phases (4 files, port from event-loop.js)
-- [ ] `chief-agents/src/phases/sense.ts` — Parallel Supabase queries (exact port + new queries)
-- [ ] `chief-agents/src/phases/think.ts` — Build LLM prompt + call Anthropic API directly (replaces OpenClaw CLI)
-- [ ] `chief-agents/src/phases/act.ts` — Execute decisions (replaces callGateway with SDK query())
-- [ ] `chief-agents/src/phases/reflect.ts` — Adaptive interval, idle ratio, knowledge extraction, checkins (exact port)
+- [ ] **A.1** Quitar regla "solo 1 proyecto activo a la vez" del system prompt de Chief
+- [ ] **A.2** Cambiar dedup en `crear_proyecto`: solo cerrar proyectos que compartan al menos 1 agente con el nuevo
+- [ ] **A.3** Deploy bridge a Railway y validar paralelismo
 
-### Phase 5 — SDK integration (2 files)
-- [ ] `chief-agents/src/mcp-tools/chief-tools.ts` — In-process MCP server with 5 tools
-- [ ] `chief-agents/src/sdk-runner.ts` — Claude Agent SDK wrapper with bypassPermissions
+## Fase B — Flujo plan → aprobación → ejecución
 
-### Phase 6 — Main loop + orchestrator (2 files)
-- [ ] `chief-agents/src/event-loop.ts` — SENSE→THINK→ACT→REFLECT cycle with setTimeout
-- [ ] `chief-agents/src/orchestrator.ts` — Load agents, spawn concurrent loops, health check
+- [ ] **B.1** Migración SQL: tabla `project_drafts`
+- [ ] **B.2** Tool `proponer_proyecto` (guarda draft, NO crea proyecto)
+- [ ] **B.3** Tool `aprobar_proyecto(draft_id)` (promueve draft a proyecto real)
+- [ ] **B.4** Tool `rechazar_proyecto(draft_id, razon)`
+- [ ] **B.5** Prompt de Chief: forzar `proponer_proyecto` primero
 
-### Phase 7 — Docker (1 file)
-- [ ] `chief-agents/Dockerfile` — node:22-slim, Claude Code CLI, MCP servers
+## Fase C — Delegación inteligente
 
-## Key Changes from OpenClaw
-| Component | OpenClaw (current) | Agent SDK (new) |
-|-----------|-------------------|-----------------|
-| THINK | `execFile("node", ["/app/dist/index.js", "agent", ...])` | Direct Anthropic API call |
-| ACT work_on_task | `callGateway()` via OpenClaw CLI | `query()` with bypassPermissions |
-| send_message | `execFile("node", ["a2a-send.js", ...])` | Direct insert to agent_messages |
-| Permissions | Blocked (the whole problem) | `permissionMode: "bypassPermissions"` |
-| Containers | 4 Railway services (~$28-40/mo) | 1 Railway service (~$7-10/mo) |
+- [ ] **C.1** Prompt forza: listar capabilities necesarias → elegir subset mínimo → justificar → decir quién queda libre
 
-## What stays UNTOUCHED
-- `openclaw/bridge/server.js` (WhatsApp bridge + gateway worker)
-- ALL Supabase tables, RPCs, triggers (069-081)
-- ALL Edge Functions (phase-transition, task-hygiene, daily-standup, etc.)
-- ALL Frontend (Agents.tsx, AgentDetail.tsx, MissionControl.tsx)
-- ALL pg_cron jobs
+## Fase D — Paula (asistente / correos)
+
+- [ ] **D.1** Migración: role `assistant` + capability `inbox` + crear Paula (Haiku, $1/día cap)
+- [ ] **D.2** Tool MCP `list_unread_emails(since?, limit?)` vía Unipile
+- [ ] **D.3** Tool MCP `read_email(email_id)`
+- [ ] **D.4** Tool MCP `summarize_inbox(hours?)`
+- [ ] **D.5** Verificar Gmail conectado en Unipile
+
+## Prueba end-to-end
+
+- [ ] Chief recibe: *"Optimiza UX de Agents + Mission Control, y resumen de correos no leídos"*
+- [ ] Chief propone 2 planes separados
+- [ ] Aprobar ambos
+- [ ] Validar ambos proyectos `active` simultáneos
+- [ ] Validar agentes correctos por proyecto
+- [ ] Validar coste final
+
+## Review
+_Se llena al terminar_

@@ -8,6 +8,7 @@ import { z } from 'zod';
 import type { AgentConfig } from '../types.js';
 import { sbGet, sbPost, sbPostReturn } from '../supabase-client.js';
 import { TYPE_CAPS } from '../types.js';
+import { buildInboxTools } from './inbox-tools.js';
 
 async function resolveAgentId(orgId: string, name: string): Promise<string | null> {
   const rows = await sbGet<Array<{ id: string }>>(
@@ -332,9 +333,12 @@ export function buildChiefToolsServer(agent: AgentConfig) {
     },
   );
 
+  // ---------- Inbox tools (Gmail API direct, for agents with 'inbox' capability) ----------
+  const inboxTools = buildInboxTools(agent);
+
   return createSdkMcpServer({
     name: 'chief-tools',
     version: '1.0.0',
-    tools: [sendMessage, saveArtifact, createSubtask, queryKnowledge, askHuman, reportToChief, screenshotPage, scrapeUrl, firecrawlSearch, deployFrontend, deployEdgeFunction, pushMigration],
+    tools: [sendMessage, saveArtifact, createSubtask, queryKnowledge, askHuman, reportToChief, screenshotPage, scrapeUrl, firecrawlSearch, deployFrontend, deployEdgeFunction, pushMigration, ...inboxTools],
   });
 }

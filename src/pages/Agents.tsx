@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion } from 'motion/react'
 import { supabase } from '@/integrations/supabase/client'
 import { useAgents, type Agent, type AgentTier, type AgentAvailability, type AgentTask, type AgentMessage, type AgentTaskV2, type AgentCheckin } from '@/contexts/AgentContext'
+import { IntegrationsPanel } from '@/components/integrations/IntegrationsPanel'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -20,6 +21,7 @@ import {
   LayoutGrid, Network, Cpu, Crown, UserCog, User,
   Circle, Zap, AlertTriangle, WifiOff, Home, Moon, Sun,
   Radio, ListTodo, BarChart3, CheckCircle, XCircle, Clock, MessageSquare,
+  Plug,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -740,7 +742,7 @@ export function Agents() {
   const { user } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const { agents, isLoading, createAgent, deleteAgent, skillRegistry, tasksV2, checkins, respondToCheckin } = useAgents()
-  const [viewMode, setViewMode] = useState<'grid' | 'org' | 'activity' | 'kanban' | 'performance'>('grid')
+  const [viewMode, setViewMode] = useState<'grid' | 'org' | 'activity' | 'kanban' | 'performance' | 'integrations'>('grid')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
@@ -891,6 +893,7 @@ export function Agents() {
               <TabsTrigger value="activity" className="h-6 px-2 text-xs"><Radio className="h-3.5 w-3.5 mr-1" />Actividad</TabsTrigger>
               <TabsTrigger value="kanban" className="h-6 px-2 text-xs"><ListTodo className="h-3.5 w-3.5 mr-1" />Kanban</TabsTrigger>
               <TabsTrigger value="performance" className="h-6 px-2 text-xs"><BarChart3 className="h-3.5 w-3.5 mr-1" />Rendimiento</TabsTrigger>
+              <TabsTrigger value="integrations" className="h-6 px-2 text-xs"><Plug className="h-3.5 w-3.5 mr-1" />Integraciones</TabsTrigger>
             </TabsList>
           </Tabs>
           <Dialog open={isCreateOpen} onOpenChange={v => { setIsCreateOpen(v); if (!v) resetForm() }}>
@@ -1064,6 +1067,8 @@ export function Agents() {
         <KanbanView tasks={tasksV2} agents={agents} />
       ) : viewMode === 'performance' ? (
         <PerformanceView agents={agents} tasksV2={tasksV2} />
+      ) : viewMode === 'integrations' ? (
+        <IntegrationsPanel />
       ) : (
         <GridView
           agents={agents}

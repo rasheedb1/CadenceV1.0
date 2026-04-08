@@ -11,6 +11,7 @@ function roleToKey(role: string): string {
   if (r.includes('ux') || r.includes('ui') || r.includes('design')) return 'ux_designer';
   if (r.includes('qa') || r.includes('quality') || r.includes('test')) return 'qa_engineer';
   if (r.includes('sales') || r.includes('outreach') || r.includes('bdr')) return 'sales';
+  if (r.includes('assistant') || r.includes('inbox') || r.includes('triage')) return 'assistant';
   return 'sales'; // default
 }
 

@@ -271,6 +271,7 @@ export const ROLE_TOOLS: Record<string, string[]> = {
   ux_designer: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
   qa_engineer: ['Read', 'Write', 'Grep', 'Glob', 'WebSearch', 'WebFetch'],
   sales:       ['Read', 'Write', 'WebSearch', 'WebFetch', 'Glob'],
+  assistant:   ['Read', 'Write', 'WebSearch', 'WebFetch'], // triage + writing, inbox tools via MCP
 };
 
 export const TYPE_CAPS: Record<string, string[]> = {
@@ -280,5 +281,7 @@ export const TYPE_CAPS: Record<string, string[]> = {
   qa:       ['research', 'outreach'],
   writing:  ['writing'],
   outreach: ['outreach', 'research'],
+  inbox:    ['inbox'],
+  triage:   ['inbox'],
   general:  [],
 };

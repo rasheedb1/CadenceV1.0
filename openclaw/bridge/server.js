@@ -403,6 +403,249 @@ app.get("/health", (_req, res) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Google OAuth — shared between WhatsApp and dashboard
+// Tokens live in agent_integrations (single source of truth)
+// ---------------------------------------------------------------------------
+const BRIDGE_PUBLIC_URL = process.env.BRIDGE_PUBLIC_URL || "https://twilio-bridge-production-241b.up.railway.app";
+const GOOGLE_REDIRECT_URI = `${BRIDGE_PUBLIC_URL}/auth/google/callback`;
+const GOOGLE_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.modify",
+  "https://www.googleapis.com/auth/gmail.send",
+  "https://www.googleapis.com/auth/userinfo.email",
+].join(" ");
+
+function requireGoogleEnv() {
+  const id = process.env.GOOGLE_CLIENT_ID;
+  const secret = process.env.GOOGLE_CLIENT_SECRET;
+  if (!id || !secret) throw new Error("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not configured");
+  return { id, secret };
+}
+
+// Start OAuth flow — returns the auth URL (JSON) or redirects (html)
+app.get("/auth/google/start", (req, res) => {
+  try {
+    const { id } = requireGoogleEnv();
+    const orgId = String(req.query.org_id || "");
+    const source = String(req.query.source || "dashboard"); // whatsapp | dashboard
+    const userId = String(req.query.user_id || "");
+    if (!orgId) return res.status(400).send("Missing org_id");
+    const state = Buffer.from(JSON.stringify({ org_id: orgId, source, user_id: userId, nonce: Date.now() })).toString("base64url");
+    const params = new URLSearchParams({
+      client_id: id,
+      redirect_uri: GOOGLE_REDIRECT_URI,
+      response_type: "code",
+      scope: GOOGLE_SCOPES,
+      access_type: "offline",
+      prompt: "consent", // ensures refresh_token is returned
+      state,
+    });
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+    // If browser-like Accept, redirect; otherwise return JSON (for Chief tool)
+    const accept = String(req.headers.accept || "");
+    if (accept.includes("text/html")) return res.redirect(url);
+    return res.json({ url });
+  } catch (e) {
+    console.error("[auth/google/start] error:", e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// OAuth callback — exchange code, store tokens, show success HTML
+app.get("/auth/google/callback", async (req, res) => {
+  try {
+    const { id: clientId, secret: clientSecret } = requireGoogleEnv();
+    const code = String(req.query.code || "");
+    const stateEncoded = String(req.query.state || "");
+    if (!code || !stateEncoded) return res.status(400).send("Missing code or state");
+
+    let stateDecoded;
+    try {
+      stateDecoded = JSON.parse(Buffer.from(stateEncoded, "base64url").toString("utf8"));
+    } catch {
+      return res.status(400).send("Invalid state");
+    }
+    const { org_id: orgId, source, user_id: userId } = stateDecoded || {};
+    if (!orgId) return res.status(400).send("state missing org_id");
+
+    // Exchange code for tokens
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: GOOGLE_REDIRECT_URI,
+        grant_type: "authorization_code",
+      }),
+    });
+    const tokenData = await tokenRes.json();
+    if (!tokenRes.ok || !tokenData.access_token) {
+      console.error("[auth/google/callback] token exchange failed:", tokenData);
+      return res.status(500).send(`Token exchange failed: ${JSON.stringify(tokenData).substring(0, 300)}`);
+    }
+
+    // Get user email
+    let email = null;
+    try {
+      const uiRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      });
+      const ui = await uiRes.json();
+      email = ui?.email || null;
+    } catch {}
+
+    const expiresAt = new Date(Date.now() + (tokenData.expires_in || 3600) * 1000).toISOString();
+
+    // Upsert in agent_integrations (unique on org_id + provider)
+    const existing = await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google&select=id`, { headers: sbHeaders() });
+    const payload = {
+      org_id: orgId,
+      provider: "google",
+      email,
+      access_token: tokenData.access_token,
+      token_expires_at: expiresAt,
+      scopes: GOOGLE_SCOPES.split(" "),
+      connected_via: source || "dashboard",
+      connected_by_user_id: userId || null,
+      last_refreshed_at: new Date().toISOString(),
+      status: "active",
+      error_message: null,
+    };
+    // Only overwrite refresh_token if Google sent one (they only send on first consent)
+    if (tokenData.refresh_token) payload.refresh_token = tokenData.refresh_token;
+
+    if (Array.isArray(existing) && existing.length > 0) {
+      await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
+        method: "PATCH",
+        headers: { ...sbHeaders(), Prefer: "return=minimal" },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      if (!payload.refresh_token) {
+        console.warn(`[auth/google/callback] first connect but no refresh_token from Google — will require re-auth`);
+      }
+      await sbFetch(`${SB_URL}/rest/v1/agent_integrations`, {
+        method: "POST",
+        headers: { ...sbHeaders(), Prefer: "return=minimal" },
+        body: JSON.stringify(payload),
+      });
+    }
+
+    console.log(`[auth/google/callback] Gmail connected for org ${orgId} (${email}) via ${source}`);
+
+    // Success HTML
+    return res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Gmail connected</title>
+<style>body{font-family:-apple-system,system-ui,sans-serif;background:#0a0a0a;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}.card{background:#111;border:1px solid #222;border-radius:16px;padding:40px;text-align:center;max-width:400px}.ok{font-size:48px;margin-bottom:16px}h1{margin:0 0 8px;font-size:22px}p{color:#888;margin:8px 0 0}</style></head>
+<body><div class="card"><div class="ok">✅</div><h1>Gmail connected</h1><p>${email || "Your account"}</p><p>You can close this tab — Paula can now read your inbox.</p></div></body></html>`);
+  } catch (e) {
+    console.error("[auth/google/callback] error:", e);
+    return res.status(500).send(`Error: ${e.message}`);
+  }
+});
+
+// Status check — used by dashboard
+app.get("/integrations/google/status", async (req, res) => {
+  try {
+    const orgId = String(req.query.org_id || "");
+    if (!orgId) return res.status(400).json({ error: "Missing org_id" });
+    const rows = await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google&select=email,status,connected_at,token_expires_at,connected_via,last_used_at`, { headers: sbHeaders() });
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.json({ connected: false });
+    }
+    const row = rows[0];
+    return res.json({
+      connected: row.status === "active",
+      email: row.email,
+      connected_at: row.connected_at,
+      connected_via: row.connected_via,
+      expires_at: row.token_expires_at,
+      last_used_at: row.last_used_at,
+      status: row.status,
+    });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Disconnect — used by dashboard and Chief
+app.post("/integrations/google/disconnect", express.json(), async (req, res) => {
+  try {
+    const orgId = String(req.body?.org_id || req.query.org_id || "");
+    if (!orgId) return res.status(400).json({ error: "Missing org_id" });
+    await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
+      method: "DELETE",
+      headers: { ...sbHeaders(), Prefer: "return=minimal" },
+    });
+    return res.json({ success: true });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Internal endpoint used by chief-agents containers to get a fresh access_token
+app.post("/integrations/google/refresh", express.json(), async (req, res) => {
+  try {
+    const { id: clientId, secret: clientSecret } = requireGoogleEnv();
+    const orgId = String(req.body?.org_id || "");
+    if (!orgId) return res.status(400).json({ error: "Missing org_id" });
+    const rows = await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google&select=*`, { headers: sbHeaders() });
+    if (!Array.isArray(rows) || rows.length === 0) return res.status(404).json({ error: "not_connected" });
+    const row = rows[0];
+    if (row.status !== "active") return res.status(400).json({ error: `status: ${row.status}` });
+
+    // If not expired (with 60s margin), return current token
+    const expiresAt = row.token_expires_at ? new Date(row.token_expires_at).getTime() : 0;
+    if (expiresAt - Date.now() > 60_000) {
+      return res.json({ access_token: row.access_token, email: row.email, expires_at: row.token_expires_at, refreshed: false });
+    }
+
+    // Refresh
+    if (!row.refresh_token) {
+      await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
+        method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+        body: JSON.stringify({ status: "expired", error_message: "No refresh_token — user must reconnect" }),
+      });
+      return res.status(400).json({ error: "no_refresh_token", message: "User must reconnect Gmail" });
+    }
+
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: row.refresh_token,
+        grant_type: "refresh_token",
+      }),
+    });
+    const tokenData = await tokenRes.json();
+    if (!tokenRes.ok || !tokenData.access_token) {
+      await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
+        method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+        body: JSON.stringify({ status: "error", error_message: JSON.stringify(tokenData).substring(0, 300) }),
+      });
+      return res.status(500).json({ error: "refresh_failed", details: tokenData });
+    }
+    const newExpires = new Date(Date.now() + (tokenData.expires_in || 3600) * 1000).toISOString();
+    await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
+      method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+      body: JSON.stringify({
+        access_token: tokenData.access_token,
+        token_expires_at: newExpires,
+        last_refreshed_at: new Date().toISOString(),
+        status: "active",
+        error_message: null,
+      }),
+    });
+    return res.json({ access_token: tokenData.access_token, email: row.email, expires_at: newExpires, refreshed: true });
+  } catch (e) {
+    console.error("[integrations/google/refresh] error:", e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/whatsapp/incoming", (_req, res) => {
   res.json({ status: "ok", message: "Twilio WhatsApp webhook. Expects POST." });
 });
@@ -1115,8 +1358,10 @@ You manage AI agent teams + the Chief Outreach sales platform.
 11. Never expose tokens or internal IDs.
 12. Agents have full bash permissions via bypass. If an agent says they need /approve or shell approval, do NOT relay the /approve command to the user. Instead tell the user: "There's a permission issue with [agent]. The system should handle this automatically — I'll tell the agent to retry." Then message the agent: "You have full bypass permissions. Execute commands directly without waiting for approval."
 13. NEVER show /approve IDs or ask the user to run /approve commands. The user cannot run those — they're internal system commands.
-14. Only ONE project can be active at a time. When querying projects, ALWAYS filter by status=active. Ignore completed/paused projects. When creating a new project, the system auto-closes any existing active project.
-15. When reporting project status, only report the CURRENT active project and its phases. Never mix data from old completed projects.`;
+14. MULTIPLE projects can be active in parallel, as long as they use different subsets of agents. When a new project would share agents with an existing active project, the system auto-closes only the overlapping one. Example: a UX overhaul with Sofi+Juanse can run in parallel with an email-triage project with Paula — both will be active. When querying, filter by status=active. Ignore completed/paused.
+15. When reporting project status, report ALL currently active projects (there may be several in parallel) with a clear header per project. Never mix data from old completed projects.
+16. ALWAYS propose a plan before creating a project. Use proponer_proyecto first — it saves a draft and sends a summary to the user. Only call crear_proyecto after the user approves, OR if the user explicitly says "sin plan" / "hazlo ya" / "skip plan".
+17. INTELLIGENT DELEGATION: when planning, list the capabilities the scope needs, then select the MINIMUM subset of agents required. Do NOT assign all 4 agents by default. Justify each selection in the plan and mention which agents remain free for other work.`;
   }
 
   const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
@@ -1205,6 +1450,15 @@ You manage AI agent teams + the Chief Outreach sales platform.
     { name: "analizar_estructura", description: "Analiza la estructura del equipo y sugiere mejoras: si un equipo tiene 4+ workers sin team lead, sugiere crear uno. Si hay agentes sin equipo, sugiere asignarlos. Usa cuando: 'cómo está organizado el equipo?', 'necesitamos más estructura?', 'analiza la jerarquía'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "configurar_standup", description: "Configura el standup diario automático: timezone, hora, y si está activado. Usa cuando: 'estoy en México', 'mándame el standup a las 8am', 'cambia mi zona horaria', 'desactiva el standup'. Timezones comunes: America/Mexico_City, America/Bogota, America/Buenos_Aires, America/Santiago, America/Lima, Europe/Madrid, US/Eastern, US/Pacific.", input_schema: { type: "object", properties: { whatsapp_number: { type: "string", description: "Número WhatsApp del usuario (sessionKey)" }, timezone: { type: "string", description: "IANA timezone (ej: America/Mexico_City, America/Bogota)" }, standup_hour: { type: "number", description: "Hora local para el standup (0-23, default 9)" }, standup_enabled: { type: "boolean", description: "Activar/desactivar standup diario" } }, required: ["whatsapp_number"] } },
     { name: "configurar_idioma", description: "Configura el idioma para TODOS los mensajes — tanto los de Chief como los de los agentes. Usa cuando: 'habla en español', 'everything in English', 'manda todo en español', 'change language'. Idiomas: es (español), en (English), pt (português).", input_schema: { type: "object", properties: { whatsapp_number: { type: "string", description: "Número WhatsApp del usuario (sessionKey)" }, language: { type: "string", enum: ["es", "en", "pt"], description: "Código de idioma" } }, required: ["whatsapp_number", "language"] } },
+    // --- Plan → Approval → Execution flow ---
+    { name: "proponer_proyecto", description: "PROPONE un proyecto al usuario sin crearlo aún. Guarda un draft y devuelve un resumen formateado que el usuario debe aprobar. USA ESTA TOOL SIEMPRE antes de crear_proyecto, salvo que el usuario diga explícitamente 'sin plan' o 'hazlo ya'. La proposal debe: (1) listar capabilities necesarias, (2) seleccionar el SUBSET MÍNIMO de agentes (no todos), (3) justificar cada agente, (4) mencionar qué agentes quedan libres para otros proyectos. Varios proyectos pueden correr en paralelo si usan subsets distintos.", input_schema: { type: "object", properties: { org_id: { type: "string" }, whatsapp_number: { type: "string", description: "Número del usuario que propone (para autoría del draft)" }, name: { type: "string", description: "Nombre corto del proyecto" }, description: { type: "string", description: "Descripción del scope" }, capabilities_needed: { type: "array", items: { type: "string" }, description: "Capabilities requeridas: code, design, research, outreach, writing, data, ops, strategy, inbox" }, proposed_agents: { type: "array", items: { type: "object", properties: { name: { type: "string", description: "Nombre del agente (ej: Sofi, Juanse, Paula)" }, role: { type: "string", description: "Rol en este proyecto (ej: 'diseño', 'implementación', 'triage de correos')" }, reason: { type: "string", description: "Por qué este agente (capabilities que aporta)" } }, required: ["name", "role", "reason"] }, description: "Subset MÍNIMO de agentes necesarios. No incluir agentes innecesarios." }, phases: { type: "array", items: { type: "object", properties: { name: { type: "string" }, description: { type: "string" }, agent_name: { type: "string" }, reviewer_name: { type: "string" } }, required: ["name", "description", "agent_name"] }, description: "Fases del proyecto (3-4 típicamente)" }, success_criteria: { type: "string", description: "Cómo sabremos que el proyecto terminó" }, estimated_cost_usd: { type: "number", description: "Costo total estimado del proyecto en USD" }, estimated_duration: { type: "string", description: "Duración estimada en lenguaje natural (ej: '2-4 horas', '1 día')" }, reasoning: { type: "string", description: "Justificación general del plan y por qué este approach" }, free_agents: { type: "array", items: { type: "string" }, description: "Agentes que quedan libres para otras cosas" } }, required: ["org_id", "whatsapp_number", "name", "description", "proposed_agents", "phases"] } },
+    { name: "aprobar_proyecto", description: "APRUEBA un draft de proyecto y lo crea de verdad. Usa cuando el usuario responde 'sí', 'apruébalo', 'ok', 'hazlo', 'adelante' a una propuesta previa de proponer_proyecto. Requiere el draft_id (lo tienes en contexto del draft pendiente o se busca el más reciente del org).", input_schema: { type: "object", properties: { org_id: { type: "string" }, draft_id: { type: "string", description: "ID del draft a aprobar (opcional — si no se pasa, toma el draft pending más reciente del org)" } }, required: ["org_id"] } },
+    { name: "rechazar_proyecto", description: "RECHAZA un draft de proyecto con una razón. Usa cuando el usuario responde 'no', 'cambia X', 'no me gusta', 'mejor que...' a una propuesta previa. Después de rechazar, el usuario probablemente va a querer otra propuesta modificada.", input_schema: { type: "object", properties: { org_id: { type: "string" }, draft_id: { type: "string", description: "ID del draft a rechazar (opcional — si no se pasa, toma el draft pending más reciente)" }, razon: { type: "string", description: "Qué no le gustó al usuario (para poder ajustar)" } }, required: ["org_id"] } },
+    { name: "ver_drafts", description: "Lista los drafts de proyecto pendientes de aprobación. Usa cuando: '¿qué propuestas tengo pendientes?', '¿hay drafts?', 'muéstrame los proyectos propuestos'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    // --- Integrations (Google / Gmail) ---
+    { name: "conectar_gmail", description: "Genera un link para que el usuario conecte su Gmail a los agentes (OAuth). Usa cuando: 'conecta mi gmail', 'quiero que Paula lea mis correos', 'enlaza mi correo'. Devuelve una URL que el usuario abre UNA sola vez para autorizar.", input_schema: { type: "object", properties: { org_id: { type: "string" }, whatsapp_number: { type: "string", description: "Para identificar quién conecta" } }, required: ["org_id"] } },
+    { name: "estado_gmail", description: "Consulta si el Gmail del org está conectado a los agentes. Usa cuando: 'está conectado mi gmail?', 'estado de mi correo'. Devuelve email, fecha de conexión, y si el token sigue válido.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    { name: "desconectar_gmail", description: "Desconecta el Gmail del org de los agentes (revoca token). Usa cuando: 'desconecta mi gmail', 'remueve mi correo'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
   ];
 
   // Tools that should run in background (>30s expected)
@@ -1913,6 +2167,206 @@ ${args.description ? `\n${args.description}\n` : ""}
           return { success: false, error: `${agent.name} no está disponible (ni A2A ni cola funcionan).` };
         }
 
+        case "proponer_proyecto": {
+          const {
+            org_id, whatsapp_number, name: draftName, description: draftDesc,
+            capabilities_needed, proposed_agents, phases: draftPhases,
+            success_criteria: draftSuccess, estimated_cost_usd, estimated_duration,
+            reasoning, free_agents,
+          } = args;
+
+          if (!Array.isArray(proposed_agents) || proposed_agents.length === 0) {
+            return { success: false, error: "proposed_agents no puede estar vacío — indica al menos 1 agente." };
+          }
+          if (!Array.isArray(draftPhases) || draftPhases.length === 0) {
+            return { success: false, error: "phases no puede estar vacío — indica al menos 1 fase." };
+          }
+
+          // Insert draft
+          const draftRows = await sbFetch(`${base}/rest/v1/project_drafts`, {
+            method: "POST",
+            headers: { ...sbHeaders(), Prefer: "return=representation" },
+            body: JSON.stringify({
+              org_id,
+              created_by: whatsapp_number || null,
+              name: draftName,
+              description: draftDesc || null,
+              workflow_type: "collaboration",
+              proposed_agents: proposed_agents,
+              capabilities_needed: Array.isArray(capabilities_needed) ? capabilities_needed : [],
+              phases: draftPhases,
+              success_criteria: draftSuccess || null,
+              estimated_cost_usd: typeof estimated_cost_usd === "number" ? estimated_cost_usd : null,
+              estimated_duration: estimated_duration || null,
+              reasoning: reasoning || null,
+              status: "pending",
+            }),
+          });
+          const draft = Array.isArray(draftRows) ? draftRows[0] : draftRows;
+          if (!draft?.id) return { success: false, error: "No se pudo guardar el draft." };
+
+          // Build a readable summary for the user
+          const agentsList = proposed_agents.map(a => `• *${a.name}* (${a.role}) — ${a.reason}`).join("\n");
+          const phasesList = draftPhases.map((p, i) => {
+            const reviewer = p.reviewer_name ? ` → review: ${p.reviewer_name}` : "";
+            return `${i + 1}. *${p.name}* — ${p.agent_name}${reviewer}`;
+          }).join("\n");
+          const capsLine = Array.isArray(capabilities_needed) && capabilities_needed.length > 0
+            ? `\n🧠 *Capabilities necesarias:* ${capabilities_needed.join(", ")}`
+            : "";
+          const costLine = typeof estimated_cost_usd === "number"
+            ? `\n💰 *Costo estimado:* ~$${estimated_cost_usd.toFixed(2)}`
+            : "";
+          const durLine = estimated_duration ? `\n⏱️ *Duración estimada:* ${estimated_duration}` : "";
+          const freeLine = Array.isArray(free_agents) && free_agents.length > 0
+            ? `\n🟢 *Agentes libres:* ${free_agents.join(", ")} (disponibles para otros proyectos)`
+            : "";
+          const reasoningLine = reasoning ? `\n\n💭 *Por qué este plan:*\n${reasoning}` : "";
+          const successLine = draftSuccess ? `\n\n✅ *Criterio de éxito:*\n${draftSuccess}` : "";
+
+          const summary = `📋 *Propuesta de proyecto: ${draftName}*\n\n${draftDesc || ""}${capsLine}\n\n👥 *Equipo propuesto:*\n${agentsList}\n\n📐 *Fases:*\n${phasesList}${costLine}${durLine}${freeLine}${reasoningLine}${successLine}\n\n_Responde *"sí"* o *"apruebo"* para arrancar, o *"no, cambia X"* para ajustar._\n_Draft ID: \`${draft.id.substring(0, 8)}\`_`;
+
+          console.log(`[proponer_proyecto] Draft ${draft.id} for "${draftName}" with ${proposed_agents.length} agents`);
+          return {
+            success: true,
+            draft_id: draft.id,
+            name: draftName,
+            message: summary,
+            requires_approval: true,
+          };
+        }
+
+        case "ver_drafts": {
+          const { org_id } = args;
+          const drafts = await sbFetch(`${base}/rest/v1/active_project_drafts?org_id=eq.${org_id}&order=created_at.desc`, { headers: sbHeaders() });
+          if (!Array.isArray(drafts) || drafts.length === 0) {
+            return { success: true, drafts: [], message: "No hay propuestas pendientes." };
+          }
+          const lines = drafts.map(d => {
+            const agents = (d.proposed_agents || []).map(a => a.name).join(", ");
+            return `• *${d.name}* (${d.id.substring(0, 8)}) — ${agents}`;
+          }).join("\n");
+          return { success: true, drafts, message: `📋 *Drafts pendientes:*\n${lines}` };
+        }
+
+        case "conectar_gmail": {
+          const { org_id, whatsapp_number } = args;
+          // Resolve user_id from whatsapp_number if possible (via chief_sessions)
+          let userId = null;
+          if (whatsapp_number) {
+            const sessions = await sbFetch(`${base}/rest/v1/chief_sessions?whatsapp_number=eq.${encodeURIComponent(whatsapp_number)}&select=user_id&limit=1`, { headers: sbHeaders() });
+            if (Array.isArray(sessions) && sessions.length > 0) userId = sessions[0].user_id;
+          }
+          const startUrl = `${BRIDGE_PUBLIC_URL}/auth/google/start?org_id=${encodeURIComponent(org_id)}&source=whatsapp${userId ? `&user_id=${userId}` : ""}`;
+          // Get the actual Google URL by calling internal endpoint
+          let authUrl = startUrl;
+          try {
+            const r = await fetch(startUrl);
+            const d = await r.json();
+            if (d?.url) authUrl = d.url;
+          } catch { /* fallback: return the start URL, which redirects when opened in a browser */ }
+          return {
+            success: true,
+            url: authUrl,
+            message: `🔐 *Conectar Gmail*\n\nAbre este link UNA sola vez para autorizar:\n\n${authUrl}\n\nCuando autorices, Paula podrá leer tu inbox, hacer triage y resúmenes. Tus tokens se guardan de forma segura (cifrados en la BD).`,
+          };
+        }
+
+        case "estado_gmail": {
+          const { org_id } = args;
+          const rows = await sbFetch(`${base}/rest/v1/agent_integrations?org_id=eq.${org_id}&provider=eq.google&select=email,status,connected_at,token_expires_at,connected_via,last_used_at`, { headers: sbHeaders() });
+          if (!Array.isArray(rows) || rows.length === 0) {
+            return { success: true, connected: false, message: "❌ Gmail no conectado. Usa `conectar_gmail` para enlazarlo." };
+          }
+          const r = rows[0];
+          const ok = r.status === "active";
+          const msg = ok
+            ? `✅ *Gmail conectado*\n📧 ${r.email}\n🕐 Desde: ${new Date(r.connected_at).toLocaleString()}\n🔁 Vía: ${r.connected_via}`
+            : `⚠️ Gmail en estado \`${r.status}\` — necesitas reconectar.`;
+          return { success: true, connected: ok, email: r.email, status: r.status, message: msg };
+        }
+
+        case "desconectar_gmail": {
+          const { org_id } = args;
+          await sbFetch(`${base}/rest/v1/agent_integrations?org_id=eq.${org_id}&provider=eq.google`, {
+            method: "DELETE", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+          });
+          return { success: true, message: "🔓 Gmail desconectado. Paula ya no puede leer tu inbox." };
+        }
+
+        case "rechazar_proyecto": {
+          const { org_id, draft_id, razon } = args;
+          let targetId = draft_id;
+          if (!targetId) {
+            const pending = await sbFetch(`${base}/rest/v1/project_drafts?org_id=eq.${org_id}&status=eq.pending&order=created_at.desc&limit=1&select=id,name`, { headers: sbHeaders() });
+            if (Array.isArray(pending) && pending.length > 0) targetId = pending[0].id;
+          }
+          if (!targetId) return { success: false, error: "No hay draft pendiente para rechazar." };
+          await sbFetch(`${base}/rest/v1/project_drafts?id=eq.${targetId}`, {
+            method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+            body: JSON.stringify({ status: "rejected", rejection_reason: razon || null, decided_at: new Date().toISOString() }),
+          });
+          console.log(`[rechazar_proyecto] Draft ${targetId} rejected: ${razon}`);
+          return { success: true, message: `Draft rechazado. Razón: ${razon || "(sin razón)"}. Cuando quieras, te propongo una versión ajustada.` };
+        }
+
+        case "aprobar_proyecto": {
+          const { org_id, draft_id } = args;
+          // Find the target draft
+          let draftRow = null;
+          if (draft_id) {
+            const rows = await sbFetch(`${base}/rest/v1/project_drafts?id=eq.${draft_id}&select=*`, { headers: sbHeaders() });
+            draftRow = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+          } else {
+            const rows = await sbFetch(`${base}/rest/v1/project_drafts?org_id=eq.${org_id}&status=eq.pending&order=created_at.desc&limit=1&select=*`, { headers: sbHeaders() });
+            draftRow = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+          }
+          if (!draftRow) return { success: false, error: "No hay draft pendiente para aprobar." };
+          if (draftRow.status !== "pending") return { success: false, error: `El draft está en estado "${draftRow.status}" — ya no se puede aprobar.` };
+
+          // Delegate to crear_proyecto internal logic by constructing args
+          const promoteArgs = {
+            org_id: draftRow.org_id,
+            name: draftRow.name,
+            description: draftRow.description,
+            workflow_type: draftRow.workflow_type || "collaboration",
+            agent_names: (draftRow.proposed_agents || []).map(a => a.name),
+            phases: draftRow.phases || [],
+            success_criteria: draftRow.success_criteria,
+          };
+
+          // Re-enter the dispatcher to reuse the crear_proyecto logic (dedup + phases + auto-decompose).
+          let promoted;
+          try {
+            promoted = await gwExecuteToolSync("crear_proyecto", promoteArgs);
+          } catch (e) {
+            promoted = { success: false, error: `promotion failed: ${e.message}` };
+          }
+
+          if (!promoted?.success) {
+            return { success: false, error: `No se pudo crear el proyecto a partir del draft: ${promoted?.error || "unknown"}` };
+          }
+
+          // Mark draft approved with project_id
+          await sbFetch(`${base}/rest/v1/project_drafts?id=eq.${draftRow.id}`, {
+            method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+            body: JSON.stringify({
+              status: "approved",
+              approved_project_id: promoted.project_id || null,
+              decided_at: new Date().toISOString(),
+            }),
+          });
+
+          console.log(`[aprobar_proyecto] Draft ${draftRow.id} approved → project ${promoted.project_id}`);
+          return {
+            success: true,
+            draft_id: draftRow.id,
+            project_id: promoted.project_id,
+            name: draftRow.name,
+            message: `✅ Proyecto "${draftRow.name}" aprobado y arrancando. ${promoted.message || ""}`,
+          };
+        }
+
         case "crear_proyecto": {
           const { org_id, name: projName, description: projDesc, phases,
                   workflow_type, agent_names, max_iterations, checkpoint_every, success_criteria } = args;
@@ -1924,12 +2378,37 @@ ${args.description ? `\n${args.description}\n` : ""}
             return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
           };
 
-          // === DEDUP: Close any existing active/in_progress projects before creating new one ===
+          // === Pre-resolve proposed agent IDs (for overlap-based dedup) ===
+          // Collect agent names from both workflow modes so we can check overlap BEFORE creating.
+          const proposedAgentNames = new Set();
+          if (Array.isArray(agent_names)) {
+            for (const n of agent_names) if (n) proposedAgentNames.add(n);
+          }
+          if (Array.isArray(phases)) {
+            for (const ph of phases) {
+              if (ph?.agent_name) proposedAgentNames.add(ph.agent_name);
+              if (ph?.reviewer_name) proposedAgentNames.add(ph.reviewer_name);
+            }
+          }
+          const proposedAgentIds = new Set();
+          for (const name of proposedAgentNames) {
+            const a = await resolveAgentId(name);
+            if (a?.id) proposedAgentIds.add(a.id);
+          }
+
+          // === DEDUP: Only close existing projects that OVERLAP agents with the new one ===
+          // Parallel projects with disjoint agent sets are allowed to coexist.
           try {
-            const existingProjects = await sbFetch(`${base}/rest/v1/agent_projects?org_id=eq.${org_id}&status=in.(active,in_progress,paused)&select=id,name,status`, { headers: sbHeaders() });
+            const existingProjects = await sbFetch(`${base}/rest/v1/agent_projects?org_id=eq.${org_id}&status=in.(active,in_progress,paused)&select=id,name,status,assigned_agents`, { headers: sbHeaders() });
             if (Array.isArray(existingProjects) && existingProjects.length > 0) {
               for (const ep of existingProjects) {
-                // Close old project and its phases
+                const epAgents = Array.isArray(ep.assigned_agents) ? ep.assigned_agents : [];
+                const overlaps = epAgents.some(id => proposedAgentIds.has(id));
+                if (!overlaps) {
+                  console.log(`[crear_proyecto] Keeping parallel project "${ep.name}" (${ep.id}) — no agent overlap`);
+                  continue;
+                }
+                // Close overlapping project so its agents are freed for the new one
                 await sbFetch(`${base}/rest/v1/agent_projects?id=eq.${ep.id}`, {
                   method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
                   body: JSON.stringify({ status: "completed", updated_at: new Date().toISOString() }),
@@ -1938,7 +2417,7 @@ ${args.description ? `\n${args.description}\n` : ""}
                   method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
                   body: JSON.stringify({ status: "completed" }),
                 });
-                console.log(`[crear_proyecto] Closed old project: ${ep.name} (${ep.id})`);
+                console.log(`[crear_proyecto] Closed overlapping project: ${ep.name} (${ep.id})`);
               }
             }
           } catch (e) { console.error("[crear_proyecto] Dedup error:", e.message); }
