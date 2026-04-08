@@ -415,6 +415,22 @@ const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
 ].join(" ");
 
+// Module-scope Supabase helpers (the ones inside gwExecuteToolSync aren't hoisted here)
+const SB_URL_GLOBAL = process.env.SUPABASE_URL || "https://arupeqczrxmfkcbjwyad.supabase.co";
+const SB_KEY_GLOBAL = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+function sbHeadersGlobal() {
+  return {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${SB_KEY_GLOBAL}`,
+    "apikey": SB_KEY_GLOBAL,
+  };
+}
+async function sbFetchGlobal(url, opts = {}) {
+  const res = await fetch(url, opts);
+  const txt = await res.text();
+  try { return JSON.parse(txt); } catch { return { _raw: txt, _status: res.status }; }
+}
+
 function requireGoogleEnv() {
   const id = process.env.GOOGLE_CLIENT_ID;
   const secret = process.env.GOOGLE_CLIENT_SECRET;
@@ -499,7 +515,7 @@ app.get("/auth/google/callback", async (req, res) => {
     const expiresAt = new Date(Date.now() + (tokenData.expires_in || 3600) * 1000).toISOString();
 
     // Upsert in agent_integrations (unique on org_id + provider)
-    const existing = await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google&select=id`, { headers: sbHeaders() });
+    const existing = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google&select=id`, { headers: sbHeadersGlobal() });
     const payload = {
       org_id: orgId,
       provider: "google",
@@ -517,18 +533,18 @@ app.get("/auth/google/callback", async (req, res) => {
     if (tokenData.refresh_token) payload.refresh_token = tokenData.refresh_token;
 
     if (Array.isArray(existing) && existing.length > 0) {
-      await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
+      await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
         method: "PATCH",
-        headers: { ...sbHeaders(), Prefer: "return=minimal" },
+        headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" },
         body: JSON.stringify(payload),
       });
     } else {
       if (!payload.refresh_token) {
         console.warn(`[auth/google/callback] first connect but no refresh_token from Google — will require re-auth`);
       }
-      await sbFetch(`${SB_URL}/rest/v1/agent_integrations`, {
+      await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations`, {
         method: "POST",
-        headers: { ...sbHeaders(), Prefer: "return=minimal" },
+        headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" },
         body: JSON.stringify(payload),
       });
     }
@@ -550,7 +566,7 @@ app.get("/integrations/google/status", async (req, res) => {
   try {
     const orgId = String(req.query.org_id || "");
     if (!orgId) return res.status(400).json({ error: "Missing org_id" });
-    const rows = await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google&select=email,status,connected_at,token_expires_at,connected_via,last_used_at`, { headers: sbHeaders() });
+    const rows = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google&select=email,status,connected_at,token_expires_at,connected_via,last_used_at`, { headers: sbHeadersGlobal() });
     if (!Array.isArray(rows) || rows.length === 0) {
       return res.json({ connected: false });
     }
@@ -574,9 +590,9 @@ app.post("/integrations/google/disconnect", express.json(), async (req, res) => 
   try {
     const orgId = String(req.body?.org_id || req.query.org_id || "");
     if (!orgId) return res.status(400).json({ error: "Missing org_id" });
-    await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
+    await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
       method: "DELETE",
-      headers: { ...sbHeaders(), Prefer: "return=minimal" },
+      headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" },
     });
     return res.json({ success: true });
   } catch (e) {
@@ -590,7 +606,7 @@ app.post("/integrations/google/refresh", express.json(), async (req, res) => {
     const { id: clientId, secret: clientSecret } = requireGoogleEnv();
     const orgId = String(req.body?.org_id || "");
     if (!orgId) return res.status(400).json({ error: "Missing org_id" });
-    const rows = await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google&select=*`, { headers: sbHeaders() });
+    const rows = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google&select=*`, { headers: sbHeadersGlobal() });
     if (!Array.isArray(rows) || rows.length === 0) return res.status(404).json({ error: "not_connected" });
     const row = rows[0];
     if (row.status !== "active") return res.status(400).json({ error: `status: ${row.status}` });
@@ -603,8 +619,8 @@ app.post("/integrations/google/refresh", express.json(), async (req, res) => {
 
     // Refresh
     if (!row.refresh_token) {
-      await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
-        method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+      await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
+        method: "PATCH", headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" },
         body: JSON.stringify({ status: "expired", error_message: "No refresh_token — user must reconnect" }),
       });
       return res.status(400).json({ error: "no_refresh_token", message: "User must reconnect Gmail" });
@@ -622,15 +638,15 @@ app.post("/integrations/google/refresh", express.json(), async (req, res) => {
     });
     const tokenData = await tokenRes.json();
     if (!tokenRes.ok || !tokenData.access_token) {
-      await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
-        method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+      await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
+        method: "PATCH", headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" },
         body: JSON.stringify({ status: "error", error_message: JSON.stringify(tokenData).substring(0, 300) }),
       });
       return res.status(500).json({ error: "refresh_failed", details: tokenData });
     }
     const newExpires = new Date(Date.now() + (tokenData.expires_in || 3600) * 1000).toISOString();
-    await sbFetch(`${SB_URL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
-      method: "PATCH", headers: { ...sbHeaders(), Prefer: "return=minimal" },
+    await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.google`, {
+      method: "PATCH", headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" },
       body: JSON.stringify({
         access_token: tokenData.access_token,
         token_expires_at: newExpires,
