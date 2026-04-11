@@ -684,6 +684,9 @@ app.post("/integrations/google/refresh", express.json(), async (req, res) => {
 // ---------------------------------------------------------------------------
 const SF_REDIRECT_URI = `${BRIDGE_PUBLIC_URL}/auth/salesforce/callback`;
 
+// In-memory store for PKCE verifiers (short-lived, keyed by state nonce)
+const sfPkceStore = new Map();
+
 app.get("/auth/salesforce/start", (req, res) => {
   try {
     const clientId = process.env.SALESFORCE_CLIENT_ID;
@@ -691,13 +694,27 @@ app.get("/auth/salesforce/start", (req, res) => {
     const orgId = String(req.query.org_id || "");
     const source = String(req.query.source || "dashboard");
     if (!orgId) return res.status(400).json({ error: "Missing org_id" });
-    const state = Buffer.from(JSON.stringify({ org_id: orgId, source })).toString("base64url");
+
+    // Generate PKCE code_verifier + code_challenge
+    const verifierBytes = crypto.randomBytes(32);
+    const codeVerifier = verifierBytes.toString("base64url");
+    const codeChallenge = crypto.createHash("sha256").update(codeVerifier).digest("base64url");
+
+    const nonce = crypto.randomUUID();
+    const state = Buffer.from(JSON.stringify({ org_id: orgId, source, nonce })).toString("base64url");
+
+    // Store verifier for callback (expires in 10 min)
+    sfPkceStore.set(nonce, codeVerifier);
+    setTimeout(() => sfPkceStore.delete(nonce), 600_000);
+
     const params = new URLSearchParams({
       response_type: "code",
       client_id: clientId,
       redirect_uri: SF_REDIRECT_URI,
       scope: "full refresh_token",
       state,
+      code_challenge: codeChallenge,
+      code_challenge_method: "S256",
     });
     const url = `https://login.salesforce.com/services/oauth2/authorize?${params}`;
     const accept = String(req.headers.accept || "");
@@ -720,6 +737,14 @@ app.get("/auth/salesforce/callback", async (req, res) => {
     try { stateObj = JSON.parse(Buffer.from(stateRaw, "base64url").toString("utf8")); } catch {}
     const orgId = stateObj.org_id || "";
     const source = stateObj.source || "dashboard";
+    const nonce = stateObj.nonce || "";
+
+    // Retrieve PKCE code_verifier
+    const codeVerifier = sfPkceStore.get(nonce);
+    if (!codeVerifier) {
+      return res.status(400).send("PKCE session expired — please try connecting again.");
+    }
+    sfPkceStore.delete(nonce);
 
     const tokenRes = await fetch("https://login.salesforce.com/services/oauth2/token", {
       method: "POST",
@@ -728,6 +753,7 @@ app.get("/auth/salesforce/callback", async (req, res) => {
         grant_type: "authorization_code", code,
         client_id: clientId, client_secret: clientSecret,
         redirect_uri: SF_REDIRECT_URI,
+        code_verifier: codeVerifier,
       }),
     });
     const td = await tokenRes.json();
