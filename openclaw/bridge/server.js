@@ -494,9 +494,16 @@ app.get("/auth/google/callback", async (req, res) => {
 
     let stateDecoded;
     try {
-      stateDecoded = JSON.parse(Buffer.from(stateEncoded, "base64url").toString("utf8"));
-    } catch {
-      return res.status(400).send("Invalid state");
+      // Try base64url first, then regular base64, then URL-decoded base64url
+      const raw = stateEncoded.replace(/%3D/g, "=").replace(/%2B/g, "+").replace(/%2F/g, "/");
+      try {
+        stateDecoded = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
+      } catch {
+        stateDecoded = JSON.parse(Buffer.from(raw, "base64").toString("utf8"));
+      }
+    } catch (e) {
+      console.error("[auth/google/callback] state decode failed:", stateEncoded, e.message);
+      return res.status(400).send("Invalid state — please try connecting again with a fresh link.");
     }
     const { org_id: orgId, source, user_id: userId } = stateDecoded || {};
     if (!orgId) return res.status(400).send("state missing org_id");
