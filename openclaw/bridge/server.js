@@ -675,6 +675,209 @@ app.post("/integrations/google/refresh", express.json(), async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Salesforce OAuth — bridge endpoints
+// ---------------------------------------------------------------------------
+const SF_REDIRECT_URI = `${BRIDGE_PUBLIC_URL}/auth/salesforce/callback`;
+
+app.get("/auth/salesforce/start", (req, res) => {
+  try {
+    const clientId = process.env.SALESFORCE_CLIENT_ID;
+    if (!clientId) return res.status(500).json({ error: "SALESFORCE_CLIENT_ID not configured" });
+    const orgId = String(req.query.org_id || "");
+    const source = String(req.query.source || "dashboard");
+    if (!orgId) return res.status(400).json({ error: "Missing org_id" });
+    const state = Buffer.from(JSON.stringify({ org_id: orgId, source })).toString("base64url");
+    const params = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: SF_REDIRECT_URI,
+      scope: "full refresh_token",
+      state,
+    });
+    const url = `https://login.salesforce.com/services/oauth2/authorize?${params}`;
+    const accept = String(req.headers.accept || "");
+    if (accept.includes("text/html")) return res.redirect(url);
+    return res.json({ url });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/auth/salesforce/callback", async (req, res) => {
+  try {
+    const clientId = process.env.SALESFORCE_CLIENT_ID;
+    const clientSecret = process.env.SALESFORCE_CLIENT_SECRET;
+    if (!clientId || !clientSecret) return res.status(500).send("Missing Salesforce credentials");
+    const code = String(req.query.code || "");
+    const stateRaw = String(req.query.state || "");
+    if (!code) return res.status(400).send("Missing code");
+    let stateObj = {};
+    try { stateObj = JSON.parse(Buffer.from(stateRaw, "base64url").toString("utf8")); } catch {}
+    const orgId = stateObj.org_id || "";
+    const source = stateObj.source || "dashboard";
+
+    const tokenRes = await fetch("https://login.salesforce.com/services/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code", code,
+        client_id: clientId, client_secret: clientSecret,
+        redirect_uri: SF_REDIRECT_URI,
+      }),
+    });
+    const td = await tokenRes.json();
+    if (!tokenRes.ok || !td.access_token) {
+      console.error("[auth/salesforce/callback] token exchange failed:", td);
+      return res.status(500).send(`Salesforce token error: ${JSON.stringify(td).substring(0, 300)}`);
+    }
+
+    // Get user info
+    let email = null;
+    try {
+      const uiRes = await fetch(`${td.instance_url}/services/oauth2/userinfo`, {
+        headers: { Authorization: `Bearer ${td.access_token}` },
+      });
+      const ui = await uiRes.json();
+      email = ui?.email || null;
+    } catch {}
+
+    // Upsert in agent_integrations
+    const payload = {
+      org_id: orgId, provider: "salesforce", email,
+      access_token: td.access_token, refresh_token: td.refresh_token || null,
+      token_expires_at: null, // Salesforce doesn't return expires_in easily
+      scopes: ["full", "refresh_token"], connected_via: source,
+      metadata: { instance_url: td.instance_url, sf_id: td.id },
+      last_refreshed_at: new Date().toISOString(), status: "active", error_message: null,
+    };
+    const existing = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.salesforce&select=id`, { headers: sbHeadersGlobal() });
+    if (Array.isArray(existing) && existing.length > 0) {
+      await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.salesforce`, {
+        method: "PATCH", headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" }, body: JSON.stringify(payload),
+      });
+    } else {
+      await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations`, {
+        method: "POST", headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" }, body: JSON.stringify(payload),
+      });
+    }
+
+    // Also upsert in salesforce_connections for edge function compat
+    const sfPayload = {
+      org_id: orgId, access_token: td.access_token, refresh_token: td.refresh_token,
+      instance_url: td.instance_url, sf_user_id: td.id, is_active: true,
+    };
+    const sfExist = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/salesforce_connections?org_id=eq.${orgId}&select=id`, { headers: sbHeadersGlobal() });
+    if (Array.isArray(sfExist) && sfExist.length > 0) {
+      await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/salesforce_connections?org_id=eq.${orgId}`, {
+        method: "PATCH", headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" }, body: JSON.stringify(sfPayload),
+      });
+    } else {
+      await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/salesforce_connections`, {
+        method: "POST", headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" }, body: JSON.stringify(sfPayload),
+      });
+    }
+
+    console.log(`[auth/salesforce/callback] Connected for org ${orgId} (${email})`);
+    return res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Salesforce connected</title>
+<style>body{font-family:-apple-system,sans-serif;background:#0a0a0a;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}.card{background:#111;border:1px solid #222;border-radius:16px;padding:40px;text-align:center;max-width:400px}.ok{font-size:48px;margin-bottom:16px}h1{margin:0 0 8px;font-size:22px}p{color:#888;margin:8px 0 0}</style></head>
+<body><div class="card"><div class="ok">☁️</div><h1>Salesforce connected</h1><p>${email || "Your account"}</p><p>You can close this tab.</p></div></body></html>`);
+  } catch (e) {
+    console.error("[auth/salesforce/callback]", e);
+    return res.status(500).send(`Error: ${e.message}`);
+  }
+});
+
+// Salesforce status
+app.get("/integrations/salesforce/status", async (req, res) => {
+  try {
+    const orgId = String(req.query.org_id || "");
+    if (!orgId) return res.status(400).json({ error: "Missing org_id" });
+    const rows = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.salesforce&select=email,status,connected_at,connected_via,metadata`, { headers: sbHeadersGlobal() });
+    if (!Array.isArray(rows) || rows.length === 0) return res.json({ connected: false });
+    const r = rows[0];
+    return res.json({ connected: r.status === "active", email: r.email, instance_url: r.metadata?.instance_url, connected_at: r.connected_at, status: r.status });
+  } catch (e) { return res.status(500).json({ error: e.message }); }
+});
+
+// ---------------------------------------------------------------------------
+// LinkedIn/Unipile — status check + hosted auth link generation
+// ---------------------------------------------------------------------------
+app.get("/integrations/linkedin/status", async (req, res) => {
+  try {
+    const orgId = String(req.query.org_id || "");
+    if (!orgId) return res.status(400).json({ error: "Missing org_id" });
+    // Find org admin's active LinkedIn Unipile account
+    const members = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/organization_members?org_id=eq.${orgId}&role=eq.admin&select=user_id&limit=1`, { headers: sbHeadersGlobal() });
+    if (!Array.isArray(members) || members.length === 0) return res.json({ connected: false, note: "No admin found" });
+    const userId = members[0].user_id;
+    const accs = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/unipile_accounts?user_id=eq.${userId}&provider=eq.LINKEDIN&status=eq.active&select=account_id,status,connected_at`, { headers: sbHeadersGlobal() });
+    if (!Array.isArray(accs) || accs.length === 0) return res.json({ connected: false });
+    return res.json({ connected: true, account_id: accs[0].account_id, connected_at: accs[0].connected_at, provider: "unipile" });
+  } catch (e) { return res.status(500).json({ error: e.message }); }
+});
+
+// Generate Unipile Hosted Auth link for LinkedIn
+app.get("/auth/linkedin/start", async (req, res) => {
+  try {
+    const dsn = process.env.UNIPILE_DSN;
+    const token = process.env.UNIPILE_ACCESS_TOKEN;
+    if (!dsn || !token) return res.status(500).json({ error: "UNIPILE_DSN/UNIPILE_ACCESS_TOKEN not configured" });
+    const orgId = String(req.query.org_id || "");
+    if (!orgId) return res.status(400).json({ error: "Missing org_id" });
+    // Generate hosted auth link via Unipile API
+    const hostedRes = await fetch(`https://${dsn}/api/v1/hosted/accounts/link-creation`, {
+      method: "POST",
+      headers: { "X-API-KEY": token, "Content-Type": "application/json", accept: "application/json" },
+      body: JSON.stringify({
+        type: "LINKEDIN",
+        api_url: `https://${dsn}`,
+        success_redirect_url: `${BRIDGE_PUBLIC_URL}/auth/linkedin/success?org_id=${orgId}`,
+        failure_redirect_url: `${BRIDGE_PUBLIC_URL}/auth/linkedin/failure`,
+        notify_url: `${BRIDGE_PUBLIC_URL}/auth/linkedin/webhook?org_id=${orgId}`,
+      }),
+    });
+    const hostedData = await hostedRes.json();
+    const url = hostedData?.url || hostedData?.object?.url;
+    if (!url) {
+      console.error("[auth/linkedin/start] Unipile response:", hostedData);
+      return res.status(500).json({ error: "Failed to generate Unipile auth link", details: hostedData });
+    }
+    const accept = String(req.headers.accept || "");
+    if (accept.includes("text/html")) return res.redirect(url);
+    return res.json({ url });
+  } catch (e) { return res.status(500).json({ error: e.message }); }
+});
+
+app.get("/auth/linkedin/success", (_req, res) => {
+  res.send(`<!doctype html><html><head><meta charset="utf-8"><title>LinkedIn connected</title>
+<style>body{font-family:-apple-system,sans-serif;background:#0a0a0a;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}.card{background:#111;border:1px solid #222;border-radius:16px;padding:40px;text-align:center;max-width:400px}.ok{font-size:48px;margin-bottom:16px}h1{margin:0 0 8px;font-size:22px}p{color:#888;margin:8px 0 0}</style></head>
+<body><div class="card"><div class="ok">💼</div><h1>LinkedIn connected</h1><p>You can close this tab.</p></div></body></html>`);
+});
+
+// Integrations status — unified endpoint for all providers
+app.get("/integrations/status", async (req, res) => {
+  try {
+    const orgId = String(req.query.org_id || "");
+    if (!orgId) return res.status(400).json({ error: "Missing org_id" });
+    const rows = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&select=provider,email,status,connected_at,connected_via`, { headers: sbHeadersGlobal() });
+    const integrations = {};
+    for (const r of (Array.isArray(rows) ? rows : [])) {
+      integrations[r.provider] = { connected: r.status === "active", email: r.email, connected_at: r.connected_at, connected_via: r.connected_via };
+    }
+    // Check LinkedIn from unipile_accounts
+    const members = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/organization_members?org_id=eq.${orgId}&role=eq.admin&select=user_id&limit=1`, { headers: sbHeadersGlobal() });
+    if (Array.isArray(members) && members.length > 0) {
+      const accs = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/unipile_accounts?user_id=eq.${members[0].user_id}&provider=eq.LINKEDIN&status=eq.active&select=account_id&limit=1`, { headers: sbHeadersGlobal() });
+      integrations["linkedin"] = { connected: Array.isArray(accs) && accs.length > 0, provider: "unipile" };
+    }
+    // API-key integrations (always "available" if env vars set)
+    integrations["firecrawl"] = { available: !!process.env.FIRECRAWL_API_KEY };
+    integrations["apollo"] = { available: !!process.env.APOLLO_API_KEY };
+    return res.json(integrations);
+  } catch (e) { return res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/whatsapp/incoming", (_req, res) => {
   res.json({ status: "ok", message: "Twilio WhatsApp webhook. Expects POST." });
 });
@@ -1506,6 +1709,14 @@ You manage AI agent teams + the Chief Outreach sales platform.
     { name: "desconectar_gmail", description: "Desconecta el Gmail del org de los agentes (revoca token). Usa cuando: 'desconecta mi gmail', 'remueve mi correo'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "enviar_correo", description: "Envía un correo electrónico usando el Gmail conectado del usuario. Usa cuando: 'manda un correo a X', 'envía un email', 'escribe un correo a X diciendo Y'. Requiere que Gmail esté conectado (si no, sugiere conectar_gmail primero).", input_schema: { type: "object", properties: { org_id: { type: "string" }, to: { type: "string", description: "Email del destinatario" }, subject: { type: "string", description: "Asunto del correo" }, body: { type: "string", description: "Cuerpo del correo (texto plano)" }, cc: { type: "string", description: "CC (opcional, separar múltiples con coma)" }, reply_to_message_id: { type: "string", description: "Si es respuesta a un correo, el message ID de Gmail (opcional)" } }, required: ["org_id", "to", "subject", "body"] } },
     { name: "leer_correos", description: "Lee los correos recientes del usuario (inbox). Usa cuando: 'revisa mis correos', 'qué correos tengo?', 'muéstrame mi inbox', 'resumen de correos'. Requiere Gmail conectado.", input_schema: { type: "object", properties: { org_id: { type: "string" }, query: { type: "string", description: "Búsqueda Gmail (ej: 'is:unread', 'from:X', 'after:2026/04/01'). Default: 'is:unread in:inbox'" }, limit: { type: "number", description: "Máximo de correos (default 10, max 20)" } }, required: ["org_id"] } },
+    // --- Salesforce OAuth ---
+    { name: "conectar_salesforce", description: "Genera link para conectar Salesforce CRM. Usa cuando: 'conecta Salesforce', 'enlaza mi CRM'. Devuelve URL OAuth.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    { name: "estado_salesforce", description: "Consulta si Salesforce está conectado. Usa cuando: 'está conectado Salesforce?', 'estado CRM'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    // --- LinkedIn/Unipile ---
+    { name: "conectar_linkedin", description: "Genera link para conectar LinkedIn vía Unipile. Usa cuando: 'conecta mi LinkedIn', 'enlaza LinkedIn'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    { name: "estado_linkedin", description: "Consulta si LinkedIn está conectado. Usa cuando: 'está conectado LinkedIn?', 'tengo LinkedIn activo?'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    // --- Integration overview ---
+    { name: "estado_integraciones", description: "Muestra el estado de TODAS las integraciones (Gmail, Calendar, Salesforce, LinkedIn, Apollo, Firecrawl). Usa cuando: 'qué integraciones tengo?', 'estado de integraciones', 'qué está conectado?'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
   ];
 
   // Tools that should run in background (>30s expected)
@@ -2339,6 +2550,62 @@ ${args.description ? `\n${args.description}\n` : ""}
             method: "DELETE", headers: { ...sbHeaders(), Prefer: "return=minimal" },
           });
           return { success: true, message: "🔓 Gmail desconectado. Paula ya no puede leer tu inbox." };
+        }
+
+        case "conectar_salesforce": {
+          const { org_id } = args;
+          try {
+            const r = await fetch(`${BRIDGE_PUBLIC_URL}/auth/salesforce/start?org_id=${encodeURIComponent(org_id)}&source=whatsapp`);
+            const d = await r.json();
+            return { success: true, url: d.url, message: `☁️ *Conectar Salesforce*\n\nAbre este link:\n${d.url}\n\nAutoriza y los agentes podrán buscar cuentas, crear leads y sincronizar.` };
+          } catch (e) { return { success: false, error: e.message }; }
+        }
+
+        case "estado_salesforce": {
+          const { org_id } = args;
+          const rows = await sbFetch(`${base}/rest/v1/agent_integrations?org_id=eq.${org_id}&provider=eq.salesforce&select=email,status,connected_at`, { headers: sbHeaders() });
+          if (!Array.isArray(rows) || rows.length === 0) return { success: true, connected: false, message: "❌ Salesforce no conectado. Usa `conectar_salesforce`." };
+          const r = rows[0];
+          return { success: true, connected: r.status === "active", message: r.status === "active" ? `☁️ Salesforce conectado (${r.email})` : `⚠️ Salesforce: ${r.status}` };
+        }
+
+        case "conectar_linkedin": {
+          const { org_id } = args;
+          try {
+            const r = await fetch(`${BRIDGE_PUBLIC_URL}/auth/linkedin/start?org_id=${encodeURIComponent(org_id)}`);
+            const d = await r.json();
+            if (!d.url) return { success: false, error: d.error || "No se pudo generar link de LinkedIn" };
+            return { success: true, url: d.url, message: `💼 *Conectar LinkedIn*\n\nAbre este link:\n${d.url}\n\nConecta tu cuenta de LinkedIn y los agentes podrán ver perfiles, enviar conexiones y mensajes.` };
+          } catch (e) { return { success: false, error: e.message }; }
+        }
+
+        case "estado_linkedin": {
+          const { org_id } = args;
+          try {
+            const r = await fetch(`${BRIDGE_PUBLIC_URL}/integrations/linkedin/status?org_id=${encodeURIComponent(org_id)}`);
+            const d = await r.json();
+            return { success: true, connected: d.connected, message: d.connected ? `💼 LinkedIn conectado (Unipile account ${d.account_id})` : "❌ LinkedIn no conectado. Usa `conectar_linkedin`." };
+          } catch (e) { return { success: false, error: e.message }; }
+        }
+
+        case "estado_integraciones": {
+          const { org_id } = args;
+          try {
+            const r = await fetch(`${BRIDGE_PUBLIC_URL}/integrations/status?org_id=${encodeURIComponent(org_id)}`);
+            const d = await r.json();
+            let msg = "📡 *Estado de integraciones:*\n\n";
+            const check = (name, data) => {
+              if (data?.connected) return `✅ *${name}* — conectado${data.email ? ` (${data.email})` : ""}`;
+              if (data?.available) return `🔧 *${name}* — disponible (API key configurada)`;
+              return `❌ *${name}* — no conectado`;
+            };
+            msg += check("Gmail", d.google) + "\n";
+            msg += check("Salesforce", d.salesforce) + "\n";
+            msg += check("LinkedIn", d.linkedin) + "\n";
+            msg += check("Apollo", d.apollo) + "\n";
+            msg += check("Firecrawl", d.firecrawl) + "\n";
+            return { success: true, integrations: d, message: msg };
+          } catch (e) { return { success: false, error: e.message }; }
         }
 
         case "enviar_correo": {
