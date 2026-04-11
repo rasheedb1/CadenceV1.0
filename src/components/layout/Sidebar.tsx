@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'motion/react'
 import { cn } from '@/lib/utils'
@@ -21,6 +21,7 @@ import {
   Building2,
   Briefcase,
   Star,
+  ArrowLeft,
   Calendar,
   TrendingUp,
   ChevronDown,
@@ -34,10 +35,10 @@ import { useOrg } from '@/contexts/OrgContext'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useSuperAdmin } from '@/hooks/useSuperAdmin'
 import { useFeatureFlags } from '@/hooks/useFeatureFlag'
-// useMode removed — unified nav replaces SDR/AE mode switching
+import { useMode } from '@/contexts/ModeContext'
 import { supabase } from '@/integrations/supabase/client'
 import { OrgSwitcher } from './OrgSwitcher'
-// Button removed — no longer needed for back-to-SDR
+import { Button } from '@/components/ui/button'
 import type { FeatureFlagKey } from '@/types/feature-flags'
 
 type NavItem = {
@@ -54,42 +55,26 @@ type NavSection = {
   items: NavItem[]
 }
 
-// ── Unified navigation — organized by app ─────────────────────────────────────
+// ── SDR / Prospecting navigation — 3 sections ────────────────────────────────
 const sdr_sections: NavSection[] = [
   {
-    id: 'agents',
-    label: 'AI Agents',
+    id: 'daily',
+    label: 'Daily Use',
     items: [
-      { name: 'Agents', href: '/agents', icon: Bot, featureFlag: 'section_agents', end: true },
       { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, end: true },
-    ],
-  },
-  {
-    id: 'outreach',
-    label: 'Outreach',
-    items: [
       { name: 'Find Companies & Leads', href: '/account-mapping', icon: Target, featureFlag: 'section_account_mapping' },
       { name: 'Research', href: '/company-research', icon: Building2, featureFlag: 'section_company_research' },
       { name: 'Cadences', href: '/cadences', icon: Workflow, featureFlag: 'section_cadences' },
-      { name: 'Lead Search', href: '/lead-search', icon: Search, featureFlag: 'section_lead_search' },
-      { name: 'Leads', href: '/leads', icon: Users, featureFlag: 'section_leads' },
-      { name: 'LinkedIn Inbox', href: '/inbox', icon: MessageSquare, featureFlag: 'section_linkedin_inbox' },
-      { name: 'Outreach Activity', href: '/outreach', icon: Activity, featureFlag: 'section_cadences' },
       { name: 'Notifications', href: '/notifications', icon: Bell, featureFlag: 'section_notifications' },
+      { name: 'LinkedIn Inbox', href: '/inbox', icon: MessageSquare, featureFlag: 'section_linkedin_inbox' },
+      { name: 'Lead Search', href: '/lead-search', icon: Search, featureFlag: 'section_lead_search' },
+      { name: 'AI Agents', href: '/agents', icon: Bot, featureFlag: 'section_agents' },
+      { name: 'Outreach Activity', href: '/outreach', icon: Activity, featureFlag: 'section_cadences' },
     ],
   },
   {
-    id: 'ae',
-    label: 'Account Executive',
-    items: [
-      { name: 'Accounts', href: '/account-executive', icon: Star, featureFlag: 'section_account_executive' },
-      { name: 'Pipeline CRM', href: '/account-executive/crm', icon: TrendingUp, featureFlag: 'section_account_executive' },
-      { name: 'Calendar', href: '/account-executive/calendar', icon: Calendar, featureFlag: 'section_account_executive' },
-    ],
-  },
-  {
-    id: 'tools',
-    label: 'Tools & Setup',
+    id: 'onetime',
+    label: 'Setup',
     items: [
       { name: 'ICP Profile', href: '/account-mapping?tab=icp-profiles', icon: ScanSearch, featureFlag: 'section_account_mapping' },
       { name: 'Buyer Personas', href: '/buyer-personas', icon: UserCircle, featureFlag: 'section_account_mapping' },
@@ -97,12 +82,26 @@ const sdr_sections: NavSection[] = [
       { name: 'Business Cases', href: '/business-cases', icon: Briefcase, featureFlag: 'section_business_cases' },
       { name: 'Templates', href: '/templates', icon: FileText, featureFlag: 'section_templates' },
       { name: 'Workflows', href: '/workflows', icon: GitBranch, featureFlag: 'section_workflows' },
+    ],
+  },
+  {
+    id: 'tracker',
+    label: 'Tracking',
+    items: [
+      { name: 'Leads', href: '/leads', icon: Users, featureFlag: 'section_leads' },
+      { name: 'Business Cases', href: '/business-cases?view=tracker', icon: Briefcase, featureFlag: 'section_business_cases' },
       { name: 'Company Registry', href: '/company-registry', icon: ShieldCheck, featureFlag: 'section_company_registry' },
     ],
   },
 ]
 
-// ae_navigation removed — AE items now in unified sdr_sections
+// ── AE navigation ─────────────────────────────────────────────────────────────
+const ae_navigation: { name: string; href: string; icon: typeof LayoutDashboard }[] = [
+  { name: 'Account Executive', href: '/account-executive', icon: Star },
+  { name: 'Pipeline CRM', href: '/account-executive/crm', icon: TrendingUp },
+  { name: 'Calendar', href: '/account-executive/calendar', icon: Calendar },
+  { name: 'Settings', href: '/settings', icon: Settings },
+]
 
 export function Sidebar() {
   const { user } = useAuth()
@@ -110,13 +109,13 @@ export function Sidebar() {
   const { role } = usePermissions()
   const isSuperAdmin = useSuperAdmin()
   const featureFlags = useFeatureFlags()
-  // mode context kept for backward compat but not used in unified nav
+  const { mode, setMode } = useMode()
+  const navigate = useNavigate()
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    agents: true,
-    outreach: true,
-    ae: false,
-    tools: false,
+    daily: true,
+    onetime: true,
+    tracker: true,
   })
 
   const { data: unreadCount = 0 } = useQuery({
@@ -140,6 +139,13 @@ export function Sidebar() {
     setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }))
   }
 
+  const handleBackToSDR = () => {
+    setMode('sdr')
+    navigate('/')
+  }
+
+  const isAE = mode === 'ae'
+
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     cn(
       'flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm font-medium',
@@ -158,8 +164,17 @@ export function Sidebar() {
         </div>
         <div className="flex-1 min-w-0">
           <span className="text-base font-semibold tracking-tight font-heading">Chief</span>
-          <p className="text-xs text-muted-foreground">AI Platform</p>
+          {isAE ? (
+            <p className="text-xs font-medium text-amber-500">Account Executive</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">Sales Automation</p>
+          )}
         </div>
+        {isAE && (
+          <div className="flex h-5 items-center justify-center rounded-full bg-amber-500/15 px-2">
+            <span className="text-[10px] font-semibold text-amber-600">AE</span>
+          </div>
+        )}
       </div>
 
       {/* Org Switcher */}
@@ -167,10 +182,51 @@ export function Sidebar() {
         <OrgSwitcher />
       </div>
 
+      {/* AE mode: back to prospecting button */}
+      {isAE && (
+        <div className="px-4 pb-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+            onClick={handleBackToSDR}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Prospecting
+          </Button>
+          <div className="mt-2 border-t border-border/50" />
+        </div>
+      )}
+
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-4 py-1">
-        {/* ── Unified Navigation — organized by app ────────────────── */}
-        <>
+        {isAE ? (
+          // ── AE Navigation ──────────────────────────────────────────
+          <>
+            {ae_navigation.map((item) => {
+              if (item.name === 'Admin' && role !== 'admin') return null
+              return (
+                <NavLink
+                  key={item.name}
+                  to={item.href}
+                  end={item.href === '/account-executive'}
+                  className={navLinkClass}
+                >
+                  <item.icon className="h-[18px] w-[18px]" />
+                  <span className="flex-1">{item.name}</span>
+                </NavLink>
+              )
+            })}
+            {role === 'admin' && (
+              <NavLink to="/admin" className={navLinkClass}>
+                <Shield className="h-[18px] w-[18px]" />
+                <span className="flex-1">Admin</span>
+              </NavLink>
+            )}
+          </>
+        ) : (
+          // ── SDR Navigation — 3 sections ────────────────────────────
+          <>
             {sdr_sections.map((section) => {
               const visibleItems = section.items.filter(
                 (item) => !item.featureFlag || featureFlags[item.featureFlag]
@@ -258,6 +314,7 @@ export function Sidebar() {
               )}
             </div>
           </>
+        )}
       </nav>
     </div>
   )
