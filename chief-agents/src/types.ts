@@ -287,5 +287,8 @@ export const TYPE_CAPS: Record<string, string[]> = {
   prospecting:  ['apollo', 'research'],
   crm:          ['salesforce'],
   linkedin:     ['linkedin'],
+  drive:        ['drive'],
+  sheets:       ['sheets'],
+  contacts:     ['contacts'],
   general:      [],
 };

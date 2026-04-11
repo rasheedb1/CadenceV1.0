@@ -15,6 +15,9 @@ import { buildCalendarTools } from './calendar-tools.js';
 import { buildLinkedInTools } from './linkedin-tools.js';
 import { buildApolloTools } from './apollo-tools.js';
 import { buildSalesforceTools } from './salesforce-tools.js';
+import { buildDriveTools } from './drive-tools.js';
+import { buildSheetsTools } from './sheets-tools.js';
+import { buildContactsTools } from './contacts-tools.js';
 
 type ToolBuilder = (agent: AgentConfig) => any[];
 
@@ -24,6 +27,9 @@ const REGISTRY: Record<string, ToolBuilder> = {
   linkedin:   buildLinkedInTools,
   apollo:     buildApolloTools,
   salesforce: buildSalesforceTools,
+  drive:      buildDriveTools,
+  sheets:     buildSheetsTools,
+  contacts:   buildContactsTools,
 };
 
 /**

@@ -426,6 +426,10 @@ const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/drive.file",
+  "https://www.googleapis.com/auth/spreadsheets",
+  "https://www.googleapis.com/auth/contacts.readonly",
 ].join(" ");
 
 // Module-scope Supabase helpers (the ones inside gwExecuteToolSync aren't hoisted here)
@@ -1526,19 +1530,60 @@ After creating, suggest a simple test task:
 - ops → Bash (system commands, npm, git), deploy tools
 
 **Integration capabilities (toggleable per agent via cambiar_config_agente):**
-- inbox → list_unread_emails, read_email, search_emails, summarize_inbox, mark_as_read, archive_email, draft_reply (Gmail API directo, requiere Google conectado)
-- calendar → list_calendar_events, create_calendar_event, find_free_slots (Google Calendar API, mismo token que inbox)
-- linkedin → linkedin_view_profile, linkedin_send_connection, linkedin_send_message, linkedin_get_chats, linkedin_search_profile (Unipile API)
-- apollo → apollo_search_people, apollo_enrich_person, apollo_search_companies (Apollo.io API)
-- salesforce → sf_search_accounts, sf_push_lead, sf_sync_account (Salesforce CRM via edge functions)
+Google (requires conectar_gmail — one OAuth covers all Google tools):
+- inbox → list_unread_emails, read_email, search_emails, summarize_inbox, mark_as_read, archive_email, draft_reply
+- calendar → list_calendar_events, create_calendar_event, find_free_slots
+- drive → drive_search_files, drive_read_file, drive_list_recent, drive_create_document
+- sheets → sheets_read, sheets_write, sheets_create
+- contacts → contacts_search, contacts_list
 
-**IMPORTANT:** When user says "dale acceso a X a [agente]", use cambiar_config_agente to ADD the capability. Example: "dale acceso al calendario a Paula" → add 'calendar' to Paula's capabilities. The agent's tools will auto-rebuild within 1-3 minutes. ONLY Paula has 'inbox' by default — the others don't. Don't add capabilities the agent doesn't need.
+External services:
+- linkedin → linkedin_view_profile, linkedin_send_connection, linkedin_send_message, linkedin_get_chats, linkedin_search_profile (Unipile)
+- apollo → apollo_search_people, apollo_enrich_person, apollo_search_companies
+- salesforce → sf_search_accounts, sf_push_lead, sf_sync_account
+
+**IMPORTANT:** When user says "dale acceso a X a [agente]", use cambiar_config_agente to ADD the capability. The agent's tools auto-rebuild within 1-3 minutes. Don't add capabilities the agent doesn't need.
 
 **Integration auth requirements:**
-- inbox + calendar → Google OAuth (conectar_gmail tool — same token covers both)
+- inbox, calendar, drive, sheets, contacts → ALL use Google OAuth (single conectar_gmail — one connection, all Google tools)
 - linkedin → Unipile account (auto-detected from org admin's LinkedIn connection)
-- apollo → APOLLO_API_KEY env var (pre-configured)
-- salesforce → Salesforce OAuth (pre-configured per org in salesforce_connections table)
+- apollo → APOLLO_API_KEY env var (pre-configured, always available)
+- salesforce → Salesforce OAuth (conectar_salesforce tool)
+
+## Agent Onboarding — ALWAYS follow this when creating a new agent:
+When the user says "crea un agente" or "nuevo agente":
+
+1. Ask for the NAME: "¿Cómo se llama?"
+2. Ask for the ROLE using templates:
+   "¿Qué rol? Templates disponibles:
+   1️⃣ Desarrollador — code, deploys, bugs, reviews
+   2️⃣ Diseñador UX — auditorías, specs, research visual
+   3️⃣ QA / Tester — testing funcional, accesibilidad, bugs
+   4️⃣ Ventas / BDR — prospectos, outreach, CRM
+   5️⃣ Asistente Personal — correos, calendario, briefings
+   6️⃣ Marketing — contenido, SEO, redes sociales
+   7️⃣ Investigador — research, reportes, análisis
+   8️⃣ Project Manager — seguimiento, reportes, coordinación
+   9️⃣ Custom — descríbelo tú"
+3. Based on template, suggest MODEL + CAPABILITIES + INTEGRATIONS:
+   - Developer → Sonnet, [code,ops,data], [firecrawl]
+   - UX → Sonnet, [design,research,writing], [firecrawl]
+   - QA → Haiku, [research,outreach,browser], [firecrawl]
+   - Sales → Sonnet, [outreach,research,writing,browser], [linkedin,apollo,salesforce]
+   - Assistant → Haiku, [inbox,calendar,drive,contacts,research,writing], []
+   - Marketing → Sonnet, [writing,research,browser], [firecrawl,linkedin]
+   - Researcher → Sonnet, [research,writing,browser], [firecrawl,apollo]
+   - PM → Haiku, [research,writing], [calendar,sheets]
+4. Ask for PERSONALITY:
+   "¿Personalidad?
+   1. Profesional y directa
+   2. Amigable y proactiva
+   3. Formal y detallista
+   4. Técnica y concisa
+   5. Custom — descríbela"
+5. Ask for SPECIAL RULES: "¿Alguna regla especial? (ej: 'nunca enviar correos sin aprobación', 'reportar en inglés')"
+6. Show FULL SUMMARY and ask for approval before creating.
+7. After creation, run a quick test task to verify tools work.
 
 ### Universal deploy: ANY provider
 Agents with code+ops can deploy to ANY provider via Bash + npx:
