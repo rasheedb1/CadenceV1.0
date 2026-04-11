@@ -715,6 +715,7 @@ app.get("/auth/salesforce/start", (req, res) => {
       state,
       code_challenge: codeChallenge,
       code_challenge_method: "S256",
+      prompt: "login",
     });
     const url = `https://login.salesforce.com/services/oauth2/authorize?${params}`;
     const accept = String(req.headers.accept || "");
