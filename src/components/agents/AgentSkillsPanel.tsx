@@ -16,6 +16,7 @@ import {
   PenTool, BarChart3, Sparkles, RefreshCw,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { supabase } from '@/integrations/supabase/client'
 
 const BRIDGE_URL = import.meta.env.VITE_BRIDGE_URL || 'https://twilio-bridge-production-241b.up.railway.app'
 
@@ -131,10 +132,17 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await onUpdate({ capabilities: [...caps], soul_md: soulMd })
+      // Direct Supabase PATCH (bypasses manage-agent edge function for reliability)
+      const { error } = await supabase
+        .from('agents')
+        .update({ capabilities: [...caps], soul_md: soulMd, updated_at: new Date().toISOString() })
+        .eq('id', agent.id)
+      if (error) throw error
+      // Also notify parent for context cache invalidation
+      await onUpdate({ capabilities: [...caps], soul_md: soulMd }).catch(() => {})
       setDirty(false)
       toast.success('Skills y personalidad guardados')
-    } catch { toast.error('Error al guardar') }
+    } catch (e: any) { toast.error(`Error: ${e.message || 'al guardar'}`) }
     finally { setSaving(false) }
   }
 
