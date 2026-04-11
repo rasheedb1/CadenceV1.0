@@ -419,14 +419,53 @@ export function AgentDetail() {
               <div className="space-y-4">
                 {Object.entries(learningsByCategory).map(([category, items]) => (
                   <Card key={category}>
-                    <CardHeader><CardTitle className="text-sm font-medium uppercase">{category} ({items.length})</CardTitle></CardHeader>
-                    <CardContent className="space-y-2">
-                      {items.map((l: AgentLearning) => (
-                        <div key={l.id} className="flex items-start gap-2 group">
-                          <p className="text-sm flex-1">{l.content || l.learning}</p>
-                          <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 shrink-0" onClick={() => deleteAgentLearning(l.id)}><Trash2 className="h-3 w-3" /></Button>
-                        </div>
-                      ))}
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{category} ({items.length})</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-0">
+                      {items.map((l: AgentLearning, idx: number) => {
+                        const text = l.content || l.learning || ''
+                        // Extract task ID from content for display
+                        const taskMatch = text.match(/^Tarea "([^"]+)":?\s*/)
+                        const taskId = taskMatch ? taskMatch[1].substring(0, 8) : null
+                        const cleanText = taskMatch ? text.replace(taskMatch[0], '') : text
+                        // Split into bullet points on common separators
+                        const bullets = cleanText.split(/(?:\s-\s|\s•\s|\*\*[^*]+\*\*:?\s)/).filter(b => b.trim().length > 5)
+                        const title = bullets.length > 1 ? bullets[0].replace(/\*\*/g, '').trim() : null
+                        const rest = bullets.length > 1 ? bullets.slice(1) : [cleanText]
+                        const date = l.created_at ? new Date(l.created_at).toLocaleDateString() : ''
+
+                        return (
+                          <div key={l.id} className={`group py-3 ${idx > 0 ? 'border-t border-border/50' : ''}`}>
+                            <div className="flex items-start gap-3">
+                              <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5">
+                                <Brain className="h-3 w-3 text-muted-foreground" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                {title && (
+                                  <p className="text-sm font-medium mb-1.5">{title}</p>
+                                )}
+                                <ul className="space-y-1">
+                                  {rest.map((b, i) => (
+                                    <li key={i} className="flex items-start gap-2 text-xs text-muted-foreground leading-relaxed">
+                                      <span className="text-muted-foreground/50 mt-0.5 shrink-0">•</span>
+                                      <span>{b.replace(/\*\*/g, '').replace(/[✅⚠️❌🔴🟡]/g, '').trim()}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                                <div className="flex items-center gap-2 mt-2">
+                                  {taskId && <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-mono">{taskId}</Badge>}
+                                  {date && <span className="text-[10px] text-muted-foreground/60">{date}</span>}
+                                  {l.importance && l.importance > 0.5 && <Badge variant="secondary" className="text-[10px] h-4 px-1.5">importante</Badge>}
+                                </div>
+                              </div>
+                              <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 shrink-0" onClick={() => deleteAgentLearning(l.id)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        )
+                      })}
                     </CardContent>
                   </Card>
                 ))}
