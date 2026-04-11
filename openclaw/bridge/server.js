@@ -1486,6 +1486,8 @@ You manage AI agent teams + the Chief Outreach sales platform.
     { name: "conectar_gmail", description: "Genera un link para que el usuario conecte su Gmail a los agentes (OAuth). Usa cuando: 'conecta mi gmail', 'quiero que Paula lea mis correos', 'enlaza mi correo'. Devuelve una URL que el usuario abre UNA sola vez para autorizar.", input_schema: { type: "object", properties: { org_id: { type: "string" }, whatsapp_number: { type: "string", description: "Para identificar quién conecta" } }, required: ["org_id"] } },
     { name: "estado_gmail", description: "Consulta si el Gmail del org está conectado a los agentes. Usa cuando: 'está conectado mi gmail?', 'estado de mi correo'. Devuelve email, fecha de conexión, y si el token sigue válido.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "desconectar_gmail", description: "Desconecta el Gmail del org de los agentes (revoca token). Usa cuando: 'desconecta mi gmail', 'remueve mi correo'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    { name: "enviar_correo", description: "Envía un correo electrónico usando el Gmail conectado del usuario. Usa cuando: 'manda un correo a X', 'envía un email', 'escribe un correo a X diciendo Y'. Requiere que Gmail esté conectado (si no, sugiere conectar_gmail primero).", input_schema: { type: "object", properties: { org_id: { type: "string" }, to: { type: "string", description: "Email del destinatario" }, subject: { type: "string", description: "Asunto del correo" }, body: { type: "string", description: "Cuerpo del correo (texto plano)" }, cc: { type: "string", description: "CC (opcional, separar múltiples con coma)" }, reply_to_message_id: { type: "string", description: "Si es respuesta a un correo, el message ID de Gmail (opcional)" } }, required: ["org_id", "to", "subject", "body"] } },
+    { name: "leer_correos", description: "Lee los correos recientes del usuario (inbox). Usa cuando: 'revisa mis correos', 'qué correos tengo?', 'muéstrame mi inbox', 'resumen de correos'. Requiere Gmail conectado.", input_schema: { type: "object", properties: { org_id: { type: "string" }, query: { type: "string", description: "Búsqueda Gmail (ej: 'is:unread', 'from:X', 'after:2026/04/01'). Default: 'is:unread in:inbox'" }, limit: { type: "number", description: "Máximo de correos (default 10, max 20)" } }, required: ["org_id"] } },
   ];
 
   // Tools that should run in background (>30s expected)
@@ -2319,6 +2321,86 @@ ${args.description ? `\n${args.description}\n` : ""}
             method: "DELETE", headers: { ...sbHeaders(), Prefer: "return=minimal" },
           });
           return { success: true, message: "🔓 Gmail desconectado. Paula ya no puede leer tu inbox." };
+        }
+
+        case "enviar_correo": {
+          const { org_id, to, subject, body, cc, reply_to_message_id } = args;
+          // Get fresh token via bridge refresh endpoint
+          try {
+            const tokenRes = await fetch(`${BRIDGE_PUBLIC_URL}/integrations/google/refresh`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ org_id }),
+            });
+            const tokenData = await tokenRes.json();
+            if (!tokenRes.ok || !tokenData.access_token) {
+              return { success: false, error: "Gmail no conectado. Usa `conectar_gmail` primero.", details: tokenData };
+            }
+            // Build RFC 2822 raw email
+            const rawLines = [
+              `To: ${to}`,
+              `Subject: ${subject}`,
+              cc ? `Cc: ${cc}` : null,
+              reply_to_message_id ? `In-Reply-To: ${reply_to_message_id}` : null,
+              reply_to_message_id ? `References: ${reply_to_message_id}` : null,
+              "Content-Type: text/plain; charset=UTF-8",
+              "",
+              body,
+            ].filter(Boolean).join("\r\n");
+            const rawB64 = Buffer.from(rawLines, "utf8").toString("base64url");
+            const gmailRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${tokenData.access_token}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ raw: rawB64 }),
+            });
+            const gmailData = await gmailRes.json();
+            if (!gmailRes.ok) {
+              return { success: false, error: `Gmail API error: ${gmailData?.error?.message || JSON.stringify(gmailData).substring(0, 300)}` };
+            }
+            console.log(`[enviar_correo] Sent to ${to}, subject "${subject}", id ${gmailData.id}`);
+            return { success: true, message_id: gmailData.id, message: `✅ Correo enviado a ${to}\n📧 Asunto: ${subject}` };
+          } catch (e) {
+            return { success: false, error: `Error enviando: ${e.message}` };
+          }
+        }
+
+        case "leer_correos": {
+          const { org_id, query: emailQuery, limit: emailLimit } = args;
+          try {
+            const tokenRes = await fetch(`${BRIDGE_PUBLIC_URL}/integrations/google/refresh`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ org_id }),
+            });
+            const tokenData = await tokenRes.json();
+            if (!tokenRes.ok || !tokenData.access_token) {
+              return { success: false, error: "Gmail no conectado. Usa `conectar_gmail` primero." };
+            }
+            const q = encodeURIComponent(emailQuery || "is:unread in:inbox");
+            const lim = Math.min(emailLimit || 10, 20);
+            const listRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${q}&maxResults=${lim}`, {
+              headers: { Authorization: `Bearer ${tokenData.access_token}` },
+            });
+            const listData = await listRes.json();
+            const ids = (listData.messages || []).map(m => m.id);
+            if (ids.length === 0) return { success: true, count: 0, message: "📭 No hay correos que coincidan." };
+            // Fetch metadata for each
+            const msgs = await Promise.all(ids.map(async (id) => {
+              const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`, {
+                headers: { Authorization: `Bearer ${tokenData.access_token}` },
+              });
+              return r.json();
+            }));
+            const lines = msgs.map((m, i) => {
+              const headers = m.payload?.headers || [];
+              const from = headers.find(h => h.name === "From")?.value || "?";
+              const subj = headers.find(h => h.name === "Subject")?.value || "(sin asunto)";
+              const date = headers.find(h => h.name === "Date")?.value || "";
+              const unread = (m.labelIds || []).includes("UNREAD") ? "•" : " ";
+              return `${unread} ${i + 1}. ${from}\n     "${subj}" — ${date}\n     ${(m.snippet || "").substring(0, 120)}`;
+            }).join("\n");
+            return { success: true, count: msgs.length, message: `📬 *${msgs.length} correos:*\n\n${lines}` };
+          } catch (e) {
+            return { success: false, error: `Error leyendo correos: ${e.message}` };
+          }
         }
 
         case "rechazar_proyecto": {
