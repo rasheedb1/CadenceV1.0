@@ -424,6 +424,8 @@ const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar.events",
 ].join(" ");
 
 // Module-scope Supabase helpers (the ones inside gwExecuteToolSync aren't hoisted here)
@@ -1311,13 +1313,29 @@ After creating, suggest a simple test task:
 "Agent created! I'll assign them a quick test: [simple task relevant to their role]. This verifies all their tools work. I'll report results in 2 minutes."
 
 ### Capability → Tools Reference
-- code → Bash, Read, Write, Edit, MultiEdit, Grep, Glob, GitHub MCP, deploy_frontend, deploy_edge_function, push_db_migration
-- design → Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch, Playwright, screenshot_page, scrape_url
-- research → WebSearch, WebFetch, scrape_url, screenshot_page, Playwright, web_search_firecrawl
+**Built-in (always available based on role):**
+- code → Read, Write, Edit, MultiEdit, Grep, Glob, deploy_frontend, deploy_edge_function, push_db_migration
+- design → Read, Write, Edit, Glob, Grep, WebSearch, WebFetch
+- research → WebSearch, WebFetch, scrape_url, screenshot_page, web_search_firecrawl
 - browser → Playwright MCP (navigate, click, fill forms, screenshot)
 - outreach → LinkedIn/email tools via Chief Outreach platform
 - writing → Read, Write, WebSearch, WebFetch, Glob
 - ops → Bash (system commands, npm, git), deploy tools
+
+**Integration capabilities (toggleable per agent via cambiar_config_agente):**
+- inbox → list_unread_emails, read_email, search_emails, summarize_inbox, mark_as_read, archive_email, draft_reply (Gmail API directo, requiere Google conectado)
+- calendar → list_calendar_events, create_calendar_event, find_free_slots (Google Calendar API, mismo token que inbox)
+- linkedin → linkedin_view_profile, linkedin_send_connection, linkedin_send_message, linkedin_get_chats, linkedin_search_profile (Unipile API)
+- apollo → apollo_search_people, apollo_enrich_person, apollo_search_companies (Apollo.io API)
+- salesforce → sf_search_accounts, sf_push_lead, sf_sync_account (Salesforce CRM via edge functions)
+
+**IMPORTANT:** When user says "dale acceso a X a [agente]", use cambiar_config_agente to ADD the capability. Example: "dale acceso al calendario a Paula" → add 'calendar' to Paula's capabilities. The agent's tools will auto-rebuild within 1-3 minutes. ONLY Paula has 'inbox' by default — the others don't. Don't add capabilities the agent doesn't need.
+
+**Integration auth requirements:**
+- inbox + calendar → Google OAuth (conectar_gmail tool — same token covers both)
+- linkedin → Unipile account (auto-detected from org admin's LinkedIn connection)
+- apollo → APOLLO_API_KEY env var (pre-configured)
+- salesforce → Salesforce OAuth (pre-configured per org in salesforce_connections table)
 
 ### Universal deploy: ANY provider
 Agents with code+ops can deploy to ANY provider via Bash + npx:

@@ -275,13 +275,17 @@ export const ROLE_TOOLS: Record<string, string[]> = {
 };
 
 export const TYPE_CAPS: Record<string, string[]> = {
-  code:     ['code', 'ops'],
-  design:   ['design'],
-  research: ['research'],
-  qa:       ['research', 'outreach'],
-  writing:  ['writing'],
-  outreach: ['outreach', 'research'],
-  inbox:    ['inbox'],
-  triage:   ['inbox'],
-  general:  [],
+  code:         ['code', 'ops'],
+  design:       ['design'],
+  research:     ['research'],
+  qa:           ['research', 'outreach'],
+  writing:      ['writing'],
+  outreach:     ['outreach', 'research'],
+  inbox:        ['inbox'],
+  triage:       ['inbox'],
+  calendar:     ['calendar'],
+  prospecting:  ['apollo', 'research'],
+  crm:          ['salesforce'],
+  linkedin:     ['linkedin'],
+  general:      [],
 };

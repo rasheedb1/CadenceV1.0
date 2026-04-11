@@ -5,6 +5,7 @@
 
 import type { AgentConfig, LoopState, SenseContext, AgentRow } from '../types.js';
 import { sbGet, sbRpc } from '../supabase-client.js';
+import { clearMcpCache } from '../sdk-runner.js';
 import type { Logger } from '../utils/logger.js';
 
 const safe = <T>(arr: unknown): T[] => (Array.isArray(arr) ? arr : []);
@@ -24,9 +25,15 @@ export async function sense(
       `agents?id=eq.${agent.id}&select=model,capabilities,tier,team,availability,temperature,max_tokens`,
     ).catch(() => []);
     state.agentConfig = Array.isArray(agentRows) && agentRows[0] ? agentRows[0] : null;
-    // Sync capabilities back to config
+    // Sync capabilities back to config — and invalidate MCP cache if changed
     if (state.agentConfig?.capabilities) {
-      agent.capabilities = state.agentConfig.capabilities as string[];
+      const newCaps = state.agentConfig.capabilities as string[];
+      const oldCaps = agent.capabilities || [];
+      if (JSON.stringify(newCaps.sort()) !== JSON.stringify(oldCaps.sort())) {
+        log.info(`Capabilities changed: [${oldCaps}] → [${newCaps}] — rebuilding MCP tools`);
+        clearMcpCache(agent.id);
+      }
+      agent.capabilities = newCaps;
     }
   }
 
