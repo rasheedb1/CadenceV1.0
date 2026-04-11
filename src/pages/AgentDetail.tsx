@@ -62,9 +62,9 @@ export function AgentDetail() {
   const { user } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const {
-    agents, updateAgent, updateAgentSkills, getAgentTasks, getAgentTasksV2,
+    agents, updateAgent, getAgentTasks, getAgentTasksV2,
     getAgentLearnings, deleteAgentLearning, getAgentMessages, getAgentCheckins,
-    getTeamMembers, respondToCheckin, skillRegistry,
+    getTeamMembers, respondToCheckin,
   } = useAgents()
 
   const agent = agents.find(a => a.id === id)
@@ -79,7 +79,7 @@ export function AgentDetail() {
   const [editingSoulMd, setEditingSoulMd] = useState(false)
   const [soulMd, setSoulMd] = useState('')
   const [saving, setSaving] = useState(false)
-  const [savingSkills, setSavingSkills] = useState(false)
+  // savingSkills removed — handled inside AgentSkillsPanel
 
   // Config edit state
   const [editingConfig, setEditingConfig] = useState(false)
@@ -100,7 +100,7 @@ export function AgentDetail() {
     )
   }
 
-  const agentSkillNames = new Set((agent.agent_skills || []).map(s => s.skill_name))
+  // agentSkillNames removed — handled inside AgentSkillsPanel
   const modelInfo = getModelBadge(agent.model)
   const TierIcon = agent.tier === 'manager' ? Crown : agent.tier === 'team_lead' ? UserCog : User
 
@@ -125,15 +125,7 @@ export function AgentDetail() {
     } catch { toast.error('Error al guardar') } finally { setSaving(false) }
   }
 
-  const handleToggleSkill = async (skillName: string) => {
-    setSavingSkills(true)
-    const newSkills = agentSkillNames.has(skillName)
-      ? [...agentSkillNames].filter(s => s !== skillName)
-      : [...agentSkillNames, skillName]
-    try {
-      await updateAgentSkills(agent.id, newSkills)
-    } catch { toast.error('Error al actualizar skills') } finally { setSavingSkills(false) }
-  }
+  // handleToggleSkill removed — handled inside AgentSkillsPanel
 
   const handleRespondCheckin = async (checkinId: string, status: 'approved' | 'rejected') => {
     try {
@@ -142,9 +134,7 @@ export function AgentDetail() {
     } catch { toast.error('Error') }
   }
 
-  const skillsByCategory = skillRegistry
-    .filter(s => !s.is_system)
-    .reduce((acc, s) => { if (!acc[s.category]) acc[s.category] = []; acc[s.category].push(s); return acc }, {} as Record<string, typeof skillRegistry>)
+  // skillsByCategory removed — handled inside AgentSkillsPanel
 
   const learningsByCategory = learnings.reduce((acc, l) => { if (!acc[l.category]) acc[l.category] = []; acc[l.category].push(l); return acc }, {} as Record<string, AgentLearning[]>)
 
