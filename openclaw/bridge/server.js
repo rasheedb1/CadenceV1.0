@@ -404,6 +404,17 @@ app.get("/health", (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// CORS for dashboard cross-origin requests (auth + integrations endpoints)
+// ---------------------------------------------------------------------------
+app.use(["/auth", "/integrations"], (req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
+// ---------------------------------------------------------------------------
 // Google OAuth — shared between WhatsApp and dashboard
 // Tokens live in agent_integrations (single source of truth)
 // ---------------------------------------------------------------------------
