@@ -161,9 +161,12 @@ export interface AgentLearning {
   agent_id: string
   org_id: string
   category: string
-  learning: string
-  context: string | null
+  content: string
+  learning?: string       // backward compat alias
+  context?: string | null
   source_task_id: string | null
+  importance?: number
+  scope?: string
   created_at: string
 }
 

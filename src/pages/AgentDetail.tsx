@@ -423,7 +423,7 @@ export function AgentDetail() {
                     <CardContent className="space-y-2">
                       {items.map((l: AgentLearning) => (
                         <div key={l.id} className="flex items-start gap-2 group">
-                          <p className="text-sm flex-1">{l.learning}</p>
+                          <p className="text-sm flex-1">{l.content || l.learning}</p>
                           <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 shrink-0" onClick={() => deleteAgentLearning(l.id)}><Trash2 className="h-3 w-3" /></Button>
                         </div>
                       ))}
