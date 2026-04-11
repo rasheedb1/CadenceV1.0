@@ -17,9 +17,10 @@ import { Checkbox } from '@/components/ui/checkbox'
 import {
   ArrowLeft, Bot, Save, Loader2, Trash2, Brain, MessageSquare, Clock, Activity,
   Home, Moon, Sun, Cpu, Crown, UserCog, User, BarChart3, ListTodo, Settings,
-  CheckCircle, XCircle, Circle, Zap, ChevronRight,
+  CheckCircle, XCircle, Circle, Zap, ChevronRight, Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { AgentSkillsPanel } from '@/components/agents/AgentSkillsPanel'
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
@@ -205,7 +206,7 @@ export function AgentDetail() {
             <TabsTrigger value="overview"><Cpu className="h-3.5 w-3.5 mr-1.5" />General</TabsTrigger>
             <TabsTrigger value="workload"><ListTodo className="h-3.5 w-3.5 mr-1.5" />Workload ({inProgressTasks + tasksV2.filter(t => t.status === 'ready' || t.status === 'backlog').length})</TabsTrigger>
             <TabsTrigger value="performance"><BarChart3 className="h-3.5 w-3.5 mr-1.5" />Rendimiento</TabsTrigger>
-            <TabsTrigger value="skills">Skills ({agent.agent_skills?.length || 0})</TabsTrigger>
+            <TabsTrigger value="skills"><Sparkles className="h-3.5 w-3.5 mr-1" />Skills & Integraciones</TabsTrigger>
             <TabsTrigger value="learnings">Aprendizajes ({learnings.length})</TabsTrigger>
             <TabsTrigger value="messages">Mensajes ({messages.length})</TabsTrigger>
             <TabsTrigger value="config"><Settings className="h-3.5 w-3.5 mr-1.5" />Config</TabsTrigger>
@@ -414,24 +415,10 @@ export function AgentDetail() {
 
           {/* ── Skills ───────────────────────────────────────── */}
           <TabsContent value="skills" className="mt-4">
-            <div className="space-y-4">
-              {Object.entries(skillsByCategory).map(([category, skills]) => (
-                <Card key={category}>
-                  <CardHeader><CardTitle className="text-sm font-medium uppercase">{category}</CardTitle></CardHeader>
-                  <CardContent className="space-y-2">
-                    {skills.map(skill => (
-                      <label key={skill.name} className="flex items-center gap-3 cursor-pointer hover:bg-muted/50 rounded p-2">
-                        <Checkbox checked={agentSkillNames.has(skill.name)} onCheckedChange={() => handleToggleSkill(skill.name)} disabled={savingSkills} />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium">{skill.display_name}</p>
-                          <p className="text-xs text-muted-foreground truncate">{skill.description}</p>
-                        </div>
-                      </label>
-                    ))}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            <AgentSkillsPanel
+              agent={{ id: agent.id, org_id: agent.org_id, capabilities: agent.capabilities || [], soul_md: agent.soul_md || '', model: agent.model }}
+              onUpdate={async (updates) => { await updateAgent(agent.id, updates as never) }}
+            />
           </TabsContent>
 
           {/* ── Learnings ────────────────────────────────────── */}
