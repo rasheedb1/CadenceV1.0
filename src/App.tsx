@@ -97,11 +97,11 @@ function App() {
                 <Route path="/invite/:token" element={<AcceptInvite />} />
                 <Route path="/" element={<AppLauncher />} />
                 <Route path="/mission-control" element={<MissionControl />} />
-                {/* Agents — standalone app (not inside Chief Outreach) */}
-                <Route path="/agents" element={<Agents />} />
-                <Route path="/agents/:id" element={<AgentDetail />} />
                 <Route element={<MainLayout />}>
                   <Route path="/dashboard" element={<Dashboard />} />
+                  {/* Agents — now inside MainLayout with sidebar */}
+                  <Route path="/agents" element={<Agents />} />
+                  <Route path="/agents/:id" element={<AgentDetail />} />
                   <Route path="/cadences" element={<FeatureRoute flag="section_cadences"><Cadences /></FeatureRoute>} />
                   <Route path="/cadences/:id" element={<FeatureRoute flag="section_cadences"><CadenceBuilder /></FeatureRoute>} />
                   <Route path="/cadences/:cadenceId/step/:stepId" element={<FeatureRoute flag="section_cadences"><LeadStepExecution /></FeatureRoute>} />
