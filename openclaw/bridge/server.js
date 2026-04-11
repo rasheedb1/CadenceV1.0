@@ -430,6 +430,7 @@ const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/drive.file",
   "https://www.googleapis.com/auth/spreadsheets",
   "https://www.googleapis.com/auth/contacts.readonly",
+  "https://www.googleapis.com/auth/presentations",
 ].join(" ");
 
 // Module-scope Supabase helpers (the ones inside gwExecuteToolSync aren't hoisted here)
@@ -1570,6 +1571,7 @@ Google (requires conectar_gmail — one OAuth covers all Google tools):
 - drive → drive_search_files, drive_read_file, drive_list_recent, drive_create_document
 - sheets → sheets_read, sheets_write, sheets_create
 - contacts → contacts_search, contacts_list
+- presentations → create_presentation, add_slides_to_presentation (Google Slides — crea decks completos con layout, texto, notas)
 
 External services:
 - linkedin → linkedin_view_profile, linkedin_send_connection, linkedin_send_message, linkedin_get_chats, linkedin_search_profile (Unipile)
@@ -1788,6 +1790,7 @@ You manage AI agent teams + the Chief Outreach sales platform.
     { name: "estado_gmail", description: "Consulta si el Gmail del org está conectado a los agentes. Usa cuando: 'está conectado mi gmail?', 'estado de mi correo'. Devuelve email, fecha de conexión, y si el token sigue válido.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "desconectar_gmail", description: "Desconecta el Gmail del org de los agentes (revoca token). Usa cuando: 'desconecta mi gmail', 'remueve mi correo'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "enviar_correo", description: "Envía un correo electrónico usando el Gmail conectado del usuario. Usa cuando: 'manda un correo a X', 'envía un email', 'escribe un correo a X diciendo Y'. Requiere que Gmail esté conectado (si no, sugiere conectar_gmail primero).", input_schema: { type: "object", properties: { org_id: { type: "string" }, to: { type: "string", description: "Email del destinatario" }, subject: { type: "string", description: "Asunto del correo" }, body: { type: "string", description: "Cuerpo del correo (texto plano)" }, cc: { type: "string", description: "CC (opcional, separar múltiples con coma)" }, reply_to_message_id: { type: "string", description: "Si es respuesta a un correo, el message ID de Gmail (opcional)" } }, required: ["org_id", "to", "subject", "body"] } },
+    { name: "crear_presentacion", description: "Crea una presentación de Google Slides con múltiples diapositivas. Usa cuando: 'hazme una presentación sobre X', 'crea un deck de Y'. Devuelve la URL del archivo en Google Slides. Layouts: title (portada), title_body (título + texto), section (separador), blank, big_number (métrica grande).", input_schema: { type: "object", properties: { org_id: { type: "string" }, title: { type: "string", description: "Título de la presentación" }, slides: { type: "array", items: { type: "object", properties: { layout: { type: "string", description: "Layout: title, title_body, section, blank, big_number. Default: title_body" }, title: { type: "string", description: "Título de la diapositiva" }, body: { type: "string", description: "Contenido (separar bullets con \\n)" }, speaker_notes: { type: "string", description: "Notas del presentador (opcional)" } } }, description: "Array de diapositivas" } }, required: ["org_id", "title", "slides"] } },
     { name: "leer_correos", description: "Lee los correos recientes del usuario (inbox). Usa cuando: 'revisa mis correos', 'qué correos tengo?', 'muéstrame mi inbox', 'resumen de correos'. Requiere Gmail conectado.", input_schema: { type: "object", properties: { org_id: { type: "string" }, query: { type: "string", description: "Búsqueda Gmail (ej: 'is:unread', 'from:X', 'after:2026/04/01'). Default: 'is:unread in:inbox'" }, limit: { type: "number", description: "Máximo de correos (default 10, max 20)" } }, required: ["org_id"] } },
     // --- Salesforce OAuth ---
     { name: "conectar_salesforce", description: "Genera link para conectar Salesforce CRM. Usa cuando: 'conecta Salesforce', 'enlaza mi CRM'. Devuelve URL OAuth.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
@@ -2725,6 +2728,86 @@ ${args.description ? `\n${args.description}\n` : ""}
             return { success: true, message_id: gmailData.id, message: `✅ Correo enviado a ${to}\n📧 Asunto: ${subject}` };
           } catch (e) {
             return { success: false, error: `Error enviando: ${e.message}` };
+          }
+        }
+
+        case "crear_presentacion": {
+          const { org_id, title: presTitle, slides: presSlides } = args;
+          try {
+            const tokenRes = await fetch(`${BRIDGE_PUBLIC_URL}/integrations/google/refresh`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ org_id }),
+            });
+            const tokenData = await tokenRes.json();
+            if (!tokenRes.ok || !tokenData.access_token) {
+              return { success: false, error: "Gmail no conectado. Usa conectar_gmail primero." };
+            }
+            const token = tokenData.access_token;
+            const slidesBase = "https://slides.googleapis.com/v1/presentations";
+
+            // 1. Create presentation
+            const createRes = await fetch(slidesBase, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ title: presTitle }),
+            });
+            const pres = await createRes.json();
+            if (!createRes.ok) return { success: false, error: pres?.error?.message || "Failed to create" };
+            const presId = pres.presentationId;
+            const defaultSlideId = pres.slides?.[0]?.objectId;
+
+            // 2. Create slides with layouts
+            const LAYOUTS = { title: "TITLE", title_body: "TITLE_AND_BODY", section: "SECTION_HEADER", blank: "BLANK", big_number: "BIG_NUMBER", one_column: "ONE_COLUMN_TEXT", caption: "CAPTION_ONLY", title_two_columns: "TITLE_AND_TWO_COLUMNS" };
+            const reqs = [];
+            if (defaultSlideId && presSlides.length > 0) reqs.push({ deleteObject: { objectId: defaultSlideId } });
+            for (let i = 0; i < presSlides.length; i++) {
+              reqs.push({
+                createSlide: {
+                  objectId: `s${i}`,
+                  insertionIndex: i,
+                  slideLayoutReference: { predefinedLayout: LAYOUTS[presSlides[i].layout || "title_body"] || "TITLE_AND_BODY" },
+                },
+              });
+            }
+            if (reqs.length > 0) {
+              await fetch(`${slidesBase}/${presId}:batchUpdate`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ requests: reqs }),
+              });
+            }
+
+            // 3. Re-fetch and insert text
+            const updRes = await fetch(`${slidesBase}/${presId}`, { headers: { Authorization: `Bearer ${token}` } });
+            const updated = await updRes.json();
+            const textReqs = [];
+            for (let i = 0; i < presSlides.length; i++) {
+              const slide = presSlides[i];
+              const actual = updated.slides?.[i];
+              if (!actual) continue;
+              for (const el of (actual.pageElements || [])) {
+                const ph = el.shape?.placeholder;
+                if (!ph) continue;
+                if ((ph.type === "TITLE" || ph.type === "CENTERED_TITLE") && slide.title) {
+                  textReqs.push({ insertText: { objectId: el.objectId, text: slide.title, insertionIndex: 0 } });
+                } else if ((ph.type === "BODY" || ph.type === "SUBTITLE") && slide.body) {
+                  textReqs.push({ insertText: { objectId: el.objectId, text: slide.body, insertionIndex: 0 } });
+                }
+              }
+            }
+            if (textReqs.length > 0) {
+              await fetch(`${slidesBase}/${presId}:batchUpdate`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ requests: textReqs }),
+              });
+            }
+
+            const url = `https://docs.google.com/presentation/d/${presId}/edit`;
+            console.log(`[crear_presentacion] Created "${presTitle}" with ${presSlides.length} slides`);
+            return { success: true, url, message: `📊 Presentación creada: *${presTitle}*\n${presSlides.length} diapositivas\n🔗 ${url}` };
+          } catch (e) {
+            return { success: false, error: e.message };
           }
         }
 

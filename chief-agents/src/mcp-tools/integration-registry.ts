@@ -18,18 +18,20 @@ import { buildSalesforceTools } from './salesforce-tools.js';
 import { buildDriveTools } from './drive-tools.js';
 import { buildSheetsTools } from './sheets-tools.js';
 import { buildContactsTools } from './contacts-tools.js';
+import { buildSlidesTools } from './slides-tools.js';
 
 type ToolBuilder = (agent: AgentConfig) => any[];
 
 const REGISTRY: Record<string, ToolBuilder> = {
-  inbox:      buildInboxTools,
-  calendar:   buildCalendarTools,
-  linkedin:   buildLinkedInTools,
-  apollo:     buildApolloTools,
-  salesforce: buildSalesforceTools,
-  drive:      buildDriveTools,
-  sheets:     buildSheetsTools,
-  contacts:   buildContactsTools,
+  inbox:         buildInboxTools,
+  calendar:      buildCalendarTools,
+  linkedin:      buildLinkedInTools,
+  apollo:        buildApolloTools,
+  salesforce:    buildSalesforceTools,
+  drive:         buildDriveTools,
+  sheets:        buildSheetsTools,
+  contacts:      buildContactsTools,
+  presentations: buildSlidesTools,
 };
 
 /**

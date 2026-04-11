@@ -37,6 +37,7 @@ const CAPABILITIES: CapDef[] = [
   { key: 'drive', label: 'Drive', desc: 'Buscar, leer, crear documentos', icon: <HardDrive className="h-4 w-4" />, group: 'google', auth: 'google' },
   { key: 'sheets', label: 'Sheets', desc: 'Leer, escribir, crear spreadsheets', icon: <Table2 className="h-4 w-4" />, group: 'google', auth: 'google' },
   { key: 'contacts', label: 'Contacts', desc: 'Buscar y listar contactos', icon: <Users className="h-4 w-4" />, group: 'google', auth: 'google' },
+  { key: 'presentations', label: 'Slides', desc: 'Crear presentaciones de Google Slides', icon: <BarChart3 className="h-4 w-4" />, group: 'google', auth: 'google' },
   // External OAuth
   { key: 'linkedin', label: 'LinkedIn', desc: 'Perfiles, conexiones, mensajes', icon: <Linkedin className="h-4 w-4" />, group: 'external', auth: 'linkedin' },
   { key: 'salesforce', label: 'Salesforce', desc: 'Cuentas, leads, sync CRM', icon: <Cloud className="h-4 w-4" />, group: 'external', auth: 'salesforce' },

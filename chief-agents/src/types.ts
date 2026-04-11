@@ -289,6 +289,7 @@ export const TYPE_CAPS: Record<string, string[]> = {
   linkedin:     ['linkedin'],
   drive:        ['drive'],
   sheets:       ['sheets'],
-  contacts:     ['contacts'],
-  general:      [],
+  contacts:       ['contacts'],
+  presentations:  ['presentations'],
+  general:        [],
 };
