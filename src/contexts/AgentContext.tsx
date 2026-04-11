@@ -287,7 +287,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     queryFn: async () => {
       if (!user || !orgId) return []
       const { data, error } = await supabase
-        .from('agent_learnings')
+        .from('agent_knowledge')
         .select('*')
         .eq('org_id', orgId)
         .order('created_at', { ascending: false })
@@ -451,7 +451,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
 
   const deleteLearningMutation = useMutation({
     mutationFn: async (learningId: string) => {
-      const { error } = await supabase.from('agent_learnings').delete().eq('id', learningId)
+      const { error } = await supabase.from('agent_knowledge').delete().eq('id', learningId)
       if (error) throw error
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agent-learnings'] }),
