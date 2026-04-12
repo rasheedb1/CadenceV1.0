@@ -449,7 +449,8 @@ ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
         state.interval = MIN_INTERVAL;
         log.info(`Auto-completed ${(params.task_id as string).substring(0, 8)}`);
 
-        // Notify user via WhatsApp that task is done
+        // Notify user via WhatsApp that task is done — send FULL result, not summary
+        // The bridge will split into multiple WhatsApp messages if needed
         const CALLBACK_URL_DONE = process.env.CALLBACK_URL ||
           'https://twilio-bridge-production-241b.up.railway.app/api/agent-callback';
         fetch(CALLBACK_URL_DONE, {
@@ -457,7 +458,7 @@ ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
           body: JSON.stringify({
             task_id: params.task_id,
             agent_name: agent.name,
-            result: { text: summary },
+            result: { text: fullResult },
             whatsapp_number: null,
           }),
         }).catch((e) => log.warn(`Callback failed: ${e.message}`));
