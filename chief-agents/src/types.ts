@@ -290,6 +290,7 @@ export const TYPE_CAPS: Record<string, string[]> = {
   drive:        ['drive'],
   sheets:       ['sheets'],
   contacts:       ['contacts'],
-  presentations:  ['presentations'],
-  general:        [],
+  presentations:    ['presentations'],
+  business_case:    ['business_cases'],
+  general:          [],
 };

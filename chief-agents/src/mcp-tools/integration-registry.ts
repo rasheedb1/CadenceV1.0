@@ -19,6 +19,7 @@ import { buildDriveTools } from './drive-tools.js';
 import { buildSheetsTools } from './sheets-tools.js';
 import { buildContactsTools } from './contacts-tools.js';
 import { buildSlidesTools } from './slides-tools.js';
+import { buildBusinessCaseTools } from './business-case-tools.js';
 
 type ToolBuilder = (agent: AgentConfig) => any[];
 
@@ -31,7 +32,8 @@ const REGISTRY: Record<string, ToolBuilder> = {
   drive:         buildDriveTools,
   sheets:        buildSheetsTools,
   contacts:      buildContactsTools,
-  presentations: buildSlidesTools,
+  presentations:  buildSlidesTools,
+  business_cases: buildBusinessCaseTools,
 };
 
 /**

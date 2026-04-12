@@ -917,6 +917,54 @@ app.get("/integrations/status", async (req, res) => {
   } catch (e) { return res.status(500).json({ error: e.message }); }
 });
 
+// ---------------------------------------------------------------------------
+// Business Case Generator endpoint
+// ---------------------------------------------------------------------------
+app.post("/api/generate-business-case", express.json({ limit: "5mb" }), async (req, res) => {
+  try {
+    const { generateBusinessCase } = require("./generate_business_case");
+    const config = req.body;
+    if (!config?.clientName) return res.status(400).json({ error: "Missing clientName" });
+
+    const { buffer, summary } = await generateBusinessCase(config);
+    const fileName = `Business_Case_${config.clientName.replace(/\s+/g, "_")}_${Date.now()}.pptx`;
+
+    // Upload to Supabase Storage
+    const { createClient } = require("@supabase/supabase-js");
+    const sb = createClient(SB_URL_GLOBAL, SB_KEY_GLOBAL);
+    const { error: uploadError } = await sb.storage
+      .from("business-cases")
+      .upload(fileName, buffer, { contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation", upsert: true });
+
+    let downloadUrl;
+    if (uploadError) {
+      // Fallback: save to /tmp and serve via bridge
+      const tmpPath = `/tmp/${fileName}`;
+      require("fs").writeFileSync(tmpPath, buffer);
+      downloadUrl = `${BRIDGE_PUBLIC_URL}/api/download/${fileName}`;
+      console.warn("[business-case] Storage upload failed, using tmp:", uploadError.message);
+    } else {
+      const { data: urlData } = sb.storage.from("business-cases").getPublicUrl(fileName);
+      downloadUrl = urlData?.publicUrl || `${SB_URL_GLOBAL}/storage/v1/object/public/business-cases/${fileName}`;
+    }
+
+    console.log(`[business-case] Generated for ${config.clientName}: ${downloadUrl}`);
+    return res.json({ success: true, url: downloadUrl, fileName, summary });
+  } catch (e) {
+    console.error("[business-case] error:", e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Serve tmp files for fallback
+app.get("/api/download/:filename", (req, res) => {
+  const filePath = `/tmp/${req.params.filename}`;
+  if (!require("fs").existsSync(filePath)) return res.status(404).send("File not found");
+  res.setHeader("Content-Disposition", `attachment; filename="${req.params.filename}"`);
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+  res.sendFile(filePath);
+});
+
 app.get("/api/whatsapp/incoming", (_req, res) => {
   res.json({ status: "ok", message: "Twilio WhatsApp webhook. Expects POST." });
 });
@@ -1790,6 +1838,7 @@ You manage AI agent teams + the Chief Outreach sales platform.
     { name: "estado_gmail", description: "Consulta si el Gmail del org está conectado a los agentes. Usa cuando: 'está conectado mi gmail?', 'estado de mi correo'. Devuelve email, fecha de conexión, y si el token sigue válido.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "desconectar_gmail", description: "Desconecta el Gmail del org de los agentes (revoca token). Usa cuando: 'desconecta mi gmail', 'remueve mi correo'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "enviar_correo", description: "Envía un correo electrónico usando el Gmail conectado del usuario. Usa cuando: 'manda un correo a X', 'envía un email', 'escribe un correo a X diciendo Y'. Requiere que Gmail esté conectado (si no, sugiere conectar_gmail primero).", input_schema: { type: "object", properties: { org_id: { type: "string" }, to: { type: "string", description: "Email del destinatario" }, subject: { type: "string", description: "Asunto del correo" }, body: { type: "string", description: "Cuerpo del correo (texto plano)" }, cc: { type: "string", description: "CC (opcional, separar múltiples con coma)" }, reply_to_message_id: { type: "string", description: "Si es respuesta a un correo, el message ID de Gmail (opcional)" } }, required: ["org_id", "to", "subject", "body"] } },
+    { name: "crear_business_case", description: "Genera una presentación PPTX de Business Case de Yuno para un cliente prospect. El agente debe recopilar los datos del deal conversacionalmente y luego llamar esta tool con toda la config. Devuelve un link de descarga del PPTX. Usa cuando: 'hazme un business case para X', 'genera una propuesta para X', 'necesito un deck para X'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, config: { type: "object", description: "Config completa del business case", properties: { clientName: { type: "string" }, countries: { type: "array", items: { type: "object", properties: { country: { type: "string" }, txnPerMonth: { type: "number" } } } }, ticketPromedio: { type: "number" }, totalTxnMes: { type: "number" }, mdrActual: { type: "number", description: "MDR actual como decimal (ej: 0.028 = 2.8%)" }, mdrNuevo: { type: "number", description: "MDR propuesto como decimal" }, aprobacionActual: { type: "number", description: "Tasa aprobacion actual como decimal (ej: 0.85 = 85%)" }, aprobacionNueva: { type: "number" }, margenProducto: { type: "number", description: "Margen del producto como decimal (0 si no aplica)" }, ahorroConciliacion: { type: "number" }, ahorroOperativo: { type: "number" }, pricingType: { type: "string", enum: ["flat", "tranches"] }, flatPrice: { type: "number" }, tranches: { type: "array", items: { type: "object", properties: { name: { type: "string" }, range: { type: "string" }, price: { type: "number" } } } }, minimoTransaccional: { type: "string" }, saasFee: { type: "number" }, propuestaValidaHasta: { type: "string" } }, required: ["clientName", "countries", "ticketPromedio", "totalTxnMes", "mdrActual", "mdrNuevo", "aprobacionActual", "aprobacionNueva", "pricingType"] } }, required: ["org_id", "config"] } },
     { name: "crear_presentacion", description: "Crea una presentación de Google Slides con múltiples diapositivas. Usa cuando: 'hazme una presentación sobre X', 'crea un deck de Y'. Devuelve la URL del archivo en Google Slides. Layouts: title (portada), title_body (título + texto), section (separador), blank, big_number (métrica grande).", input_schema: { type: "object", properties: { org_id: { type: "string" }, title: { type: "string", description: "Título de la presentación" }, slides: { type: "array", items: { type: "object", properties: { layout: { type: "string", description: "Layout: title, title_body, section, blank, big_number. Default: title_body" }, title: { type: "string", description: "Título de la diapositiva" }, body: { type: "string", description: "Contenido (separar bullets con \\n)" }, speaker_notes: { type: "string", description: "Notas del presentador (opcional)" } } }, description: "Array de diapositivas" } }, required: ["org_id", "title", "slides"] } },
     { name: "leer_correos", description: "Lee los correos recientes del usuario (inbox). Usa cuando: 'revisa mis correos', 'qué correos tengo?', 'muéstrame mi inbox', 'resumen de correos'. Requiere Gmail conectado.", input_schema: { type: "object", properties: { org_id: { type: "string" }, query: { type: "string", description: "Búsqueda Gmail (ej: 'is:unread', 'from:X', 'after:2026/04/01'). Default: 'is:unread in:inbox'" }, limit: { type: "number", description: "Máximo de correos (default 10, max 20)" } }, required: ["org_id"] } },
     // --- Salesforce OAuth ---
@@ -2728,6 +2777,28 @@ ${args.description ? `\n${args.description}\n` : ""}
             return { success: true, message_id: gmailData.id, message: `✅ Correo enviado a ${to}\n📧 Asunto: ${subject}` };
           } catch (e) {
             return { success: false, error: `Error enviando: ${e.message}` };
+          }
+        }
+
+        case "crear_business_case": {
+          const { org_id, config: bcConfig } = args;
+          try {
+            const bcRes = await fetch(`${BRIDGE_PUBLIC_URL}/api/generate-business-case`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(bcConfig),
+            });
+            const bcData = await bcRes.json();
+            if (!bcRes.ok || !bcData.success) {
+              return { success: false, error: bcData.error || "Failed to generate" };
+            }
+            const s = bcData.summary;
+            return {
+              success: true,
+              url: bcData.url,
+              message: `📊 *Business Case listo: ${s.clientName}*\n\n💰 TPV/mes: ${fmt(s.totalTPVMensual)}\n📈 Ahorro MDR: ${fmt(s.ahorroMDRMensual)}/mes\n✅ Aumento revenue: ${fmt(s.aumentoRevenue)}/mes\n🎯 Total impacto: ${fmt(s.totalMensual)}/mes\n\n🔗 Descargar: ${bcData.url}`,
+            };
+          } catch (e) {
+            return { success: false, error: e.message };
           }
         }
 
