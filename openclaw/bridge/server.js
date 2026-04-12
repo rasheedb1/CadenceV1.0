@@ -1092,9 +1092,27 @@ app.post("/api/whatsapp/status", (req, res) => {
 // Agent task completion callback — sends result to user via WhatsApp
 app.post("/api/agent-callback", express.json(), async (req, res) => {
   const { task_id, agent_name, result, error, whatsapp_number } = req.body;
-  console.log(`[callback] Agent ${agent_name} completed task ${task_id} for ${whatsapp_number}`);
+  console.log(`[callback] Agent ${agent_name} completed task ${task_id} for ${whatsapp_number || 'auto-resolve'}`);
 
-  if (!whatsapp_number) return res.status(400).json({ error: "Missing whatsapp_number" });
+  // Resolve whatsapp_number if not provided — find org's chief session
+  let waNumber = whatsapp_number;
+  if (!waNumber) {
+    try {
+      // Find the agent's org, then find the chief session for that org
+      const agents = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agents?name=ilike.%${encodeURIComponent(agent_name || '')}%&select=org_id&limit=1`, { headers: sbHeadersGlobal() });
+      if (Array.isArray(agents) && agents.length > 0) {
+        const orgId = agents[0].org_id;
+        const sessions = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/chief_sessions?org_id=eq.${orgId}&select=whatsapp_number&limit=1`, { headers: sbHeadersGlobal() });
+        if (Array.isArray(sessions) && sessions.length > 0) {
+          waNumber = sessions[0].whatsapp_number;
+        }
+      }
+    } catch (e) { console.warn('[callback] Failed to resolve whatsapp_number:', e.message); }
+  }
+  if (!waNumber) {
+    console.warn(`[callback] No whatsapp_number for agent ${agent_name} — skipping notification`);
+    return res.json({ success: false, reason: "no_whatsapp_number" });
+  }
 
   try {
     let message;
