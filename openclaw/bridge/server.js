@@ -38,7 +38,7 @@ const app = express();
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-const WHATSAPP_MAX_LENGTH = 4096;
+const WHATSAPP_MAX_LENGTH = 1600; // Twilio WhatsApp API hard limit — messages >1600 chars get silently truncated
 
 function splitMessage(text) {
   if (text.length <= WHATSAPP_MAX_LENGTH) return [text];
@@ -1119,8 +1119,15 @@ app.post("/api/agent-callback", express.json(), async (req, res) => {
     if (error) {
       message = `❌ **${agent_name}** tuvo un error con la tarea:\n${error}`;
     } else {
-      const resultText = typeof result === "string" ? result : (result?.text || JSON.stringify(result));
-      message = `✅ **${agent_name}** terminó la tarea:\n\n${resultText}`;
+      const resultText = typeof result === "string" ? result : (result?.text || result?.reply || result?.message || result?.summary || JSON.stringify(result));
+      // Clean up any residual JSON-like formatting for WhatsApp
+      const cleanText = resultText.replace(/^\{[\s\S]*\}$/, (match) => {
+        try {
+          const obj = JSON.parse(match);
+          return obj.text || obj.reply || obj.message || obj.summary || match;
+        } catch { return match; }
+      });
+      message = `✅ *${agent_name}* terminó la tarea:\n\n${cleanText}`;
     }
 
     // Send via WhatsApp (split if needed)
@@ -1823,15 +1830,16 @@ You manage AI agent teams + the Chief Outreach sales platform.
 7. When creating agents: use the onboarding flow above.
 8. When creating projects: suggest plan first, then create.
 9. Keep WhatsApp responses SHORT. Use emojis for status. Max 2-3 paragraphs. NO walls of text.
-10. Always need org_id and know who the user is.
-11. If context is saved, use it directly — don't re-ask.
-12. Confirm before sending external messages or spending money.
-13. Never expose tokens or internal IDs.
-14. Agents have full bash permissions via bypass. If an agent says they need /approve or shell approval, do NOT relay the /approve command to the user. Instead tell the user: "There's a permission issue with [agent]. The system should handle this automatically — I'll tell the agent to retry." Then message the agent: "You have full bypass permissions. Execute commands directly without waiting for approval."
-15. NEVER show /approve IDs or ask the user to run /approve commands. The user cannot run those — they're internal system commands.
-16. MULTIPLE projects can be active in parallel. When querying projects, filter by status=active. Ignore completed/paused.
-17. ALWAYS propose a plan before creating a project. Use proponer_proyecto first.
-18. INTELLIGENT DELEGATION: select the MINIMUM subset of agents required.`;
+10. **NEVER show JSON, code, curly braces, brackets, or technical formatting in responses.** Tool results are for YOU to interpret — the user should see a clean, conversational, human-friendly message. Instead of showing \`{ "success": true, "agent": "Paula" }\`, say "Paula está en eso" or "Listo, le delegué la tarea a Paula". Format data as natural text, bullet points, or simple lists — NEVER as code or JSON.
+11. Always need org_id and know who the user is.
+12. If context is saved, use it directly — don't re-ask.
+13. Confirm before sending external messages or spending money.
+14. Never expose tokens or internal IDs.
+15. Agents have full bash permissions via bypass. If an agent says they need /approve or shell approval, do NOT relay the /approve command to the user. Instead tell the user: "There's a permission issue with [agent]. The system should handle this automatically — I'll tell the agent to retry." Then message the agent: "You have full bypass permissions. Execute commands directly without waiting for approval."
+16. NEVER show /approve IDs or ask the user to run /approve commands. The user cannot run those — they're internal system commands.
+17. MULTIPLE projects can be active in parallel. When querying projects, filter by status=active. Ignore completed/paused.
+18. ALWAYS propose a plan before creating a project. Use proponer_proyecto first.
+19. INTELLIGENT DELEGATION: select the MINIMUM subset of agents required.`;
   }
 
   const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
@@ -1949,6 +1957,53 @@ You manage AI agent teams + the Chief Outreach sales platform.
     "buscar_prospectos", "capturar_pantalla",
   ]);
 
+  // Format tool results for WhatsApp — human-friendly, no JSON
+  function formatToolResultForWhatsApp(name, result) {
+    // Extract meaningful text from the result object
+    if (typeof result === "string") return result;
+
+    // consultar_agente — show the agent's reply or message
+    if (name === "consultar_agente") {
+      if (result.reply) return `💬 *${result.agent || "Agente"}*:\n\n${result.reply}`;
+      if (result.message) return `⏳ *${result.agent || "Agente"}*: ${result.message}`;
+      if (result.error) return `❌ ${result.error}`;
+    }
+
+    // reunion_agentes — show meeting summary
+    if (name === "reunion_agentes") {
+      if (result.summary) return `🤝 *Resumen de la reunión:*\n\n${result.summary}`;
+      if (result.message) return result.message;
+    }
+
+    // desplegar_agente
+    if (name === "desplegar_agente") {
+      if (result.message) return `🚀 ${result.message}`;
+    }
+
+    // buscar_prospectos
+    if (name === "buscar_prospectos") {
+      if (result.message) return result.message;
+      if (result.prospects && Array.isArray(result.prospects)) {
+        return `🔍 Encontré ${result.prospects.length} prospectos.`;
+      }
+    }
+
+    // capturar_pantalla
+    if (name === "capturar_pantalla") {
+      if (result.message) return `📸 ${result.message}`;
+    }
+
+    // Generic: try common text fields before falling back to JSON
+    if (result.text) return result.text;
+    if (result.message) return result.message;
+    if (result.reply) return result.reply;
+    if (result.result?.text) return result.result.text;
+    if (result.result && typeof result.result === "string") return result.result;
+
+    // Last resort — but clean up the JSON to be less code-like
+    return JSON.stringify(result, null, 2);
+  }
+
   // Run a tool in background — return immediate ack, send result via WhatsApp callback
   function runToolAsync(name, args, orgId) {
     const startMsg = {
@@ -1963,11 +2018,14 @@ You manage AI agent teams + the Chief Outreach sales platform.
     (async () => {
       try {
         const result = await gwExecuteToolSync(name, args);
-        const resultText = typeof result === "string" ? result : JSON.stringify(result, null, 2);
-        const summary = resultText.length > 1500 ? resultText.substring(0, 1500) + "..." : resultText;
-        await notifyUserByOrg(orgId || args.org_id, `✅ *${name}* completed:\n\n${summary}`);
+        const formatted = formatToolResultForWhatsApp(name, result);
+        const summary = formatted.length > 1500 ? formatted.substring(0, 1500) + "..." : formatted;
+        // Only show tool name if we couldn't extract a friendly message
+        const isGenericJson = summary.startsWith("{") || summary.startsWith("[");
+        const prefix = isGenericJson ? `✅ *${name}* completado:\n\n` : "✅ ";
+        await notifyUserByOrg(orgId || args.org_id, `${prefix}${summary}`);
       } catch (err) {
-        await notifyUserByOrg(orgId || args.org_id, `❌ *${name}* failed: ${err.message || "Unknown error"}`);
+        await notifyUserByOrg(orgId || args.org_id, `❌ Error en *${name}*: ${err.message || "Error desconocido"}`);
       }
     })();
 
@@ -4069,9 +4127,9 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
               const sess = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
               const waNum = Array.isArray(sess) && sess.length > 0 ? sess[0].whatsapp_number : null;
               if (waNum) {
-                // Extract readable text from result
-                const textContent = r?.result_text || r?.result?.text || r?.result || r?.reply || resultStr;
-                const msg = typeof textContent === "string" ? textContent : JSON.stringify(textContent, null, 2);
+                // Extract readable text from result — prefer human-friendly format
+                const textContent = r?.reply || r?.result_text || r?.result?.text || r?.text || r?.message || r?.result || resultStr;
+                const msg = typeof textContent === "string" ? textContent : formatToolResultForWhatsApp(b.name, textContent);
                 const chunks = splitMessage(msg);
                 for (const chunk of chunks) {
                   await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: `whatsapp:+${waNum}`, body: chunk });
