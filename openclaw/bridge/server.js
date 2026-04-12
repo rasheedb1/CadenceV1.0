@@ -1269,49 +1269,10 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
       return;
     }
 
-    // --- Inject team context before sending to Chief ---
+    // Team context injection REMOVED — Chief was mixing project info into
+    // unrelated responses. Chief can use ver_equipo/standup_equipo tools
+    // when the user explicitly asks for team status.
     let messageToSend = Body;
-    if (SB_KEY) {
-      try {
-        const [projRes, agentsRes, checkinsRes] = await Promise.all([
-          fetch(`${SB_URL}/rest/v1/agent_projects?status=in.(active,paused)&order=updated_at.desc&limit=3&select=id,name,status,current_iteration,updated_at`, { headers: sbHeaders() }),
-          fetch(`${SB_URL}/rest/v1/agent_standup`, { headers: sbHeaders() }),
-          fetch(`${SB_URL}/rest/v1/agent_checkins?needs_approval=eq.true&status=eq.sent&order=created_at.desc&limit=5&select=id,agent_id,summary,checkin_type,created_at`, { headers: sbHeaders() }),
-        ]);
-        const projects = projRes.ok ? await projRes.json() : [];
-        const standup = agentsRes.ok ? await agentsRes.json() : [];
-        const pendingCheckins = checkinsRes.ok ? await checkinsRes.json() : [];
-
-        const parts = [];
-        if (Array.isArray(standup) && standup.length > 0) {
-          const teamStatus = standup.map(a => {
-            const status = a.availability === 'working' ? '🔵 trabajando' : a.availability === 'blocked' ? '🔴 bloqueado' : '🟢 disponible';
-            const workload = (a.tasks_in_progress || 0) + (a.tasks_backlog || 0);
-            return `- ${a.agent_name} (${a.agent_role}, ${a.model?.split('-')[1] || 'LLM'}): ${status}, ${a.tasks_done_24h || 0} completadas hoy, ${workload} pendientes`;
-          }).join('\n');
-          parts.push(`EQUIPO:\n${teamStatus}`);
-        }
-        if (Array.isArray(projects) && projects.length > 0) {
-          const projList = projects.map(p => {
-            const ago = Math.round((Date.now() - new Date(p.updated_at).getTime()) / 60000);
-            return `- "${p.name}" (${p.status}, iter ${p.current_iteration || 0}, hace ${ago}min)`;
-          }).join('\n');
-          parts.push(`PROYECTOS:\n${projList}`);
-        }
-        if (Array.isArray(pendingCheckins) && pendingCheckins.length > 0) {
-          const names = {};
-          standup.forEach(a => { names[a.agent_id] = a.agent_name; });
-          const ckList = pendingCheckins.map(c => `- ${names[c.agent_id] || 'Agente'}: ${(c.summary || '').substring(0, 80)}`).join('\n');
-          parts.push(`CHECK-INS PENDIENTES (necesitan tu respuesta):\n${ckList}`);
-        }
-        if (parts.length > 0) {
-          messageToSend = `[CONTEXTO DEL EQUIPO]\n${parts.join('\n\n')}\n\nSi el usuario pide crear un proyecto y hay uno activo/pausado, pregunta si quiere reemplazarlo o continuar.\nSi hay check-ins pendientes, menciónalos.\n[FIN CONTEXTO]\n\n${Body}`;
-          console.log(`[in] Injected team context (${standup.length} agents, ${projects.length} projects, ${pendingCheckins.length} checkins)`);
-        }
-      } catch (ctxErr) {
-        console.error("[in] Team context injection failed:", ctxErr.message);
-      }
-    }
 
     // Ensure connected
     if (!ocClient.isReady()) {
