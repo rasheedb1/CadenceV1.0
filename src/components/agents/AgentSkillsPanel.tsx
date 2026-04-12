@@ -85,9 +85,16 @@ interface Props {
   onUpdate: (updates: Record<string, unknown>) => Promise<void>
 }
 
+const MODEL_OPTIONS = [
+  { value: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Máxima calidad, más caro (~$45/MTok)', color: 'text-purple-400' },
+  { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Equilibrio calidad/costo (~$9/MTok)', color: 'text-blue-400' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', desc: 'Más rápido y barato (~$2.4/MTok)', color: 'text-green-400' },
+]
+
 export function AgentSkillsPanel({ agent, onUpdate }: Props) {
   const [caps, setCaps] = useState<Set<string>>(new Set(agent.capabilities || []))
   const [soulMd, setSoulMd] = useState(agent.soul_md || '')
+  const [model, setModel] = useState(agent.model || 'claude-sonnet-4-6')
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [integrationStatus, setIntegrationStatus] = useState<Record<string, { connected?: boolean; available?: boolean }>>({})
@@ -97,8 +104,9 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
   useEffect(() => {
     setCaps(new Set(agent.capabilities || []))
     setSoulMd(agent.soul_md || '')
+    setModel(agent.model || 'claude-sonnet-4-6')
     setDirty(false)
-  }, [agent.id, agent.capabilities, agent.soul_md])
+  }, [agent.id, agent.capabilities, agent.soul_md, agent.model])
 
   // Fetch integration status
   const fetchIntegrations = useCallback(async () => {
@@ -137,11 +145,11 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
       // Direct Supabase PATCH (bypasses manage-agent edge function for reliability)
       const { error } = await supabase
         .from('agents')
-        .update({ capabilities: [...caps], soul_md: soulMd, updated_at: new Date().toISOString() })
+        .update({ capabilities: [...caps], soul_md: soulMd, model, updated_at: new Date().toISOString() })
         .eq('id', agent.id)
       if (error) throw error
       // Also notify parent for context cache invalidation
-      await onUpdate({ capabilities: [...caps], soul_md: soulMd }).catch(() => {})
+      await onUpdate({ capabilities: [...caps], soul_md: soulMd, model }).catch(() => {})
       setDirty(false)
       toast.success('Skills y personalidad guardados')
     } catch (e: any) { toast.error(`Error: ${e.message || 'al guardar'}`) }
@@ -197,10 +205,23 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Template selector + Save */}
-      <div className="flex items-center gap-3">
-        <Select onValueChange={(v) => { const tpl = TEMPLATES.find(t => t.key === v); if (tpl) applyTemplate(tpl) }}>
-          <SelectTrigger className="w-[200px] h-8 text-xs">
+      {/* Model selector + Template selector + Save */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <Select value={model} onValueChange={(v) => { setModel(v); setDirty(true) }}>
+          <SelectTrigger className="w-[180px] h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {MODEL_OPTIONS.map(m => (
+              <SelectItem key={m.value} value={m.value} className="text-xs">
+                <span className={m.color}>{m.label}</span>
+                <span className="text-muted-foreground ml-1">— {m.desc}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select onValueChange={(v) => { const tpl = TEMPLATES.find(t => t.key === v); if (tpl) { applyTemplate(tpl); setModel(tpl.model); } }}>
+          <SelectTrigger className="w-[180px] h-8 text-xs">
             <SelectValue placeholder="Aplicar template..." />
           </SelectTrigger>
           <SelectContent>
