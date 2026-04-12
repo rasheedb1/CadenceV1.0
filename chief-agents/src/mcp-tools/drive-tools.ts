@@ -152,5 +152,191 @@ export function buildDriveTools(agent: AgentConfig): any[] {
     },
   );
 
-  return [searchFiles, readFile, listRecentFiles, createDoc];
+  // === NEW: Copy File ===
+  const copyFile = tool(
+    'drive_copy_file',
+    'Copy a Google Drive file (Doc, Sheet, Slide, etc). Creates a duplicate with a new name. Use for templates.',
+    {
+      file_id: z.string().describe('File ID to copy'),
+      new_name: z.string().describe('Name for the copy'),
+      folder_id: z.string().optional().describe('Destination folder ID (optional)'),
+    },
+    async ({ file_id, new_name, folder_id }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        const body: any = { name: new_name };
+        if (folder_id) body.parents = [folder_id];
+        const data = await driveFetch(`/files/${file_id}/copy`, t.token, { method: 'POST', body: JSON.stringify(body) });
+        return { content: [{ type: 'text' as const, text: `✅ Copied to: ${new_name}\n🔗 https://drive.google.com/file/d/${data.id}/view` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Drive error: ${e.message}` }] };
+      }
+    },
+  );
+
+  // === NEW: Move/Rename File ===
+  const moveFile = tool(
+    'drive_move_rename',
+    'Move a file to a different folder and/or rename it.',
+    {
+      file_id: z.string().describe('File ID'),
+      new_name: z.string().optional().describe('New name (optional)'),
+      destination_folder_id: z.string().optional().describe('Folder ID to move to (optional)'),
+    },
+    async ({ file_id, new_name, destination_folder_id }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        // Get current parents for move
+        let addParents = '';
+        let removeParents = '';
+        if (destination_folder_id) {
+          const meta = await driveFetch(`/files/${file_id}?fields=parents`, t.token);
+          removeParents = (meta.parents || []).join(',');
+          addParents = destination_folder_id;
+        }
+        const params = new URLSearchParams();
+        if (addParents) params.set('addParents', addParents);
+        if (removeParents) params.set('removeParents', removeParents);
+        const body: any = {};
+        if (new_name) body.name = new_name;
+        const paramStr = params.toString() ? `?${params}` : '';
+        await driveFetch(`/files/${file_id}${paramStr}`, t.token, { method: 'PATCH', body: JSON.stringify(body) });
+        return { content: [{ type: 'text' as const, text: `✅ File updated${new_name ? ` → renamed to "${new_name}"` : ''}${destination_folder_id ? ' → moved to new folder' : ''}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Drive error: ${e.message}` }] };
+      }
+    },
+  );
+
+  // === NEW: Share File / Manage Permissions ===
+  const shareFile = tool(
+    'drive_share',
+    'Share a Google Drive file with someone. Set role: reader, commenter, writer, or owner. Can also share with anyone via link.',
+    {
+      file_id: z.string().describe('File ID to share'),
+      email: z.string().optional().describe('Email address to share with (for user/group sharing)'),
+      role: z.enum(['reader', 'commenter', 'writer', 'owner']).describe('Permission level'),
+      type: z.enum(['user', 'group', 'anyone']).optional().describe('"user" (default), "group", or "anyone" (link sharing)'),
+      notify: z.boolean().optional().describe('Send email notification (default true)'),
+    },
+    async ({ file_id, email, role, type, notify }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        const shareType = type || 'user';
+        const body: any = { role, type: shareType };
+        if (shareType !== 'anyone' && email) body.emailAddress = email;
+        const sendNotification = notify !== false ? 'true' : 'false';
+        const data = await driveFetch(`/files/${file_id}/permissions?sendNotificationEmail=${sendNotification}`, t.token, {
+          method: 'POST', body: JSON.stringify(body),
+        });
+        if (shareType === 'anyone') {
+          const fileData = await driveFetch(`/files/${file_id}?fields=webViewLink`, t.token);
+          return { content: [{ type: 'text' as const, text: `✅ File shared with anyone (${role})\n🔗 ${fileData.webViewLink}` }] };
+        }
+        return { content: [{ type: 'text' as const, text: `✅ Shared with ${email} as ${role}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Drive share error: ${e.message}` }] };
+      }
+    },
+  );
+
+  // === NEW: Remove Permission ===
+  const removePermission = tool(
+    'drive_remove_permission',
+    'Remove sharing permission from a file. First list permissions, then remove by permission ID.',
+    {
+      file_id: z.string().describe('File ID'),
+      permission_id: z.string().optional().describe('Permission ID to remove (from drive_list_permissions)'),
+      email: z.string().optional().describe('Email to remove (alternative to permission_id — will find and remove)'),
+    },
+    async ({ file_id, permission_id, email }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        let permId = permission_id;
+        if (!permId && email) {
+          const perms = await driveFetch(`/files/${file_id}/permissions?fields=permissions(id,emailAddress,role)`, t.token);
+          const match = (perms.permissions || []).find((p: any) => p.emailAddress === email);
+          if (!match) return { content: [{ type: 'text' as const, text: `No permission found for ${email}` }] };
+          permId = match.id;
+        }
+        if (!permId) return { content: [{ type: 'text' as const, text: 'Provide permission_id or email to remove' }] };
+        await fetch(`${DRIVE_BASE}/files/${file_id}/permissions/${permId}`, {
+          method: 'DELETE', headers: { Authorization: `Bearer ${t.token}` },
+        });
+        return { content: [{ type: 'text' as const, text: `✅ Permission removed${email ? ` for ${email}` : ''}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Drive error: ${e.message}` }] };
+      }
+    },
+  );
+
+  // === NEW: List Permissions ===
+  const listPermissions = tool(
+    'drive_list_permissions',
+    'List who has access to a file and their permission level.',
+    {
+      file_id: z.string().describe('File ID'),
+    },
+    async ({ file_id }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        const data = await driveFetch(`/files/${file_id}/permissions?fields=permissions(id,emailAddress,role,type,displayName)`, t.token);
+        const perms = data.permissions || [];
+        if (perms.length === 0) return { content: [{ type: 'text' as const, text: 'No permissions found (private file).' }] };
+        const lines = perms.map((p: any) => `• ${p.displayName || p.emailAddress || p.type} — ${p.role} (id: ${p.id})`).join('\n');
+        return { content: [{ type: 'text' as const, text: `Permissions:\n${lines}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Drive error: ${e.message}` }] };
+      }
+    },
+  );
+
+  // === NEW: Delete File ===
+  const deleteFile = tool(
+    'drive_delete',
+    'Move a file to trash in Google Drive. Can be recovered from trash within 30 days.',
+    {
+      file_id: z.string().describe('File ID to delete'),
+    },
+    async ({ file_id }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        // Move to trash (recoverable) instead of permanent delete
+        await driveFetch(`/files/${file_id}`, t.token, { method: 'PATCH', body: JSON.stringify({ trashed: true }) });
+        return { content: [{ type: 'text' as const, text: '✅ File moved to trash (recoverable for 30 days).' }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Drive error: ${e.message}` }] };
+      }
+    },
+  );
+
+  // === NEW: Create Folder ===
+  const createFolder = tool(
+    'drive_create_folder',
+    'Create a new folder in Google Drive.',
+    {
+      name: z.string().describe('Folder name'),
+      parent_folder_id: z.string().optional().describe('Parent folder ID (optional — root if omitted)'),
+    },
+    async ({ name, parent_folder_id }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        const body: any = { name, mimeType: 'application/vnd.google-apps.folder' };
+        if (parent_folder_id) body.parents = [parent_folder_id];
+        const data = await driveFetch('/files', t.token, { method: 'POST', body: JSON.stringify(body) });
+        return { content: [{ type: 'text' as const, text: `✅ Folder created: ${name}\n📁 ID: ${data.id}\n🔗 https://drive.google.com/drive/folders/${data.id}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Drive error: ${e.message}` }] };
+      }
+    },
+  );
+
+  return [searchFiles, readFile, listRecentFiles, createDoc, copyFile, moveFile, shareFile, removePermission, listPermissions, deleteFile, createFolder];
 }

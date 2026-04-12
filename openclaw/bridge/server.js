@@ -430,8 +430,7 @@ const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/drive.readonly",
-  "https://www.googleapis.com/auth/drive.file",
+  "https://www.googleapis.com/auth/drive",                // Full Drive access (create, edit, delete, share, permissions)
   "https://www.googleapis.com/auth/spreadsheets",
   "https://www.googleapis.com/auth/contacts.readonly",
   "https://www.googleapis.com/auth/presentations",

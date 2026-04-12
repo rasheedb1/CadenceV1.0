@@ -119,5 +119,93 @@ export function buildSheetsTools(agent: AgentConfig): any[] {
     },
   );
 
-  return [readSheet, writeSheet, createSheet];
+  // === NEW: Clear Range ===
+  const clearSheet = tool(
+    'sheets_clear',
+    'Clear data from a range in a spreadsheet (keeps formatting, removes values).',
+    {
+      spreadsheet_id: z.string().describe('Spreadsheet ID'),
+      range: z.string().describe('A1 notation range to clear (e.g. "Sheet1!A2:Z100")'),
+    },
+    async ({ spreadsheet_id, range }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        const res = await fetch(`${SHEETS_BASE}/${spreadsheet_id}/values/${encodeURIComponent(range)}:clear`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${t.token}`, 'Content-Type': 'application/json' },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error?.message || 'Failed to clear');
+        return { content: [{ type: 'text' as const, text: `✅ Cleared ${data.clearedRange || range}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Sheets error: ${e.message}` }] };
+      }
+    },
+  );
+
+  // === NEW: List Sheets (tabs) in a spreadsheet ===
+  const listSheetTabs = tool(
+    'sheets_list_tabs',
+    'List all sheet tabs in a spreadsheet with their names and IDs.',
+    {
+      spreadsheet_id: z.string().describe('Spreadsheet ID'),
+    },
+    async ({ spreadsheet_id }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        const res = await fetch(`${SHEETS_BASE}/${spreadsheet_id}?fields=sheets.properties`, {
+          headers: { Authorization: `Bearer ${t.token}` },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error?.message || 'Failed');
+        const sheets = data.sheets || [];
+        const lines = sheets.map((s: any, i: number) => {
+          const p = s.properties;
+          return `${i + 1}. "${p.title}" (ID: ${p.sheetId}, ${p.gridProperties?.rowCount || '?'} rows × ${p.gridProperties?.columnCount || '?'} cols)`;
+        }).join('\n');
+        return { content: [{ type: 'text' as const, text: `Sheet tabs:\n${lines}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Sheets error: ${e.message}` }] };
+      }
+    },
+  );
+
+  // === NEW: Add/Delete Sheet Tab ===
+  const manageTab = tool(
+    'sheets_manage_tab',
+    'Add or delete a sheet tab in a spreadsheet.',
+    {
+      spreadsheet_id: z.string().describe('Spreadsheet ID'),
+      action: z.enum(['add', 'delete']).describe('"add" new tab or "delete" existing'),
+      title: z.string().optional().describe('Tab title (required for add)'),
+      sheet_id: z.number().optional().describe('Sheet tab ID (required for delete — get from sheets_list_tabs)'),
+    },
+    async ({ spreadsheet_id, action, title, sheet_id }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        const requests: any[] = [];
+        if (action === 'add') {
+          requests.push({ addSheet: { properties: { title: title || 'New Sheet' } } });
+        } else {
+          if (sheet_id === undefined) return { content: [{ type: 'text' as const, text: 'sheet_id required for delete. Use sheets_list_tabs first.' }] };
+          requests.push({ deleteSheet: { sheetId: sheet_id } });
+        }
+        const res = await fetch(`${SHEETS_BASE}/${spreadsheet_id}:batchUpdate`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${t.token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requests }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error?.message || 'Failed');
+        return { content: [{ type: 'text' as const, text: `✅ Tab ${action === 'add' ? `"${title}" added` : 'deleted'}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Sheets error: ${e.message}` }] };
+      }
+    },
+  );
+
+  return [readSheet, writeSheet, createSheet, clearSheet, listSheetTabs, manageTab];
 }
