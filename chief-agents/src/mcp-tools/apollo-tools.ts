@@ -66,8 +66,15 @@ export function buildApolloTools(_agent: AgentConfig): any[] {
         if (email) body.email = email;
         const data = await apolloPost('/people/match', body);
         const p = data.person;
-        if (!p) return { content: [{ type: 'text' as const, text: 'No match found in Apollo.' }] };
-        const text = `${p.name} — ${p.title || '?'}\n🏢 ${p.organization?.name || '?'}\n📧 ${p.email || 'N/A'} (${p.email_status || '?'})\n📱 ${p.phone_numbers?.map((ph: any) => ph.raw_number).join(', ') || 'N/A'}\n📍 ${p.city || ''}, ${p.state || ''}, ${p.country || ''}\n🔗 ${p.linkedin_url || ''}`;
+        if (!p) return { content: [{ type: 'text' as const, text: `No match found in Apollo for "${first_name} ${last_name}" at "${organization_name}". Try with different spelling or company name.` }] };
+        const phones = p.phone_numbers?.filter((ph: any) => ph.raw_number) || [];
+        const emailLine = p.email
+          ? `📧 ${p.email} (${p.email_status === 'verified' ? '✅ verified' : p.email_status || 'unverified'})`
+          : '📧 No email found — try with a different company name or check LinkedIn';
+        const phoneLine = phones.length > 0
+          ? `📱 ${phones.map((ph: any) => `${ph.raw_number} (${ph.type || 'unknown'})`).join(' | ')}`
+          : '📱 No phone found';
+        const text = `${p.name} — ${p.title || '?'}\n🏢 ${p.organization?.name || '?'}\n${emailLine}\n${phoneLine}\n📍 ${p.city || ''}, ${p.state || ''}, ${p.country || ''}\n🔗 ${p.linkedin_url || 'No LinkedIn URL'}`;
         return { content: [{ type: 'text' as const, text }] };
       } catch (e: any) {
         return { content: [{ type: 'text' as const, text: `Apollo error: ${e.message}` }] };

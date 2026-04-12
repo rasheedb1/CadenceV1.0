@@ -316,5 +316,104 @@ export function buildInboxTools(agent: AgentConfig) {
     },
   );
 
-  return [listUnreadEmails, readEmail, searchEmails, summarizeInbox, markAsRead, archiveEmail, draftReply];
+  // === NEW: Send Email ===
+  const sendEmail = tool(
+    'send_email',
+    'Send an email directly from the user Gmail account. Use for outreach, follow-ups, or any email that needs to go out immediately.',
+    {
+      to: z.string().describe('Recipient email address'),
+      subject: z.string().describe('Email subject'),
+      body: z.string().describe('Email body (plain text)'),
+      cc: z.string().optional().describe('CC email addresses (comma-separated)'),
+      bcc: z.string().optional().describe('BCC email addresses (comma-separated)'),
+    },
+    async ({ to, subject, body, cc, bcc }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        const rawLines = [
+          `To: ${to}`,
+          `Subject: ${subject}`,
+          cc ? `Cc: ${cc}` : '',
+          bcc ? `Bcc: ${bcc}` : '',
+          'Content-Type: text/plain; charset=UTF-8',
+          '',
+          body,
+        ].filter(Boolean).join('\r\n');
+        const rawB64 = Buffer.from(rawLines, 'utf8').toString('base64url');
+        const sent = await gmailFetch('/messages/send', t.token, {
+          method: 'POST',
+          body: JSON.stringify({ raw: rawB64 }),
+        });
+        return { content: [{ type: 'text' as const, text: `✅ Email sent to ${to}\nSubject: ${subject}\nMessage ID: ${sent.id}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Gmail send error: ${e.message}` }] };
+      }
+    },
+  );
+
+  // === NEW: Forward Email ===
+  const forwardEmail = tool(
+    'forward_email',
+    'Forward an existing email to another recipient. Preserves the original content and adds optional note.',
+    {
+      email_id: z.string().describe('Email ID to forward (from list/search)'),
+      to: z.string().describe('Recipient email address'),
+      note: z.string().optional().describe('Optional note to add above the forwarded content'),
+    },
+    async ({ email_id, to, note }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        // Get original email
+        const orig = await gmailFetch(`/messages/${email_id}?format=full`, t.token);
+        const headers = orig.payload?.headers || [];
+        const origFrom = headers.find((h: any) => h.name === 'From')?.value || '';
+        const origSubject = headers.find((h: any) => h.name === 'Subject')?.value || '';
+        const origDate = headers.find((h: any) => h.name === 'Date')?.value || '';
+
+        // Extract body
+        let origBody = '';
+        const parts = orig.payload?.parts || [orig.payload];
+        for (const part of parts) {
+          if (part?.mimeType === 'text/plain' && part?.body?.data) {
+            origBody = Buffer.from(part.body.data, 'base64').toString('utf8');
+            break;
+          }
+        }
+        if (!origBody && orig.payload?.body?.data) {
+          origBody = Buffer.from(orig.payload.body.data, 'base64').toString('utf8');
+        }
+
+        const fwdBody = [
+          note || '',
+          '',
+          '---------- Forwarded message ----------',
+          `From: ${origFrom}`,
+          `Date: ${origDate}`,
+          `Subject: ${origSubject}`,
+          '',
+          origBody,
+        ].join('\r\n');
+
+        const rawLines = [
+          `To: ${to}`,
+          `Subject: Fwd: ${origSubject}`,
+          'Content-Type: text/plain; charset=UTF-8',
+          '',
+          fwdBody,
+        ].join('\r\n');
+        const rawB64 = Buffer.from(rawLines, 'utf8').toString('base64url');
+        const sent = await gmailFetch('/messages/send', t.token, {
+          method: 'POST',
+          body: JSON.stringify({ raw: rawB64 }),
+        });
+        return { content: [{ type: 'text' as const, text: `✅ Email forwarded to ${to}\nSubject: Fwd: ${origSubject}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Gmail forward error: ${e.message}` }] };
+      }
+    },
+  );
+
+  return [listUnreadEmails, readEmail, searchEmails, summarizeInbox, markAsRead, archiveEmail, draftReply, sendEmail, forwardEmail];
 }

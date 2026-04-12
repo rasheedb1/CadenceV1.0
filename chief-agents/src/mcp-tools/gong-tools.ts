@@ -145,5 +145,110 @@ export function buildGongTools(agent: AgentConfig): any[] {
     },
   );
 
-  return [listCalls, getTranscript, getCallStats];
+  // === NEW: Search Calls by Deal/Account ===
+  const searchByDeal = tool(
+    'gong_search_calls_by_deal',
+    'Find all Gong calls associated with a specific company, deal, or person. Use to prepare for meetings or review deal history.',
+    {
+      company_name: z.string().optional().describe('Company/account name to search'),
+      person_name: z.string().optional().describe('Person name to search'),
+      days_back: z.number().optional().describe('How many days back to search (default 90)'),
+    },
+    async ({ company_name, person_name, days_back }) => {
+      const a = await getGongAuth(agent.orgId);
+      if ('error' in a) return { content: [{ type: 'text' as const, text: a.error }] };
+      try {
+        const from = new Date(Date.now() - (days_back || 90) * 86400000).toISOString();
+        const data = await gongFetch('/calls', a.auth, {
+          method: 'POST',
+          body: JSON.stringify({ filter: { fromDateTime: from, toDateTime: new Date().toISOString() } }),
+        });
+        const searchTerms = [company_name, person_name].filter(Boolean).map(s => s!.toLowerCase());
+        const matched = (data.calls || []).filter((c: any) => {
+          const parties = (c.parties || []).map((p: any) => `${p.name || ''} ${p.emailAddress || ''} ${p.company || ''}`).join(' ').toLowerCase();
+          const title = (c.metaData?.title || '').toLowerCase();
+          return searchTerms.some(term => parties.includes(term) || title.includes(term));
+        }).slice(0, 15);
+        if (matched.length === 0) return { content: [{ type: 'text' as const, text: `No calls found matching "${company_name || person_name}" in the last ${days_back || 90} days.` }] };
+        const lines = matched.map((c: any, i: number) => {
+          const dur = c.metaData?.duration ? `${Math.round(c.metaData.duration / 60)}min` : '?';
+          const parties = (c.parties || []).map((p: any) => p.name || p.emailAddress).join(', ');
+          return `${i + 1}. [${c.metaData?.id}] ${c.metaData?.title || 'Untitled'}\n   ${c.metaData?.started || '?'} · ${dur}\n   👥 ${parties}`;
+        }).join('\n');
+        return { content: [{ type: 'text' as const, text: `Calls matching "${company_name || person_name}" (${matched.length}):\n\n${lines}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Gong error: ${e.message}` }] };
+      }
+    },
+  );
+
+  // === NEW: Get Action Items from Call ===
+  const getActionItems = tool(
+    'gong_get_action_items',
+    'Extract action items, next steps, and key decisions from a Gong call transcript. Uses the call transcript + stats to identify commitments.',
+    {
+      call_id: z.string().describe('Gong call ID'),
+    },
+    async ({ call_id }) => {
+      const a = await getGongAuth(agent.orgId);
+      if ('error' in a) return { content: [{ type: 'text' as const, text: a.error }] };
+      try {
+        // Get both stats (for points of interest) and transcript
+        const [statsData, transData] = await Promise.all([
+          gongFetch('/calls/extensive', a.auth, {
+            method: 'POST',
+            body: JSON.stringify({
+              filter: { callIds: [call_id] },
+              contentSelector: { exposedFields: { content: { topics: true, trackers: true, pointsOfInterest: true } } },
+            }),
+          }),
+          gongFetch('/calls/transcript', a.auth, {
+            method: 'POST',
+            body: JSON.stringify({ filter: { callIds: [call_id] } }),
+          }),
+        ]);
+        const call = statsData.calls?.[0];
+        const transcript = transData.callTranscripts?.[0];
+
+        let text = `Action items from: ${call?.metaData?.title || call_id}\n\n`;
+
+        // Points of interest (Gong's auto-detected action items)
+        const poi = call?.content?.pointsOfInterest || [];
+        if (poi.length > 0) {
+          text += '## Gong-detected highlights:\n';
+          poi.forEach((p: any, i: number) => { text += `${i + 1}. ${p.snippet || p.text || JSON.stringify(p)}\n`; });
+        }
+
+        // Trackers (custom keywords/phrases)
+        const trackers = call?.content?.trackers || [];
+        if (trackers.length > 0) {
+          text += '\n## Tracked phrases mentioned:\n';
+          trackers.forEach((t: any) => { text += `• ${t.name}: ${t.count || 1}x\n`; });
+        }
+
+        // Topics
+        const topics = call?.content?.topics || [];
+        if (topics.length > 0) {
+          text += `\n## Topics discussed: ${topics.map((t: any) => t.name).join(', ')}\n`;
+        }
+
+        // Provide transcript excerpt for LLM to analyze
+        if (transcript?.transcript?.length) {
+          const lastSegments = transcript.transcript.slice(-5);
+          text += '\n## Call closing (last segments — check for commitments):\n';
+          lastSegments.forEach((seg: any) => {
+            const speaker = seg.speakerName || '?';
+            const words = (seg.sentences || []).map((s: any) => s.text).join(' ');
+            text += `**${speaker}:** ${words.substring(0, 300)}\n`;
+          });
+        }
+
+        return { content: [{ type: 'text' as const, text: text.substring(0, 8000) }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Gong error: ${e.message}` }] };
+      }
+    },
+  );
+
+  return [listCalls, getTranscript, getCallStats, searchByDeal, getActionItems];
 }

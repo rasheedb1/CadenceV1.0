@@ -134,5 +134,108 @@ export function buildCalendarTools(agent: AgentConfig): any[] {
     },
   );
 
-  return [listEvents, createEvent, findFreeSlots];
+  // === NEW: Update Event ===
+  const updateEvent = tool(
+    'update_calendar_event',
+    'Update an existing Google Calendar event. Can change title, time, attendees, description, location. Use event ID from list_calendar_events.',
+    {
+      event_id: z.string().describe('Event ID (from list_calendar_events)'),
+      title: z.string().optional().describe('New title'),
+      start: z.string().optional().describe('New start time (ISO 8601)'),
+      end: z.string().optional().describe('New end time (ISO 8601)'),
+      description: z.string().optional().describe('New description'),
+      location: z.string().optional().describe('New location'),
+      add_attendees: z.array(z.string()).optional().describe('Email addresses to ADD to the event'),
+      remove_attendees: z.array(z.string()).optional().describe('Email addresses to REMOVE from the event'),
+    },
+    async ({ event_id, title, start, end, description, location, add_attendees, remove_attendees }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        // Get current event to merge attendees
+        const current = await calFetch(`/calendars/primary/events/${event_id}`, t.token);
+        const body: any = {};
+        if (title) body.summary = title;
+        if (start) body.start = { dateTime: start };
+        if (end) body.end = { dateTime: end };
+        if (description !== undefined) body.description = description;
+        if (location !== undefined) body.location = location;
+        if (add_attendees?.length || remove_attendees?.length) {
+          let attendees = (current.attendees || []).map((a: any) => ({ email: a.email }));
+          if (remove_attendees?.length) attendees = attendees.filter((a: any) => !remove_attendees.includes(a.email));
+          if (add_attendees?.length) attendees.push(...add_attendees.map(e => ({ email: e })));
+          body.attendees = attendees;
+        }
+        const data = await calFetch(`/calendars/primary/events/${event_id}`, t.token, {
+          method: 'PATCH', body: JSON.stringify(body),
+        });
+        return { content: [{ type: 'text' as const, text: `✅ Event updated: ${data.summary}\n🔗 ${data.htmlLink}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Calendar error: ${e.message}` }] };
+      }
+    },
+  );
+
+  // === NEW: Delete Event ===
+  const deleteEvent = tool(
+    'delete_calendar_event',
+    'Delete/cancel a Google Calendar event. Use event ID from list_calendar_events.',
+    {
+      event_id: z.string().describe('Event ID to delete'),
+      notify_attendees: z.boolean().optional().describe('Send cancellation emails to attendees (default true)'),
+    },
+    async ({ event_id, notify_attendees }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        const notify = notify_attendees !== false ? 'all' : 'none';
+        await fetch(`${CAL_BASE}/calendars/primary/events/${event_id}?sendUpdates=${notify}`, {
+          method: 'DELETE', headers: { Authorization: `Bearer ${t.token}` },
+        });
+        return { content: [{ type: 'text' as const, text: `✅ Event deleted${notify_attendees !== false ? ' — cancellation sent to attendees' : ''}.` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Calendar error: ${e.message}` }] };
+      }
+    },
+  );
+
+  // === NEW: Check Other People's Free/Busy ===
+  const freeBusy = tool(
+    'check_availability',
+    'Check free/busy status of one or more people for scheduling. Works with any Google Workspace user in the same organization.',
+    {
+      emails: z.array(z.string()).describe('Email addresses to check availability'),
+      date: z.string().describe('Date to check (YYYY-MM-DD)'),
+      start_hour: z.number().optional().describe('Start hour (default 9)'),
+      end_hour: z.number().optional().describe('End hour (default 18)'),
+    },
+    async ({ emails, date, start_hour, end_hour }) => {
+      const t = await ensureToken();
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        const timeMin = `${date}T${String(start_hour || 9).padStart(2, '0')}:00:00Z`;
+        const timeMax = `${date}T${String(end_hour || 18).padStart(2, '0')}:00:00Z`;
+        const data = await calFetch('/freeBusy', t.token, {
+          method: 'POST',
+          body: JSON.stringify({
+            timeMin, timeMax,
+            items: emails.map(e => ({ id: e })),
+          }),
+        });
+        const lines = emails.map(email => {
+          const cal = data.calendars?.[email];
+          if (cal?.errors?.length) return `${email}: ⚠️ ${cal.errors[0].reason}`;
+          const busy = cal?.busy || [];
+          if (busy.length === 0) return `${email}: ✅ Free all day`;
+          const slots = busy.map((b: any) => `${new Date(b.start).toISOString().substring(11, 16)}-${new Date(b.end).toISOString().substring(11, 16)}`).join(', ');
+          return `${email}: 🔴 Busy: ${slots}`;
+        }).join('\n');
+        return { content: [{ type: 'text' as const, text: `Availability on ${date}:\n\n${lines}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Calendar error: ${e.message}` }] };
+      }
+    },
+  );
+
+  return [listEvents, createEvent, findFreeSlots, updateEvent, deleteEvent, freeBusy];
 }
