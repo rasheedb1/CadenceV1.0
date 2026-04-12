@@ -41,15 +41,19 @@ app.use(express.json());
 const WHATSAPP_MAX_LENGTH = 1600; // Twilio WhatsApp API hard limit — messages >1600 chars get silently truncated
 
 function splitMessage(text) {
+  // Reserve space for part label "[1/9]\n" when splitting
+  const maxLen = text.length <= WHATSAPP_MAX_LENGTH ? WHATSAPP_MAX_LENGTH : WHATSAPP_MAX_LENGTH - 15;
   if (text.length <= WHATSAPP_MAX_LENGTH) return [text];
   const chunks = [];
   let remaining = text;
   while (remaining.length > 0) {
-    if (remaining.length <= WHATSAPP_MAX_LENGTH) { chunks.push(remaining); break; }
-    let idx = remaining.lastIndexOf("\n\n", WHATSAPP_MAX_LENGTH);
-    if (idx === -1 || idx < WHATSAPP_MAX_LENGTH * 0.3) idx = remaining.lastIndexOf("\n", WHATSAPP_MAX_LENGTH);
-    if (idx === -1 || idx < WHATSAPP_MAX_LENGTH * 0.3) idx = remaining.lastIndexOf(" ", WHATSAPP_MAX_LENGTH);
-    if (idx === -1) idx = WHATSAPP_MAX_LENGTH;
+    if (remaining.length <= maxLen) { chunks.push(remaining); break; }
+    // Try to split at natural boundaries: paragraph > heading > newline > space
+    let idx = remaining.lastIndexOf("\n\n", maxLen);
+    if (idx === -1 || idx < maxLen * 0.3) idx = remaining.lastIndexOf("\n---", maxLen);
+    if (idx === -1 || idx < maxLen * 0.3) idx = remaining.lastIndexOf("\n", maxLen);
+    if (idx === -1 || idx < maxLen * 0.3) idx = remaining.lastIndexOf(" ", maxLen);
+    if (idx === -1) idx = maxLen;
     chunks.push(remaining.slice(0, idx));
     remaining = remaining.slice(idx).trimStart();
   }
@@ -1154,54 +1158,25 @@ app.post("/api/agent-callback", express.json(), async (req, res) => {
       message = `✅ *${agent_name}* terminó la tarea:\n\n${cleanText}`;
     }
 
-    // If message is too long for WhatsApp, summarize with Haiku instead of splitting
-    // This ensures the user always gets a complete, coherent message
-    if (message.length > WHATSAPP_MAX_LENGTH) {
-      console.log(`[callback] Message too long (${message.length} chars), summarizing with Haiku...`);
-      try {
-        const summaryRes = await formatterClient.messages.create({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 500,
-          messages: [{ role: "user", content: `Eres un asistente que resume resultados de tareas para WhatsApp. El siguiente resultado de un agente es demasiado largo (${message.length} caracteres, máximo ${WHATSAPP_MAX_LENGTH}).
-
-REGLAS:
-- Resume el contenido COMPLETO para que quepa en ${WHATSAPP_MAX_LENGTH - 100} caracteres máximo
-- Mantén TODOS los datos importantes (números, nombres, porcentajes, montos)
-- Si hay una tabla, conviértela a lista con bullets
-- Si hay muchos items, muestra los top 5-10 más importantes y menciona el total
-- Mantén el emoji ✅ al inicio y el nombre del agente
-- Idioma: español
-- NO cortes información a la mitad — mejor resume que cortar
-
-RESULTADO ORIGINAL:
-${message}
-
-Responde SOLO con el mensaje resumido, nada más.` }],
-        });
-        const summary = summaryRes.content?.[0]?.text?.trim();
-        if (summary && summary.length > 10 && summary.length <= WHATSAPP_MAX_LENGTH) {
-          message = summary;
-          console.log(`[callback] Summarized to ${message.length} chars`);
-        } else if (summary && summary.length > WHATSAPP_MAX_LENGTH) {
-          // Summary still too long, truncate with indicator
-          message = summary.substring(0, WHATSAPP_MAX_LENGTH - 50) + "\n\n_(resumen completo disponible en Mission Control)_";
-          console.log(`[callback] Summary still long, truncated to ${message.length} chars`);
-        }
-      } catch (fmtErr) {
-        console.warn(`[callback] Haiku summary failed, falling back to truncation:`, fmtErr.message);
-        // Fallback: truncate with indicator rather than split incoherently
-        message = message.substring(0, WHATSAPP_MAX_LENGTH - 60) + "\n\n_(resultado completo disponible en Mission Control)_";
-      }
-    }
-
-    // Send via WhatsApp — message is now guaranteed to fit in one message
+    // Split into multiple WhatsApp messages if needed, each ≤1600 chars
+    // Splits at paragraph breaks, then newlines, then spaces — never mid-word
     const toNumber = waNumber.startsWith('whatsapp:') ? waNumber : `whatsapp:+${waNumber.replace(/^\+/, '')}`;
-    await twilioClient.messages.create({
-      from: TWILIO_WHATSAPP_NUMBER,
-      to: toNumber,
-      body: message,
-    });
-    console.log(`[callback] Sent result to ${toNumber} (1 msg, ${message.length} chars)`);
+    const chunks = splitMessage(message);
+
+    // Add part indicators if multi-message (e.g. "[1/3]")
+    const labeled = chunks.length > 1
+      ? chunks.map((c, i) => `${c}\n\n_[${i + 1}/${chunks.length}]_`)
+      : chunks;
+
+    for (const chunk of labeled) {
+      await twilioClient.messages.create({
+        from: TWILIO_WHATSAPP_NUMBER,
+        to: toNumber,
+        body: chunk,
+      });
+      if (labeled.length > 1) await new Promise(r => setTimeout(r, 800));
+    }
+    console.log(`[callback] Sent result to ${toNumber} (${labeled.length} msg(s), ${message.length} chars total)`);
     res.json({ success: true });
   } catch (err) {
     console.error(`[callback] Error sending to ${waNumber}:`, err.message);
