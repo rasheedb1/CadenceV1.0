@@ -827,6 +827,76 @@ app.get("/auth/salesforce/callback", async (req, res) => {
   }
 });
 
+// Salesforce token refresh (auto-refresh on every API call)
+app.post("/integrations/salesforce/refresh", express.json(), async (req, res) => {
+  try {
+    const clientId = process.env.SALESFORCE_CLIENT_ID;
+    const clientSecret = process.env.SALESFORCE_CLIENT_SECRET;
+    const orgId = String(req.body?.org_id || "");
+    if (!orgId) return res.status(400).json({ error: "Missing org_id" });
+
+    // Try agent_integrations first, then salesforce_connections
+    let row = null;
+    const aiRows = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.salesforce&select=*`, { headers: sbHeadersGlobal() });
+    if (Array.isArray(aiRows) && aiRows.length > 0) row = aiRows[0];
+    if (!row) {
+      const sfRows = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/salesforce_connections?org_id=eq.${orgId}&select=access_token,refresh_token,instance_url,is_active`, { headers: sbHeadersGlobal() });
+      if (Array.isArray(sfRows) && sfRows.length > 0) {
+        row = { access_token: sfRows[0].access_token, refresh_token: sfRows[0].refresh_token, metadata: { instance_url: sfRows[0].instance_url }, status: sfRows[0].is_active ? "active" : "expired" };
+      }
+    }
+    if (!row) return res.status(404).json({ error: "not_connected" });
+    if (!row.refresh_token) return res.status(400).json({ error: "no_refresh_token" });
+
+    const instanceUrl = row.metadata?.instance_url || "https://login.salesforce.com";
+
+    // Try current token first
+    try {
+      const testRes = await fetch(`${instanceUrl}/services/data/v59.0/limits`, {
+        headers: { Authorization: `Bearer ${row.access_token}` },
+      });
+      if (testRes.ok) {
+        return res.json({ access_token: row.access_token, instance_url: instanceUrl, refreshed: false });
+      }
+    } catch {}
+
+    // Token expired — refresh it
+    if (!clientId || !clientSecret) return res.status(500).json({ error: "Missing SF credentials" });
+    const tokenRes = await fetch(`${instanceUrl}/services/oauth2/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: row.refresh_token,
+      }),
+    });
+    const td = await tokenRes.json();
+    if (!tokenRes.ok || !td.access_token) {
+      console.error("[sf/refresh] failed:", td);
+      return res.status(500).json({ error: "refresh_failed", details: td });
+    }
+
+    // Update both tables
+    const newInstanceUrl = td.instance_url || instanceUrl;
+    await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.salesforce`, {
+      method: "PATCH", headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" },
+      body: JSON.stringify({ access_token: td.access_token, metadata: { instance_url: newInstanceUrl }, status: "active", last_refreshed_at: new Date().toISOString() }),
+    });
+    await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/salesforce_connections?org_id=eq.${orgId}`, {
+      method: "PATCH", headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" },
+      body: JSON.stringify({ access_token: td.access_token, instance_url: newInstanceUrl, is_active: true }),
+    });
+
+    console.log(`[sf/refresh] Token refreshed for org ${orgId}`);
+    return res.json({ access_token: td.access_token, instance_url: newInstanceUrl, refreshed: true });
+  } catch (e) {
+    console.error("[sf/refresh] error:", e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // Salesforce status
 app.get("/integrations/salesforce/status", async (req, res) => {
   try {
