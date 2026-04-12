@@ -370,7 +370,7 @@ function ActivityView({ agents, checkins, respondToCheckin }: {
           const id = `task-${task.id}`
           if (seenIds.has(id)) continue; seenIds.add(id)
           events.push({ id, type: 'task', agent_name: agent.name, agent_id: agent.id,
-            content: task.instruction?.substring(0, 2000) || '', detail: task.status, status: task.status,
+            content: task.instruction || '', detail: task.status, status: task.status,
             timestamp: task.completed_at || task.created_at })
         }
         for (const msg of getAgentMessages(agent.id).slice(0, 50)) {
@@ -394,7 +394,7 @@ function ActivityView({ agents, checkins, respondToCheckin }: {
           const agent = agents.find(a => a.id === evt.agent_id)
           const icon = evt.tool_name ? (TOOL_ICONS[evt.tool_name] || '⚡') : '⚡'
           events.push({ id, type: 'activity', agent_name: agent?.name || 'Agent',
-            agent_id: evt.agent_id, content: `${icon} ${evt.tool_name || evt.event_type}: ${evt.content?.substring(0, 500) || ''}`,
+            agent_id: evt.agent_id, content: `${icon} ${evt.tool_name || evt.event_type}: ${evt.content || ''}`,
             detail: evt.event_type, status: evt.event_type === 'tool_call' ? 'in_progress' : 'completed',
             timestamp: evt.created_at })
         }
@@ -412,7 +412,7 @@ function ActivityView({ agents, checkins, respondToCheckin }: {
       if (!task?.agent_id) return
       const agent = agents.find(a => a.id === task.agent_id)
       setLiveEvents(prev => [{ id: `task-${task.id}-${Date.now()}`, type: 'task' as const, agent_name: agent?.name || 'Agent',
-        agent_id: task.agent_id, content: task.instruction?.substring(0, 2000) || '', detail: task.status,
+        agent_id: task.agent_id, content: task.instruction || '', detail: task.status,
         status: task.status, timestamp: task.completed_at || task.created_at }, ...prev].slice(0, 300))
     })
     channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'agent_messages' }, (payload) => {
@@ -420,7 +420,7 @@ function ActivityView({ agents, checkins, respondToCheckin }: {
       const from = agents.find(a => a.id === msg.from_agent_id)
       const to = agents.find(a => a.id === msg.to_agent_id)
       setLiveEvents(prev => [{ id: `msg-${msg.id}-${Date.now()}`, type: 'message' as const, agent_name: from?.name || 'Chief',
-        agent_id: msg.from_agent_id || '', content: typeof msg.content === 'string' ? msg.content.substring(0, 2000) : 'Message',
+        agent_id: msg.from_agent_id || '', content: typeof msg.content === 'string' ? msg.content : 'Message',
         detail: `→ ${to?.name || 'Chief'}`, timestamp: msg.created_at }, ...prev].slice(0, 300))
     })
     channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'agent_activity_events' }, (payload) => {
@@ -428,7 +428,7 @@ function ActivityView({ agents, checkins, respondToCheckin }: {
       const agent = agents.find(a => a.id === evt.agent_id)
       const icon = evt.tool_name ? (TOOL_ICONS[evt.tool_name] || '⚡') : '⚡'
       setLiveEvents(prev => [{ id: `evt-${Date.now()}`, type: 'activity' as const, agent_name: agent?.name || 'Agent',
-        agent_id: evt.agent_id, content: `${icon} ${evt.tool_name || evt.event_type}: ${evt.content?.substring(0, 300) || ''}`,
+        agent_id: evt.agent_id, content: `${icon} ${evt.tool_name || evt.event_type}: ${evt.content || ''}`,
         detail: evt.event_type, status: evt.event_type === 'tool_call' ? 'in_progress' : 'completed',
         timestamp: evt.created_at }, ...prev].slice(0, 300))
     })
