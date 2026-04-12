@@ -143,12 +143,20 @@ export async function act(
       // BUDGET HARD CAP — block before executing
       // ============================================
       try {
-        const budgetCheck = await sbRpc<{ allowed: boolean; reason?: string; spent_today?: number; cap?: number }>(
+        const budgetCheck = await sbRpc<{
+          allowed: boolean; reason?: string;
+          spent_today?: number; cap?: number;
+          user_spent_today?: number; user_cap?: number;
+        }>(
           'check_budget_allows_task',
           { p_agent_id: agent.id }
         );
         if (budgetCheck && budgetCheck.allowed === false) {
-          log.warn(`[budget] Task BLOCKED: ${budgetCheck.reason} — spent $${budgetCheck.spent_today}/$${budgetCheck.cap}`);
+          const isUserCap = budgetCheck.reason === 'user_daily_cap_reached';
+          const spent = isUserCap ? budgetCheck.user_spent_today : budgetCheck.spent_today;
+          const cap = isUserCap ? budgetCheck.user_cap : budgetCheck.cap;
+          const label = isUserCap ? 'USER daily cap' : 'Agent daily cap';
+          log.warn(`[budget] Task BLOCKED: ${label} — spent $${spent}/$${cap}`);
           // Mark task back to ready so another agent (or tomorrow) can pick it up
           await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
             status: 'ready',
@@ -160,8 +168,8 @@ export async function act(
             org_id: agent.orgId,
             agent_id: agent.id,
             category: 'blocker',
-            title: `${agent.name} hit daily budget cap ($${budgetCheck.cap})`,
-            details: `Spent $${budgetCheck.spent_today} today. Task released back to queue. Cap resets in 24h.`,
+            title: `${agent.name} hit ${label} ($${cap})`,
+            details: `Spent $${spent} today. Task released back to queue. Cap resets in 24h.`,
           }).catch(() => {});
           state.interval = MAX_INTERVAL; // back off
           return 'budget_capped';
@@ -287,14 +295,19 @@ ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
 
       // Record cost in DB (updates daily counter, returns cap status)
       try {
-        const costRecord = await sbRpc<{ spent_today: number; cap: number; over_cap: boolean; over_80: boolean }>(
+        const costRecord = await sbRpc<{
+          spent_today: number; cap: number; over_cap: boolean; over_80: boolean;
+          user_spent_today?: number; user_cap?: number; user_over_cap?: boolean;
+        }>(
           'record_task_cost',
           { p_agent_id: agent.id, p_cost: result.costUsd, p_tokens: result.tokensUsed }
         );
-        if (costRecord?.over_cap) {
-          log.warn(`[budget] OVER CAP after task: $${costRecord.spent_today}/$${costRecord.cap}`);
+        if (costRecord?.user_over_cap) {
+          log.warn(`[budget] USER CAP REACHED: $${costRecord.user_spent_today}/$${costRecord.user_cap}`);
+        } else if (costRecord?.over_cap) {
+          log.warn(`[budget] AGENT CAP after task: $${costRecord.spent_today}/$${costRecord.cap}`);
         } else if (costRecord?.over_80) {
-          log.warn(`[budget] 80%+ used: $${costRecord.spent_today}/$${costRecord.cap}`);
+          log.warn(`[budget] Agent 80%+ used: $${costRecord.spent_today}/$${costRecord.cap}`);
         }
       } catch (e: any) {
         log.warn(`[budget] Cost recording failed: ${e.message}`);
@@ -420,11 +433,12 @@ ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
         fetch(CALLBACK_URL_DONE, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            task_id: params.task_id,
             agent_name: agent.name,
             result: { text: summary },
             whatsapp_number: null,
           }),
-        }).catch(() => {});
+        }).catch((e) => log.warn(`Callback failed: ${e.message}`));
 
         return 'auto_completed';
       }
@@ -437,11 +451,12 @@ ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
         fetch(CALLBACK_URL_ERR, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            task_id: params.task_id,
             agent_name: agent.name,
-            result: { text: errSummary },
+            error: errSummary,
             whatsapp_number: null,
           }),
-        }).catch(() => {});
+        }).catch((e) => log.warn(`Error callback failed: ${e.message}`));
       }
 
       return result.text;

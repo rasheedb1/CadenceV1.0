@@ -76,6 +76,12 @@ async function sendA2AMessage(agentUrl, message, opts = {}) {
 
     const result = await res.json();
 
+    // Reject non-A2A responses (e.g. health check JSON from orchestrator)
+    // Valid A2A responses MUST have jsonrpc field or result.kind in {message, task}
+    if (!result.jsonrpc && !result.result?.kind && !result.error) {
+      return { success: false, error: `Not a valid A2A response (got: ${JSON.stringify(result).substring(0, 150)})` };
+    }
+
     if (result.error) {
       return { success: false, error: `A2A error ${result.error.code}: ${result.error.message}` };
     }
@@ -108,7 +114,7 @@ async function sendA2AMessage(agentUrl, message, opts = {}) {
       return { success: true, taskId, state, reply: null };
     }
 
-    return { success: true, reply: JSON.stringify(response) };
+    return { success: false, error: `Unexpected A2A response kind: ${response?.kind}` };
   } catch (err) {
     clearTimeout(timer);
     if (err.name === "AbortError") {

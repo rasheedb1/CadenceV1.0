@@ -1094,30 +1094,54 @@ app.post("/api/agent-callback", express.json(), async (req, res) => {
   const { task_id, agent_name, result, error, whatsapp_number } = req.body;
   console.log(`[callback] Agent ${agent_name} completed task ${task_id} for ${whatsapp_number || 'auto-resolve'}`);
 
-  // Resolve whatsapp_number if not provided — find org's chief session
+  // Resolve whatsapp_number: try provided → resolve from task's org → resolve from agent name
   let waNumber = whatsapp_number;
+  let resolvedOrgId = null;
+
   if (!waNumber) {
     try {
-      // Find the agent's org, then find the chief session for that org
-      const agents = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agents?name=ilike.*${encodeURIComponent(agent_name || '')}*&select=org_id&limit=1`, { headers: sbHeadersGlobal() });
-      if (Array.isArray(agents) && agents.length > 0) {
-        const orgId = agents[0].org_id;
-        const sessions = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/chief_sessions?org_id=eq.${orgId}&select=whatsapp_number&limit=1`, { headers: sbHeadersGlobal() });
-        if (Array.isArray(sessions) && sessions.length > 0) {
-          waNumber = sessions[0].whatsapp_number;
+      // Strategy 1: If we have task_id, get org_id from the task itself (most reliable)
+      if (task_id) {
+        const taskRows = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_tasks_v2?id=eq.${task_id}&select=org_id&limit=1`, { headers: sbHeadersGlobal() });
+        if (Array.isArray(taskRows) && taskRows.length > 0) {
+          resolvedOrgId = taskRows[0].org_id;
         }
       }
-    } catch (e) { console.warn('[callback] Failed to resolve whatsapp_number:', e.message); }
+
+      // Strategy 2: Fallback to agent name lookup
+      if (!resolvedOrgId && agent_name) {
+        const agents = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agents?name=ilike.*${encodeURIComponent(agent_name || '')}*&select=org_id&limit=1`, { headers: sbHeadersGlobal() });
+        if (Array.isArray(agents) && agents.length > 0) {
+          resolvedOrgId = agents[0].org_id;
+        } else {
+          console.warn(`[callback] Agent name lookup failed for "${agent_name}" — no matching agent found`);
+        }
+      }
+
+      // Resolve WhatsApp number from org's chief session (most recent first)
+      if (resolvedOrgId) {
+        const sessions = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/chief_sessions?org_id=eq.${resolvedOrgId}&select=whatsapp_number&order=updated_at.desc&limit=1`, { headers: sbHeadersGlobal() });
+        if (Array.isArray(sessions) && sessions.length > 0 && sessions[0].whatsapp_number) {
+          waNumber = sessions[0].whatsapp_number;
+          console.log(`[callback] Auto-resolved whatsapp_number=${waNumber} for org=${resolvedOrgId}`);
+        } else {
+          console.warn(`[callback] No chief_sessions with whatsapp_number for org=${resolvedOrgId}`);
+        }
+      }
+    } catch (e) {
+      console.error('[callback] Failed to resolve whatsapp_number:', e.message);
+    }
   }
+
   if (!waNumber) {
-    console.warn(`[callback] No whatsapp_number for agent ${agent_name} — skipping notification`);
-    return res.json({ success: false, reason: "no_whatsapp_number" });
+    console.error(`[callback] FAILED: No whatsapp_number for agent "${agent_name}" task=${task_id} org=${resolvedOrgId} — notification lost`);
+    return res.json({ success: false, reason: "no_whatsapp_number", agent_name, task_id, org_id: resolvedOrgId });
   }
 
   try {
     let message;
     if (error) {
-      message = `❌ **${agent_name}** tuvo un error con la tarea:\n${error}`;
+      message = `❌ *${agent_name}* tuvo un error con la tarea:\n${error}`;
     } else {
       const resultText = typeof result === "string" ? result : (result?.text || result?.reply || result?.message || result?.summary || JSON.stringify(result));
       // Clean up any residual JSON-like formatting for WhatsApp
@@ -1130,7 +1154,7 @@ app.post("/api/agent-callback", express.json(), async (req, res) => {
       message = `✅ *${agent_name}* terminó la tarea:\n\n${cleanText}`;
     }
 
-    // Send via WhatsApp (split if needed)
+    // Send via WhatsApp (split if needed — uses corrected 1600 char limit)
     const toNumber = waNumber.startsWith('whatsapp:') ? waNumber : `whatsapp:+${waNumber.replace(/^\+/, '')}`;
     const chunks = splitMessage(message);
     for (const chunk of chunks) {
@@ -1141,10 +1165,10 @@ app.post("/api/agent-callback", express.json(), async (req, res) => {
       });
       if (chunks.length > 1) await new Promise(r => setTimeout(r, 500));
     }
-    console.log(`[callback] Sent result to ${whatsapp_number} (${chunks.length} msgs)`);
+    console.log(`[callback] Sent result to ${toNumber} (${chunks.length} msgs, ${message.length} chars total)`);
     res.json({ success: true });
   } catch (err) {
-    console.error(`[callback] Error sending to ${whatsapp_number}:`, err.message);
+    console.error(`[callback] Error sending to ${waNumber}:`, err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2525,186 +2549,115 @@ ${args.description ? `\n${args.description}\n` : ""}
           // Resolve agent by ID or name
           let agent = null;
           if (args.agent_id) {
-            const p = new URLSearchParams({ id: `eq.${args.agent_id}`, select: "id,name,role,status,railway_url", limit: "1" });
+            const p = new URLSearchParams({ id: `eq.${args.agent_id}`, select: "id,name,role,status,capabilities,org_id", limit: "1" });
             const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
             if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
           } else if (args.agent_name) {
-            const p = new URLSearchParams({ org_id: `eq.${args.org_id}`, name: `ilike.%${args.agent_name}%`, status: "neq.destroyed", select: "id,name,role,status,railway_url", limit: "1" });
+            const p = new URLSearchParams({ org_id: `eq.${args.org_id}`, name: `ilike.%${args.agent_name}%`, status: "neq.destroyed", select: "id,name,role,status,capabilities,org_id", limit: "1" });
             const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
             if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
           }
           if (!agent) return { success: false, error: "Agente no encontrado. Usa gestionar_agentes list para ver los agentes disponibles." };
 
-          // Create task record
-          const taskRes = await sbFetch(`${base}/functions/v1/agent-task`, {
-            method: "POST", headers: sbHeaders(true),
-            body: JSON.stringify({ org_id: args.org_id, agent_id: agent.id, instruction: args.instruction, delegated_by: "orchestrator" }),
+          // Infer task_type from agent capabilities for proper routing
+          const caps = agent.capabilities || [];
+          let taskType = "general";
+          if (caps.includes("code")) taskType = "code";
+          else if (caps.includes("design") || caps.includes("ux")) taskType = "design";
+          else if (caps.includes("research")) taskType = "research";
+          else if (caps.includes("qa")) taskType = "qa";
+          else if (caps.includes("inbox")) taskType = "inbox";
+
+          // Create task directly in agent_tasks_v2 with status=claimed + assigned to agent
+          // This is the table agents actually query in SENSE phase
+          const taskPayload = {
+            org_id: args.org_id,
+            title: (args.instruction || "").substring(0, 120),
+            description: args.instruction,
+            task_type: taskType,
+            required_capabilities: caps,
+            assigned_agent_id: agent.id,
+            assigned_at: new Date().toISOString(),
+            status: "claimed",
+            priority: args.priority || 10,
+            created_by: "chief_delegator",
+          };
+          const taskRows = await sbFetch(`${base}/rest/v1/agent_tasks_v2`, {
+            method: "POST",
+            headers: { ...sbHeaders(), Prefer: "return=representation" },
+            body: JSON.stringify(taskPayload),
           });
-          const taskId = taskRes?.task?.id;
+          const taskId = Array.isArray(taskRows) && taskRows.length > 0 ? taskRows[0].id : null;
 
-          // PRIMARY: A2A Protocol (HTTP direct, no queue, no lock)
-          if (agent.status === "active" && agent.railway_url) {
-            console.log(`[delegar_tarea] Sending to ${agent.name} via A2A (task=${taskId})`);
-            const a2aResult = await a2a.sendA2AMessage(agent.railway_url, args.instruction, {
-              token: SB_KEY,
-              fromAgentId: "chief",
-              orgId: args.org_id,
-              timeoutMs: 300000,
-            });
-
-            if (a2aResult.success && a2aResult.reply) {
-              // Sync response — task completed
-              if (taskId) {
-                await sbFetch(`${base}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true),
-                  body: JSON.stringify({ task_id: taskId, status: "completed", result: { text: a2aResult.reply } }) });
-              }
-              // Log exchange
-              await sbFetch(`${base}/rest/v1/agent_messages`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
-                body: JSON.stringify([
-                  { org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.instruction, metadata: { a2a: true, task_id: taskId } },
-                  { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: a2aResult.reply, metadata: { a2a: true, task_id: taskId } },
-                ]) });
-              return { success: true, agent: agent.name, task_id: taskId, result: a2aResult.reply };
-            }
-
-            if (a2aResult.success && a2aResult.taskId && !a2aResult.reply) {
-              // Async — task is still working, will complete later
-              // Get WhatsApp number for notification when done
-              let waNumber = null;
-              try {
-                const sp = new URLSearchParams({ org_id: `eq.${args.org_id}`, select: "whatsapp_number", limit: "1", order: "updated_at.desc" });
-                const sessions = await sbFetch(`${base}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
-                if (Array.isArray(sessions) && sessions.length > 0) waNumber = sessions[0].whatsapp_number;
-              } catch (_) {}
-
-              // Poll in background, notify via WhatsApp when done
-              (async () => {
-                try {
-                  const pollResult = await a2a.pollA2ATask(agent.railway_url, a2aResult.taskId, { token: SB_KEY, maxWaitMs: 300000 });
-                  if (pollResult.success && pollResult.reply) {
-                    if (taskId) await sbFetch(`${base}/functions/v1/agent-task`, { method: "PATCH", headers: sbHeaders(true), body: JSON.stringify({ task_id: taskId, status: "completed", result: { text: pollResult.reply } }) });
-                    if (waNumber) {
-                      await fetch("https://twilio-bridge-production-241b.up.railway.app/api/agent-callback", {
-                        method: "POST", headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ task_id: taskId, agent_name: agent.name, result: { text: pollResult.reply }, whatsapp_number: waNumber }),
-                      }).catch(() => {});
-                    }
-                  }
-                } catch (_) {}
-              })();
-
-              return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `Tarea enviada a ${agent.name} via A2A. Te llegará el resultado por WhatsApp cuando termine.` };
-            }
-
-            // A2A failed — fall through to pgmq/DB fallback
-            if (!a2aResult.success) {
-              console.warn(`[delegar_tarea] A2A failed for ${agent.name}:`, a2aResult.error);
-            }
+          if (!taskId) {
+            console.error(`[delegar_tarea] Failed to create task in agent_tasks_v2:`, JSON.stringify(taskRows));
+            return { success: false, error: "Error creando la tarea. Intenta de nuevo." };
           }
 
-          // FALLBACK: pgmq queue (for agents without A2A yet or A2A failure)
-          try {
-            let waNumber = null;
-            try {
-              const sp = new URLSearchParams({ org_id: `eq.${args.org_id}`, select: "whatsapp_number", limit: "1", order: "updated_at.desc" });
-              const sessions = await sbFetch(`${base}/rest/v1/chief_sessions?${sp}`, { headers: sbHeaders() });
-              if (Array.isArray(sessions) && sessions.length > 0) waNumber = sessions[0].whatsapp_number;
-            } catch (_) {}
+          // Log the instruction as a message to the agent's inbox
+          await sbFetch(`${base}/rest/v1/agent_messages`, {
+            method: "POST",
+            headers: { ...sbHeaders(), Prefer: "return=minimal" },
+            body: JSON.stringify({
+              org_id: args.org_id,
+              to_agent_id: agent.id,
+              role: "user",
+              content: args.instruction,
+              message_type: "task",
+              metadata: { task_id: taskId, delegated_by: "chief" },
+            }),
+          }).catch(e => console.warn("[delegar_tarea] Failed to log message:", e.message));
 
-            const envelope = pgmq.createEnvelope({
-              type: "task", fromAgentId: "chief", orgId: args.org_id, taskId, replyTo: "agent_chief",
-              payload: { instruction: args.instruction, callback_url: "https://twilio-bridge-production-241b.up.railway.app/api/agent-callback", whatsapp_number: waNumber, agent_name: agent.name },
-            });
-            await pgmq.sendMessage(pgmq.getQueueName(agent.id), envelope);
-            console.log(`[delegar_tarea] Queued task for ${agent.name} via pgmq fallback (task=${taskId})`);
-            return { success: true, agent: agent.name, task_id: taskId, status: "processing", message: `Tarea enviada a ${agent.name}. Te llegará el resultado por WhatsApp.` };
-          } catch (queueErr) {
-            console.warn(`[delegar_tarea] pgmq also failed:`, queueErr.message);
-          }
+          console.log(`[delegar_tarea] Created task ${taskId} in agent_tasks_v2, assigned to ${agent.name} (${agent.id})`);
 
-          // Agent not deployed — task stays pending in DB
-          return { success: true, agent: agent.name, task_id: taskId, status: "pending", message: `Tarea creada para ${agent.name} (${agent.role}), pero el agente no está desplegado aún. Se ejecutará cuando esté activo.` };
+          // Agent's event loop will pick this up in next SENSE cycle (10-60s)
+          // On completion, act.ts calls /api/agent-callback which sends WhatsApp notification
+          return {
+            success: true,
+            agent: agent.name,
+            task_id: taskId,
+            status: "processing",
+            message: `Tarea asignada a ${agent.name}. La está procesando y te llegará el resultado por WhatsApp cuando termine.`,
+          };
         }
 
         case "consultar_agente": {
           // Resolve agent by ID or name
           let agent = null;
           if (args.agent_id) {
-            const p = new URLSearchParams({ id: `eq.${args.agent_id}`, select: "id,name,role,status,railway_url", limit: "1" });
+            const p = new URLSearchParams({ id: `eq.${args.agent_id}`, select: "id,name,role,status", limit: "1" });
             const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
             if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
           } else if (args.agent_name) {
-            const p = new URLSearchParams({ org_id: `eq.${args.org_id}`, name: `ilike.%${args.agent_name}%`, status: "neq.destroyed", select: "id,name,role,status,railway_url", limit: "1" });
+            const p = new URLSearchParams({ org_id: `eq.${args.org_id}`, name: `ilike.%${args.agent_name}%`, status: "neq.destroyed", select: "id,name,role,status", limit: "1" });
             const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
             if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
           }
           if (!agent) return { success: false, error: "Agente no encontrado. Usa gestionar_agentes list para ver los agentes disponibles." };
 
-          // PRIMARY: A2A Protocol (sync, blocking)
-          if (agent.status === "active" && agent.railway_url) {
-            console.log(`[consultar_agente] Sending to ${agent.name} via A2A`);
-            const a2aResult = await a2a.sendA2AMessage(agent.railway_url, args.message, {
-              token: SB_KEY,
-              fromAgentId: "chief",
-              orgId: args.org_id,
-              timeoutMs: 60000,
-            });
+          // Send message via agent_messages table (SENSE phase reads this inbox)
+          await sbFetch(`${base}/rest/v1/agent_messages`, {
+            method: "POST",
+            headers: { ...sbHeaders(), Prefer: "return=minimal" },
+            body: JSON.stringify({
+              org_id: args.org_id,
+              to_agent_id: agent.id,
+              role: "user",
+              content: args.message,
+              message_type: "chat",
+              metadata: { from: "chief", requires_response: true },
+            }),
+          });
 
-            if (a2aResult.success && a2aResult.reply) {
-              // Log exchange
-              await sbFetch(`${base}/rest/v1/agent_messages`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
-                body: JSON.stringify([
-                  { org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.message, metadata: { a2a: true } },
-                  { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: a2aResult.reply, metadata: { a2a: true } },
-                ]) });
-              return { success: true, agent: agent.name, reply: a2aResult.reply };
-            }
+          console.log(`[consultar_agente] Message sent to ${agent.name} via agent_messages`);
 
-            if (a2aResult.success && a2aResult.taskId && !a2aResult.reply) {
-              // Still working — poll briefly
-              const pollResult = await a2a.pollA2ATask(agent.railway_url, a2aResult.taskId, { token: SB_KEY, maxWaitMs: 60000 });
-              if (pollResult.success && pollResult.reply) {
-                await sbFetch(`${base}/rest/v1/agent_messages`, { method: "POST", headers: { ...sbHeaders(), Prefer: "return=minimal" },
-                  body: JSON.stringify([
-                    { org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.message, metadata: { a2a: true } },
-                    { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: pollResult.reply, metadata: { a2a: true } },
-                  ]) });
-                return { success: true, agent: agent.name, reply: pollResult.reply };
-              }
-              return { success: true, agent: agent.name, message: `${agent.name} está procesando tu consulta. Te llegará por WhatsApp.` };
-            }
-
-            if (!a2aResult.success) {
-              console.warn(`[consultar_agente] A2A failed for ${agent.name}:`, a2aResult.error);
-            }
-          }
-
-          // FALLBACK: pgmq queue
-          try {
-            const envelope = pgmq.createEnvelope({
-              type: "chat", fromAgentId: "chief", orgId: args.org_id, replyTo: "agent_chief",
-              payload: { message: args.message, context: { from_agent: "chief" } },
-            });
-            await pgmq.sendMessage(pgmq.getQueueName(agent.id), envelope);
-
-            const deadline = Date.now() + 30000;
-            while (Date.now() < deadline) {
-              const msgs = await pgmq.pollMessages("agent_chief", 30, 5, 5);
-              for (const msg of msgs) {
-                const parsed = pgmq.parseMessage(msg);
-                if (parsed && parsed.type === "reply" && parsed.correlation_id === envelope.correlation_id) {
-                  await pgmq.archiveMessage("agent_chief", parsed._msg_id);
-                  const reply = parsed.payload?.message || parsed.payload?.reply || JSON.stringify(parsed.payload);
-                  return { success: true, agent: agent.name, reply };
-                }
-              }
-            }
-            return { success: true, agent: agent.name, message: `${agent.name} está procesando. Te llegará por WhatsApp.` };
-          } catch (queueErr) {
-            console.warn(`[consultar_agente] pgmq also failed:`, queueErr.message);
-          }
-
-          return { success: false, error: `${agent.name} no está disponible (ni A2A ni cola funcionan).` };
+          // Agent will respond via agent_messages (from_agent_id) on next SENSE cycle
+          // For now, return acknowledgment — response arrives async
+          return {
+            success: true,
+            agent: agent.name,
+            message: `Mensaje enviado a ${agent.name}. Responderá en su próximo ciclo (10-60s).`,
+          };
         }
 
         case "proponer_proyecto": {
