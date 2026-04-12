@@ -299,6 +299,13 @@ export async function act(
       // SDK: Read/Write/Edit only — NO Bash
       // ================================================================
       const workDir = isCodeAgent ? repoDir : cwd;
+      // Skills context — inject available skill definitions so agent knows how to execute them
+      const skillsContext = context.skills && context.skills.length > 0
+        ? `\nAVAILABLE SKILLS:\n${context.skills.map(s =>
+            `- ${s.display_name} [${s.name}]: ${s.description}\n  How: ${s.skill_definition}`
+          ).join('\n')}\nWhen the task matches a skill, use the call_skill tool with the skill name and required params.`
+        : '';
+
       const sdkPrompt = `${instruction}
 
 ENVIRONMENT:
@@ -306,7 +313,7 @@ ENVIRONMENT:
 ${isCodeAgent ? `- Repo cloned, npm installed, ready to edit code.
 - Do NOT use Bash tool. Git, npm, build, deploy are automated after you finish.
 - Just use Read, Edit, Write, Grep, Glob to modify code. Describe what you changed when done.` : `- Use Read, Write, Grep, Glob, WebSearch, screenshot_page as needed.`}
-${artifactsIndex}
+${artifactsIndex}${skillsContext}
 ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
 
       const result = await executeWithSDK(agent, sdkPrompt, log);

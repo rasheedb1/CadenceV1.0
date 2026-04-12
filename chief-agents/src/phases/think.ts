@@ -114,7 +114,10 @@ AVAILABLE TASKS (${context.availableTasks.length}):
 ${context.availableTasks.length ? context.availableTasks.map(fmtTask).join('\n') : '(none available)'}
 
 ONLINE AGENTS: ${context.onlineAgents.length ? context.onlineAgents.map((a) => a.agent_id?.substring(0, 8)).join(', ') : 'none'}
-
+${context.skills && context.skills.length > 0 ? `
+MY SKILLS (${context.skills.length}):
+${context.skills.map((s: any) => `- ${s.display_name} [${s.name}]: ${s.description} → ${s.skill_definition}`).join('\n')}
+When a task or message matches one of your skills, use work_on_task and include the skill name in your instruction.` : ''}
 Respond with ONE JSON action object now.`;
 }
 

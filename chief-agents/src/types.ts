@@ -183,9 +183,18 @@ export interface LoopState {
   consecutiveFailedClaims: number;
   lastSenseTime: string | null;
   budgetFromDB: BudgetRow | null;
+  cachedSkills?: SkillDef[];
 }
 
 // --- SENSE context ---
+
+export interface SkillDef {
+  name: string;
+  display_name: string;
+  description: string;
+  skill_definition: string;
+  category: string;
+}
 
 export interface SenseContext {
   inbox: MessageRow[];
@@ -201,6 +210,7 @@ export interface SenseContext {
   pendingFeedback: CheckinRow[];
   unreadMessages: MessageRow[];
   projectContext: ProjectContextRow[];
+  skills: SkillDef[];
 }
 
 export interface ProjectContextRow {

@@ -116,6 +116,7 @@ ${agent.capabilities.includes('browser') || agent.capabilities.includes('design'
 - mcp__chief-tools__screenshot_page: take screenshot of any URL via Firecrawl
 - mcp__chief-tools__scrape_url: scrape web page content as markdown
 - mcp__chief-tools__web_search_firecrawl: search web with Firecrawl
+- mcp__chief-tools__call_skill: execute a skill (edge function) from your AVAILABLE SKILLS list
 
 # WORKING WITH OTHER AGENTS
 You work in a team. Your teammates produce artifacts (specs, reports, code reviews) that are written to /workspace/${safeName}/team-artifacts/ before each task. Read those files to get context from other agents.

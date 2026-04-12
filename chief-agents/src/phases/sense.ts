@@ -3,7 +3,7 @@
  * Ported from event-loop.js lines 120-193 + new queries for migration.
  */
 
-import type { AgentConfig, LoopState, SenseContext, AgentRow } from '../types.js';
+import type { AgentConfig, LoopState, SenseContext, AgentRow, SkillDef } from '../types.js';
 import { sbGet, sbRpc } from '../supabase-client.js';
 import { clearMcpCache } from '../sdk-runner.js';
 import type { Logger } from '../utils/logger.js';
@@ -96,6 +96,30 @@ export async function sense(
     }).catch(() => {});
   }
 
+  // --- Load agent skills (every 10 ticks or first time) ---
+  let skills: SkillDef[] = state.cachedSkills || [];
+  if (!state.cachedSkills || state.iteration % 10 === 0) {
+    try {
+      const skillRows = await sbGet<Array<{ skill_name: string; enabled: boolean }>>(
+        `agent_skills?agent_id=eq.${agent.id}&enabled=eq.true&select=skill_name`,
+      );
+      const skillNames = safe<{ skill_name: string }>(skillRows).map(s => s.skill_name);
+      if (skillNames.length > 0) {
+        const nameFilter = skillNames.map(n => `name.eq.${n}`).join(',');
+        const defs = await sbGet<SkillDef[]>(
+          `skill_registry?or=(${nameFilter})&select=name,display_name,description,skill_definition,category`,
+        );
+        skills = safe<SkillDef>(defs);
+        state.cachedSkills = skills;
+      } else {
+        skills = [];
+        state.cachedSkills = [];
+      }
+    } catch {
+      // Keep cached skills on error
+    }
+  }
+
   // --- Memory queries (parallel, only if agent has tasks or every 5 ticks) ---
   const myV2 = safe(myTasksV2);
   let latestArtifact = null;
@@ -151,5 +175,6 @@ export async function sense(
     pendingFeedback,
     unreadMessages: unread as any[],
     projectContext: safe(projectContext),
+    skills,
   };
 }

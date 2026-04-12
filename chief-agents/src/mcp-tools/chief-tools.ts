@@ -9,6 +9,7 @@ import type { AgentConfig } from '../types.js';
 import { sbGet, sbPost, sbPostReturn } from '../supabase-client.js';
 import { TYPE_CAPS } from '../types.js';
 import { buildIntegrationTools } from './integration-registry.js';
+import { buildSkillTools } from './skill-tools.js';
 
 async function resolveAgentId(orgId: string, name: string): Promise<string | null> {
   const rows = await sbGet<Array<{ id: string }>>(
@@ -336,9 +337,12 @@ export function buildChiefToolsServer(agent: AgentConfig) {
   // ---------- Integration tools (capability-gated per agent) ----------
   const integrationTools = buildIntegrationTools(agent);
 
+  // ---------- Skill execution tools (always available) ----------
+  const skillTools = buildSkillTools(agent);
+
   return createSdkMcpServer({
     name: 'chief-tools',
     version: '1.0.0',
-    tools: [sendMessage, saveArtifact, createSubtask, queryKnowledge, askHuman, reportToChief, screenshotPage, scrapeUrl, firecrawlSearch, deployFrontend, deployEdgeFunction, pushMigration, ...integrationTools],
+    tools: [sendMessage, saveArtifact, createSubtask, queryKnowledge, askHuman, reportToChief, screenshotPage, scrapeUrl, firecrawlSearch, deployFrontend, deployEdgeFunction, pushMigration, ...integrationTools, ...skillTools],
   });
 }
