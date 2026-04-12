@@ -190,15 +190,36 @@ export async function think(
       .map((b) => (b as { type: 'text'; text: string }).text)
       .join('');
 
-    // Track token usage (including cache stats)
+    // Track token usage and REAL cost (including cache discounts)
     const inputTokens = response.usage?.input_tokens || 0;
     const outputTokens = response.usage?.output_tokens || 0;
     const cacheRead = (response.usage as any)?.cache_read_input_tokens || 0;
     const cacheWrite = (response.usage as any)?.cache_creation_input_tokens || 0;
     state.budget.tokens += inputTokens + outputTokens + cacheRead + cacheWrite;
     state.budget.iterations++;
+
+    // Calculate REAL cost for Haiku (cache_read tokens cost 10%, cache_write cost 25% more)
+    const HAIKU_INPUT = 0.80;  // $/MTok
+    const HAIKU_OUTPUT = 4.00; // $/MTok
+    const thinkCost = (
+      (inputTokens * HAIKU_INPUT / 1_000_000) +
+      (outputTokens * HAIKU_OUTPUT / 1_000_000) +
+      (cacheRead * HAIKU_INPUT * 0.1 / 1_000_000) +    // 90% discount
+      (cacheWrite * HAIKU_INPUT * 1.25 / 1_000_000)     // 25% surcharge
+    );
+
+    // Record THINK cost in budget DB so it's visible in tracking
+    if (thinkCost > 0) {
+      const { sbRpc } = await import('../supabase-client.js');
+      sbRpc('record_task_cost', {
+        p_agent_id: agent.id,
+        p_cost: parseFloat(thinkCost.toFixed(6)),
+        p_tokens: inputTokens + outputTokens,
+      }).catch(() => {});
+    }
+
     if (cacheRead > 0) {
-      log.info(`THINK cache hit: ${cacheRead} tokens read from cache (90% discount)`);
+      log.info(`THINK cache hit: ${cacheRead} tokens (90% discount) — cost $${thinkCost.toFixed(4)}`);
     }
 
     // Parse JSON from response
