@@ -62,11 +62,13 @@ export function buildCalendarTools(agent: AgentConfig): any[] {
 
   const createEvent = tool(
     'create_calendar_event',
-    'Create a new event in the user Google Calendar. Returns the event link.',
+    `Create a new event in the user Google Calendar. Returns the event link.
+IMPORTANT: The current year is ${new Date().getFullYear()}. Always use the CURRENT or FUTURE year. Never use past years.
+IMPORTANT: Use the user's timezone (America/Mexico_City = UTC-6) unless specified otherwise.`,
     {
       title: z.string().describe('Event title'),
-      start: z.string().describe('Start time ISO 8601 (e.g. 2026-04-15T10:00:00-06:00)'),
-      end: z.string().describe('End time ISO 8601'),
+      start: z.string().describe(`Start time ISO 8601 with timezone (e.g. ${new Date().getFullYear()}-04-15T10:00:00-06:00). MUST be ${new Date().getFullYear()} or later.`),
+      end: z.string().describe('End time ISO 8601 with timezone'),
       description: z.string().optional().describe('Event description/notes'),
       location: z.string().optional().describe('Location or meeting link'),
       attendees: z.array(z.string()).optional().describe('Array of attendee email addresses'),
@@ -74,6 +76,14 @@ export function buildCalendarTools(agent: AgentConfig): any[] {
     async ({ title, start, end, description, location, attendees }) => {
       const t = await ensureToken();
       if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+
+      // Validate: reject past dates
+      const startDate = new Date(start);
+      const now = new Date();
+      if (startDate < new Date(now.getTime() - 3600000)) {
+        return { content: [{ type: 'text' as const, text: `❌ Cannot create event in the past. You specified ${start} but current time is ${now.toISOString()}. The current year is ${now.getFullYear()}. Please use a future date.` }] };
+      }
+
       try {
         const body: any = {
           summary: title,
@@ -82,11 +92,17 @@ export function buildCalendarTools(agent: AgentConfig): any[] {
         };
         if (description) body.description = description;
         if (location) body.location = location;
-        if (attendees?.length) body.attendees = attendees.map(e => ({ email: e }));
+        if (attendees?.length) {
+          body.attendees = attendees.map(e => ({ email: e }));
+          body.sendUpdates = 'all'; // Send invites to attendees
+        }
         const data = await calFetch('/calendars/primary/events', t.token, {
           method: 'POST', body: JSON.stringify(body),
         });
-        return { content: [{ type: 'text' as const, text: `✅ Event created: ${data.summary}\n🔗 ${data.htmlLink}` }] };
+        const eventStart = data.start?.dateTime || data.start?.date || start;
+        const eventEnd = data.end?.dateTime || data.end?.date || end;
+        const invitedList = (data.attendees || []).map((a: any) => a.email).join(', ');
+        return { content: [{ type: 'text' as const, text: `✅ Event created: ${data.summary}\n📅 ${eventStart} → ${eventEnd}\n${invitedList ? `👥 Invites sent to: ${invitedList}\n` : ''}🔗 ${data.htmlLink}` }] };
       } catch (e: any) {
         return { content: [{ type: 'text' as const, text: `Calendar error: ${e.message}` }] };
       }
