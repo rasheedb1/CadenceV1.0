@@ -1124,11 +1124,12 @@ app.post("/api/agent-callback", express.json(), async (req, res) => {
     }
 
     // Send via WhatsApp (split if needed)
+    const toNumber = waNumber.startsWith('whatsapp:') ? waNumber : `whatsapp:+${waNumber.replace(/^\+/, '')}`;
     const chunks = splitMessage(message);
     for (const chunk of chunks) {
       await twilioClient.messages.create({
         from: TWILIO_WHATSAPP_NUMBER,
-        to: whatsapp_number,
+        to: toNumber,
         body: chunk,
       });
       if (chunks.length > 1) await new Promise(r => setTimeout(r, 500));
