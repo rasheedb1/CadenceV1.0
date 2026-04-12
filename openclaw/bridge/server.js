@@ -1099,7 +1099,7 @@ app.post("/api/agent-callback", express.json(), async (req, res) => {
   if (!waNumber) {
     try {
       // Find the agent's org, then find the chief session for that org
-      const agents = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agents?name=ilike.%${encodeURIComponent(agent_name || '')}%&select=org_id&limit=1`, { headers: sbHeadersGlobal() });
+      const agents = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agents?name=ilike.*${encodeURIComponent(agent_name || '')}*&select=org_id&limit=1`, { headers: sbHeadersGlobal() });
       if (Array.isArray(agents) && agents.length > 0) {
         const orgId = agents[0].org_id;
         const sessions = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/chief_sessions?org_id=eq.${orgId}&select=whatsapp_number&limit=1`, { headers: sbHeadersGlobal() });
