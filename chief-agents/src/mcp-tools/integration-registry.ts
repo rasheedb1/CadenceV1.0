@@ -20,6 +20,7 @@ import { buildSheetsTools } from './sheets-tools.js';
 import { buildContactsTools } from './contacts-tools.js';
 import { buildSlidesTools } from './slides-tools.js';
 import { buildBusinessCaseTools } from './business-case-tools.js';
+import { buildGongTools } from './gong-tools.js';
 
 type ToolBuilder = (agent: AgentConfig) => any[];
 
@@ -34,6 +35,7 @@ const REGISTRY: Record<string, ToolBuilder> = {
   contacts:      buildContactsTools,
   presentations:  buildSlidesTools,
   business_cases: buildBusinessCaseTools,
+  gong:           buildGongTools,
 };
 
 /**

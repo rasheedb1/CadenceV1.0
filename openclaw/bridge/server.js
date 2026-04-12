@@ -918,6 +918,48 @@ app.get("/integrations/status", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// API Key management — store/read per-org API keys for integrations
+// ---------------------------------------------------------------------------
+app.post("/integrations/apikey/save", express.json(), async (req, res) => {
+  try {
+    const { org_id, provider, api_key, api_secret, label } = req.body;
+    if (!org_id || !provider || !api_key) return res.status(400).json({ error: "Missing org_id, provider, or api_key" });
+    const payload = {
+      org_id, provider,
+      access_token: api_key,
+      refresh_token: api_secret || null,
+      email: label || null,
+      connected_via: "dashboard",
+      status: "active",
+      metadata: { type: "apikey" },
+      last_refreshed_at: new Date().toISOString(),
+    };
+    const existing = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${org_id}&provider=eq.${provider}&select=id`, { headers: sbHeadersGlobal() });
+    if (Array.isArray(existing) && existing.length > 0) {
+      await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${org_id}&provider=eq.${provider}`, {
+        method: "PATCH", headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" }, body: JSON.stringify(payload),
+      });
+    } else {
+      await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations`, {
+        method: "POST", headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" }, body: JSON.stringify(payload),
+      });
+    }
+    return res.json({ success: true, message: `${provider} API key saved` });
+  } catch (e) { return res.status(500).json({ error: e.message }); }
+});
+
+app.get("/integrations/apikey/status", async (req, res) => {
+  try {
+    const orgId = String(req.query.org_id || "");
+    const provider = String(req.query.provider || "");
+    if (!orgId || !provider) return res.status(400).json({ error: "Missing org_id or provider" });
+    const rows = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/agent_integrations?org_id=eq.${orgId}&provider=eq.${provider}&select=status,email,connected_at`, { headers: sbHeadersGlobal() });
+    if (!Array.isArray(rows) || rows.length === 0) return res.json({ connected: false });
+    return res.json({ connected: rows[0].status === "active", label: rows[0].email, connected_at: rows[0].connected_at });
+  } catch (e) { return res.status(500).json({ error: e.message }); }
+});
+
+// ---------------------------------------------------------------------------
 // Business Case Generator endpoint
 // ---------------------------------------------------------------------------
 app.post("/api/generate-business-case", express.json({ limit: "5mb" }), async (req, res) => {

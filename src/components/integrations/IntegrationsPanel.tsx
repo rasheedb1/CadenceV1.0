@@ -8,7 +8,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Mail, CheckCircle2, XCircle, ExternalLink, RefreshCw, Cloud, Linkedin, Search, Globe } from 'lucide-react'
+import { Mail, CheckCircle2, XCircle, ExternalLink, RefreshCw, Cloud, Linkedin, Search, Globe, Mic, Loader2, Save } from 'lucide-react'
+import { Input } from '@/components/ui/input'
 import { useOrg } from '@/contexts/OrgContext'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -120,6 +121,16 @@ export function IntegrationsPanel() {
       desc: 'Búsqueda de prospectos, enriquecimiento, empresas. Capability: apollo.',
     },
     {
+      key: 'gong', name: 'Gong', type: 'apikey_input' as const,
+      icon: <Mic className="h-5 w-5 text-emerald-500" />,
+      iconBg: 'bg-emerald-500/10 border-emerald-500/20',
+      desc: 'Llamadas, transcripts, analytics de ventas. Capability: gong.',
+      fields: [
+        { name: 'api_key', label: 'Access Key', placeholder: 'Tu Gong Access Key' },
+        { name: 'api_secret', label: 'Access Key Secret', placeholder: 'Tu Gong Access Key Secret', secret: true },
+      ],
+    },
+    {
       key: 'firecrawl', name: 'Firecrawl', type: 'apikey' as const,
       icon: <Globe className="h-5 w-5 text-orange-500" />,
       iconBg: 'bg-orange-500/10 border-orange-500/20',
@@ -145,7 +156,6 @@ export function IntegrationsPanel() {
         const s = statuses[int.key] || {}
         const isConnected = s.connected === true
         const isAvailable = s.available === true
-        const isOAuth = int.type === 'oauth'
 
         return (
           <Card key={int.key}>
@@ -158,8 +168,7 @@ export function IntegrationsPanel() {
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-base">{int.name}</CardTitle>
                     {isConnected && <Badge variant="outline" className="text-xs text-green-500 border-green-500/30">Connected</Badge>}
-                    {!isOAuth && isAvailable && <Badge variant="outline" className="text-xs text-blue-500 border-blue-500/30">API Ready</Badge>}
-                    {!isOAuth && !isAvailable && <Badge variant="outline" className="text-xs text-yellow-500 border-yellow-500/30">Not Configured</Badge>}
+                    {!isConnected && int.type === 'apikey' && isAvailable && <Badge variant="outline" className="text-xs text-blue-500 border-blue-500/30">API Ready</Badge>}
                   </div>
                   <CardDescription className="text-xs mt-0.5">{int.desc}</CardDescription>
                 </div>
@@ -168,7 +177,7 @@ export function IntegrationsPanel() {
             <CardContent className="pt-0">
               {loading ? (
                 <div className="text-sm text-muted-foreground">Loading...</div>
-              ) : isOAuth ? (
+              ) : int.type === 'oauth' ? (
                 <div className="flex items-center gap-2">
                   {isConnected ? (
                     <>
@@ -195,6 +204,8 @@ export function IntegrationsPanel() {
                     </>
                   )}
                 </div>
+              ) : int.type === 'apikey_input' ? (
+                <ApiKeyForm provider={int.key} fields={int.fields || []} orgId={org?.id || ''} connected={isConnected} onSaved={fetchAll} />
               ) : (
                 <div className="flex items-center gap-2">
                   {isAvailable ? (
@@ -214,6 +225,82 @@ export function IntegrationsPanel() {
           </Card>
         )
       })}
+    </div>
+  )
+}
+
+// ── API Key Form (for Gong, etc.) ───────────────────────────────────────
+function ApiKeyForm({ provider, fields, orgId, connected, onSaved }: {
+  provider: string
+  fields: Array<{ name: string; label: string; placeholder?: string; secret?: boolean }>
+  orgId: string
+  connected: boolean
+  onSaved: () => void
+}) {
+  const [values, setValues] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    if (!orgId) return
+    setSaving(true)
+    try {
+      const res = await fetch(`${BRIDGE_URL}/integrations/apikey/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: orgId,
+          provider,
+          api_key: values.api_key || values[fields[0]?.name] || '',
+          api_secret: values.api_secret || values[fields[1]?.name] || '',
+          label: provider,
+        }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        onSaved()
+        setValues({})
+      }
+    } catch {} finally { setSaving(false) }
+  }
+
+  if (connected) {
+    return (
+      <div className="flex items-center gap-2">
+        <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+        <span className="text-sm">API key configured</span>
+        <div className="flex-1" />
+        <Button variant="ghost" size="sm" className="text-destructive" onClick={async () => {
+          if (!confirm('Remove API key?')) return
+          await fetch(`${BRIDGE_URL}/integrations/google/disconnect`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ org_id: orgId }),
+          })
+          onSaved()
+        }}>
+          <XCircle className="h-3 w-3 mr-1" />Remove
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {fields.map(f => (
+        <div key={f.name} className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">{f.label}</label>
+          <Input
+            type={f.secret ? 'password' : 'text'}
+            placeholder={f.placeholder}
+            value={values[f.name] || ''}
+            onChange={e => setValues(prev => ({ ...prev, [f.name]: e.target.value }))}
+            className="h-8 text-xs"
+          />
+        </div>
+      ))}
+      <Button size="sm" onClick={handleSave} disabled={saving || !values[fields[0]?.name]}>
+        {saving ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Save className="h-3 w-3 mr-1" />}
+        Save API Key
+      </Button>
     </div>
   )
 }
