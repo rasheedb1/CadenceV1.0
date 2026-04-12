@@ -496,7 +496,7 @@ function ActivityView({ agents, checkins, respondToCheckin }: {
                           {event.status && <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4">{event.status}</Badge>}
                           {isRecent && <span className="text-[9px] text-amber-600 font-medium">NUEVO</span>}
                         </div>
-                        <p className={`text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap ${expandedEvent === event.id ? '' : 'line-clamp-2'}`}>{event.content}</p>
+                        <p className={`text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap ${expandedEvent === event.id ? 'max-h-60 overflow-y-auto' : 'line-clamp-2'}`}>{event.content}</p>
                       </div>
                       <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(event.timestamp)}</span>
                     </div>
