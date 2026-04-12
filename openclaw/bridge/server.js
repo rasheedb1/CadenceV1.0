@@ -2625,17 +2625,63 @@ ${args.description ? `\n${args.description}\n` : ""}
           // Resolve agent by ID or name
           let agent = null;
           if (args.agent_id) {
-            const p = new URLSearchParams({ id: `eq.${args.agent_id}`, select: "id,name,role,status", limit: "1" });
+            const p = new URLSearchParams({ id: `eq.${args.agent_id}`, select: "id,name,role,status,railway_url", limit: "1" });
             const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
             if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
           } else if (args.agent_name) {
-            const p = new URLSearchParams({ org_id: `eq.${args.org_id}`, name: `ilike.%${args.agent_name}%`, status: "neq.destroyed", select: "id,name,role,status", limit: "1" });
+            const p = new URLSearchParams({ org_id: `eq.${args.org_id}`, name: `ilike.%${args.agent_name}%`, status: "neq.destroyed", select: "id,name,role,status,railway_url", limit: "1" });
             const rows = await sbFetch(`${base}/rest/v1/agents?${p}`, { headers: sbHeaders() });
             if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
           }
           if (!agent) return { success: false, error: "Agente no encontrado. Usa gestionar_agentes list para ver los agentes disponibles." };
 
-          // Send message via agent_messages table (SENSE phase reads this inbox)
+          // PRIMARY: A2A Protocol (sync, blocking — agent executes with full tools)
+          if (agent.status === "active" && agent.railway_url) {
+            console.log(`[consultar_agente] Sending to ${agent.name} via A2A at ${agent.railway_url}`);
+            const a2aResult = await a2a.sendA2AMessage(agent.railway_url, args.message, {
+              token: SB_KEY,
+              fromAgentId: "chief",
+              orgId: args.org_id,
+              timeoutMs: 300000, // 5 min — research tasks can take time
+            });
+
+            if (a2aResult.success && a2aResult.reply) {
+              // Log exchange in agent_messages
+              await sbFetch(`${base}/rest/v1/agent_messages`, {
+                method: "POST",
+                headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                body: JSON.stringify([
+                  { org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.message, message_type: "chat", metadata: { a2a: true, from: "chief" } },
+                  { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: a2aResult.reply, message_type: "answer", metadata: { a2a: true } },
+                ]),
+              }).catch(e => console.warn("[consultar_agente] Failed to log A2A exchange:", e.message));
+
+              return { success: true, agent: agent.name, reply: a2aResult.reply };
+            }
+
+            if (a2aResult.success && a2aResult.taskId && !a2aResult.reply) {
+              // Still working — poll briefly
+              const pollResult = await a2a.pollA2ATask(agent.railway_url, a2aResult.taskId, { token: SB_KEY, maxWaitMs: 120000 });
+              if (pollResult.success && pollResult.reply) {
+                await sbFetch(`${base}/rest/v1/agent_messages`, {
+                  method: "POST",
+                  headers: { ...sbHeaders(), Prefer: "return=minimal" },
+                  body: JSON.stringify([
+                    { org_id: args.org_id, to_agent_id: agent.id, role: "user", content: args.message, message_type: "chat", metadata: { a2a: true, from: "chief" } },
+                    { org_id: args.org_id, from_agent_id: agent.id, role: "assistant", content: pollResult.reply, message_type: "answer", metadata: { a2a: true } },
+                  ]),
+                }).catch(e => console.warn("[consultar_agente] Failed to log A2A exchange:", e.message));
+                return { success: true, agent: agent.name, reply: pollResult.reply };
+              }
+              return { success: true, agent: agent.name, message: `${agent.name} está procesando tu consulta. Te llegará por WhatsApp.` };
+            }
+
+            if (!a2aResult.success) {
+              console.warn(`[consultar_agente] A2A failed for ${agent.name}:`, a2aResult.error);
+            }
+          }
+
+          // FALLBACK: agent_messages table (SENSE phase reads this inbox)
           await sbFetch(`${base}/rest/v1/agent_messages`, {
             method: "POST",
             headers: { ...sbHeaders(), Prefer: "return=minimal" },
@@ -2649,14 +2695,11 @@ ${args.description ? `\n${args.description}\n` : ""}
             }),
           });
 
-          console.log(`[consultar_agente] Message sent to ${agent.name} via agent_messages`);
-
-          // Agent will respond via agent_messages (from_agent_id) on next SENSE cycle
-          // For now, return acknowledgment — response arrives async
+          console.log(`[consultar_agente] A2A unavailable, fallback to agent_messages for ${agent.name}`);
           return {
             success: true,
             agent: agent.name,
-            message: `Mensaje enviado a ${agent.name}. Responderá en su próximo ciclo (10-60s).`,
+            message: `${agent.name} está procesando. Te llegará por WhatsApp.`,
           };
         }
 

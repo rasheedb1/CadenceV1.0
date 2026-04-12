@@ -9,9 +9,14 @@ import * as http from 'node:http';
 import { sbGet } from './supabase-client.js';
 import { loadAgentConfig } from './agent-config.js';
 import { runEventLoop } from './event-loop.js';
-import type { AgentRow } from './types.js';
+import { executeWithSDK } from './sdk-runner.js';
+import type { AgentRow, AgentConfig } from './types.js';
+import { createLogger } from './utils/logger.js';
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
+
+// Agent configs indexed by name (lowercase) for A2A routing
+const agentConfigs = new Map<string, AgentConfig>();
 
 interface AgentLoopHandle {
   name: string;
@@ -45,6 +50,12 @@ async function main(): Promise<void> {
     const dir = `/workspace/${safeName}`;
     await fs.mkdir(dir, { recursive: true }).catch(() => {});
     console.log(`[Orchestrator] Workspace ready: ${dir}`);
+  }
+
+  // Store configs for A2A routing
+  for (const agent of agents) {
+    const config = loadAgentConfig(agent);
+    agentConfigs.set(agent.name.toLowerCase(), config);
   }
 
   // Start all event loops concurrently with auto-restart
@@ -109,11 +120,131 @@ async function runWithRestart(
   }
 }
 
+/** Parse JSON body from an incoming HTTP request */
+function parseBody(req: http.IncomingMessage): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString())); }
+      catch { reject(new Error('Invalid JSON')); }
+    });
+    req.on('error', reject);
+  });
+}
+
+/** Find agent config by name (case-insensitive, partial match) */
+function findAgent(name: string): AgentConfig | undefined {
+  const lower = name.toLowerCase();
+  // Exact match first
+  if (agentConfigs.has(lower)) return agentConfigs.get(lower);
+  // Partial match
+  for (const [key, config] of agentConfigs) {
+    if (key.includes(lower) || lower.includes(key)) return config;
+  }
+  return undefined;
+}
+
+/** Handle A2A JSON-RPC message/send — runs executeWithSDK and returns A2A response */
+async function handleA2A(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  let body: any;
+  try { body = await parseBody(req); } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32700, message: 'Parse error' } }));
+    return;
+  }
+
+  const { id, method, params } = body;
+
+  if (method !== 'message/send') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not supported: ${method}` } }));
+    return;
+  }
+
+  // Extract message text and metadata
+  const parts = params?.message?.parts || [];
+  const text = parts.filter((p: any) => p.kind === 'text').map((p: any) => p.text).join('\n');
+  const metadata = params?.message?.metadata || {};
+
+  if (!text) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32602, message: 'Empty message' } }));
+    return;
+  }
+
+  // Find which agent to route to — use URL path or first available agent
+  // Bridge sends to the agent's railway_url/a2a/jsonrpc, but all agents share this container
+  // So we try to extract agent name from metadata or use the first agent
+  const targetName = metadata.target_agent || metadata.from_agent_id;
+  let agent: AgentConfig | undefined;
+
+  // Try to find by target agent name
+  if (targetName && targetName !== 'chief') {
+    agent = findAgent(targetName);
+  }
+
+  // If not found, use the first agent (single-agent containers) or try all
+  if (!agent && agentConfigs.size === 1) {
+    agent = agentConfigs.values().next().value;
+  }
+
+  if (!agent) {
+    // If multiple agents, return error — need target
+    const names = Array.from(agentConfigs.keys()).join(', ');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32602, message: `Multiple agents available (${names}). Specify target_agent in metadata.` } }));
+    return;
+  }
+
+  const log = createLogger(`A2A:${agent.name}`);
+  log.info(`Received query: ${text.substring(0, 150)}`);
+
+  try {
+    // Execute the query using the agent's SDK runner (same as work_on_task)
+    const result = await executeWithSDK(agent, text, log);
+    const replyText = result.text || '(no response)';
+    log.info(`Query completed: ${replyText.substring(0, 100)} (${result.numTurns} turns, $${result.costUsd.toFixed(4)})`);
+
+    // Return A2A message response
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      jsonrpc: '2.0',
+      id,
+      result: {
+        kind: 'message',
+        messageId: id,
+        role: 'agent',
+        parts: [{ kind: 'text', text: replyText }],
+        metadata: { agent_name: agent.name, turns: result.numTurns, cost_usd: result.costUsd },
+      },
+    }));
+  } catch (err: any) {
+    log.error(`Query failed: ${err.message}`);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      jsonrpc: '2.0',
+      id,
+      error: { code: -32000, message: err.message || 'Agent execution failed' },
+    }));
+  }
+}
+
 function startHealthServer(): void {
-  const server = http.createServer((_req, res) => {
+  const server = http.createServer(async (req, res) => {
+    const url = req.url || '/';
+
+    // A2A JSON-RPC endpoint
+    if (url.startsWith('/a2a/jsonrpc') && req.method === 'POST') {
+      await handleA2A(req, res);
+      return;
+    }
+
+    // Health check (GET /)
     const status = {
       status: 'ok',
       uptime: process.uptime(),
+      a2a: true,
       agents: Array.from(activeLoops.values()).map((h) => ({
         name: h.name,
         agentId: h.agentId,
@@ -126,7 +257,7 @@ function startHealthServer(): void {
   });
 
   server.listen(PORT, () => {
-    console.log(`[Orchestrator] Health check listening on :${PORT}`);
+    console.log(`[Orchestrator] Health + A2A server listening on :${PORT}`);
   });
 }
 
