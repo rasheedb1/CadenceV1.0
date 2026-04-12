@@ -413,8 +413,37 @@ ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
         state.tasksCompletedSinceCheckin++;
         state.interval = MIN_INTERVAL;
         log.info(`Auto-completed ${(params.task_id as string).substring(0, 8)}`);
+
+        // Notify user via WhatsApp that task is done
+        const CALLBACK_URL_DONE = process.env.CALLBACK_URL ||
+          'https://twilio-bridge-production-241b.up.railway.app/api/agent-callback';
+        fetch(CALLBACK_URL_DONE, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agent_name: agent.name,
+            result: { text: summary },
+            whatsapp_number: null,
+          }),
+        }).catch(() => {});
+
         return 'auto_completed';
       }
+
+      // If task ran but had errors or blockers, notify user
+      if (result.numTurns > 0 && result.text && result.text.length > 10) {
+        const CALLBACK_URL_ERR = process.env.CALLBACK_URL ||
+          'https://twilio-bridge-production-241b.up.railway.app/api/agent-callback';
+        const errSummary = result.text.substring(0, 500);
+        fetch(CALLBACK_URL_ERR, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agent_name: agent.name,
+            result: { text: errSummary },
+            whatsapp_number: null,
+          }),
+        }).catch(() => {});
+      }
+
       return result.text;
     }
 
