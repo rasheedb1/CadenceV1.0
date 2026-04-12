@@ -2568,9 +2568,9 @@ ${args.description ? `\n${args.description}\n` : ""}
           else if (caps.includes("qa")) taskType = "qa";
           else if (caps.includes("inbox")) taskType = "inbox";
 
-          // Create task directly in agent_tasks_v2 with status=in_progress + assigned to agent
-          // MUST use in_progress (not claimed/ready) to prevent other agents stealing via claim_task_v2 RPC
-          // This is the table agents actually query in SENSE phase
+          // Create task directly in agent_tasks_v2 with status=claimed + assigned to agent
+          // status=claimed + assigned_agent_id set = only the assigned agent sees it in SENSE
+          // claim_task_v2 RPC only grabs status='ready' AND assigned_agent_id IS NULL, so no theft
           const taskPayload = {
             org_id: args.org_id,
             title: (args.instruction || "").substring(0, 120),
@@ -2579,8 +2579,7 @@ ${args.description ? `\n${args.description}\n` : ""}
             required_capabilities: caps,
             assigned_agent_id: agent.id,
             assigned_at: new Date().toISOString(),
-            started_at: new Date().toISOString(),
-            status: "in_progress",
+            status: "claimed",
             priority: args.priority || 10,
             created_by: "chief_delegator",
           };

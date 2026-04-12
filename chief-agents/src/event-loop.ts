@@ -83,9 +83,10 @@ async function tick(agent: AgentConfig, state: LoopState, log: Logger): Promise<
   // Budget enforcement (refreshed every 10 iterations)
   await refreshBudgetFromDB(agent.id, state);
   if (checkBudgetExceeded(state, log)) {
-    state.running = false;
-    // Mark agent offline
-    sbPatch(`agents?id=eq.${agent.id}`, { availability: 'offline' }).catch(() => {});
+    // Deep sleep instead of hard stop — agent probes every 5 min for budget reset
+    log.warn('Budget exceeded — entering deep sleep (probing every 5min for reset)');
+    state.interval = DEEP_SLEEP_INTERVAL;
+    // Don't set running=false — allow recovery when budget resets (new day)
     return;
   }
 

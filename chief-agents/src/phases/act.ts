@@ -137,7 +137,29 @@ export async function act(
     // WORK ON TASK — KEY CHANGE: SDK instead of callGateway
     // ==============================
     case 'work_on_task': {
-      if (!params.task_id || !params.instruction) break;
+      if (!params.task_id) break;
+
+      // Auto-fill instruction from task description if THINK didn't provide it
+      if (!params.instruction) {
+        try {
+          const taskRows = await sbGet<Array<{ description: string; title: string; context_summary: string; parent_result_summary: string }>>(
+            `agent_tasks_v2?id=eq.${params.task_id}&select=description,title,context_summary,parent_result_summary`,
+          );
+          if (Array.isArray(taskRows) && taskRows.length > 0) {
+            const t = taskRows[0];
+            params.instruction = [
+              t.description || t.title,
+              t.parent_result_summary ? `\nCONTEXT FROM DEPENDENCIES:\n${t.parent_result_summary}` : '',
+              t.context_summary ? `\nPREVIOUS REVIEW FEEDBACK:\n${t.context_summary}` : '',
+            ].join('').trim();
+            log.info(`Auto-filled instruction from task description (${(params.instruction as string).length} chars)`);
+          }
+        } catch {}
+      }
+      if (!params.instruction) {
+        log.warn(`work_on_task: no instruction and task ${params.task_id} not found, skipping`);
+        break;
+      }
 
       // ============================================
       // BUDGET HARD CAP — block before executing
@@ -739,6 +761,8 @@ ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
       } catch (e: any) {
         log.error(`ask_human failed: ${e.message}`);
       }
+      // Back off after asking — don't tick again for 2 minutes to avoid loop
+      state.interval = MAX_INTERVAL;
       return 'question_sent';
     }
 
