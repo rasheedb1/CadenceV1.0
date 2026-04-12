@@ -228,15 +228,26 @@ interface AgentBudget {
 
 function PerformanceView({ agents, tasksV2 }: { agents: ReturnType<typeof useAgents>['agents']; tasksV2: AgentTaskV2[] }) {
   const [budgets, setBudgets] = useState<AgentBudget[]>([])
+  const [userBudget, setUserBudget] = useState<{ cost_usd_today: number; max_daily_cost_usd: number; tokens_used_today: number } | null>(null)
 
-  // Fetch real budget data from agent_budgets table
+  // Fetch real budget data from agent_budgets + user_budget_caps
   useEffect(() => {
     let mounted = true
     const fetchBudgets = async () => {
-      const { data } = await supabase
-        .from('agent_budgets')
-        .select('agent_id,cost_usd,tokens_used,cost_usd_today,tokens_used_today,max_cost_usd_today,max_cost_per_task,day_started_at')
-      if (mounted && data) setBudgets(data as AgentBudget[])
+      const [{ data: agentData }, { data: userData }] = await Promise.all([
+        supabase
+          .from('agent_budgets')
+          .select('agent_id,cost_usd,tokens_used,cost_usd_today,tokens_used_today,max_cost_usd_today,max_cost_per_task,day_started_at'),
+        supabase
+          .from('user_budget_caps')
+          .select('cost_usd_today,max_daily_cost_usd,tokens_used_today')
+          .limit(1)
+          .single(),
+      ])
+      if (mounted) {
+        if (agentData) setBudgets(agentData as AgentBudget[])
+        if (userData) setUserBudget(userData as any)
+      }
     }
     fetchBudgets()
     const interval = setInterval(fetchBudgets, 10000) // refresh every 10s
@@ -277,10 +288,33 @@ function PerformanceView({ agents, tasksV2 }: { agents: ReturnType<typeof useAge
     dailyCap: agentStats.reduce((a, s) => a + s.dailyCap, 0),
   }), [agentStats])
 
-  const orgCapPct = totals.dailyCap > 0 ? Math.round((totals.costToday / totals.dailyCap) * 100) : 0
+  const userCostToday = userBudget?.cost_usd_today ?? totals.costToday
+  const userDailyCap = userBudget?.max_daily_cost_usd ?? 100
+  const userCapPct = userDailyCap > 0 ? Math.round((userCostToday / userDailyCap) * 100) : 0
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      {/* User-level budget bar */}
+      <Card className={userCapPct >= 80 ? 'border-red-500 border-2' : userCapPct >= 50 ? 'border-amber-500' : ''}>
+        <CardContent className="pt-4 pb-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium">Tu presupuesto diario</span>
+            <span className={`text-sm font-bold ${userCapPct >= 80 ? 'text-red-600' : userCapPct >= 50 ? 'text-amber-600' : 'text-blue-600'}`}>
+              ${userCostToday.toFixed(2)} / ${userDailyCap.toFixed(0)} USD ({userCapPct}%)
+            </span>
+          </div>
+          <div className="w-full bg-muted rounded-full h-3">
+            <div
+              className={`h-3 rounded-full transition-all ${userCapPct >= 80 ? 'bg-red-500' : userCapPct >= 50 ? 'bg-amber-500' : 'bg-blue-500'}`}
+              style={{ width: `${Math.min(userCapPct, 100)}%` }}
+            />
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Todos tus agentes comparten este límite · Se reinicia cada 24h
+          </p>
+        </CardContent>
+      </Card>
+
       {/* Real-time spend cards */}
       <div className="grid grid-cols-4 gap-4">
         <Card>
@@ -289,13 +323,12 @@ function PerformanceView({ agents, tasksV2 }: { agents: ReturnType<typeof useAge
             <p className="text-xs text-muted-foreground mt-1">Tareas completadas</p>
           </CardContent>
         </Card>
-        <Card className={orgCapPct >= 80 ? 'border-red-500' : orgCapPct >= 50 ? 'border-amber-500' : ''}>
+        <Card>
           <CardContent className="pt-6 text-center">
-            <p className={`text-3xl font-bold ${orgCapPct >= 80 ? 'text-red-600' : orgCapPct >= 50 ? 'text-amber-600' : 'text-blue-600'}`}>
+            <p className="text-3xl font-bold text-blue-600">
               ${totals.costToday.toFixed(2)}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">Gastado hoy</p>
-            <p className="text-[10px] text-muted-foreground mt-1">Cap: ${totals.dailyCap.toFixed(0)} ({orgCapPct}%)</p>
+            <p className="text-xs text-muted-foreground mt-1">Gastado hoy (agentes)</p>
           </CardContent>
         </Card>
         <Card>
