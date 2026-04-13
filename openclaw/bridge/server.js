@@ -4140,9 +4140,22 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
     // Persist user message
     saveMessage(sessionKey, session.orgId, "user", message);
 
+    // Pre-resolve skills: automatically search for matching skills BEFORE Chief decides
+    // This ensures Chief always knows about relevant skills without relying on it to call resolver_skill
+    let skillContext = '';
+    if (session.orgId && !/^(hola|hi|hey|buenos|buenas|estado|standup|qué tal|como est)/i.test(message.trim())) {
+      try {
+        const skillResult = await gwExecuteToolSync('resolver_skill', { org_id: session.orgId, query: message.substring(0, 200) });
+        if (skillResult?.success && skillResult?.best_match?.agents?.length > 0) {
+          const best = skillResult.best_match;
+          skillContext = `\n\n🎯 SKILL MATCH FOUND — YOU MUST USE THIS:\nSkill: "${best.display_name}" [${best.skill_name}]\nAgent with skill: ${best.agents.join(', ')}\nHow it works: ${best.skill_definition}\n\nACTION REQUIRED: Delegate to ${best.agents[0]} using delegar_tarea. In the instruction, tell the agent to use call_skill to execute this skill. The agent will ask the user for required data. Do NOT research or generate anything yourself.`;
+        }
+      } catch (e) { console.warn('[gateway] pre-resolve skill error:', e.message); }
+    }
+
     // Add a dynamic system instruction reminding the LLM what the CURRENT request is
     // This prevents the LLM from re-processing old conversation messages as new tasks
-    const currentRequestReminder = `\n\n---\nCURRENT USER REQUEST (this is the ONLY thing you should act on):\n"${message.substring(0, 500)}"\n\nDo NOT create tasks or take actions based on previous messages in the conversation. Only respond to the request above.`;
+    const currentRequestReminder = `\n\n---\nCURRENT USER REQUEST (this is the ONLY thing you should act on):\n"${message.substring(0, 500)}"${skillContext}\n\nDo NOT create tasks or take actions based on previous messages in the conversation. Only respond to the request above.`;
 
     for (let i = 0; i < 10; i++) {
       const response = await anthropic.messages.create({
