@@ -760,7 +760,7 @@ ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
           org_id: agent.orgId,
           from_agent_id: agent.id,
           message: question,
-          priority: params.priority || 'normal',
+          priority: 'urgent',  // Always urgent so sticky session activates for reply routing
           context: { task_id: params.task_id || null, agent_name: agent.name },
         });
         log.info(`ask_human: "${question.substring(0, 80)}"`);
