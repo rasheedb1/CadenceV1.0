@@ -1627,7 +1627,7 @@ const {
   SUPABASE_URL: SB_URL = "https://arupeqczrxmfkcbjwyad.supabase.co",
   SUPABASE_SERVICE_ROLE_KEY: SB_KEY,
   GATEWAY_PORT: GW_PORT_STR = "18789",
-  CLAUDE_MODEL = "claude-sonnet-4-6",
+  CLAUDE_MODEL = "claude-opus-4-6",
   RAILWAY_API_TOKEN,
   RAILWAY_PROJECT_ID = "160e649b-5baa-4a3d-b2a4-26ad4f5c74ac",
   RAILWAY_ENVIRONMENT_ID = "df9cf24b-413b-4748-8cd3-6f69f60db99a",
@@ -1820,15 +1820,21 @@ When onboarding, DON'T assume any specific stack. Ask what they use, then:
 
 The agent can install ANY CLI tool via npx or npm at runtime — they have full Bash access. Chief's job is to figure out WHAT they need and help the user provide the access tokens.
 
-## Skill-Based Routing (CRITICAL — READ FIRST)
-**RULE #0: When the user asks you to DO something (create, generate, analyze, search, build, etc.), ALWAYS call resolver_skill FIRST.**
-- resolver_skill searches the skill registry and tells you which agent has the right skill.
-- Then use delegar_tarea to send the task to that agent WITH the skill context from resolver_skill's response.
-- The delegation instruction MUST include: skill name + "usa call_skill" + "pregunta al usuario los datos que necesites".
-- NEVER try to do skill work yourself (don't generate presentations, business cases, research, etc. directly).
-- NEVER decompose a skill into sub-steps (don't do research first then generate). Delegate the WHOLE skill to the agent — the agent knows the steps.
-- If resolver_skill returns no match → use delegar_tarea as a general task, or suggest creating a new skill with crear_skill.
-- Only skip resolver_skill for: greetings, status questions, config changes, team management, project creation.
+## Skill-Based Routing (CRITICAL — YOUR #1 RULE)
+**You are an ORCHESTRATOR, not a worker. You NEVER do work yourself — you route to agents.**
+
+When the user asks you to DO something (create, generate, analyze, search, send, build, investigate, etc.):
+1. Call `resolver_skill` with what the user wants
+2. If it finds a match → call `delegar_tarea` to the agent it recommends, with this instruction format:
+   "Ejecuta el skill '[skill name]' usando call_skill con function_name='[from skill definition]'. Pregunta al usuario los datos que necesites antes de ejecutar. [user's original request]"
+3. If no match → use `delegar_tarea` as a general task to the most appropriate agent, or suggest creating a skill with `crear_skill`
+
+**NEVER:**
+- Do research, generate content, read emails, send emails, or create presentations yourself
+- Decompose a skill into sub-steps — delegate the WHOLE thing to the agent
+- Skip resolver_skill when the user asks to DO something
+
+**ONLY skip resolver_skill for:** greetings, status questions ("qué están haciendo"), config changes, team/project management, connecting integrations.
 
 ## Task Delegation Rules (CRITICAL)
 **RULE #1: Only delegate tasks that the user EXPLICITLY requests in their LAST message.**
@@ -1946,7 +1952,6 @@ You manage AI agent teams + the Chief Outreach sales platform.
     { name: "ver_cadencia_detalle", description: "Ve los detalles completos de una cadencia: pasos, leads asignados, estado.", input_schema: { type: "object", properties: { org_id: { type: "string" }, cadence_id: { type: "string" } }, required: ["org_id", "cadence_id"] } },
     { name: "ver_conexiones", description: "Ve las cuentas conectadas del usuario (LinkedIn, Gmail, etc.).", input_schema: { type: "object", properties: { org_id: { type: "string" }, user_id: { type: "string" } }, required: ["org_id", "user_id"] } },
     { name: "ver_programacion", description: "Ve las acciones programadas (schedules) — próximos envíos, estado.", input_schema: { type: "object", properties: { org_id: { type: "string" }, cadence_id: { type: "string" }, status: { type: "string", enum: ["scheduled", "executed", "failed", "canceled"] }, limit: { type: "number" } }, required: ["org_id"] } },
-    { name: "capturar_pantalla", description: "Captura un screenshot del dashboard de Chief. SOLO cuando el usuario lo pide explícitamente ('mándame screenshot', 'muéstrame cómo se ve'). Genera un magic link para autenticar y captura via Firecrawl.", input_schema: { type: "object", properties: { page_path: { type: "string", description: "Ruta de la página, ej: /leads, /cadences, /ai-prompts, /templates" }, user_email: { type: "string", description: "Email del usuario para generar magic link" }, wait_ms: { type: "number", description: "Milisegundos de espera para que cargue la página (default 6000)" } }, required: ["page_path", "user_email"] } },
     { name: "ver_calendario", description: "Ve los eventos del calendario del usuario para un rango de fechas. Útil para saber qué reuniones tiene hoy o esta semana.", input_schema: { type: "object", properties: { user_id: { type: "string", description: "user_id del usuario (de la sesión guardada)" }, org_id: { type: "string" }, date_from: { type: "string", description: "YYYY-MM-DD (default: hoy)" }, date_to: { type: "string", description: "YYYY-MM-DD (default: 6 días desde date_from)" } }, required: ["user_id", "org_id"] } },
     { name: "buscar_slots_disponibles", description: "Busca slots de tiempo libre en el calendario del usuario. Útil para proponer horarios de reunión a prospectos o clientes.", input_schema: { type: "object", properties: { user_id: { type: "string" }, org_id: { type: "string" }, date: { type: "string", description: "YYYY-MM-DD (default: hoy)" }, days: { type: "number", description: "Días a analizar (1-7, default: 1)" }, timezone: { type: "string", description: "IANA timezone (default: America/Mexico_City)" }, business_start: { type: "number", description: "Hora inicio jornada (default: 9)" }, business_end: { type: "number", description: "Hora fin jornada (default: 18)" } }, required: ["user_id", "org_id"] } },
     { name: "crear_evento_calendario", description: "Crea un evento en Google Calendar y envía invitaciones por email a los asistentes. Genera Google Meet automáticamente si hay invitados. CONFIRMAR con el usuario antes de crear.", input_schema: { type: "object", properties: { user_id: { type: "string" }, org_id: { type: "string" }, title: { type: "string", description: "Título del evento" }, start_datetime: { type: "string", description: "ISO 8601 (ej: 2025-03-28T10:00:00)" }, end_datetime: { type: "string", description: "ISO 8601 (ej: 2025-03-28T11:00:00)" }, timezone: { type: "string", description: "IANA timezone (default: America/Mexico_City)" }, description: { type: "string", description: "Descripción o agenda del evento" }, location: { type: "string" }, attendees: { type: "array", items: { type: "object", properties: { email: { type: "string" }, name: { type: "string" } }, required: ["email"] }, description: "Lista de invitados. Recibirán invitación por email." } }, required: ["user_id", "org_id", "title", "start_datetime", "end_datetime"] } },
@@ -1958,10 +1963,7 @@ You manage AI agent teams + the Chief Outreach sales platform.
     { name: "desplegar_agente", description: "Despliega un agente en Railway como servicio independiente. Crea el servidor, configura variables de entorno, y activa el agente. Usa cuando el usuario quiere que un agente esté operativo: 'despliega al CPO', 'activa a Nando', 'pon a funcionar al agente'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "ID del agente a desplegar" }, agent_name: { type: "string", description: "Nombre del agente (alternativa a agent_id)" } }, required: ["org_id"] } },
     { name: "crear_proyecto", description: "Crea un proyecto multi-fase que los agentes ejecutan autónomamente. Las fases se ejecutan secuencialmente, con revisiones opcionales. El proyecto sobrevive reinicios. Usa cuando: 'que Sofi mejore toda la UX', 'proyecto grande entre X y Y', 'quiero que hagan esto por fases'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, name: { type: "string", description: "Nombre del proyecto" }, description: { type: "string" }, phases: { type: "array", items: { type: "object", properties: { name: { type: "string" }, description: { type: "string" }, agent_name: { type: "string" }, reviewer_name: { type: "string" } }, required: ["name", "description", "agent_name"] } } }, required: ["org_id", "name", "phases"] } },
     { name: "guardar_memoria", description: "Guarda un hecho, decisión o contexto importante en la memoria de largo plazo. Usa cuando: el usuario menciona algo que debas recordar siempre, se toma una decisión importante, se define un objetivo o prioridad. NO guardes detalles triviales.", input_schema: { type: "object", properties: { org_id: { type: "string" }, content: { type: "string", description: "El hecho o decisión a recordar" }, category: { type: "string", description: "Categoría: proyecto, decision, objetivo, agente, preferencia, contexto" }, importance: { type: "string", enum: ["critical", "high", "normal", "low"], description: "Importancia (critical siempre se carga)" } }, required: ["org_id", "content"] } },
-    { name: "colaborar_agentes", description: "Inicia una colaboración iterativa entre 2 agentes. Un agente produce trabajo, el otro da feedback, e iteran hasta converger en un resultado final. Usa cuando: 'que Sofi y Juanse trabajen juntos en X', 'que colaboren para lograr X', 'que iteren hasta que quede bien'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, producer_name: { type: "string", description: "Agente que produce el trabajo (ej: Sofi)" }, reviewer_name: { type: "string", description: "Agente que revisa y da feedback (ej: Juanse)" }, task: { type: "string", description: "La tarea o objetivo a lograr" }, max_iterations: { type: "number", description: "Máximo de rondas de feedback (default 3)" } }, required: ["org_id", "producer_name", "reviewer_name", "task"] } },
-    { name: "web_research", description: "Busca en la web y scrapea páginas para investigación. Acciones: 'search' (buscar), 'scrape' (extraer contenido de URL), 'research' (buscar + scrape combinado).", input_schema: { type: "object", properties: { action: { type: "string", enum: ["search", "scrape", "research"], description: "search=buscar en web, scrape=extraer contenido de URL, research=buscar+scrape" }, query: { type: "string", description: "Término de búsqueda (para search/research)" }, url: { type: "string", description: "URL a scrapear (para scrape)" }, limit: { type: "number", description: "Número de resultados (default 5)" }, max_chars: { type: "number", description: "Máximo de caracteres de contenido (default 2000)" } }, required: [] } },
     { name: "ver_tarea_agente", description: "Consulta el estado y resultado de la última tarea de un agente. Usa cuando el usuario pregunta '¿ya terminó X?', '¿qué encontró X?', 'resultado de la tarea de X'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string" }, agent_name: { type: "string", description: "Nombre del agente" }, task_id: { type: "string", description: "ID específico de tarea (opcional)" } }, required: ["org_id"] } },
-    { name: "reunion_agentes", description: "Convoca una reunión con múltiples agentes sobre un tema. Cada agente da su perspectiva según su rol. Usa cuando: 'haz una reunión con X y Y sobre...', 'quiero que X y Y discutan...', 'junta a los agentes para hablar de...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_names: { type: "array", items: { type: "string" }, description: "Nombres de los agentes a convocar" }, topic: { type: "string", description: "El tema a discutir" } }, required: ["org_id", "agent_names", "topic"] } },
     { name: "descomponer_proyecto", description: "Descompone un proyecto grande en tareas pequeñas en el blackboard. Los agentes las reclamarán automáticamente. Usa esto cuando el usuario pide algo complejo que requiere múltiples pasos.", input_schema: { type: "object", properties: { org_id: { type: "string" }, project_name: { type: "string", description: "Nombre del proyecto" }, description: { type: "string", description: "Descripción detallada de lo que se necesita" }, agent_roles: { type: "array", items: { type: "string" }, description: "Roles de los agentes disponibles (ej: ux_designer, cto)" } }, required: ["org_id", "project_name", "description"] } },
     // --- Workforce v2 tools ---
     { name: "ver_equipo", description: "Muestra el estado completo del equipo de agentes: quién está disponible, trabajando o bloqueado, qué tareas tienen, métricas. Usa cuando: '¿qué están haciendo?', '¿quién está libre?', 'estado del equipo', 'dashboard'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
@@ -1989,9 +1991,7 @@ You manage AI agent teams + the Chief Outreach sales platform.
     { name: "conectar_gmail", description: "Genera un link para que el usuario conecte su Gmail a los agentes (OAuth). Usa cuando: 'conecta mi gmail', 'quiero que Paula lea mis correos', 'enlaza mi correo'. Devuelve una URL que el usuario abre UNA sola vez para autorizar.", input_schema: { type: "object", properties: { org_id: { type: "string" }, whatsapp_number: { type: "string", description: "Para identificar quién conecta" } }, required: ["org_id"] } },
     { name: "estado_gmail", description: "Consulta si el Gmail del org está conectado a los agentes. Usa cuando: 'está conectado mi gmail?', 'estado de mi correo'. Devuelve email, fecha de conexión, y si el token sigue válido.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "desconectar_gmail", description: "Desconecta el Gmail del org de los agentes (revoca token). Usa cuando: 'desconecta mi gmail', 'remueve mi correo'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
-    { name: "enviar_correo", description: "Envía un correo electrónico usando el Gmail conectado del usuario. Usa cuando: 'manda un correo a X', 'envía un email', 'escribe un correo a X diciendo Y'. Requiere que Gmail esté conectado (si no, sugiere conectar_gmail primero).", input_schema: { type: "object", properties: { org_id: { type: "string" }, to: { type: "string", description: "Email del destinatario" }, subject: { type: "string", description: "Asunto del correo" }, body: { type: "string", description: "Cuerpo del correo (texto plano)" }, cc: { type: "string", description: "CC (opcional, separar múltiples con coma)" }, reply_to_message_id: { type: "string", description: "Si es respuesta a un correo, el message ID de Gmail (opcional)" } }, required: ["org_id", "to", "subject", "body"] } },
     { name: "resolver_skill", description: "ALWAYS call this FIRST when the user asks you to DO something that an agent might know how to do (business case, presentation, research, prospecting, etc.). Searches the skill registry and finds which agent has the right skill. Returns: agent name, skill name, skill definition (with required params), and delegation instruction. You then delegate to that agent using delegar_tarea with the full skill context. NEVER try to do skill work yourself — always route through agents.", input_schema: { type: "object", properties: { org_id: { type: "string" }, query: { type: "string", description: "What the user wants to do, in natural language (e.g. 'business case para Falabella', 'buscar prospectos en LinkedIn', 'crear presentacion de ventas')" } }, required: ["org_id", "query"] } },
-    { name: "leer_correos", description: "Lee los correos recientes del usuario (inbox). Usa cuando: 'revisa mis correos', 'qué correos tengo?', 'muéstrame mi inbox', 'resumen de correos'. Requiere Gmail conectado.", input_schema: { type: "object", properties: { org_id: { type: "string" }, query: { type: "string", description: "Búsqueda Gmail (ej: 'is:unread', 'from:X', 'after:2026/04/01'). Default: 'is:unread in:inbox'" }, limit: { type: "number", description: "Máximo de correos (default 10, max 20)" } }, required: ["org_id"] } },
     // --- Salesforce OAuth ---
     { name: "conectar_salesforce", description: "Genera link para conectar Salesforce CRM. Usa cuando: 'conecta Salesforce', 'enlaza mi CRM'. Devuelve URL OAuth.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "estado_salesforce", description: "Consulta si Salesforce está conectado. Usa cuando: 'está conectado Salesforce?', 'estado CRM'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
@@ -2007,8 +2007,7 @@ You manage AI agent teams + the Chief Outreach sales platform.
 
   // Tools that should run in background (>30s expected)
   const ASYNC_TOOLS = new Set([
-    "desplegar_agente", "consultar_agente", "reunion_agentes",
-    "buscar_prospectos", "capturar_pantalla",
+    "desplegar_agente", "consultar_agente",
   ]);
 
   // Format tool results for WhatsApp — human-friendly, no JSON
@@ -2023,12 +2022,6 @@ You manage AI agent teams + the Chief Outreach sales platform.
       if (result.error) return `❌ ${result.error}`;
     }
 
-    // reunion_agentes — show meeting summary
-    if (name === "reunion_agentes") {
-      if (result.summary) return `🤝 *Resumen de la reunión:*\n\n${result.summary}`;
-      if (result.message) return result.message;
-    }
-
     // desplegar_agente
     if (name === "desplegar_agente") {
       if (result.message) return `🚀 ${result.message}`;
@@ -2040,11 +2033,6 @@ You manage AI agent teams + the Chief Outreach sales platform.
       if (result.prospects && Array.isArray(result.prospects)) {
         return `🔍 Encontré ${result.prospects.length} prospectos.`;
       }
-    }
-
-    // capturar_pantalla
-    if (name === "capturar_pantalla") {
-      if (result.message) return `📸 ${result.message}`;
     }
 
     // Generic: try common text fields before falling back to JSON
@@ -4140,22 +4128,9 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
     // Persist user message
     saveMessage(sessionKey, session.orgId, "user", message);
 
-    // Pre-resolve skills: automatically search for matching skills BEFORE Chief decides
-    // This ensures Chief always knows about relevant skills without relying on it to call resolver_skill
-    let skillContext = '';
-    if (session.orgId && !/^(hola|hi|hey|buenos|buenas|estado|standup|qué tal|como est)/i.test(message.trim())) {
-      try {
-        const skillResult = await gwExecuteToolSync('resolver_skill', { org_id: session.orgId, query: message.substring(0, 200) });
-        if (skillResult?.success && skillResult?.best_match?.agents?.length > 0) {
-          const best = skillResult.best_match;
-          skillContext = `\n\n🎯 SKILL MATCH FOUND — YOU MUST USE THIS:\nSkill: "${best.display_name}" [${best.skill_name}]\nAgent with skill: ${best.agents.join(', ')}\nHow it works: ${best.skill_definition}\n\nACTION REQUIRED: Delegate to ${best.agents[0]} using delegar_tarea. In the instruction, tell the agent to use call_skill to execute this skill. The agent will ask the user for required data. Do NOT research or generate anything yourself.`;
-        }
-      } catch (e) { console.warn('[gateway] pre-resolve skill error:', e.message); }
-    }
-
     // Add a dynamic system instruction reminding the LLM what the CURRENT request is
     // This prevents the LLM from re-processing old conversation messages as new tasks
-    const currentRequestReminder = `\n\n---\nCURRENT USER REQUEST (this is the ONLY thing you should act on):\n"${message.substring(0, 500)}"${skillContext}\n\nDo NOT create tasks or take actions based on previous messages in the conversation. Only respond to the request above.`;
+    const currentRequestReminder = `\n\n---\nCURRENT USER REQUEST (this is the ONLY thing you should act on):\n"${message.substring(0, 500)}"\n\nDo NOT create tasks or take actions based on previous messages in the conversation. Only respond to the request above.`;
 
     for (let i = 0; i < 10; i++) {
       const response = await anthropic.messages.create({
