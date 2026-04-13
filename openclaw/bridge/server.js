@@ -2586,13 +2586,38 @@ ${args.description ? `\n${args.description}\n` : ""}
           else if (caps.includes("qa")) taskType = "qa";
           else if (caps.includes("inbox")) taskType = "inbox";
 
+          // Auto-resolve skills: search the agent's assigned skills for a match with the instruction
+          let enrichedInstruction = args.instruction || "";
+          try {
+            const agentSkills = await sbFetch(`${base}/rest/v1/agent_skills?agent_id=eq.${agent.id}&enabled=eq.true&select=skill_name`, { headers: sbHeaders() });
+            if (Array.isArray(agentSkills) && agentSkills.length > 0) {
+              const skillNames = agentSkills.map(s => s.skill_name);
+              const orFilter = skillNames.map(n => `name.eq.${n}`).join(',');
+              const skillDefs = await sbFetch(`${base}/rest/v1/skill_registry?or=(${orFilter})&select=name,display_name,skill_definition`, { headers: sbHeaders() });
+              if (Array.isArray(skillDefs) && skillDefs.length > 0) {
+                // Find best matching skill by keyword overlap
+                const instrLower = enrichedInstruction.toLowerCase();
+                const scored = skillDefs.map(s => {
+                  const words = `${s.display_name} ${s.name}`.toLowerCase().split(/[\s_-]+/);
+                  const matches = words.filter(w => w.length > 3 && instrLower.includes(w)).length;
+                  return { ...s, score: matches };
+                }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
+                if (scored.length > 0) {
+                  const best = scored[0];
+                  enrichedInstruction += `\n\nIMPORTANT — USE THIS SKILL: "${best.display_name}" (${best.name}). ${best.skill_definition}\nCall the call_skill tool with the correct function_name and params. Ask the user for any data you need BEFORE executing.`;
+                  console.log(`[delegar_tarea] Auto-matched skill "${best.display_name}" for agent ${agent.name}`);
+                }
+              }
+            }
+          } catch (e) { console.warn("[delegar_tarea] Skill enrichment error:", e.message); }
+
           // Create task directly in agent_tasks_v2 with status=claimed + assigned to agent
           // status=claimed + assigned_agent_id set = only the assigned agent sees it in SENSE
           // claim_task_v2 RPC only grabs status='ready' AND assigned_agent_id IS NULL, so no theft
           const taskPayload = {
             org_id: args.org_id,
             title: (args.instruction || "").substring(0, 120),
-            description: args.instruction,
+            description: enrichedInstruction,
             task_type: taskType,
             required_capabilities: caps,
             assigned_agent_id: agent.id,
