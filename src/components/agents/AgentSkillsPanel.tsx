@@ -9,7 +9,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import {
   Save, Loader2, CheckCircle2, XCircle, Mail, Calendar, HardDrive, Table2,
   Users, Linkedin, Search, Cloud, Globe, Code, Palette, FlaskConical, Megaphone,
@@ -162,6 +164,50 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
     setAgentSkills(prev => prev.map(s => s.id === id ? { ...s, enabled } : s))
   }
 
+  // --- Create Skill Dialog ---
+  const [showCreateSkill, setShowCreateSkill] = useState(false)
+  const [newSkill, setNewSkill] = useState({ name: '', display_name: '', description: '', category: 'sales', skill_definition: '', requires_integrations: '' })
+  const [creatingSk, setCreatingSk] = useState(false)
+
+  const autoSlug = (display: string) => display.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+
+  const createSkill = async () => {
+    const slug = newSkill.name || autoSlug(newSkill.display_name)
+    if (!slug || !newSkill.display_name || !newSkill.description || !newSkill.skill_definition) {
+      toast.error('Completa todos los campos requeridos'); return
+    }
+    setCreatingSk(true)
+    const integrations = newSkill.requires_integrations
+      ? newSkill.requires_integrations.split(',').map(s => s.trim()).filter(Boolean)
+      : []
+    const { data, error } = await supabase
+      .from('skill_registry' as any)
+      .insert({
+        name: slug,
+        display_name: newSkill.display_name,
+        description: newSkill.description,
+        category: newSkill.category,
+        skill_definition: newSkill.skill_definition,
+        requires_integrations: integrations,
+        is_system: false,
+      })
+      .select('name,display_name,description,category')
+      .single()
+    setCreatingSk(false)
+    if (error) {
+      toast.error(error.message.includes('unique') ? 'Ya existe un skill con ese nombre' : `Error: ${error.message}`)
+      return
+    }
+    if (data) {
+      setAllSkills(prev => [...prev, data as SkillRegistryRow])
+      // Auto-assign to current agent
+      await addSkill(slug)
+      toast.success(`Skill "${newSkill.display_name}" creado y asignado`)
+    }
+    setShowCreateSkill(false)
+    setNewSkill({ name: '', display_name: '', description: '', category: 'sales', skill_definition: '', requires_integrations: '' })
+  }
+
   // Fetch integration status
   const fetchIntegrations = useCallback(async () => {
     try {
@@ -310,12 +356,17 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
           {/* Skills section */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Zap className="h-4 w-4 text-amber-500" />
-                Skills
+              <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-amber-500" />
+                  Skills
+                </span>
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setShowCreateSkill(true)}>
+                  <Plus className="h-3 w-3 mr-1" /> Crear Skill
+                </Button>
               </CardTitle>
               <CardDescription className="text-xs">
-                Habilidades ejecutables asignadas a este agente. Se cargan del skill_registry.
+                Habilidades ejecutables asignadas a este agente.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -393,6 +444,81 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
           </Card>
         </div>
       </div>
+
+      {/* Create Skill Dialog */}
+      <Dialog open={showCreateSkill} onOpenChange={setShowCreateSkill}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Crear nuevo Skill</DialogTitle>
+            <DialogDescription>
+              Define un skill que cualquier agente puede ejecutar. Debe apuntar a una edge function o endpoint existente.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Nombre visible *</label>
+              <Input
+                placeholder="Ej: Generar Propuesta Comercial"
+                value={newSkill.display_name}
+                onChange={(e) => setNewSkill(prev => ({ ...prev, display_name: e.target.value, name: autoSlug(e.target.value) }))}
+                className="text-sm"
+              />
+              <p className="text-[10px] text-muted-foreground mt-0.5">ID: {newSkill.name || '...'}</p>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Descripcion *</label>
+              <Input
+                placeholder="Ej: Genera una propuesta comercial PPTX personalizada para un prospecto"
+                value={newSkill.description}
+                onChange={(e) => setNewSkill(prev => ({ ...prev, description: e.target.value }))}
+                className="text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Categoria</label>
+              <Select value={newSkill.category} onValueChange={(v) => setNewSkill(prev => ({ ...prev, category: v }))}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {['sales', 'research', 'operations', 'marketing', 'finance', 'support', 'system'].map(c => (
+                    <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Definicion del skill (como se ejecuta) *</label>
+              <Textarea
+                placeholder={"Calls generate-business-case edge function via bridge.\nParams: clientName, countries[{country, txnPerMonth}], ticketPromedio, mdrActual, mdrNuevo, pricingType (flat|tranches)."}
+                value={newSkill.skill_definition}
+                onChange={(e) => setNewSkill(prev => ({ ...prev, skill_definition: e.target.value }))}
+                rows={4}
+                className="font-mono text-xs"
+              />
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                Formato: "Calls [function-name] edge function. Params: param1, param2[], param3 (opcion1|opcion2)."
+              </p>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Integraciones requeridas (opcional)</label>
+              <Input
+                placeholder="Ej: firecrawl, unipile (separadas por coma)"
+                value={newSkill.requires_integrations}
+                onChange={(e) => setNewSkill(prev => ({ ...prev, requires_integrations: e.target.value }))}
+                className="text-xs"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setShowCreateSkill(false)}>Cancelar</Button>
+            <Button size="sm" onClick={createSkill} disabled={creatingSk || !newSkill.display_name || !newSkill.description || !newSkill.skill_definition}>
+              {creatingSk ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Zap className="h-3.5 w-3.5 mr-1.5" />}
+              Crear y asignar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

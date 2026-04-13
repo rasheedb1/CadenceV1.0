@@ -1989,6 +1989,9 @@ You manage AI agent teams + the Chief Outreach sales platform.
     { name: "estado_linkedin", description: "Consulta si LinkedIn está conectado. Usa cuando: 'está conectado LinkedIn?', 'tengo LinkedIn activo?'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     // --- Integration overview ---
     { name: "estado_integraciones", description: "Muestra el estado de TODAS las integraciones (Gmail, Calendar, Salesforce, LinkedIn, Apollo, Firecrawl). Usa cuando: 'qué integraciones tengo?', 'estado de integraciones', 'qué está conectado?'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    // --- Skill management ---
+    { name: "crear_skill", description: "Crea un nuevo skill en el skill_registry. Los skills son habilidades ejecutables que los agentes pueden usar. Usa cuando: 'crea un skill para...', 'quiero que los agentes puedan...', 'nuevo skill que haga...'. DEBES preguntar: (1) Nombre visible, (2) Qué hace (descripción), (3) Qué función llama y con qué parámetros (skill_definition), (4) Categoría. Si el usuario no sabe la definición técnica, ayúdalo a construirla.", input_schema: { type: "object", properties: { org_id: { type: "string" }, name: { type: "string", description: "ID único kebab-case (ej: generar_propuesta)" }, display_name: { type: "string", description: "Nombre visible (ej: Generar Propuesta Comercial)" }, description: { type: "string", description: "Qué hace el skill (1-2 oraciones)" }, category: { type: "string", enum: ["sales", "research", "operations", "marketing", "finance", "support", "system"], description: "Categoría" }, skill_definition: { type: "string", description: "Cómo se ejecuta. Formato: 'Calls {function-name} edge function. Params: param1, param2[], param3 (opcion1|opcion2).'" }, requires_integrations: { type: "array", items: { type: "string" }, description: "Integraciones requeridas: unipile, firecrawl, google_calendar, gmail, salesforce, linkedin, apollo" }, assign_to_agents: { type: "array", items: { type: "string" }, description: "Nombres de agentes a los que asignar este skill automáticamente" } }, required: ["org_id", "display_name", "description", "skill_definition"] } },
+    { name: "listar_skills", description: "Lista todos los skills disponibles en el skill_registry. Usa cuando: 'qué skills hay?', 'lista los skills', 'habilidades disponibles'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
   ];
 
   // Tools that should run in background (>30s expected)
@@ -4000,6 +4003,57 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
             body: JSON.stringify({ language: args.language, updated_at: new Date().toISOString() }),
           });
           return { success: true, message: `Language set to ${langNames[args.language] || args.language}. All messages from Chief and agents will now be in ${langNames[args.language] || args.language}.` };
+        }
+
+        case "crear_skill": {
+          const { org_id, display_name, description, category, skill_definition, requires_integrations, assign_to_agents } = args;
+          const slug = (args.name || display_name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')).substring(0, 60);
+          try {
+            const { data: skill, error } = await supabase
+              .from('skill_registry')
+              .insert({
+                name: slug,
+                display_name,
+                description,
+                category: category || 'sales',
+                skill_definition,
+                requires_integrations: requires_integrations || [],
+                is_system: false,
+              })
+              .select('name,display_name')
+              .single();
+            if (error) return { success: false, error: error.message.includes('unique') ? `Ya existe un skill con el nombre "${slug}"` : error.message };
+            // Auto-assign to agents if requested
+            let assigned = [];
+            if (assign_to_agents && assign_to_agents.length > 0) {
+              for (const agentName of assign_to_agents) {
+                const { data: agents } = await supabase.from('agents').select('id').ilike('name', `%${agentName}%`).eq('org_id', org_id).limit(1);
+                if (agents && agents[0]) {
+                  await supabase.from('agent_skills').insert({ agent_id: agents[0].id, skill_name: slug, enabled: true }).catch(() => {});
+                  assigned.push(agentName);
+                }
+              }
+            }
+            return { success: true, skill: skill.display_name, name: slug, assigned_to: assigned, message: `Skill "${display_name}" creado${assigned.length > 0 ? ` y asignado a: ${assigned.join(', ')}` : '. Asígnalo a agentes desde el dashboard o dime a quién.'}` };
+          } catch (e) { return { success: false, error: e.message }; }
+        }
+
+        case "listar_skills": {
+          try {
+            const { data } = await supabase.from('skill_registry').select('name,display_name,description,category').order('category').order('display_name');
+            if (!data || data.length === 0) return { success: true, message: "No hay skills registrados." };
+            const grouped = {};
+            for (const s of data) {
+              if (!grouped[s.category]) grouped[s.category] = [];
+              grouped[s.category].push(s);
+            }
+            let msg = `📋 *Skills disponibles (${data.length}):*\n`;
+            for (const [cat, skills] of Object.entries(grouped)) {
+              msg += `\n*${cat.toUpperCase()}*\n`;
+              for (const s of skills) msg += `• ${s.display_name} — ${s.description.substring(0, 80)}\n`;
+            }
+            return { success: true, skills: data, message: msg };
+          } catch (e) { return { success: false, error: e.message }; }
         }
 
         default: return { success: false, error: `Tool desconocida: ${name}` };
