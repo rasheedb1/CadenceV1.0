@@ -1820,11 +1820,13 @@ When onboarding, DON'T assume any specific stack. Ask what they use, then:
 
 The agent can install ANY CLI tool via npx or npm at runtime — they have full Bash access. Chief's job is to figure out WHAT they need and help the user provide the access tokens.
 
-## Task Delegation Rules (CRITICAL)
-1. **ONLY delegate what the user asks in their CURRENT message.** Do NOT re-create or re-delegate tasks from previous messages in the conversation. If the user already asked for Salesforce data earlier and got a result, do NOT create a new Salesforce task when they ask for something else.
-2. **One message = one intent.** If the user says "haz un business case para McDonald's", delegate ONLY the business case — nothing else.
-3. **Check before delegating:** If you're about to create multiple tasks from a single user message, ask yourself: "Did the user explicitly ask for ALL of these?" If not, only create what they asked for.
-4. **Previous conversation context is for REFERENCE only** — it helps you understand what the user might need, but never use it to auto-create tasks the user didn't explicitly request in their current message.
+## Task Delegation Rules (CRITICAL — READ CAREFULLY)
+**RULE #1: Only delegate tasks that the user EXPLICITLY requests in their LAST message.**
+- If the user says "haz un business case para McDonald's" → delegate ONLY the business case. NOTHING ELSE.
+- NEVER look at previous messages to create additional tasks the user didn't ask for.
+- NEVER "bundle" old requests with new ones. Each message is a standalone request.
+- If you're about to call delegar_tarea more than once for a single user message, STOP and re-read the message. Did the user ask for multiple things? If not, only delegate ONE task.
+- Conversation history is for CONTEXT (understanding who the user is, what they've done before), NOT for generating new tasks.
 
 ## Project Planning
 When user wants to create a project:
@@ -2577,25 +2579,6 @@ ${args.description ? `\n${args.description}\n` : ""}
             if (Array.isArray(rows) && rows.length > 0) agent = rows[0];
           }
           if (!agent) return { success: false, error: "Agente no encontrado. Usa gestionar_agentes list para ver los agentes disponibles." };
-
-          // DEDUP: Check if a very similar task was already completed in the last 2 hours
-          // This prevents Chief's LLM from re-creating tasks from conversation history
-          try {
-            const twoHoursAgo = new Date(Date.now() - 2 * 3600000).toISOString();
-            const instrWords = (args.instruction || "").toLowerCase().split(/\s+/).filter(w => w.length > 4).slice(0, 8).join(" ");
-            const recentTasks = await sbFetch(`${base}/rest/v1/agent_tasks_v2?org_id=eq.${args.org_id}&status=in.(done,in_progress,claimed)&created_at=gt.${encodeURIComponent(twoHoursAgo)}&select=title,status,created_at&order=created_at.desc&limit=10`, { headers: sbHeaders() });
-            if (Array.isArray(recentTasks)) {
-              const isDupe = recentTasks.some(t => {
-                const titleWords = (t.title || "").toLowerCase().split(/\s+/).filter(w => w.length > 4);
-                const shared = instrWords.split(" ").filter(w => titleWords.some(tw => tw.includes(w) || w.includes(tw))).length;
-                return shared >= 3; // 3+ matching significant words = likely duplicate
-              });
-              if (isDupe) {
-                console.log(`[delegar_tarea] DEDUP: Similar task already exists in last 2h, skipping`);
-                return { success: true, agent: agent.name, status: "already_done", message: `Esta tarea ya fue completada recientemente por el equipo. No se creó duplicado.` };
-              }
-            }
-          } catch (e) { console.warn("[delegar_tarea] Dedup check failed:", e.message); }
 
           // Infer task_type from agent capabilities for proper routing
           const caps = agent.capabilities || [];
@@ -4186,11 +4169,15 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
     // Persist user message
     saveMessage(sessionKey, session.orgId, "user", message);
 
+    // Add a dynamic system instruction reminding the LLM what the CURRENT request is
+    // This prevents the LLM from re-processing old conversation messages as new tasks
+    const currentRequestReminder = `\n\n---\nCURRENT USER REQUEST (this is the ONLY thing you should act on):\n"${message.substring(0, 500)}"\n\nDo NOT create tasks or take actions based on previous messages in the conversation. Only respond to the request above.`;
+
     for (let i = 0; i < 10; i++) {
       const response = await anthropic.messages.create({
         model: CLAUDE_MODEL,
         max_tokens: 4096,
-        system: systemPrompt,
+        system: systemPrompt + (i === 0 ? currentRequestReminder : ''),
         messages: history,
         tools: gwTools,
       });
