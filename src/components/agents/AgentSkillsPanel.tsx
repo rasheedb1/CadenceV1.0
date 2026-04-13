@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Save, Loader2, CheckCircle2, XCircle, Mail, Calendar, HardDrive, Table2,
   Users, Linkedin, Search, Cloud, Globe, Code, Palette, FlaskConical, Megaphone,
-  PenTool, BarChart3, Sparkles, RefreshCw,
+  PenTool, BarChart3, Sparkles, RefreshCw, Zap, Plus, Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '@/integrations/supabase/client'
@@ -92,6 +92,19 @@ const MODEL_OPTIONS = [
   { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', desc: 'Más rápido y barato (~$2.4/MTok)', color: 'text-green-400' },
 ]
 
+interface SkillRow {
+  id: string
+  skill_name: string
+  enabled: boolean
+}
+
+interface SkillRegistryRow {
+  name: string
+  display_name: string
+  description: string
+  category: string
+}
+
 export function AgentSkillsPanel({ agent, onUpdate }: Props) {
   const [caps, setCaps] = useState<Set<string>>(new Set(agent.capabilities || []))
   const [soulMd, setSoulMd] = useState(agent.soul_md || '')
@@ -100,6 +113,9 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
   const [dirty, setDirty] = useState(false)
   const [integrationStatus, setIntegrationStatus] = useState<Record<string, { connected?: boolean; available?: boolean }>>({})
   const [loadingStatus, setLoadingStatus] = useState(true)
+  const [agentSkills, setAgentSkills] = useState<SkillRow[]>([])
+  const [allSkills, setAllSkills] = useState<SkillRegistryRow[]>([])
+  const [skillsLoading, setSkillsLoading] = useState(true)
 
   // Sync from parent
   useEffect(() => {
@@ -108,6 +124,44 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
     setModel(agent.model || 'claude-sonnet-4-6')
     setDirty(false)
   }, [agent.id, agent.capabilities, agent.soul_md, agent.model])
+
+  // Fetch skills
+  useEffect(() => {
+    const fetchSkills = async () => {
+      setSkillsLoading(true)
+      const [{ data: assigned }, { data: registry }] = await Promise.all([
+        supabase.from('agent_skills').select('id,skill_name,enabled').eq('agent_id', agent.id),
+        supabase.from('skill_registry').select('name,display_name,description,category').order('display_name'),
+      ])
+      if (assigned) setAgentSkills(assigned as SkillRow[])
+      if (registry) setAllSkills(registry as SkillRegistryRow[])
+      setSkillsLoading(false)
+    }
+    fetchSkills()
+  }, [agent.id])
+
+  const addSkill = async (skillName: string) => {
+    const { data, error } = await supabase
+      .from('agent_skills')
+      .insert({ agent_id: agent.id, skill_name: skillName, enabled: true })
+      .select('id,skill_name,enabled')
+      .single()
+    if (error) { toast.error(`Error: ${error.message}`); return }
+    if (data) setAgentSkills(prev => [...prev, data as SkillRow])
+    toast.success(`Skill agregado`)
+  }
+
+  const removeSkill = async (id: string) => {
+    const { error } = await supabase.from('agent_skills').delete().eq('id', id)
+    if (error) { toast.error(`Error: ${error.message}`); return }
+    setAgentSkills(prev => prev.filter(s => s.id !== id))
+    toast.success(`Skill eliminado`)
+  }
+
+  const toggleSkill = async (id: string, enabled: boolean) => {
+    await supabase.from('agent_skills').update({ enabled }).eq('id', id)
+    setAgentSkills(prev => prev.map(s => s.id === id ? { ...s, enabled } : s))
+  }
 
   // Fetch integration status
   const fetchIntegrations = useCallback(async () => {
@@ -253,6 +307,74 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
         </div>
         <div className="space-y-4">
           {renderGroup('builtin', 'Capabilities Base', 'Habilidades integradas del agente')}
+
+          {/* Skills section */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <Zap className="h-4 w-4 text-amber-500" />
+                Skills
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Habilidades ejecutables asignadas a este agente. Se cargan del skill_registry.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {skillsLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Cargando skills...
+                </div>
+              ) : (
+                <>
+                  {agentSkills.length === 0 && (
+                    <p className="text-xs text-muted-foreground py-2">Sin skills asignados</p>
+                  )}
+                  {agentSkills.map(s => {
+                    const def = allSkills.find(r => r.name === s.skill_name)
+                    return (
+                      <div key={s.id} className="flex items-center gap-3 py-1.5 px-2 rounded-md hover:bg-muted/50">
+                        <Switch checked={s.enabled} onCheckedChange={(v) => toggleSkill(s.id, v)} />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium">{def?.display_name || s.skill_name}</span>
+                          {def?.category && (
+                            <Badge variant="secondary" className="text-[10px] h-4 px-1 ml-2">{def.category}</Badge>
+                          )}
+                          {def?.description && (
+                            <p className="text-xs text-muted-foreground">{def.description}</p>
+                          )}
+                        </div>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-red-500" onClick={() => removeSkill(s.id)}>
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )
+                  })}
+                  {/* Add skill dropdown */}
+                  {(() => {
+                    const assignedNames = new Set(agentSkills.map(s => s.skill_name))
+                    const available = allSkills.filter(s => !assignedNames.has(s.name))
+                    if (available.length === 0) return null
+                    return (
+                      <Select onValueChange={(v) => addSkill(v)}>
+                        <SelectTrigger className="h-8 text-xs mt-2">
+                          <Plus className="h-3 w-3 mr-1.5" />
+                          <SelectValue placeholder="Agregar skill..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {available.map(s => (
+                            <SelectItem key={s.name} value={s.name} className="text-xs">
+                              <span className="font-medium">{s.display_name}</span>
+                              <span className="text-muted-foreground ml-1.5">— {s.description.substring(0, 60)}</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )
+                  })()}
+                </>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Personality editor */}
           <Card>
