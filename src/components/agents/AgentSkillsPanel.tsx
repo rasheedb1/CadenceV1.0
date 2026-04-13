@@ -42,7 +42,6 @@ const CAPABILITIES: CapDef[] = [
   { key: 'linkedin', label: 'LinkedIn', desc: 'Perfiles, conexiones, mensajes', icon: <Linkedin className="h-4 w-4" />, group: 'external', auth: 'linkedin' },
   { key: 'salesforce', label: 'Salesforce', desc: 'Cuentas, leads, sync CRM', icon: <Cloud className="h-4 w-4" />, group: 'external', auth: 'salesforce' },
   { key: 'apollo', label: 'Apollo.io', desc: 'Búsqueda y enriquecimiento de prospectos', icon: <Search className="h-4 w-4" />, group: 'external', auth: 'apikey' },
-  { key: 'business_cases', label: 'Business Cases', desc: 'Generar presentaciones PPTX de Yuno', icon: <BarChart3 className="h-4 w-4" />, group: 'external', auth: 'apikey' },
   { key: 'gong', label: 'Gong', desc: 'Llamadas, transcripts, analytics de ventas', icon: <BarChart3 className="h-4 w-4" />, group: 'external', auth: 'apikey' },
   // Built-in
   { key: 'code', label: 'Code', desc: 'Programar, editar archivos, deploys', icon: <Code className="h-4 w-4" />, group: 'builtin' },
