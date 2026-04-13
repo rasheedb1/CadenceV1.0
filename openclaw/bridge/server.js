@@ -1820,9 +1820,19 @@ When onboarding, DON'T assume any specific stack. Ask what they use, then:
 
 The agent can install ANY CLI tool via npx or npm at runtime — they have full Bash access. Chief's job is to figure out WHAT they need and help the user provide the access tokens.
 
-## Task Delegation Rules (CRITICAL — READ CAREFULLY)
+## Skill-Based Routing (CRITICAL — READ FIRST)
+**RULE #0: When the user asks you to DO something (create, generate, analyze, search, build, etc.), ALWAYS call resolver_skill FIRST.**
+- resolver_skill searches the skill registry and tells you which agent has the right skill.
+- Then use delegar_tarea to send the task to that agent WITH the skill context from resolver_skill's response.
+- The delegation instruction MUST include: skill name + "usa call_skill" + "pregunta al usuario los datos que necesites".
+- NEVER try to do skill work yourself (don't generate presentations, business cases, research, etc. directly).
+- NEVER decompose a skill into sub-steps (don't do research first then generate). Delegate the WHOLE skill to the agent — the agent knows the steps.
+- If resolver_skill returns no match → use delegar_tarea as a general task, or suggest creating a new skill with crear_skill.
+- Only skip resolver_skill for: greetings, status questions, config changes, team management, project creation.
+
+## Task Delegation Rules (CRITICAL)
 **RULE #1: Only delegate tasks that the user EXPLICITLY requests in their LAST message.**
-- If the user says "haz un business case para McDonald's" → delegate ONLY the business case. NOTHING ELSE.
+- If the user says "haz un business case para McDonald's" → call resolver_skill → delegate to the matched agent. NOTHING ELSE.
 - NEVER look at previous messages to create additional tasks the user didn't ask for.
 - NEVER "bundle" old requests with new ones. Each message is a standalone request.
 - If you're about to call delegar_tarea more than once for a single user message, STOP and re-read the message. Did the user ask for multiple things? If not, only delegate ONE task.
@@ -1980,8 +1990,7 @@ You manage AI agent teams + the Chief Outreach sales platform.
     { name: "estado_gmail", description: "Consulta si el Gmail del org está conectado a los agentes. Usa cuando: 'está conectado mi gmail?', 'estado de mi correo'. Devuelve email, fecha de conexión, y si el token sigue válido.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "desconectar_gmail", description: "Desconecta el Gmail del org de los agentes (revoca token). Usa cuando: 'desconecta mi gmail', 'remueve mi correo'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
     { name: "enviar_correo", description: "Envía un correo electrónico usando el Gmail conectado del usuario. Usa cuando: 'manda un correo a X', 'envía un email', 'escribe un correo a X diciendo Y'. Requiere que Gmail esté conectado (si no, sugiere conectar_gmail primero).", input_schema: { type: "object", properties: { org_id: { type: "string" }, to: { type: "string", description: "Email del destinatario" }, subject: { type: "string", description: "Asunto del correo" }, body: { type: "string", description: "Cuerpo del correo (texto plano)" }, cc: { type: "string", description: "CC (opcional, separar múltiples con coma)" }, reply_to_message_id: { type: "string", description: "Si es respuesta a un correo, el message ID de Gmail (opcional)" } }, required: ["org_id", "to", "subject", "body"] } },
-    { name: "crear_business_case", description: "Genera una presentación PPTX de Business Case de Yuno para un cliente prospect. El agente debe recopilar los datos del deal conversacionalmente y luego llamar esta tool con toda la config. Devuelve un link de descarga del PPTX. Usa cuando: 'hazme un business case para X', 'genera una propuesta para X', 'necesito un deck para X'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, config: { type: "object", description: "Config completa del business case", properties: { clientName: { type: "string" }, countries: { type: "array", items: { type: "object", properties: { country: { type: "string" }, txnPerMonth: { type: "number" } } } }, ticketPromedio: { type: "number" }, totalTxnMes: { type: "number" }, mdrActual: { type: "number", description: "MDR actual como decimal (ej: 0.028 = 2.8%)" }, mdrNuevo: { type: "number", description: "MDR propuesto como decimal" }, aprobacionActual: { type: "number", description: "Tasa aprobacion actual como decimal (ej: 0.85 = 85%)" }, aprobacionNueva: { type: "number" }, margenProducto: { type: "number", description: "Margen del producto como decimal (0 si no aplica)" }, ahorroConciliacion: { type: "number" }, ahorroOperativo: { type: "number" }, pricingType: { type: "string", enum: ["flat", "tranches"] }, flatPrice: { type: "number" }, tranches: { type: "array", items: { type: "object", properties: { name: { type: "string" }, range: { type: "string" }, price: { type: "number" } } } }, minimoTransaccional: { type: "string" }, saasFee: { type: "number" }, propuestaValidaHasta: { type: "string" } }, required: ["clientName", "countries", "ticketPromedio", "totalTxnMes", "mdrActual", "mdrNuevo", "aprobacionActual", "aprobacionNueva", "pricingType"] } }, required: ["org_id", "config"] } },
-    { name: "crear_presentacion", description: "Crea una presentación de Google Slides con múltiples diapositivas. Usa cuando: 'hazme una presentación sobre X', 'crea un deck de Y'. Devuelve la URL del archivo en Google Slides. Layouts: title (portada), title_body (título + texto), section (separador), blank, big_number (métrica grande).", input_schema: { type: "object", properties: { org_id: { type: "string" }, title: { type: "string", description: "Título de la presentación" }, slides: { type: "array", items: { type: "object", properties: { layout: { type: "string", description: "Layout: title, title_body, section, blank, big_number. Default: title_body" }, title: { type: "string", description: "Título de la diapositiva" }, body: { type: "string", description: "Contenido (separar bullets con \\n)" }, speaker_notes: { type: "string", description: "Notas del presentador (opcional)" } } }, description: "Array de diapositivas" } }, required: ["org_id", "title", "slides"] } },
+    { name: "resolver_skill", description: "ALWAYS call this FIRST when the user asks you to DO something that an agent might know how to do (business case, presentation, research, prospecting, etc.). Searches the skill registry and finds which agent has the right skill. Returns: agent name, skill name, skill definition (with required params), and delegation instruction. You then delegate to that agent using delegar_tarea with the full skill context. NEVER try to do skill work yourself — always route through agents.", input_schema: { type: "object", properties: { org_id: { type: "string" }, query: { type: "string", description: "What the user wants to do, in natural language (e.g. 'business case para Falabella', 'buscar prospectos en LinkedIn', 'crear presentacion de ventas')" } }, required: ["org_id", "query"] } },
     { name: "leer_correos", description: "Lee los correos recientes del usuario (inbox). Usa cuando: 'revisa mis correos', 'qué correos tengo?', 'muéstrame mi inbox', 'resumen de correos'. Requiere Gmail conectado.", input_schema: { type: "object", properties: { org_id: { type: "string" }, query: { type: "string", description: "Búsqueda Gmail (ej: 'is:unread', 'from:X', 'after:2026/04/01'). Default: 'is:unread in:inbox'" }, limit: { type: "number", description: "Máximo de correos (default 10, max 20)" } }, required: ["org_id"] } },
     // --- Salesforce OAuth ---
     { name: "conectar_salesforce", description: "Genera link para conectar Salesforce CRM. Usa cuando: 'conecta Salesforce', 'enlaza mi CRM'. Devuelve URL OAuth.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
@@ -2948,103 +2957,65 @@ ${args.description ? `\n${args.description}\n` : ""}
           }
         }
 
-        case "crear_business_case": {
-          const { org_id, config: bcConfig } = args;
+        case "resolver_skill": {
+          const { org_id, query: skillQuery } = args;
           try {
-            const bcRes = await fetch(`${BRIDGE_PUBLIC_URL}/api/generate-business-case`, {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(bcConfig),
-            });
-            const bcData = await bcRes.json();
-            if (!bcRes.ok || !bcData.success) {
-              return { success: false, error: bcData.error || "Failed to generate" };
+            // 1. Search skill_registry by keyword matching
+            const words = skillQuery.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+            const orClauses = words.map(w => `display_name.ilike.*${w}*,description.ilike.*${w}*,name.ilike.*${w}*`).join(',');
+            const { data: skills } = await supabase
+              .from('skill_registry')
+              .select('name,display_name,description,skill_definition,category')
+              .or(orClauses)
+              .limit(5);
+
+            if (!skills || skills.length === 0) {
+              return { success: false, no_match: true, message: `No encontré un skill que coincida con "${skillQuery}". Puedes crear uno con crear_skill o delegarlo como tarea general con delegar_tarea.` };
             }
-            const s = bcData.summary;
+
+            // 2. For each matching skill, find which agents have it assigned
+            const results = [];
+            for (const skill of skills) {
+              const { data: assignments } = await supabase
+                .from('agent_skills')
+                .select('agent_id,enabled')
+                .eq('skill_name', skill.name)
+                .eq('enabled', true);
+
+              let agentNames = [];
+              if (assignments && assignments.length > 0) {
+                const agentIds = assignments.map(a => a.agent_id);
+                const { data: agents } = await supabase
+                  .from('agents')
+                  .select('id,name')
+                  .in('id', agentIds)
+                  .eq('org_id', org_id);
+                agentNames = (agents || []).map(a => a.name);
+              }
+
+              results.push({
+                skill_name: skill.name,
+                display_name: skill.display_name,
+                description: skill.description,
+                skill_definition: skill.skill_definition,
+                category: skill.category,
+                agents: agentNames,
+              });
+            }
+
+            // 3. Pick best match (first with agents assigned)
+            const best = results.find(r => r.agents.length > 0) || results[0];
+            const agentStr = best.agents.length > 0 ? best.agents.join(', ') : 'ninguno (asigna el skill a un agente primero)';
+
             return {
               success: true,
-              url: bcData.url,
-              message: `📊 *Business Case listo: ${s.clientName}*\n\n💰 TPV/mes: ${fmt(s.totalTPVMensual)}\n📈 Ahorro MDR: ${fmt(s.ahorroMDRMensual)}/mes\n✅ Aumento revenue: ${fmt(s.aumentoRevenue)}/mes\n🎯 Total impacto: ${fmt(s.totalMensual)}/mes\n\n🔗 Descargar: ${bcData.url}`,
+              best_match: best,
+              all_matches: results,
+              delegation_instruction: best.agents.length > 0
+                ? `Usa delegar_tarea para enviar a ${best.agents[0]} con esta instruccion: "Ejecuta el skill '${best.display_name}' usando call_skill con function_name segun tu skill definition. ${best.skill_definition}. Pregunta al usuario los datos que necesites antes de ejecutar."`
+                : `No hay agente con este skill asignado. Usa crear_skill para registrarlo o asignalo desde el dashboard.`,
+              message: `🎯 *Skill encontrado: ${best.display_name}*\n📋 ${best.description}\n👤 Agentes: ${agentStr}\n\n${best.agents.length > 0 ? `Delegando a *${best.agents[0]}*...` : '⚠️ Sin agente asignado.'}`,
             };
-          } catch (e) {
-            return { success: false, error: e.message };
-          }
-        }
-
-        case "crear_presentacion": {
-          const { org_id, title: presTitle, slides: presSlides } = args;
-          try {
-            const tokenRes = await fetch(`${BRIDGE_PUBLIC_URL}/integrations/google/refresh`, {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ org_id }),
-            });
-            const tokenData = await tokenRes.json();
-            if (!tokenRes.ok || !tokenData.access_token) {
-              return { success: false, error: "Gmail no conectado. Usa conectar_gmail primero." };
-            }
-            const token = tokenData.access_token;
-            const slidesBase = "https://slides.googleapis.com/v1/presentations";
-
-            // 1. Create presentation
-            const createRes = await fetch(slidesBase, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ title: presTitle }),
-            });
-            const pres = await createRes.json();
-            if (!createRes.ok) return { success: false, error: pres?.error?.message || "Failed to create" };
-            const presId = pres.presentationId;
-            const defaultSlideId = pres.slides?.[0]?.objectId;
-
-            // 2. Create slides with layouts
-            const LAYOUTS = { title: "TITLE", title_body: "TITLE_AND_BODY", section: "SECTION_HEADER", blank: "BLANK", big_number: "BIG_NUMBER", one_column: "ONE_COLUMN_TEXT", caption: "CAPTION_ONLY", title_two_columns: "TITLE_AND_TWO_COLUMNS" };
-            const reqs = [];
-            if (defaultSlideId && presSlides.length > 0) reqs.push({ deleteObject: { objectId: defaultSlideId } });
-            for (let i = 0; i < presSlides.length; i++) {
-              reqs.push({
-                createSlide: {
-                  objectId: `s${i}`,
-                  insertionIndex: i,
-                  slideLayoutReference: { predefinedLayout: LAYOUTS[presSlides[i].layout || "title_body"] || "TITLE_AND_BODY" },
-                },
-              });
-            }
-            if (reqs.length > 0) {
-              await fetch(`${slidesBase}/${presId}:batchUpdate`, {
-                method: "POST",
-                headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ requests: reqs }),
-              });
-            }
-
-            // 3. Re-fetch and insert text
-            const updRes = await fetch(`${slidesBase}/${presId}`, { headers: { Authorization: `Bearer ${token}` } });
-            const updated = await updRes.json();
-            const textReqs = [];
-            for (let i = 0; i < presSlides.length; i++) {
-              const slide = presSlides[i];
-              const actual = updated.slides?.[i];
-              if (!actual) continue;
-              for (const el of (actual.pageElements || [])) {
-                const ph = el.shape?.placeholder;
-                if (!ph) continue;
-                if ((ph.type === "TITLE" || ph.type === "CENTERED_TITLE") && slide.title) {
-                  textReqs.push({ insertText: { objectId: el.objectId, text: slide.title, insertionIndex: 0 } });
-                } else if ((ph.type === "BODY" || ph.type === "SUBTITLE") && slide.body) {
-                  textReqs.push({ insertText: { objectId: el.objectId, text: slide.body, insertionIndex: 0 } });
-                }
-              }
-            }
-            if (textReqs.length > 0) {
-              await fetch(`${slidesBase}/${presId}:batchUpdate`, {
-                method: "POST",
-                headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ requests: textReqs }),
-              });
-            }
-
-            const url = `https://docs.google.com/presentation/d/${presId}/edit`;
-            console.log(`[crear_presentacion] Created "${presTitle}" with ${presSlides.length} slides`);
-            return { success: true, url, message: `📊 Presentación creada: *${presTitle}*\n${presSlides.length} diapositivas\n🔗 ${url}` };
           } catch (e) {
             return { success: false, error: e.message };
           }
