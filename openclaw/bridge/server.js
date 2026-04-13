@@ -2590,8 +2590,11 @@ ${args.description ? `\n${args.description}\n` : ""}
                 }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
                 if (scored.length > 0) {
                   const best = scored[0];
-                  enrichedInstruction += `\n\nIMPORTANT — USE THIS SKILL: "${best.display_name}" (${best.name}). ${best.skill_definition}\nCall the call_skill tool with the correct function_name and params. Ask the user for any data you need BEFORE executing.`;
-                  console.log(`[delegar_tarea] Auto-matched skill "${best.display_name}" for agent ${agent.name}`);
+                  // REPLACE Chief's instruction entirely — the skill defines HOW to execute
+                  // Keep only the user's intent (first sentence or up to 200 chars) as context
+                  const userIntent = (args.instruction || "").split(/[.\n]/).filter(s => s.trim())[0]?.trim().substring(0, 200) || args.instruction?.substring(0, 200);
+                  enrichedInstruction = `USER REQUEST: ${userIntent}\n\nEXECUTE THIS SKILL: "${best.display_name}"\n${best.skill_definition}\n\nUse the call_skill tool with the correct function_name and params. Ask the user for any data you need BEFORE executing. Do NOT research or guess — only use call_skill with data the user provides.`;
+                  console.log(`[delegar_tarea] Skill OVERRIDE: "${best.display_name}" for ${agent.name} (replaced Chief instruction)`);
                 }
               }
             }
@@ -4087,11 +4090,12 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
 
   // 1.1 Agent name detection patterns (Spanish + English)
   const AGENT_NAME_PATTERNS = [
-    /^(?:dile|dígale|pidele|pídele|pregúntale|preguntale)\s+a\s+(\w+)\s+que\s+(.+)/is,
+    /^(?:dile|dígale|pidele|pídele|pregúntale|preguntale|avisale|avísale)\s+a\s+(\w+)\s+que\s+(.+)/is,
     /^(?:que|ke)\s+(\w+)\s+(?:haga|haz|me haga|genere|cree|busque|investigue|revise|prepare|arme|mande|envíe)\s+(.+)/is,
     /^(?:tell|ask)\s+(\w+)\s+(?:to\s+)?(.+)/is,
     /^(\w+),?\s+(?:haz|hazme|genera|crea|busca|investiga|revisa|prepara|arma|manda|envía)\s+(.+)/is,
     /^(\w+),?\s+(?:please|por favor)?\s*(?:can you|could you|puedes|podrías)\s+(.+)/is,
+    /.*(?:dile|pidele|avisale|avísale|preguntale)\s+a\s+(\w+)(?:\s+que\s+|\s*,\s*)(.+)/is,
   ];
 
   // Cache of agent names per org (refreshed with session)
