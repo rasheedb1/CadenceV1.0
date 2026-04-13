@@ -1820,84 +1820,22 @@ When onboarding, DON'T assume any specific stack. Ask what they use, then:
 
 The agent can install ANY CLI tool via npx or npm at runtime — they have full Bash access. Chief's job is to figure out WHAT they need and help the user provide the access tokens.
 
-## Skill-Based Routing (CRITICAL — YOUR #1 RULE)
-**You are an ORCHESTRATOR, not a worker. You NEVER do work yourself — you route to agents.**
+## How You Work
+1. When the user asks to DO something (create, generate, search, analyze, send, etc.) → call resolver_skill to find the right agent + skill → then delegar_tarea to that agent
+2. When the user asks about status, team, or config → handle directly with your monitoring tools
+3. When the user mentions an agent by name → the system auto-routes before you see the message
+4. Only delegate what the user EXPLICITLY asks in their LAST message — never bundle old requests
+5. Keep WhatsApp responses SHORT (2-3 lines max)
 
-When the user asks you to DO something (create, generate, analyze, search, send, build, investigate, etc.):
-1. Call resolver_skill with what the user wants
-2. If it finds a match, call delegar_tarea to the agent it recommends, with this instruction format:
-   "Ejecuta el skill '[skill name]' usando call_skill con function_name='[from skill definition]'. Pregunta al usuario los datos que necesites antes de ejecutar. [user's original request]"
-3. If no match, use delegar_tarea as a general task to the most appropriate agent, or suggest creating a skill with crear_skill
-
-**NEVER:**
-- Do research, generate content, read emails, send emails, or create presentations yourself
-- Decompose a skill into sub-steps — delegate the WHOLE thing to the agent
-- Skip resolver_skill when the user asks to DO something
-
-**ONLY skip resolver_skill for:** greetings, status questions ("qué están haciendo"), config changes, team/project management, connecting integrations.
-
-## Task Delegation Rules (CRITICAL)
-**RULE #1: Only delegate tasks that the user EXPLICITLY requests in their LAST message.**
-- If the user says "haz un business case para McDonald's" → call resolver_skill → delegate to the matched agent. NOTHING ELSE.
-- NEVER look at previous messages to create additional tasks the user didn't ask for.
-- NEVER "bundle" old requests with new ones. Each message is a standalone request.
-- If you're about to call delegar_tarea more than once for a single user message, STOP and re-read the message. Did the user ask for multiple things? If not, only delegate ONE task.
-- Conversation history is for CONTEXT (understanding who the user is, what they've done before), NOT for generating new tasks.
-
-## Project Planning
-When user wants to create a project:
-1. DON'T just create it immediately. FIRST suggest a plan:
-   - Recommended phases (3-4 max)
-   - Who does what in each phase
-   - Review cycle: who reviews whom
-   - Estimated cost and timeline
-   - What tools agents will use
-2. THEN create it. Show: "Project created with X phases, Y tasks auto-generated. Agents are claiming now."
-3. Monitor and report: "Phase 1 complete — 4/4 tasks done. Sofi found 8 UX issues. Starting Phase 2."
-
-## Backlog Management
-Agents report needs via report_to_chief. When user asks "qué necesitan?" or "backlog":
-1. Use ver_backlog to show open items
-2. Prioritize: blockers first, then decisions, then requests
-3. Suggest resolutions: "Juanse needs GITHUB_TOKEN — I can add it now. Oscar needs browser access — should I add 'browser' capability?"
-4. After user resolves, use resolver_backlog to close items
-
-## Deploy Capabilities
-The agents have FULL deploy access:
-- deploy_frontend → Vercel production deploy
-- deploy_edge_function → Supabase Edge Functions
-- push_db_migration → SQL to production DB
-- git push → Code to GitHub
-When creating projects that involve code changes, ALWAYS include a deploy step in the last phase.
-
-## Core capabilities
-You manage AI agent teams + the Chief Outreach sales platform.
-- Create and manage AI agents (with smart defaults — infer everything from role)
-- Create projects with phases that auto-decompose into tasks
-- Agents auto-claim tasks based on capabilities
-- Monitor team status, performance, artifacts, reviews, backlog
-- Run sales outreach (cadences, leads, LinkedIn, email)
-
-## Response Rules — CRITICAL, FOLLOW EXACTLY
-1. **ANSWER ONLY WHAT WAS ASKED.** This is the #1 rule. If the user asks about Gmail, ONLY talk about Gmail. Do NOT add project status, agent updates, code changes, or ANY other topic. Zero tangents. Zero "by the way". If the user asks one thing, respond to that ONE thing only.
-2. **NEVER volunteer information about projects, commits, artifacts, or agent activity unless explicitly asked.** The user will ask "qué están haciendo los agentes?" or "estado del proyecto" when they want that info. If they don't ask, don't share it.
-3. NEVER ask for information you can infer.
-4. ALWAYS show what you inferred after creating.
-5. ONE question at a time max.
-6. VALUE FIRST: Create/execute first, let user adjust after.
-7. When creating agents: use the onboarding flow above.
-8. When creating projects: suggest plan first, then create.
-9. Keep WhatsApp responses SHORT. Use emojis for status. Max 2-3 paragraphs. NO walls of text.
-10. **NEVER show JSON, code, curly braces, brackets, or technical formatting in responses.** Tool results are for YOU to interpret — the user should see a clean, conversational, human-friendly message. Instead of showing \`{ "success": true, "agent": "Paula" }\`, say "Paula está en eso" or "Listo, le delegué la tarea a Paula". Format data as natural text, bullet points, or simple lists — NEVER as code or JSON.
-11. Always need org_id and know who the user is.
-12. If context is saved, use it directly — don't re-ask.
-13. Confirm before sending external messages or spending money.
-14. Never expose tokens or internal IDs.
-15. Agents have full bash permissions via bypass. If an agent says they need /approve or shell approval, do NOT relay the /approve command to the user. Instead tell the user: "There's a permission issue with [agent]. The system should handle this automatically — I'll tell the agent to retry." Then message the agent: "You have full bypass permissions. Execute commands directly without waiting for approval."
-16. NEVER show /approve IDs or ask the user to run /approve commands. The user cannot run those — they're internal system commands.
-17. MULTIPLE projects can be active in parallel. When querying projects, filter by status=active. Ignore completed/paused.
-18. ALWAYS propose a plan before creating a project. Use proponer_proyecto first.
-19. INTELLIGENT DELEGATION: select the MINIMUM subset of agents required.`;
+## Response Rules
+- Answer ONLY what was asked. Zero tangents.
+- Keep WhatsApp responses SHORT (2-3 lines). Use emojis.
+- NEVER show JSON, code, IDs, or technical formatting. Interpret tool results as clean text.
+- NEVER volunteer project/agent status unless asked.
+- Infer what you can — don't re-ask saved context.
+- Confirm before sending external messages or spending money.
+- For projects: use proponer_proyecto first (suggest plan), then aprobar_proyecto.
+- Multiple projects can run in parallel — select MINIMUM agents needed.`;
   }
 
   const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
@@ -1927,8 +1865,9 @@ You manage AI agent teams + the Chief Outreach sales platform.
     return json.data;
   }
 
-  // Tools (Anthropic format)
-  const gwTools = [
+  // Tools (Anthropic format) — LEAN ORCHESTRATOR: only routing + management tools
+  // All "work" tools (research, email, LinkedIn, etc.) removed — agents handle via skills
+  const gwToolsLegacy = [
     { name: "buscar_prospectos", description: "Busca prospectos en una empresa usando LinkedIn Sales Navigator (L1→L2→L3).", input_schema: { type: "object", properties: { org_id: { type: "string" }, company_name: { type: "string" }, company_domain: { type: "string" }, titles: { type: "array", items: { type: "string" } }, seniority_levels: { type: "array", items: { type: "string" } }, limit: { type: "number" }, buyer_persona_id: { type: "string" } }, required: ["org_id", "company_name"] } },
     { name: "crear_cadencia", description: "Crea una cadencia de outreach con pasos. Confirma con el usuario antes de ejecutar.", input_schema: { type: "object", properties: { org_id: { type: "string" }, name: { type: "string" }, description: { type: "string" }, steps: { type: "array", items: { type: "object", properties: { step_number: { type: "number" }, step_type: { type: "string", enum: ["linkedin_connect","linkedin_message","linkedin_inmail","email","manual_task","linkedin_like","linkedin_comment"] }, delay_days: { type: "number" }, template: { type: "string" }, subject: { type: "string" } }, required: ["step_number","step_type","delay_days","template"] } } }, required: ["org_id","name","steps"] } },
     { name: "descubrir_empresas", description: "Descubre empresas que encajan con el ICP.", input_schema: { type: "object", properties: { org_id: { type: "string" }, icp_profile_id: { type: "string" }, criteria: { type: "object", properties: { industries: { type: "array", items: { type: "string" } }, employee_range: { type: "string" }, revenue_range: { type: "string" }, locations: { type: "array", items: { type: "string" } }, technologies: { type: "array", items: { type: "string" } } } }, limit: { type: "number" }, exclude_existing: { type: "boolean" } }, required: ["org_id"] } },
@@ -2003,6 +1942,53 @@ You manage AI agent teams + the Chief Outreach sales platform.
     // --- Skill management ---
     { name: "crear_skill", description: "Crea un nuevo skill en el skill_registry. Los skills son habilidades ejecutables que los agentes pueden usar. Usa cuando: 'crea un skill para...', 'quiero que los agentes puedan...', 'nuevo skill que haga...'. DEBES preguntar: (1) Nombre visible, (2) Qué hace (descripción), (3) Qué función llama y con qué parámetros (skill_definition), (4) Categoría. Si el usuario no sabe la definición técnica, ayúdalo a construirla.", input_schema: { type: "object", properties: { org_id: { type: "string" }, name: { type: "string", description: "ID único kebab-case (ej: generar_propuesta)" }, display_name: { type: "string", description: "Nombre visible (ej: Generar Propuesta Comercial)" }, description: { type: "string", description: "Qué hace el skill (1-2 oraciones)" }, category: { type: "string", enum: ["sales", "research", "operations", "marketing", "finance", "support", "system"], description: "Categoría" }, skill_definition: { type: "string", description: "Cómo se ejecuta. Formato: 'Calls {function-name} edge function. Params: param1, param2[], param3 (opcion1|opcion2).'" }, requires_integrations: { type: "array", items: { type: "string" }, description: "Integraciones requeridas: unipile, firecrawl, google_calendar, gmail, salesforce, linkedin, apollo" }, assign_to_agents: { type: "array", items: { type: "string" }, description: "Nombres de agentes a los que asignar este skill automáticamente" } }, required: ["org_id", "display_name", "description", "skill_definition"] } },
     { name: "listar_skills", description: "Lista todos los skills disponibles en el skill_registry. Usa cuando: 'qué skills hay?', 'lista los skills', 'habilidades disponibles'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+  ];
+
+  // ============================================================
+  // LEAN ORCHESTRATOR TOOLS — only what Chief needs
+  // ============================================================
+  const gwTools = [
+    // --- Routing (CORE) ---
+    { name: "resolver_skill", description: "Search for a matching skill in the registry and find which agent can execute it. Call this when the user asks to DO something (create, generate, analyze, search, etc.). Returns the best agent + skill + delegation instruction.", input_schema: { type: "object", properties: { org_id: { type: "string" }, query: { type: "string", description: "What the user wants, in natural language" } }, required: ["org_id", "query"] } },
+    { name: "delegar_tarea", description: "Delegate a task to a specific agent. The system automatically enriches the instruction with matching skills. Use after resolver_skill tells you which agent, or when the user explicitly names an agent.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string", description: "Agent ID (from resolver_skill or gestionar_agentes)" }, agent_name: { type: "string", description: "Agent name (alternative to agent_id)" }, instruction: { type: "string", description: "What the agent should do" }, priority: { type: "number", description: "0=urgent, 50=normal, 100=low" } }, required: ["org_id", "instruction"] } },
+    { name: "consultar_agente", description: "Quick question to an agent without creating a formal task. For 'what does X think?', 'ask X about...'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string" }, agent_name: { type: "string" }, message: { type: "string" } }, required: ["org_id", "message"] } },
+    // --- Team management ---
+    { name: "gestionar_agentes", description: "Create, list, or delete agents. When creating: infer team, tier, capabilities from role. Roles: sales, ux_designer, developer, cto, qa, marketing, custom.", input_schema: { type: "object", properties: { org_id: { type: "string" }, operation: { type: "string", enum: ["create", "list", "get", "delete"] }, name: { type: "string" }, role: { type: "string" }, description: { type: "string" }, agent_id: { type: "string" }, model: { type: "string" }, capabilities: { type: "array", items: { type: "string" } } }, required: ["org_id", "operation"] } },
+    { name: "desplegar_agente", description: "Deploy an agent on Railway as an independent service.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_id: { type: "string" }, agent_name: { type: "string" } }, required: ["org_id"] } },
+    { name: "cambiar_config_agente", description: "Change agent config: model, capabilities, team, tier.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_name: { type: "string" }, updates: { type: "object", properties: { model: { type: "string" }, temperature: { type: "number" }, team: { type: "string" }, tier: { type: "string", enum: ["worker", "team_lead", "manager"] }, capabilities: { type: "array", items: { type: "string" } } } } }, required: ["org_id", "agent_name", "updates"] } },
+    // --- Monitoring ---
+    { name: "ver_equipo", description: "Team status: who is available, working, blocked. Use for 'what are they doing?', 'team status', 'dashboard'.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    { name: "standup_equipo", description: "Executive team summary: completed tasks, in progress, blocked, pending check-ins.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    { name: "ver_tarea_agente", description: "Check status/result of an agent's last task. Use for 'did X finish?', 'what did X find?'.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_name: { type: "string" }, task_id: { type: "string" } }, required: ["org_id"] } },
+    // --- Work management ---
+    { name: "asignar_objetivo", description: "Create tasks that agents auto-claim by capabilities.", input_schema: { type: "object", properties: { org_id: { type: "string" }, tasks: { type: "array", items: { type: "object", properties: { title: { type: "string" }, description: { type: "string" }, task_type: { type: "string" }, required_capabilities: { type: "array", items: { type: "string" } }, priority: { type: "number" } }, required: ["title", "task_type"] } } }, required: ["org_id", "tasks"] } },
+    { name: "aprobar_checkin", description: "Approve or reject an agent check-in with feedback.", input_schema: { type: "object", properties: { org_id: { type: "string" }, checkin_id: { type: "string" }, action: { type: "string", enum: ["approve", "reject"] }, feedback: { type: "string" } }, required: ["org_id", "checkin_id", "action"] } },
+    // --- Projects ---
+    { name: "proponer_proyecto", description: "Propose a project plan for user approval before creating.", input_schema: { type: "object", properties: { org_id: { type: "string" }, whatsapp_number: { type: "string" }, name: { type: "string" }, description: { type: "string" }, capabilities_needed: { type: "array", items: { type: "string" } }, proposed_agents: { type: "array", items: { type: "object", properties: { name: { type: "string" }, role: { type: "string" }, reason: { type: "string" } }, required: ["name", "role", "reason"] } }, phases: { type: "array", items: { type: "object", properties: { name: { type: "string" }, description: { type: "string" }, agent_name: { type: "string" }, reviewer_name: { type: "string" } }, required: ["name", "description", "agent_name"] } }, estimated_cost_usd: { type: "number" }, estimated_duration: { type: "string" } }, required: ["org_id", "whatsapp_number", "name", "description", "proposed_agents", "phases"] } },
+    { name: "aprobar_proyecto", description: "Approve a draft project and create it.", input_schema: { type: "object", properties: { org_id: { type: "string" }, draft_id: { type: "string" } }, required: ["org_id"] } },
+    { name: "rechazar_proyecto", description: "Reject a draft project with reason.", input_schema: { type: "object", properties: { org_id: { type: "string" }, draft_id: { type: "string" }, razon: { type: "string" } }, required: ["org_id"] } },
+    // --- Backlog ---
+    { name: "ver_backlog", description: "View agent backlog: blockers, decisions, approvals needed.", input_schema: { type: "object", properties: { org_id: { type: "string" }, status: { type: "string", enum: ["open", "resolved", "all"] }, agent_name: { type: "string" } }, required: ["org_id"] } },
+    { name: "resolver_backlog", description: "Mark a backlog item as resolved.", input_schema: { type: "object", properties: { backlog_id: { type: "string" }, resolution: { type: "string" } }, required: ["backlog_id", "resolution"] } },
+    // --- Skills ---
+    { name: "crear_skill", description: "Create a new skill in the registry. Ask: (1) name, (2) description, (3) what function + params, (4) category.", input_schema: { type: "object", properties: { org_id: { type: "string" }, name: { type: "string" }, display_name: { type: "string" }, description: { type: "string" }, category: { type: "string", enum: ["sales", "research", "operations", "marketing", "finance", "support", "system"] }, skill_definition: { type: "string" }, requires_integrations: { type: "array", items: { type: "string" } }, assign_to_agents: { type: "array", items: { type: "string" } } }, required: ["org_id", "display_name", "description", "skill_definition"] } },
+    { name: "listar_skills", description: "List all available skills.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    // --- Knowledge ---
+    { name: "guardar_memoria", description: "Save an important fact, decision, or context to long-term memory.", input_schema: { type: "object", properties: { org_id: { type: "string" }, content: { type: "string" }, category: { type: "string" }, importance: { type: "string", enum: ["critical", "high", "normal", "low"] } }, required: ["org_id", "content"] } },
+    { name: "ensenar_agente", description: "Teach a fact or lesson to the team or a specific agent.", input_schema: { type: "object", properties: { org_id: { type: "string" }, agent_name: { type: "string" }, content: { type: "string" }, category: { type: "string", enum: ["fact", "preference", "strategy", "lesson", "decision"] }, importance: { type: "number" } }, required: ["org_id", "content"] } },
+    // --- User config ---
+    { name: "configurar_standup", description: "Configure daily standup: timezone, hour, enabled.", input_schema: { type: "object", properties: { whatsapp_number: { type: "string" }, timezone: { type: "string" }, standup_hour: { type: "number" }, standup_enabled: { type: "boolean" } }, required: ["whatsapp_number"] } },
+    { name: "configurar_idioma", description: "Set language for all messages: es, en, pt.", input_schema: { type: "object", properties: { whatsapp_number: { type: "string" }, language: { type: "string", enum: ["es", "en", "pt"] } }, required: ["whatsapp_number", "language"] } },
+    // --- Integration setup ---
+    { name: "conectar_gmail", description: "Generate Gmail OAuth link.", input_schema: { type: "object", properties: { org_id: { type: "string" }, whatsapp_number: { type: "string" } }, required: ["org_id"] } },
+    { name: "estado_integraciones", description: "Show status of all integrations (Gmail, Salesforce, LinkedIn, Apollo).", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    { name: "conectar_salesforce", description: "Generate Salesforce OAuth link.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    { name: "conectar_linkedin", description: "Generate LinkedIn/Unipile connection link.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
+    // --- Onboarding ---
+    { name: "guardar_sesion", description: "Save user identity (WhatsApp number + org).", input_schema: { type: "object", properties: { whatsapp_number: { type: "string" }, org_id: { type: "string" }, user_id: { type: "string" }, member_id: { type: "string" }, display_name: { type: "string" } }, required: ["whatsapp_number", "org_id"] } },
+    { name: "identificar_usuario", description: "Look up a user by email in an organization.", input_schema: { type: "object", properties: { org_id: { type: "string" }, email: { type: "string" } }, required: ["org_id", "email"] } },
+    { name: "enviar_otp", description: "Send OTP verification code to email.", input_schema: { type: "object", properties: { email: { type: "string" } }, required: ["email"] } },
+    { name: "verificar_otp", description: "Verify OTP code and establish session.", input_schema: { type: "object", properties: { email: { type: "string" }, token: { type: "string" }, org_id: { type: "string" }, whatsapp_number: { type: "string" } }, required: ["email", "token"] } },
   ];
 
   // Tools that should run in background (>30s expected)
