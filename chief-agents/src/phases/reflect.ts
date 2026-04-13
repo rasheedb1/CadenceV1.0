@@ -168,7 +168,7 @@ export async function reflect(
     const allSame = state.recentActions.every(
       (a) => a.action === state.recentActions[0].action && a.taskId === state.recentActions[0].taskId,
     );
-    if (allSame && action !== 'idle') {
+    if (allSame && action !== 'idle' && action !== 'ask_human') {
       log.warn(`STALL detected: repeated ${action} on ${taskId} — forcing idle`);
       state.interval = MAX_INTERVAL;
       state.recentActions = [];
