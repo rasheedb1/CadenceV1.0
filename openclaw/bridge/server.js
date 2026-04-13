@@ -2575,6 +2575,25 @@ ${args.description ? `\n${args.description}\n` : ""}
           }
           if (!agent) return { success: false, error: "Agente no encontrado. Usa gestionar_agentes list para ver los agentes disponibles." };
 
+          // DEDUP: Check if a very similar task was already completed in the last 2 hours
+          // This prevents Chief's LLM from re-creating tasks from conversation history
+          try {
+            const twoHoursAgo = new Date(Date.now() - 2 * 3600000).toISOString();
+            const instrWords = (args.instruction || "").toLowerCase().split(/\s+/).filter(w => w.length > 4).slice(0, 8).join(" ");
+            const recentTasks = await sbFetch(`${base}/rest/v1/agent_tasks_v2?org_id=eq.${args.org_id}&status=in.(done,in_progress,claimed)&created_at=gt.${encodeURIComponent(twoHoursAgo)}&select=title,status,created_at&order=created_at.desc&limit=10`, { headers: sbHeaders() });
+            if (Array.isArray(recentTasks)) {
+              const isDupe = recentTasks.some(t => {
+                const titleWords = (t.title || "").toLowerCase().split(/\s+/).filter(w => w.length > 4);
+                const shared = instrWords.split(" ").filter(w => titleWords.some(tw => tw.includes(w) || w.includes(tw))).length;
+                return shared >= 3; // 3+ matching significant words = likely duplicate
+              });
+              if (isDupe) {
+                console.log(`[delegar_tarea] DEDUP: Similar task already exists in last 2h, skipping`);
+                return { success: true, agent: agent.name, status: "already_done", message: `Esta tarea ya fue completada recientemente por el equipo. No se creó duplicado.` };
+              }
+            }
+          } catch (e) { console.warn("[delegar_tarea] Dedup check failed:", e.message); }
+
           // Infer task_type from agent capabilities for proper routing
           const caps = agent.capabilities || [];
           let taskType = "general";
