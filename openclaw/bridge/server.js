@@ -4048,7 +4048,7 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
   }
 
   const gwSessions = new Map(); // sessionKey -> { history: [], systemPrompt: string }
-  const GW_MAX_HISTORY = 15;  // Reduced from 50 — less history = faster LLM responses
+  const GW_MAX_HISTORY = 6;  // Only last 3 exchanges — prevents LLM from re-processing old tasks
 
   async function loadUserContext(waId) {
     try {
@@ -4225,12 +4225,13 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
       }
 
       const text = response.content.find(b => b.type === "text")?.text || "";
-      // Trim history by message count AND total character size
+      // Aggressive history trim — keep only last 6 messages (3 exchanges)
+      // This prevents the LLM from seeing old delegated tasks and re-creating them
       if (history.length > GW_MAX_HISTORY) session.history = history.slice(-GW_MAX_HISTORY);
-      // Also enforce a character limit to prevent context overflow
-      const MAX_HISTORY_CHARS = 15000;
+      // Also enforce a character limit
+      const MAX_HISTORY_CHARS = 8000;
       let totalChars = history.reduce((sum, m) => sum + JSON.stringify(m.content).length, 0);
-      while (totalChars > MAX_HISTORY_CHARS && history.length > 4) {
+      while (totalChars > MAX_HISTORY_CHARS && history.length > 2) {
         history.shift();
         totalChars = history.reduce((sum, m) => sum + JSON.stringify(m.content).length, 0);
       }
