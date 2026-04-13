@@ -1436,12 +1436,12 @@ async function formatAgentMessage(rawMessage, agentName, priority, language = "e
     const langName = { es: "Spanish", en: "English", pt: "Portuguese", fr: "French" }[language] || "Spanish";
     const res = await formatterClient.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 300,
-      messages: [{ role: "user", content: `Rewrite this agent message for a non-technical CEO reading on WhatsApp. Language: ${langName}. Keep it SHORT (max 3 lines). Remove technical jargon (/approve commands, UUIDs, exec policies, iteration numbers). Add context if unclear. Use one emoji at the start.
+      max_tokens: 1024,
+      messages: [{ role: "user", content: `Rewrite this agent message for a non-technical CEO reading on WhatsApp. Language: ${langName}. Remove technical jargon (/approve commands, UUIDs, exec policies, iteration numbers). Keep the FULL content — do NOT cut information, questions, or lists. If the message has numbered questions or parameters, keep ALL of them. Use one emoji at the start. Format cleanly for WhatsApp.
 
 Agent: ${agentName}
 Priority: ${priority || "normal"}
-Message: ${msg.substring(0, 500)}
+Message: ${msg.substring(0, 2000)}
 
 Reply with ONLY the formatted message, nothing else.` }],
     });
@@ -2061,7 +2061,7 @@ You manage AI agent teams + the Chief Outreach sales platform.
       try {
         const result = await gwExecuteToolSync(name, args);
         const formatted = formatToolResultForWhatsApp(name, result);
-        const summary = formatted.length > 1500 ? formatted.substring(0, 1500) + "..." : formatted;
+        const summary = formatted; // splitMessage handles chunking — don't truncate
         // Only show tool name if we couldn't extract a friendly message
         const isGenericJson = summary.startsWith("{") || summary.startsWith("[");
         const prefix = isGenericJson ? `✅ *${name}* completado:\n\n` : "✅ ";
