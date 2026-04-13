@@ -4095,7 +4095,83 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
     }
   }
 
+  // ============================================================
+  // PRE-PROCESSING LAYER: deterministic routing BEFORE LLM
+  // ============================================================
+
+  // 1.1 Agent name detection patterns (Spanish + English)
+  const AGENT_NAME_PATTERNS = [
+    /^(?:dile|dígale|pidele|pídele|pregúntale|preguntale)\s+a\s+(\w+)\s+que\s+(.+)/is,
+    /^(?:que|ke)\s+(\w+)\s+(?:haga|haz|me haga|genere|cree|busque|investigue|revise|prepare|arme|mande|envíe)\s+(.+)/is,
+    /^(?:tell|ask)\s+(\w+)\s+(?:to\s+)?(.+)/is,
+    /^(\w+),?\s+(?:haz|hazme|genera|crea|busca|investiga|revisa|prepara|arma|manda|envía)\s+(.+)/is,
+    /^(\w+),?\s+(?:please|por favor)?\s*(?:can you|could you|puedes|podrías)\s+(.+)/is,
+  ];
+
+  // Cache of agent names per org (refreshed with session)
+  const agentNameCache = new Map(); // orgId → Map<lowercase_name, {id, name}>
+
+  async function resolveAgentByName(orgId, namePart) {
+    if (!orgId) return null;
+    let cache = agentNameCache.get(orgId);
+    if (!cache) {
+      const rows = await sbFetch(`${SB_URL}/rest/v1/agents?org_id=eq.${orgId}&status=neq.destroyed&select=id,name`, { headers: sbHeaders() }).catch(() => []);
+      cache = new Map();
+      if (Array.isArray(rows)) rows.forEach(a => cache.set(a.name.toLowerCase(), { id: a.id, name: a.name }));
+      agentNameCache.set(orgId, cache);
+      // Invalidate after 5 min
+      setTimeout(() => agentNameCache.delete(orgId), 5 * 60 * 1000);
+    }
+    const lower = namePart.toLowerCase().trim();
+    // Exact match first, then partial
+    for (const [key, val] of cache) {
+      if (key === lower || key.startsWith(lower) || key.includes(lower)) return val;
+    }
+    return null;
+  }
+
+  function detectAgentMention(message, orgId) {
+    for (const pattern of AGENT_NAME_PATTERNS) {
+      const match = message.match(pattern);
+      if (match) {
+        return { name: match[1].trim(), instruction: match[2].trim() };
+      }
+    }
+    return null;
+  }
+
+  // 1.3 Message buffer (8s window to concatenate rapid messages)
+  const messageBuffers = new Map(); // sessionKey → { messages: [], timer, resolve }
+
+  function bufferMessage(sessionKey, message) {
+    return new Promise((resolve) => {
+      let buf = messageBuffers.get(sessionKey);
+      if (buf) {
+        buf.messages.push(message);
+        clearTimeout(buf.timer);
+        buf.resolvers.push(resolve);
+      } else {
+        buf = { messages: [message], resolvers: [resolve] };
+        messageBuffers.set(sessionKey, buf);
+      }
+      buf.timer = setTimeout(() => {
+        const b = messageBuffers.get(sessionKey);
+        messageBuffers.delete(sessionKey);
+        if (b) {
+          const combined = b.messages.join('\n');
+          // First resolver gets the combined message, rest get null (skip)
+          b.resolvers.forEach((r, i) => r(i === 0 ? combined : null));
+        }
+      }, 8000);
+    });
+  }
+
   async function gwProcessMessage(sessionKey, message) {
+    // --- Message buffer: wait 8s for rapid follow-ups ---
+    const buffered = await bufferMessage(sessionKey, message);
+    if (buffered === null) return ""; // This message was combined into another
+    message = buffered; // Use the combined message
+
     let session = gwSessions.get(sessionKey);
     let orgId = null;
     if (!session) {
@@ -4148,6 +4224,35 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
     }
 
     const { history, systemPrompt } = session;
+
+    // ============================================================
+    // PRE-PROCESSING: deterministic routing BEFORE hitting LLM
+    // ============================================================
+    const effectiveOrgId = session.orgId || orgId;
+
+    // 1.1 Detect explicit agent name ("dile a Paula que...", "Paula, haz...")
+    if (effectiveOrgId) {
+      const mention = detectAgentMention(message, effectiveOrgId);
+      if (mention) {
+        const agent = await resolveAgentByName(effectiveOrgId, mention.name);
+        if (agent) {
+          console.log(`[pre-route] Detected "${mention.name}" → ${agent.name} (${agent.id}), bypassing Chief LLM`);
+          // Delegate directly — no LLM needed
+          const delegateResult = await gwExecuteToolSync('delegar_tarea', {
+            org_id: effectiveOrgId,
+            agent_name: agent.name,
+            instruction: mention.instruction,
+          });
+          const reply = delegateResult?.message || `Listo, le pasé la tarea a ${agent.name}.`;
+          history.push({ role: "user", content: message });
+          history.push({ role: "assistant", content: [{ type: "text", text: reply }] });
+          saveMessage(sessionKey, effectiveOrgId, "user", message);
+          saveMessage(sessionKey, effectiveOrgId, "assistant", reply);
+          return reply;
+        }
+      }
+    }
+
     history.push({ role: "user", content: message });
 
     // Persist user message
