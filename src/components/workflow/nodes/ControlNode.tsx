@@ -11,7 +11,7 @@ const CONTROL_ICONS: Record<string, React.ComponentType<{ className?: string }>>
 }
 
 function ControlNodeComponent({ data, type, selected }: NodeProps) {
-  const nodeData = data as { label: string; description?: string }
+  const nodeData = data as unknown as { label: string; description?: string; options?: string[] }
   const Icon = CONTROL_ICONS[type as string] || GitBranch
   const isCondition = type?.startsWith('condition_')
   const isTrigger = type?.startsWith('trigger_')
@@ -60,7 +60,7 @@ function ControlNodeComponent({ data, type, selected }: NodeProps) {
       {isHumanApproval && (
         <>
           <div className="mt-2 flex justify-between text-[10px] font-medium px-1">
-            {(nodeData as unknown as { options?: string[] }).options?.map((opt: string, i: number) => (
+            {nodeData.options?.map((opt: string, i: number) => (
               <span key={i} className="text-amber-600 text-center flex-1">{opt}</span>
             )) || <>
               <span className="text-emerald-600">Continue</span>

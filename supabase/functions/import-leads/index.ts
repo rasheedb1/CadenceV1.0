@@ -138,6 +138,7 @@ serve(async (req: Request) => {
       }
     })
 
+    const BATCH_SIZE = 500
     let importedCount = 0
     let updatedCount = 0
     const allLeadIds: string[] = []
@@ -152,23 +153,26 @@ serve(async (req: Request) => {
       return true
     })
 
-    // Insert new leads
+    // Insert new leads in batches of 500 (Supabase max_rows=1000 default)
     if (deduplicatedRows.length > 0) {
       const leadsToInsert = deduplicatedRows.map((row) => buildLeadInsert(row, ctx.userId, ctx.orgId))
 
-      const { data: insertedLeads, error: insertError } = await supabase
-        .from('leads')
-        .insert(leadsToInsert)
-        .select('id')
+      for (let i = 0; i < leadsToInsert.length; i += BATCH_SIZE) {
+        const batch = leadsToInsert.slice(i, i + BATCH_SIZE)
+        const { data: insertedLeads, error: insertError } = await supabase
+          .from('leads')
+          .insert(batch)
+          .select('id')
 
-      if (insertError) {
-        console.error('Insert error:', insertError)
-        return errorResponse(`Failed to import leads: ${insertError.message}`, 500)
-      }
+        if (insertError) {
+          console.error(`Insert error (batch ${i / BATCH_SIZE + 1}):`, insertError)
+          return errorResponse(`Failed to import leads: ${insertError.message}`, 500)
+        }
 
-      importedCount = insertedLeads?.length || 0
-      for (const lead of insertedLeads || []) {
-        allLeadIds.push(lead.id)
+        importedCount += insertedLeads?.length || 0
+        for (const lead of insertedLeads || []) {
+          allLeadIds.push(lead.id)
+        }
       }
     }
 
@@ -239,12 +243,15 @@ serve(async (req: Request) => {
         status: 'active',
       }))
 
-      const { error: clError } = await supabase
-        .from('cadence_leads')
-        .upsert(cadenceLeadInserts, { onConflict: 'cadence_id,lead_id' })
+      for (let i = 0; i < cadenceLeadInserts.length; i += BATCH_SIZE) {
+        const batch = cadenceLeadInserts.slice(i, i + BATCH_SIZE)
+        const { error: clError } = await supabase
+          .from('cadence_leads')
+          .upsert(batch, { onConflict: 'cadence_id,lead_id' })
 
-      if (clError) {
-        console.error('Cadence assignment error:', clError)
+        if (clError) {
+          console.error(`Cadence assignment error (batch ${i / BATCH_SIZE + 1}):`, clError)
+        }
       }
 
       // Also create lead_step_instances so leads appear in the step view
@@ -258,12 +265,15 @@ serve(async (req: Request) => {
           status: 'pending',
         }))
 
-        const { error: lsiError } = await supabase
-          .from('lead_step_instances')
-          .upsert(lsiInserts, { onConflict: 'cadence_step_id,lead_id' })
+        for (let i = 0; i < lsiInserts.length; i += BATCH_SIZE) {
+          const batch = lsiInserts.slice(i, i + BATCH_SIZE)
+          const { error: lsiError } = await supabase
+            .from('lead_step_instances')
+            .upsert(batch, { onConflict: 'cadence_step_id,lead_id' })
 
-        if (lsiError) {
-          console.error('Lead step instance error:', lsiError)
+          if (lsiError) {
+            console.error(`Lead step instance error (batch ${i / BATCH_SIZE + 1}):`, lsiError)
+          }
         }
       }
     }

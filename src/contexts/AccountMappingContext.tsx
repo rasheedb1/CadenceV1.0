@@ -270,6 +270,17 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
   const createAccountMapMutation = useMutation({
     mutationFn: async ({ name, description }: { name: string; description?: string }) => {
       if (!user || !orgId) throw new Error('Not authenticated')
+
+      // Auto-link ICP profile if the org has exactly one
+      let autoIcpProfileId: string | null = null
+      const { data: icpProfiles } = await supabase
+        .from('icp_profiles')
+        .select('id')
+        .eq('org_id', orgId)
+      if (icpProfiles && icpProfiles.length === 1) {
+        autoIcpProfileId = icpProfiles[0].id
+      }
+
       const { data, error } = await supabase
         .from('account_maps')
         .insert({
@@ -277,6 +288,7 @@ export function AccountMappingProvider({ children }: { children: ReactNode }) {
           org_id: orgId,
           name,
           description: description || null,
+          icp_profile_id: autoIcpProfileId,
           filters_json: { industry: [], company_size: [], location: [], seniority: [], keywords: [], title_keywords: [] },
         })
         .select()

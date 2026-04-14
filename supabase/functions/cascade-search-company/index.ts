@@ -96,7 +96,10 @@ serve(async (req: Request) => {
       : await personaQuery.eq('account_map_id', accountMapId)
 
     if (pErr || !personas || personas.length === 0) {
-      return errorResponse('No buyer personas found for this account map', 404)
+      const detail = !accountMap.icp_profile_id
+        ? 'Account map has no ICP profile linked. Please link an ICP profile first.'
+        : 'No buyer personas found in the linked ICP profile. Add at least one buyer persona.'
+      return errorResponse(detail, 404)
     }
 
     console.log(`Cascade search for ${company.company_name} (${personas.length} personas, max ${maxPerRole}/role)`)

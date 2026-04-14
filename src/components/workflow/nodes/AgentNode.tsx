@@ -22,7 +22,7 @@ interface AgentNodeData {
 }
 
 function AgentNodeComponent({ data, type, selected }: NodeProps) {
-  const nodeData = data as AgentNodeData
+  const nodeData = data as unknown as AgentNodeData
   const Icon = AGENT_ICONS[type as string] || Bot
   const isReview = type === 'action_agent_review'
   const isNotify = type === 'action_notify_human'

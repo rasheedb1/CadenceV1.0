@@ -1,7 +1,7 @@
-# Plan Final: Agent Platform — Skills + Workflows + Decision Paths
+# Plan Final: Agent Platform v2
 
 ## Visión
-Agentes que ejecutan workflows multi-paso de forma autónoma, con UI visual estilo n8n para diseñar los pasos y sus decision paths, donde la intervención humana solo ocurre cuando el workflow lo define explícitamente.
+Agentes que ejecutan skills y workflows multi-paso de forma autónoma, con ejecución instantánea (no polling), comunicación inter-agente en tiempo real, UI visual estilo n8n para diseñar workflows con decision paths, y intervención humana solo cuando el workflow lo define.
 
 ## Ejemplo Target
 ```
@@ -21,359 +21,356 @@ Todo configurable visualmente. Sin código.
 
 ---
 
-## Lo que YA existe (no hay que construir de cero)
+## Lo que YA existe
 
 | Componente | Estado | Ubicación |
 |------------|--------|-----------|
 | XYFlow visual builder | ✅ | `WorkflowBuilder.tsx` |
-| 13 tipos de nodos | ✅ | `types/workflow.ts` |
+| 13 tipos de nodos (trigger, action, condition, delay) | ✅ | `types/workflow.ts` |
 | Motor de ejecución de grafos | ✅ | `process-workflow/index.ts` |
 | DB schema workflows + runs + event_log | ✅ | migration 008 |
-| agent_tasks_v2 con depends_on[] | ✅ | migration 079 |
+| agent_tasks_v2 con depends_on[] y session_id | ✅ | migrations 079, 090 |
 | pg_cron scheduler (6 crons activos) | ✅ | migrations 017, 080, 086 |
 | Skill registry (28 skills) | ✅ | skill_registry table |
-| call_skill tool en agentes | ✅ | skill-tools.ts |
-| Claude Agent SDK con session resumption | ✅ | @anthropic-ai/claude-agent-sdk |
+| call_skill tool + session resumption | ✅ | skill-tools.ts, sdk-runner.ts |
+| Claude Agent SDK con resume + subagents | ✅ | @anthropic-ai/claude-agent-sdk v0.1.77 |
 | WorkflowContext (TanStack Query) | ✅ | `WorkflowContext.tsx` |
 | Condition nodes con branching yes/no | ✅ | process-workflow |
 | Template variables `{{variable}}` | ✅ | workflow node config |
+| Railway containers por agente | ✅ | chief-agents service |
 
 ---
 
-## Fase 0: Session Resumption — Hacer que los skills funcionen (1 día)
+## Fase 0: Session Resumption ✅ DONE
+
+- [x] Campo `session_id` en agent_tasks_v2
+- [x] `executeWithSDK()` captura y acepta `resume: sessionId`
+- [x] `act.ts` pasa session_id cuando user replied
+- [x] Skill definition actualizada (no re-preguntar datos)
+- [x] Task lifecycle: no completar tasks con asked_human
+- [x] Conversation control: reabrir tasks en vez de crear nuevos
+
+---
+
+## Fase 1: Ejecución Event-Driven + Routing Determinístico (2 días)
 
 ### Problema que resuelve
-Hoy cada `executeWithSDK()` crea una sesión NUEVA. El agente pierde toda la memoria entre ciclos. Esto causa que re-pregunte datos que ya tiene.
+Agentes tardan 1-3 min en responder porque el event loop hace polling cada 30-180s. El 90% del tiempo están idle quemando Haiku calls sin hacer nada.
 
-### Qué construir
+### Arquitectura: de polling a event-driven
 
-**0.1 — Nuevo campo `session_id` en agent_tasks_v2:**
-```sql
-ALTER TABLE agent_tasks_v2 ADD COLUMN session_id TEXT;
+```
+ANTES (polling):
+┌──────────────────────────────────────────────────┐
+│  chief-agents container                           │
+│  ┌────────────────────────────────────────────┐  │
+│  │  Event Loop (cada 10-180s)                  │  │
+│  │  SENSE → THINK (Haiku $) → ACT → REFLECT   │  │
+│  │  SENSE → THINK (Haiku $) → ACT → REFLECT   │  │
+│  │  SENSE → THINK (Haiku $) → ACT → REFLECT   │  │
+│  │  ...polling incluso cuando no hay nada...   │  │
+│  └────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────┘
+
+DESPUÉS (event-driven):
+┌──────────────────────────────────────────────────┐
+│  chief-agents container                           │
+│  ┌──────────────────┐  ┌──────────────────────┐  │
+│  │  HTTP Server      │  │  Event Loop (5 min)  │  │
+│  │                   │  │  Solo: heartbeat,    │  │
+│  │  POST /execute    │  │  scheduled tasks,    │  │
+│  │  POST /wake       │  │  cleanup, safety net │  │
+│  │                   │  │                      │  │
+│  │  Ejecución        │  │  NO decide, NO       │  │
+│  │  inmediata        │  │  quema Haiku idle    │  │
+│  └──────────────────┘  └──────────────────────┘  │
+└──────────────────────────────────────────────────┘
 ```
 
-**0.2 — Modificar `executeWithSDK()` para soportar resume:**
-```typescript
-// sdk-runner.ts
-export async function executeWithSDK(
-  agent: AgentConfig,
-  taskPrompt: string,
-  log: Logger,
-  sessionId?: string,  // NUEVO: si hay session_id, resumir
-): Promise<SDKResult> {
+### 1.1 — HTTP Server en chief-agents
 
-  for await (const message of query({
-    prompt: enhancedPrompt,
-    options: {
-      model,
-      ...(sessionId ? { resume: sessionId } : { systemPrompt: stableSystemPrompt }),
-      allowedTools,
-      permissionMode: 'bypassPermissions',
-      maxTurns: 15,
-      mcpServers,
-    },
-  })) {
-    // Capturar session_id del resultado
-    if (message.type === 'result') {
-      result.sessionId = (message as any).session_id;
-    }
+Nuevo archivo `chief-agents/src/server.ts`:
+
+```typescript
+import express from 'express';
+
+const app = express();
+app.use(express.json());
+
+// POST /execute — ejecución directa de un task (0 latencia)
+// Llamado por: bridge (delegar_tarea), workflow engine, scheduled crons
+app.post('/execute', async (req, res) => {
+  const { agent_id, task_id } = req.body;
+
+  // 1. Cargar agent config
+  const agent = await loadAgentConfig(agent_id);
+
+  // 2. Cargar task (description, session_id, context_summary)
+  const task = await loadTask(task_id);
+
+  // 3. Routing determinístico (código, no LLM)
+  const sessionId = task.session_id || undefined;
+  const isResume = task.context_summary?.last_action === 'user_replied' && sessionId;
+
+  // 4. Construir prompt (mismo que act.ts work_on_task, pero sin THINK)
+  const prompt = isResume
+    ? buildResumePrompt(task)      // "User replied, execute skill now"
+    : buildFreshPrompt(task);      // Full instruction + skills context
+
+  // 5. Ejecutar SDK
+  const result = await executeWithSDK(agent, prompt, log, isResume ? sessionId : undefined);
+
+  // 6. Guardar session_id + resultado
+  await saveTaskResult(task_id, result);
+
+  // 7. Si el agente pidió algo al humano → no completar, guardar session
+  // Si ejecutó skill → completar task, notificar via callback
+  if (result.text.includes('ask_human') || result.subtype !== 'success') {
+    res.json({ status: 'waiting_for_human', session_id: result.sessionId });
+  } else {
+    await completeTask(task_id, result);
+    await notifyCallback(agent, result); // Envía resultado a WhatsApp
+    res.json({ status: 'completed', result: result.text });
   }
-  return result;
+});
+
+// POST /wake — despierta al agente para procesar mensajes inter-agente
+// Llamado por: otro agente via send_agent_message
+app.post('/wake', async (req, res) => {
+  const { agent_id, reason } = req.body;
+  // Forzar que el event loop corra su próximo ciclo inmediatamente
+  forceNextCycle(agent_id);
+  res.json({ status: 'woken', agent_id });
+});
+
+app.listen(3200);
+```
+
+### 1.2 — delegar_tarea llama /execute en vez de esperar event loop
+
+En `bridge/server.js`, después de crear el task:
+
+```javascript
+case "delegar_tarea": {
+  // ... crear task en agent_tasks_v2 (ya existe) ...
+
+  // NUEVO: ejecutar inmediatamente via HTTP
+  const agentUrl = await getAgentContainerUrl(agent.id);
+  fetch(`${agentUrl}/execute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agent_id: agent.id, task_id: taskId }),
+  }).catch(err => console.warn('[delegar_tarea] Direct execution failed, event loop will pick up:', err.message));
+
+  // Si /execute falla, el event loop (safety net) tomará el task en <5 min
 }
 ```
 
-**0.3 — Modificar `act.ts` work_on_task para usar session resumption:**
+### 1.3 — send_agent_message llama /wake
+
+En `chief-tools.ts`, cuando un agente envía mensaje a otro:
+
 ```typescript
-case 'work_on_task': {
-  // Cargar session_id del task
-  const task = await sbGet(`agent_tasks_v2?id=eq.${params.task_id}&select=session_id`);
-  const existingSessionId = task[0]?.session_id;
+const sendMessage = tool('send_agent_message', ..., async ({ to_agent, message }) => {
+  // ... escribir a agent_messages (ya existe) ...
 
-  // Si hay session_id Y el scratchpad tiene user_replied → RESUME
-  const result = await executeWithSDK(agent, sdkPrompt, log, existingSessionId);
+  // NUEVO: despertar al agente receptor
+  const targetUrl = await getAgentContainerUrl(toAgentId);
+  fetch(`${targetUrl}/wake`, {
+    method: 'POST',
+    body: JSON.stringify({ agent_id: toAgentId, reason: 'new_message' }),
+  }).catch(() => {}); // Non-blocking, event loop es safety net
+});
+```
 
-  // Guardar session_id para futuras resumpciones
-  if (result.sessionId) {
-    await sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
-      session_id: result.sessionId,
-    });
+### 1.4 — Routing determinístico (reemplaza THINK para /execute)
+
+```typescript
+// chief-agents/src/router.ts
+export function buildPromptForTask(task: TaskRow, context: SenseContext): {
+  prompt: string;
+  resumeSessionId?: string;
+} {
+  const pad = task.context_summary ? JSON.parse(task.context_summary) : null;
+
+  // Caso 1: User respondió + hay session → RESUME
+  if (pad?.last_action === 'user_replied' && task.session_id) {
+    const lastUserMsg = pad.conversation?.filter(c => c.role === 'user').pop();
+    return {
+      prompt: `The user replied: "${lastUserMsg?.content || ''}"\n\nYou now have all the data. Execute the skill with call_skill immediately. Do NOT ask more questions.`,
+      resumeSessionId: task.session_id,
+    };
   }
+
+  // Caso 2: Task nuevo → prompt completo con skills
+  return {
+    prompt: buildFullInstruction(task, context), // description + skills + rules
+  };
 }
 ```
 
-**0.4 — Cuando el user responde, NO crear task nuevo:**
-Ya implementado parcialmente (reopen task). Con session resumption, el task reabierto usa el mismo session_id → el agente recuerda TODO.
+**THINK (Haiku LLM) se mantiene SOLO para el event loop residual** — decisiones ambiguas de mensajes inter-agente. Para /execute (90% del tráfico), el routing es puro código.
 
-### Resultado
-- Skills pasan de ~20% a ~90% tasa de éxito
-- 2-3 mensajes máximo para cualquier skill
-- Cero re-preguntas por amnesia
+### 1.5 — Event loop reducido
 
-### Validación
-Probar con 3-5 skills diferentes antes de avanzar:
-- [ ] Paula: generate-business-case (PPTX)
-- [ ] Nando: buscar_prospectos (cascade search)
-- [ ] Paula: investigar_empresa (company research)
-- [ ] Nando: descubrir_empresas (ICP discovery)
-- [ ] Cualquier agente: enviar_email
+```typescript
+// event-loop.ts — cambios
+const BACKGROUND_INTERVAL = 300_000; // 5 min (era 10-180s)
+
+// Solo procesa:
+// 1. Mensajes inter-agente no procesados (safety net de /wake)
+// 2. Tasks scheduled que el cron no disparó
+// 3. Heartbeat
+// NO procesa: tasks de usuario (esos van por /execute)
+```
+
+### Resultado Fase 1
+
+| Flujo | Antes | Después |
+|-------|-------|---------|
+| Usuario → agente | 1-3 min | ~5s |
+| Agente → agente | 1-3 min | ~10s |
+| Costo idle (5 agentes, 24h) | ~$2/día (Haiku polling) | ~$0.05/día |
+| Workflow 5 pasos | 15 min | ~30s |
 
 ---
 
-## Fase 1: Routing Determinístico — Eliminar el LLM router (1 día)
+## Fase 2: Workflow Engine con Decision Paths + UI (5 días)
 
-### Problema que resuelve
-THINK usa Haiku (LLM) para decidir acciones simples como "si el usuario respondió → trabajar en el task". Esto falla porque Haiku malinterpreta el scratchpad y elige acciones incorrectas (ask_human cuando debería work_on_task).
-
-### Qué construir
-
-**1.1 — Nuevo módulo `router.ts` (reemplaza THINK para decisiones simples):**
-```typescript
-// chief-agents/src/phases/router.ts
-export function routeAction(context: SenseContext, state: LoopState): ParsedAction | null {
-  const task = context.myTasks[0];
-
-  // Regla 1: Si hay task con user_replied → work_on_task inmediato
-  if (task?.context_summary) {
-    const pad = JSON.parse(task.context_summary);
-    if (pad.last_action === 'user_replied') {
-      return { action: 'work_on_task', params: { task_id: task.id } };
-    }
-  }
-
-  // Regla 2: Si hay task con asked_human → idle (esperar reply)
-  if (task?.context_summary) {
-    const pad = JSON.parse(task.context_summary);
-    if (pad.last_action === 'asked_human') {
-      return { action: 'idle', params: {} };
-    }
-  }
-
-  // Regla 3: Si hay task activo → work_on_task
-  if (task && task.status !== 'done') {
-    return { action: 'work_on_task', params: { task_id: task.id } };
-  }
-
-  // Regla 4: Si hay tasks disponibles → claim
-  if (context.availableTasks.length > 0) {
-    return { action: 'claim_task', params: { task_id: context.availableTasks[0].id } };
-  }
-
-  // No pudo decidir → delegar a THINK (LLM) para casos ambiguos
-  return null;
-}
-```
-
-**1.2 — Integrar en event-loop.ts:**
-```typescript
-// Intentar routing determinístico primero
-const deterministicAction = routeAction(context, state);
-if (deterministicAction) {
-  decision = deterministicAction; // Skip THINK (ahorra $0.001 por ciclo + elimina errores)
-} else {
-  decision = await think(agent, context, state, log); // Fallback a LLM solo cuando necesario
-}
-```
-
-### Resultado
-- 80% de las decisiones son determinísticas (0 errores, 0 costo)
-- THINK (Haiku) solo se usa para mensajes ambiguos del inbox
-- Elimina completamente los bugs de routing (ask_human vs work_on_task)
-
----
-
-## Fase 2: Agent Workflow Engine con Decision Paths (5 días)
-
-### Qué construir
-
-**2.1 — Nuevos tipos de nodo (types/workflow.ts):**
+### 2.1 — Nuevos tipos de nodo
 
 ```typescript
-// ACCIÓN: ejecuta un skill de un agente
+// Acción: ejecuta un skill de un agente
 'action_agent_skill'
 // Config: { agent_id, skill_name, params: { key: value | "{{step.field}}" } }
 // Outputs: success, empty, error
 
-// ACCIÓN: instrucción libre para un agente
+// Acción: instrucción libre para un agente
 'action_agent_task'
 // Config: { agent_id, instruction: string, max_budget_usd: number }
 // Outputs: success, error
 
-// DECISIÓN: branching basado en resultado
+// Decisión: branching por resultado
 'condition_task_result'
-// Config: { field: string, operator: '>' | '<' | '==' | 'contains' | 'is_empty', value: any }
+// Config: { field, operator: '>'|'<'|'=='|'contains'|'is_empty', value }
 // Outputs: yes, no
 
-// DECISIÓN: human-in-the-loop
+// Decisión: human-in-the-loop
 'condition_human_approval'
-// Config: { question: string, options: string[], timeout_hours: number }
+// Config: { question, options: string[], timeout_hours }
 // Outputs: one edge per option + timeout edge
 
-// CONTROL: retry con backoff
+// Control: retry con backoff
 'action_retry'
-// Config: { max_retries: number, backoff_seconds: number, target_node_id: string }
+// Config: { max_retries, backoff_seconds, target_node_id }
 // Outputs: retry_success, max_retries_exceeded
 
-// CONTROL: notificar humano (no bloquea)
+// Control: notificar sin bloquear
 'action_notify_human'
-// Config: { channel: 'whatsapp' | 'email', message: string }
+// Config: { channel: 'whatsapp'|'email', message: string }
 // Outputs: sent (siempre continúa)
 
-// CONTROL: loop sobre array
+// Control: loop sobre array
 'action_for_each'
 // Config: { array_source: "{{step.companies}}", item_var: "company" }
 // Outputs: each_item, loop_complete
 
-// TRIGGER: scheduled
+// Control: feedback entre agentes
+'action_agent_review'
+// Config: { reviewer_agent_id, criteria: string }
+// Outputs: approved, needs_revision
+
+// Trigger: scheduled
 'trigger_scheduled'
-// Config: { cron: string, timezone: string }
+// Config: { cron, timezone }
 ```
 
-**2.2 — Componentes UI (reusar WorkflowBuilder.tsx):**
+### 2.2 — UI Components
 
 ```
 components/workflow/nodes/
 ├── AgentSkillNode.tsx        → Selector agente + skill + param mapping
-├── AgentTaskNode.tsx         → Selector agente + instrucción libre
-├── TaskResultNode.tsx        → Condition builder (field, operator, value)
+│   Config panel:
+│   ┌──────────────────────────────────┐
+│   │ Agente:  [▼ Nando              ]│
+│   │ Skill:   [▼ buscar_prospectos  ]│
+│   │ Params:                          │
+│   │   company: [{{step1.company}}]  │
+│   │   limit:   [3                ]  │
+│   │ On empty: ○ skip ○ ask human   │
+│   │ On error: ○ retry(3) ○ stop   │
+│   └──────────────────────────────────┘
+├── AgentTaskNode.tsx         → Instrucción libre
+├── TaskResultNode.tsx        → Condition builder
 ├── HumanApprovalNode.tsx     → Pregunta + opciones + timeout
-├── RetryNode.tsx             → Max retries + backoff config
-├── NotifyHumanNode.tsx       → Canal + mensaje template
-├── ForEachNode.tsx           → Array source + variable name
+├── RetryNode.tsx             → Max retries + backoff
+├── NotifyHumanNode.tsx       → Canal + mensaje
+├── ForEachNode.tsx           → Loop sobre arrays
+├── AgentReviewNode.tsx       → Agente reviewer + criterios
 └── ScheduledTriggerNode.tsx  → Cron builder visual
 ```
 
-Cada nodo muestra **handles de salida** según sus outputs:
-```
-[Agent Skill: buscar_prospectos]
-  ├── 🟢 success ──→
-  ├── 🟡 empty ──→
-  └── 🔴 error ──→
-```
+### 2.3 — Motor de ejecución (extiende process-workflow)
 
-El usuario arrastra edges desde cada handle hacia el siguiente nodo. Así diseña los decision paths visualmente.
-
-**2.3 — AgentSkillNode config panel:**
-
-```
-┌─────────────────────────────────────┐
-│ Agent Skill Node                     │
-├─────────────────────────────────────┤
-│ Agente:  [▼ Nando              ]   │
-│ Skill:   [▼ buscar_prospectos  ]   │
-├─────────────────────────────────────┤
-│ Parámetros:                         │
-│ company_name: [{{step1.company}}]   │
-│ titles:       [VP Sales, Director]  │
-│ limit:        [3                 ]  │
-├─────────────────────────────────────┤
-│ On empty result:                    │
-│ ○ Skip and continue                 │
-│ ○ Ask human what to do              │
-│ ○ Retry with different params       │
-│ ○ Stop workflow                     │
-├─────────────────────────────────────┤
-│ On error:                           │
-│ ○ Retry (max 3, backoff 30s)       │
-│ ○ Notify human and continue         │
-│ ○ Stop workflow                     │
-└─────────────────────────────────────┘
-```
-
-**2.4 — Motor de ejecución (extender process-workflow):**
+Los workflow nodes de agente usan **/execute** directamente:
 
 ```typescript
-// process-workflow/index.ts — nuevos handlers
-
 case 'action_agent_skill': {
   const { agent_id, skill_name, params } = nodeConfig;
-
-  // Resolver template variables: {{step1.companies}} → valor real
   const resolvedParams = resolveTemplateVars(params, run.context_json);
 
-  // Crear task para el agente
-  const task = await createAgentTask({
-    agent_id,
-    skill_name,
-    params: resolvedParams,
-    workflow_run_id: run.id,  // Link bidireccional
-  });
+  // Crear task
+  const task = await createTask({ agent_id, skill_name, params: resolvedParams, workflow_run_id: run.id });
 
-  // Pausar workflow hasta que el task se complete
-  await updateRun(run.id, {
-    status: 'waiting',
-    waiting_for_event: 'task_completed',
-    context_json: { ...run.context_json, waiting_task_id: task.id },
-  });
-  break;
+  // Ejecutar INMEDIATAMENTE via /execute (no esperar event loop)
+  const agentUrl = await getAgentContainerUrl(agent_id);
+  const execResult = await fetch(`${agentUrl}/execute`, {
+    method: 'POST',
+    body: JSON.stringify({ agent_id, task_id: task.id }),
+  }).then(r => r.json());
+
+  // Guardar resultado y avanzar
+  run.context_json[`step_${nodeConfig.step_name}`] = execResult;
+
+  // Determinar output edge basado en resultado
+  if (execResult.status === 'completed') {
+    const hasData = execResult.result && Object.keys(execResult.result).length > 0;
+    advanceToEdge(run, hasData ? 'success' : 'empty');
+  } else if (execResult.status === 'waiting_for_human') {
+    pauseRun(run, 'human_response');
+  } else {
+    advanceToEdge(run, 'error');
+  }
 }
 
-case 'condition_task_result': {
-  const { field, operator, value } = nodeConfig;
-  const taskResult = run.context_json.last_task_result;
+case 'action_agent_review': {
+  const { reviewer_agent_id, criteria } = nodeConfig;
+  const previousResult = run.context_json.last_task_result;
 
-  // Evaluar condición
-  const passed = evaluateCondition(taskResult, field, operator, value);
+  // Crear task de review para el reviewer
+  const reviewTask = await createTask({
+    agent_id: reviewer_agent_id,
+    instruction: `Review this work:\n${JSON.stringify(previousResult)}\n\nCriteria: ${criteria}\n\nRespond with: approved (if good) or needs_revision (with feedback)`,
+  });
 
-  // Seguir edge 'yes' o 'no'
-  const nextNodeId = getNextNode(workflow.graph, currentNodeId, passed ? 'yes' : 'no');
-  await advanceRun(run.id, nextNodeId);
-  break;
+  // Ejecutar review via /execute
+  const result = await executeViaHttp(reviewer_agent_id, reviewTask.id);
+
+  // Parsear decisión
+  const approved = result.text.toLowerCase().includes('approved');
+  advanceToEdge(run, approved ? 'approved' : 'needs_revision');
 }
 
 case 'condition_human_approval': {
   const { question, options, timeout_hours } = nodeConfig;
-
-  // Enviar pregunta al humano via WhatsApp
-  await sendHumanQuestion(run.org_id, question, options);
-
-  // Pausar workflow esperando respuesta
-  await updateRun(run.id, {
-    status: 'waiting',
-    waiting_for_event: 'human_response',
-    waiting_until: new Date(Date.now() + timeout_hours * 3600000),
-  });
-  break;
-}
-
-case 'action_for_each': {
-  const { array_source, item_var } = nodeConfig;
-  const items = resolveTemplateVar(array_source, run.context_json);
-
-  // Crear un sub-run por cada item
-  for (const item of items) {
-    await createSubRun(run.id, workflow.id, {
-      ...run.context_json,
-      [item_var]: item,
-      _loop_index: items.indexOf(item),
-    });
-  }
-  break;
-}
-
-case 'action_retry': {
-  const { max_retries, backoff_seconds, target_node_id } = nodeConfig;
-  const retryCount = run.context_json._retry_count || 0;
-
-  if (retryCount < max_retries) {
-    await updateRun(run.id, {
-      current_node_id: target_node_id,  // Volver al nodo que falló
-      context_json: { ...run.context_json, _retry_count: retryCount + 1 },
-      waiting_until: new Date(Date.now() + backoff_seconds * 1000 * Math.pow(2, retryCount)),
-      status: 'waiting',
-    });
-  } else {
-    // Max retries exceeded → seguir edge 'max_retries_exceeded'
-    const nextNodeId = getNextNode(workflow.graph, currentNodeId, 'max_retries_exceeded');
-    await advanceRun(run.id, nextNodeId);
-  }
-  break;
+  await sendWhatsAppQuestion(run.org_id, question, options);
+  pauseRun(run, 'human_response', timeout_hours);
 }
 ```
 
-**2.5 — Trigger: task completado → avanzar workflow:**
+### 2.4 — DB: trigger avanza workflow cuando task se completa
 
 ```sql
--- Migration: trigger que avanza workflows cuando un task se completa
 CREATE OR REPLACE FUNCTION advance_workflow_on_task_complete()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -397,130 +394,88 @@ AFTER UPDATE OF status ON agent_tasks_v2
 FOR EACH ROW EXECUTE FUNCTION advance_workflow_on_task_complete();
 ```
 
-**2.6 — Scheduling (pg_cron):**
+### 2.5 — Scheduling (pg_cron)
 
 ```sql
--- Edge function que busca workflows con trigger_scheduled y crea runs
 SELECT cron.schedule(
   'process-agent-workflows',
   '*/5 * * * *',
   $$SELECT net.http_post(
-    url := 'https://arupeqczrxmfkcbjwyad.supabase.co/functions/v1/process-workflow',
-    headers := '{"Authorization": "Bearer ...", "Content-Type": "application/json"}'::jsonb,
+    url := '.../functions/v1/process-workflow',
     body := '{"type": "scheduled_check"}'::jsonb
   )$$
 );
 ```
 
-**2.7 — Dashboard page `/agent-workflows`:**
+### 2.6 — Dashboard `/agent-workflows`
 
 | Sección | Descripción |
 |---------|-------------|
-| **Lista** | Tabla: nombre, trigger, agente principal, schedule, último run, status |
-| **Builder** | WorkflowBuilder.tsx con nuevos node types en NodePalette |
-| **Runs** | Timeline visual: cada nodo muestra ✅/⚠️/❌ con timestamps |
-| **Config** | Nombre, descripción, trigger type, timezone, notifications |
+| Lista | Tabla: nombre, trigger, agente(s), schedule, último run, status |
+| Builder | WorkflowBuilder.tsx + nuevos agent node types en NodePalette |
+| Runs | Timeline visual: cada nodo ✅/⚠️/❌ con timestamps y duración |
+| Config | Nombre, trigger type, timezone, agentes involucrados |
+| Logs | Event log con detalle de cada ejecución por nodo |
 
 ---
 
-## Ejemplo Completo: Workflow de Ventas de Nando
-
-### Diseño visual (lo que el usuario ve en el builder):
+## Ejemplo: Workflow Multi-Agente con Feedback
 
 ```
-[⏰ Trigger: L-V 9am MX]
+[Trigger: "Prepara propuesta para Empresa X"]
     │
     ▼
-[🔍 Nando: descubrir_empresas]
-  params: { criteria: ICP, limit: 5 }
-    │
-    ├── 🟢 success (count > 0)
-    │     │
+[🔍 Nando: investigar_empresa {company: "Empresa X"}]
+    ├── ✅ success
     │     ▼
-    │   [🔄 For Each: empresa in {{step1.companies}}]
-    │     │
-    │     ▼
-    │   [🔍 Nando: buscar_prospectos]
-    │     params: { company: {{empresa.name}}, limit: 3 }
-    │       │
-    │       ├── 🟢 success → [📧 Nando: crear_cadencia]
-    │       │                   params: { leads: {{step2.leads}}, steps: 5 }
-    │       │                     │
-    │       │                     └── 🟢 → [📱 Notificar: "3 leads de {{empresa.name}} en cadencia"]
-    │       │
-    │       ├── 🟡 empty → [⏭️ Skip: continuar con siguiente empresa]
-    │       │
-    │       └── 🔴 error → [🔄 Retry: max 2, backoff 60s]
-    │                          │
-    │                          └── exceeded → [📱 Notificar: "Error buscando leads en {{empresa.name}}"]
-    │
-    ├── 🟡 empty (count == 0)
-    │     │
-    │     ▼
-    │   [👤 Human: "No encontré empresas ICP. ¿Ajusto criterios?"]
-    │     ├── "Sí, ajustar" → [🔍 Nando: descubrir_empresas con params ajustados]
-    │     ├── "No, saltar hoy" → [End]
-    │     └── timeout 4h → [End + notificar]
-    │
-    └── 🔴 error
-          │
-          ▼
-        [🔄 Retry: max 3, backoff 300s]
-            └── exceeded → [📱 Notificar: "Workflow de ventas falló 3 veces"]
+    │   [🔍 Nando: buscar_prospectos {company: "Empresa X", limit: 5}]
+    │     ├── ✅ success
+    │     │     ▼
+    │     │   [👩 Paula: generate-business-case {data: {{step2.leads}}}]
+    │     │     ├── ✅ PPTX generado
+    │     │     │     ▼
+    │     │     │   [🔍 Nando: REVIEW "¿Los datos de la propuesta son correctos?"]
+    │     │     │     ├── ✅ approved → [📱 Notificar: "Propuesta lista, revísala"]
+    │     │     │     └── 🔄 needs_revision → [👩 Paula: ajustar con feedback de Nando]
+    │     │     │                                  └── → [volver a review de Nando]
+    │     │     └── ❌ error → [🔄 Retry max 2]
+    │     ├── ⚠️ empty → [👤 Human: "No hay leads. ¿Busco con otros títulos?"]
+    │     └── ❌ error → [🔄 Retry]
+    └── ❌ error → [📱 Notificar error]
 ```
 
-### Lo que pasa en runtime:
-
-1. **9:00am** — pg_cron trigger → crea workflow_run
-2. **9:01am** — process-workflow ejecuta nodo "descubrir_empresas" → crea task para Nando
-3. **9:02am** — Nando ejecuta task → encuentra 5 empresas → task done → trigger avanza workflow
-4. **9:03am** — for_each: crea 5 sub-runs, una por empresa
-5. **9:04-9:15am** — Nando busca leads en cada empresa (secuencial)
-   - Empresa A: 3 leads → crear cadencia ✅
-   - Empresa B: 0 leads → skip ⚠️
-   - Empresa C: error API → retry → éxito → 2 leads → crear cadencia ✅
-   - Empresa D: 1 lead → crear cadencia ✅
-   - Empresa E: error API → retry x3 → failed → notificar ❌
-6. **9:16am** — Notificación WhatsApp: "Workflow completado: 6 leads nuevos en cadencia de 3 empresas. 1 empresa sin leads (skipped). 1 error (notificado)."
-
-### Lo que el humano ve en el dashboard:
-
-```
-Workflow: Ventas Diarias Nando
-Status: ✅ Completado (9:16am)
-Duración: 16 min
-
-Paso 1: descubrir_empresas        ✅ 5 empresas (2.1s)
-Paso 2: buscar_prospectos
-  ├── Empresa A                   ✅ 3 leads (4.2s)
-  ├── Empresa B                   ⚠️ 0 leads — skipped
-  ├── Empresa C                   🔄 retry 1 → ✅ 2 leads (8.1s)
-  ├── Empresa D                   ✅ 1 lead (3.7s)
-  └── Empresa E                   ❌ 3 retries failed
-Paso 3: crear_cadencia
-  ├── 3 leads de Empresa A        ✅ Cadencia creada
-  ├── 2 leads de Empresa C        ✅ Cadencia creada
-  └── 1 lead de Empresa D         ✅ Cadencia creada
-```
+Nando y Paula colaboran: Nando investiga y revisa, Paula genera. Si Nando no aprueba, Paula ajusta. Todo automático hasta que el resultado es correcto o se alcanza el max de iteraciones.
 
 ---
 
-## Timeline Final
+## Timeline
 
-| Fase | Qué | Días | Dependencia |
-|------|-----|------|-------------|
-| **0** | Session resumption (hacer que skills funcionen) | 1 | Ninguna |
-| — | **Validación:** probar 5 skills diferentes | 0.5 | Fase 0 |
-| **1** | Routing determinístico (código en vez de Haiku) | 1 | Fase 0 |
-| **2** | Workflow engine + decision paths + UI + scheduling | 5 | Fase 0+1 |
-| **Total** | | **7.5 días** | |
+| Fase | Qué | Días | Status |
+|------|-----|------|--------|
+| **0** | Session resumption | 1 | ✅ DONE |
+| **1** | Event-driven execution (/execute + /wake + router + callback) | 2 | ✅ DONE |
+| — | Validar 3-5 skills diferentes | 0.5 | Pendiente |
+| **2** | Workflow engine + decision paths + UI | 5 | Pendiente |
+| **Total** | | **5.5 días restantes** | |
 
-## Impacto esperado
+## Impacto
 
 | Métrica | Hoy | Fase 0+1 | Fase 2 |
 |---------|-----|----------|--------|
-| Tasa de éxito skill individual | ~20% | ~90% | ~95% |
-| Mensajes WhatsApp por skill | 10-15 | 2-3 | 1 (resultado directo) |
-| Workflows autónomos | ❌ Imposible | 1 skill manual | Multi-paso con decision paths |
+| Latencia usuario→respuesta | 1-3 min | ~5s | ~5s |
+| Latencia agente→agente | 1-3 min | ~10s | ~10s |
+| Tasa éxito skill | ~20% | ~90% | ~95% |
+| Mensajes WhatsApp por skill | 10-15 | 2-3 | 1 (resultado) |
+| Workflows autónomos | ❌ | 1 skill | Multi-paso con decision paths |
+| Feedback inter-agente | ❌ | Via mensajes | Visual en workflow builder |
+| Costo diario idle (5 agentes) | ~$2 | ~$0.05 | ~$0.05 |
 | Intervención humana | Cada paso | Solo errores | Solo donde el workflow lo define |
-| Workflows recurrentes | ❌ | ❌ | ✅ Cron diario/semanal |
+
+## Principios de diseño
+
+1. **Event-driven, no polling** — agentes duermen hasta que los llaman
+2. **Session resumption** — agentes recuerdan conversaciones completas via SDK
+3. **Routing determinístico** — código para decisiones simples, LLM solo para juicio
+4. **Decision paths visuales** — cada nodo define qué pasa si falla, no hay sorpresas
+5. **Ejecución directa** — /execute para latencia 0, event loop solo como safety net
+6. **Un task = una sesión** — session_id vive con el task, se reanuda al responder

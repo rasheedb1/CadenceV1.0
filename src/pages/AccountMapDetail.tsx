@@ -219,7 +219,7 @@ export function AccountMapDetail() {
   }
 
   const handleOpenBatchSearch = () => {
-    if (!map?.icp_profile_id && personas.length === 0) {
+    if (!map?.icp_profile_id) {
       setICPPickerTarget('batch_search')
       setSelectedICPProfileId('')
       setShowICPPicker(true)
@@ -1728,6 +1728,28 @@ function mapRowToCompany(raw: Record<string, string>): ImportedRow {
   }
 }
 
+// Fix CSV files where each data row is wrapped in one big quote
+// (common in Salesforce/Apollo exports)
+function fixWholeRowQuoting(text: string): string {
+  const lines = text.split('\n')
+  if (lines.length < 2) return text
+  const headerLine = lines[0]
+  const fixedLines = [headerLine]
+  for (let i = 1; i < lines.length; i++) {
+    let line = lines[i].trim()
+    if (!line) continue
+    if (line.startsWith('"') && line.endsWith('"') && !headerLine.startsWith('"')) {
+      line = line.slice(1, -1)
+      line = line.replace(/""([^"]*)""/g, (_match, content) => {
+        if (!content) return ''
+        return `"${content}"`
+      })
+    }
+    fixedLines.push(line)
+  }
+  return fixedLines.join('\n')
+}
+
 const TEMPLATE_HEADERS = 'company_name,industry,company_size,website,linkedin_url,location,description'
 const TEMPLATE_EXAMPLE = 'Acme Corp,SaaS,201-500,acmecorp.com,https://linkedin.com/company/acme,"San Francisco, CA",Leading B2B software company'
 
@@ -1776,12 +1798,45 @@ function ImportCompaniesDialog({
         // Read as text for full encoding control (Apollo CSV gotcha)
         const text = await file.text()
         const Papa = (await import('papaparse')).default
-        const result = Papa.parse<Record<string, string>>(text, {
+        const parseOpts = {
           header: true,
-          skipEmptyLines: true,
+          skipEmptyLines: 'greedy' as const,
           transformHeader: normalizeHeader,
-        })
-        rawRows = result.data
+        }
+
+        // Strategy 1: standard auto-detect parse
+        const result = Papa.parse<Record<string, string>>(text, parseOpts)
+        const isValid = (r: Papa.ParseResult<Record<string, string>>) => {
+          const headers = r.meta.fields || []
+          const firstRow = r.data[0]
+          if (headers.length <= 1 || !firstRow) return false
+          return headers.filter(h => firstRow[h] && String(firstRow[h]).trim()).length >= 2
+        }
+
+        if (isValid(result)) {
+          rawRows = result.data
+        } else {
+          // Strategy 2: fix whole-row quoting (Salesforce/Apollo format)
+          const fixedText = fixWholeRowQuoting(text)
+          if (fixedText !== text) {
+            const fixedResult = Papa.parse<Record<string, string>>(fixedText, parseOpts)
+            if (isValid(fixedResult)) {
+              rawRows = fixedResult.data
+            }
+          }
+          // Strategy 3: semicolon delimiter (European CSV exports)
+          if (rawRows.length === 0) {
+            const semiResult = Papa.parse<Record<string, string>>(text, { ...parseOpts, delimiter: ';' })
+            if (isValid(semiResult)) rawRows = semiResult.data
+          }
+          // Strategy 4: tab delimiter
+          if (rawRows.length === 0) {
+            const tabResult = Papa.parse<Record<string, string>>(text, { ...parseOpts, delimiter: '\t' })
+            if (isValid(tabResult)) rawRows = tabResult.data
+          }
+          // Fallback to original result
+          if (rawRows.length === 0) rawRows = result.data
+        }
       } else {
         const XLSX = await import('xlsx')
         const buffer = await file.arrayBuffer()
