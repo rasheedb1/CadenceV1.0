@@ -147,12 +147,36 @@ export async function act(
           );
           if (Array.isArray(taskRows) && taskRows.length > 0) {
             const t = taskRows[0];
+            // Build conversation history from scratchpad
+            let conversationHistory = '';
+            if (t.context_summary) {
+              try {
+                const pad = JSON.parse(t.context_summary);
+                if (pad.conversation && pad.conversation.length > 0) {
+                  conversationHistory = '\n\nCONVERSATION HISTORY (previous interactions on this task):\n' +
+                    pad.conversation.map((c: any) => `[${c.role === 'agent' ? 'YOU ASKED' : 'USER REPLIED'}]: ${c.content}`).join('\n');
+                }
+                if (pad.data_collected && Object.keys(pad.data_collected).length > 0) {
+                  conversationHistory += '\n\nDATA ALREADY COLLECTED:\n' + JSON.stringify(pad.data_collected, null, 2);
+                }
+                if (pad.next_action) {
+                  conversationHistory += '\n\nNEXT ACTION: ' + pad.next_action;
+                }
+              } catch {
+                // Legacy format (plain text) — use as-is
+                if (t.context_summary.includes('[REVIEW]') || t.context_summary.includes('Review #')) {
+                  conversationHistory = `\nPREVIOUS REVIEW FEEDBACK:\n${t.context_summary}`;
+                } else {
+                  conversationHistory = `\nPREVIOUS CONTEXT:\n${t.context_summary}`;
+                }
+              }
+            }
             params.instruction = [
               t.description || t.title,
               t.parent_result_summary ? `\nCONTEXT FROM DEPENDENCIES:\n${t.parent_result_summary}` : '',
-              t.context_summary ? `\nPREVIOUS REVIEW FEEDBACK:\n${t.context_summary}` : '',
+              conversationHistory,
             ].join('').trim();
-            log.info(`Auto-filled instruction from task description (${(params.instruction as string).length} chars)`);
+            log.info(`Auto-filled instruction from task (${(params.instruction as string).length} chars, scratchpad: ${conversationHistory.length > 0 ? 'YES' : 'no'})`);
           }
         } catch {}
       }
@@ -730,38 +754,55 @@ ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
       if (!params.question) break;
       const question = params.question as string;
 
-      // --- Smart dedup: check if a similar question was already sent in the last 2 hours ---
+      // --- Smart dedup: skip if in active conversation (recent user reply in scratchpad) ---
+      let inActiveConvo = false;
+      let scratchpad: any = {};
       try {
-        const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-        const recentMsgs = await sbGet<Array<{ message: string }>>(
-          `outbound_human_messages?from_agent_id=eq.${agent.id}&created_at=gt.${twoHoursAgo}&select=message`,
-        ).catch(() => []);
-
-        if (Array.isArray(recentMsgs) && recentMsgs.length > 0) {
-          // Check if any recent message is >60% similar (shared words)
-          const questionWords = new Set(question.toLowerCase().split(/\s+/).filter(w => w.length > 3));
-          const isDuplicate = recentMsgs.some((m) => {
-            const msgWords = new Set((m.message || '').toLowerCase().split(/\s+/).filter(w => w.length > 3));
-            const shared = [...questionWords].filter(w => msgWords.has(w)).length;
-            const similarity = shared / Math.max(questionWords.size, 1);
-            return similarity > 0.6;
-          });
-
-          if (isDuplicate) {
-            log.info(`ask_human dedup: similar question already sent in last 2h, skipping`);
-            return 'dedup_skipped';
+        if (agent.currentTaskId) {
+          const taskRows = await sbGet<Array<{ context_summary: string | null }>>(
+            `agent_tasks_v2?id=eq.${agent.currentTaskId}&select=context_summary`,
+          ).catch(() => []);
+          if (Array.isArray(taskRows) && taskRows[0]?.context_summary) {
+            try { scratchpad = JSON.parse(taskRows[0].context_summary); } catch { scratchpad = {}; }
           }
+          // Check if user replied recently (last 10 min)
+          inActiveConvo = (scratchpad.conversation || []).some(
+            (c: any) => c.role === 'user' && new Date(c.ts) > new Date(Date.now() - 10 * 60 * 1000),
+          );
         }
       } catch {}
 
-      // Not a duplicate — send it
+      // Dedup: only if NOT in active conversation, threshold 85% (was 60%)
+      if (!inActiveConvo) {
+        try {
+          const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+          const recentMsgs = await sbGet<Array<{ message: string }>>(
+            `outbound_human_messages?from_agent_id=eq.${agent.id}&created_at=gt.${twoHoursAgo}&select=message`,
+          ).catch(() => []);
+          if (Array.isArray(recentMsgs) && recentMsgs.length > 0) {
+            const questionWords = new Set(question.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+            const isDuplicate = recentMsgs.some((m) => {
+              const msgWords = new Set((m.message || '').toLowerCase().split(/\s+/).filter(w => w.length > 3));
+              const shared = [...questionWords].filter(w => msgWords.has(w)).length;
+              const similarity = shared / Math.max(questionWords.size, 1);
+              return similarity > 0.85; // Was 0.6 — only block near-identical questions
+            });
+            if (isDuplicate) {
+              log.info(`ask_human dedup: near-identical question sent recently, skipping`);
+              return 'dedup_skipped';
+            }
+          }
+        } catch {}
+      }
+
+      // Send the question
       try {
         await sbPost('outbound_human_messages', {
           org_id: agent.orgId,
           from_agent_id: agent.id,
           message: question,
-          priority: 'urgent',  // Always urgent so sticky session activates for reply routing
-          context: { task_id: params.task_id || null, agent_name: agent.name },
+          priority: 'urgent',
+          context: { task_id: agent.currentTaskId || params.task_id || null, agent_name: agent.name },
         });
         log.info(`ask_human: "${question.substring(0, 80)}"`);
         logActivity(agent.id, agent.orgId, 'event_loop_action', 'ask_human',
@@ -769,8 +810,25 @@ ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
       } catch (e: any) {
         log.error(`ask_human failed: ${e.message}`);
       }
-      // Back off after asking — don't tick again for 2 minutes to avoid loop
-      state.interval = MAX_INTERVAL;
+
+      // Save question to task scratchpad for conversation continuity
+      if (agent.currentTaskId) {
+        try {
+          if (!scratchpad.conversation) scratchpad.conversation = [];
+          scratchpad.conversation.push({ role: 'agent', ts: new Date().toISOString(), content: question.substring(0, 500) });
+          scratchpad.last_action = 'asked_human';
+          scratchpad.version = scratchpad.version || 1;
+          await sbPatch(`agent_tasks_v2?id=eq.${agent.currentTaskId}`, {
+            context_summary: JSON.stringify(scratchpad),
+          });
+          log.info(`[scratchpad] Saved ask_human question to task ${agent.currentTaskId}`);
+        } catch (e: any) {
+          log.warn(`[scratchpad] Failed to save: ${e.message}`);
+        }
+      }
+
+      // Wake fast (30s) to check for reply — was MAX_INTERVAL (5min)
+      state.interval = 30_000;
       return 'question_sent';
     }
 

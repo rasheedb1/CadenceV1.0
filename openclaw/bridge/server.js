@@ -1268,11 +1268,33 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
               });
             }
 
-            // Clear conversation control
+            // Inject reply into the agent's active task scratchpad (conversation continuity)
+            try {
+              const taskRes = await fetch(`${SB_URL}/rest/v1/agent_tasks_v2?assigned_agent_id=eq.${targetAgentId}&status=in.(claimed,in_progress)&order=created_at.desc&limit=1&select=id,context_summary`, {
+                headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+              });
+              const tasks = await taskRes.json();
+              if (Array.isArray(tasks) && tasks[0]) {
+                let pad;
+                try { pad = JSON.parse(tasks[0].context_summary || '{}'); } catch { pad = {}; }
+                if (!pad.conversation) pad.conversation = [];
+                pad.conversation.push({ role: 'user', ts: new Date().toISOString(), content: replyText.substring(0, 1000) });
+                pad.last_action = 'user_replied';
+                pad.version = pad.version || 1;
+                await fetch(`${SB_URL}/rest/v1/agent_tasks_v2?id=eq.${tasks[0].id}`, {
+                  method: "PATCH",
+                  headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
+                  body: JSON.stringify({ context_summary: JSON.stringify(pad) }),
+                });
+                console.log(`[scratchpad] Injected user reply into task ${tasks[0].id} for agent ${targetAgentId.substring(0, 8)}`);
+              }
+            } catch (e) { console.warn("[scratchpad] Failed to inject reply:", e.message); }
+
+            // DON'T clear conversation_control — extend timeout so follow-ups route to same agent
             await fetch(`${SB_URL}/rest/v1/conversation_control?whatsapp_number=eq.${WaId || From.replace('whatsapp:+', '')}`, {
               method: "PATCH",
               headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
-              body: JSON.stringify({ active_agent_id: null, active_message_id: null, updated_at: new Date().toISOString() }),
+              body: JSON.stringify({ expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(), updated_at: new Date().toISOString() }),
             });
 
             // Get agent name for confirmation
