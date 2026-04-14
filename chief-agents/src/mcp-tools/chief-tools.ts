@@ -6,7 +6,7 @@
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { AgentConfig } from '../types.js';
-import { sbGet, sbPost, sbPostReturn } from '../supabase-client.js';
+import { sbGet, sbPost, sbPostReturn, sbPatch } from '../supabase-client.js';
 import { TYPE_CAPS } from '../types.js';
 import { buildIntegrationTools } from './integration-registry.js';
 import { buildSkillTools } from './skill-tools.js';
@@ -130,22 +130,47 @@ export function buildChiefToolsServer(agent: AgentConfig) {
 
   const askHuman = tool(
     'ask_human_via_whatsapp',
-    'Send a question to the human via WhatsApp. Use when you need approval, clarification, or a decision that only a human can make.',
+    'Send a question to the human via WhatsApp. Use when you need approval, clarification, or a decision that only a human can make. Always use this when you need data from the user to execute a skill.',
     {
       message: z.string().describe('Question for the human'),
-      priority: z.string().optional().describe('normal|urgent'),
+      priority: z.string().optional().describe('normal|urgent (default: urgent)'),
     },
     async ({ message, priority }) => {
+      // FIX: use from_agent_id (not agent_id) — bridge gateway reads from_agent_id
+      // for conversation_control routing. Wrong field = reply goes to Chief, not this agent.
       await sbPost('outbound_human_messages', {
         org_id: agent.orgId,
-        agent_id: agent.id,
+        from_agent_id: agent.id,
         message,
         channel: 'whatsapp',
         status: 'pending',
-        priority: priority || 'normal',
+        priority: priority || 'urgent', // FIX: default urgent (was 'normal' = buffered digest)
+        context: { task_id: agent.currentTaskId || null, agent_name: agent.name },
       });
+
+      // FIX: Save question to task scratchpad for conversation continuity.
+      // Without this, next work_on_task only sees [USER REPLIED] with no [YOU ASKED] context.
+      if (agent.currentTaskId) {
+        try {
+          const taskRows = await sbGet<Array<{ context_summary: string | null }>>(
+            `agent_tasks_v2?id=eq.${agent.currentTaskId}&select=context_summary`,
+          ).catch(() => []);
+          let pad: any = {};
+          if (Array.isArray(taskRows) && taskRows[0]?.context_summary) {
+            try { pad = JSON.parse(taskRows[0].context_summary); } catch { pad = {}; }
+          }
+          if (!pad.conversation) pad.conversation = [];
+          pad.conversation.push({ role: 'agent', ts: new Date().toISOString(), content: message.substring(0, 500) });
+          pad.last_action = 'asked_human';
+          pad.version = pad.version || 1;
+          await sbPatch(`agent_tasks_v2?id=eq.${agent.currentTaskId}`, {
+            context_summary: JSON.stringify(pad),
+          });
+        } catch {}
+      }
+
       return {
-        content: [{ type: 'text' as const, text: 'Question sent to human via WhatsApp. Reply will arrive in your next SENSE cycle.' }],
+        content: [{ type: 'text' as const, text: 'Question sent to human via WhatsApp. The reply will be injected into your task scratchpad — you will see it as CONVERSATION HISTORY in your next work_on_task cycle.' }],
       };
     },
   );
