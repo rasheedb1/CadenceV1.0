@@ -325,29 +325,48 @@ async function handleExecute(req: http.IncomingMessage, res: http.ServerResponse
       log.info(`/execute callback sent to bridge for WhatsApp delivery`);
     }
 
-    // Save scratchpad for conversation continuity
-    if (result.text) {
-      try {
-        const taskRows2 = await sbGet<Array<{ context_summary: string | null }>>(
-          `agent_tasks_v2?id=eq.${task_id}&select=context_summary`,
-        ).catch(() => []);
-        let pad: any = {};
-        if (Array.isArray(taskRows2) && taskRows2[0]?.context_summary) {
-          try { pad = JSON.parse(taskRows2[0].context_summary); } catch { pad = {}; }
-        }
-        if (!pad.conversation) pad.conversation = [];
-        pad.conversation.push({ role: 'agent', ts: new Date().toISOString(), content: result.text.substring(0, 2000) });
-        pad.last_action = 'asked_human';
-        pad.version = (pad.version || 0) + 1;
-        await sbPatch(`agent_tasks_v2?id=eq.${task_id}`, {
-          context_summary: JSON.stringify(pad),
-        }).catch(() => {});
-      } catch {}
+    // Determine if the agent is waiting for human input or done
+    // Check if the SDK called ask_human_via_whatsapp (writes to outbound_human_messages)
+    const recentOutbound = await sbGet<Array<{ id: string }>>(
+      `outbound_human_messages?from_agent_id=eq.${agent.id}&created_at=gt.${new Date(Date.now() - 30000).toISOString()}&limit=1&select=id`,
+    ).catch(() => []);
+    const askedHuman = Array.isArray(recentOutbound) && recentOutbound.length > 0;
+
+    if (askedHuman) {
+      // Agent asked a question → save scratchpad, keep task in_progress
+      log.info(`/execute: agent asked human, keeping task in_progress`);
+      if (result.text) {
+        try {
+          const taskRows2 = await sbGet<Array<{ context_summary: string | null }>>(
+            `agent_tasks_v2?id=eq.${task_id}&select=context_summary`,
+          ).catch(() => []);
+          let pad: any = {};
+          if (Array.isArray(taskRows2) && taskRows2[0]?.context_summary) {
+            try { pad = JSON.parse(taskRows2[0].context_summary); } catch { pad = {}; }
+          }
+          if (!pad.conversation) pad.conversation = [];
+          pad.conversation.push({ role: 'agent', ts: new Date().toISOString(), content: result.text.substring(0, 2000) });
+          pad.last_action = 'asked_human';
+          pad.version = (pad.version || 0) + 1;
+          await sbPatch(`agent_tasks_v2?id=eq.${task_id}`, {
+            context_summary: JSON.stringify(pad),
+          }).catch(() => {});
+        } catch {}
+      }
+    } else {
+      // Agent finished work → mark task as done (triggers workflow advancement if linked)
+      log.info(`/execute: agent finished, marking task done`);
+      await sbPatch(`agent_tasks_v2?id=eq.${task_id}`, {
+        status: 'done',
+        completed_at: new Date().toISOString(),
+        result: { summary: result.text.substring(0, 2000), turns: result.numTurns, cost_usd: result.costUsd },
+      }).catch((e: any) => log.warn(`Failed to complete task: ${e.message}`));
     }
 
+    const taskStatus = askedHuman ? 'waiting_for_human' : 'completed';
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
-      status: 'completed',
+      status: taskStatus,
       result: result.text.substring(0, 2000),
       session_id: result.sessionId,
       turns: result.numTurns,

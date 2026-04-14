@@ -294,7 +294,7 @@ async function processRun(
   // Load the workflow graph
   const { data: workflow } = await supabase
     .from('workflows')
-    .select('graph_json, status')
+    .select('graph_json, status, workflow_type')
     .eq('id', run.workflow_id)
     .single()
 
@@ -317,14 +317,20 @@ async function processRun(
   const nodeType = currentNode.type
   const nodeData = currentNode.data
 
-  // Load lead data for conditions
-  const { data: lead } = await supabase
-    .from('leads')
-    .select('*')
-    .eq('id', run.lead_id)
-    .single()
+  // Load lead data for conditions (optional — agent workflows may not have leads)
+  let lead: Record<string, unknown> | null = null
+  if (run.lead_id) {
+    const { data } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('id', run.lead_id)
+      .single()
+    lead = data
+  }
 
-  if (!lead) {
+  // For lead workflows, lead is required. For agent workflows, it's optional.
+  const isAgentWorkflow = workflow.workflow_type === 'agent'
+  if (!lead && !isAgentWorkflow) {
     await supabase.from('workflow_runs').update({ status: 'failed' }).eq('id', run.id)
     return { success: false, action: 'fail', error: 'Lead not found' }
   }
@@ -336,9 +342,9 @@ async function processRun(
     // Trigger nodes just pass through to the next node
     nextNodeId = getNextNodeId(graph, currentNode.id)
 
-  } else if (nodeType.startsWith('action_')) {
-    // Execute the LinkedIn action
-    const result = await executeAction(nodeType, nodeData, run.lead_id, run.owner_id, run.org_id, authToken)
+  } else if (nodeType.startsWith('action_') && !nodeType.startsWith('action_agent_') && nodeType !== 'action_notify_human' && nodeType !== 'action_for_each' && nodeType !== 'action_retry') {
+    // Execute the LinkedIn/email action (legacy lead workflows only)
+    const result = await executeAction(nodeType, nodeData, run.lead_id!, run.owner_id, run.org_id, authToken)
 
     // Log the event
     await supabase.from('workflow_event_log').insert({
