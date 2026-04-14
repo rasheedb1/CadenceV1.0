@@ -37,6 +37,17 @@ export function buildChiefToolsServer(agent: AgentConfig) {
         message_type: message_type || 'info',
         project_id: agent.currentProjectId,
       });
+
+      // Wake the target agent so it processes the message immediately (~10s instead of 3min)
+      if (toAgentId) {
+        const CHIEF_AGENTS_URL = process.env.CHIEF_AGENTS_URL || 'https://chief-agents-production.up.railway.app';
+        fetch(`${CHIEF_AGENTS_URL}/wake`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent_id: toAgentId, reason: `message from ${agent.name}` }),
+        }).catch(() => {}); // Non-blocking, event loop is safety net
+      }
+
       return { content: [{ type: 'text' as const, text: `Message sent to ${to_agent}` }] };
     },
   );

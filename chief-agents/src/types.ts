@@ -255,8 +255,8 @@ export interface ModelPricing {
 // --- Constants ---
 
 export const MIN_INTERVAL = 10_000;       // 10s when busy
-export const MAX_INTERVAL = 180_000;      // 3min when idle
-export const DEFAULT_INTERVAL = 60_000;   // 60s default (was 20s — cost optimization)
+export const MAX_INTERVAL = 300_000;      // 5min when idle (was 3min — /execute handles direct tasks now)
+export const DEFAULT_INTERVAL = 120_000;  // 2min default (was 60s — event loop is safety net, /execute is primary)
 export const STALL_WINDOW = 3;
 export const IDLE_PAUSE_THRESHOLD = 5;
 export const IDLE_RATIO_WINDOW = 20;

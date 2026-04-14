@@ -2701,8 +2701,22 @@ ${args.description ? `\n${args.description}\n` : ""}
 
           console.log(`[delegar_tarea] Created task ${taskId} in agent_tasks_v2, assigned to ${agent.name} (${agent.id})`);
 
-          // Agent's event loop will pick this up in next SENSE cycle (10-60s)
-          // On completion, act.ts calls /api/agent-callback which sends WhatsApp notification
+          // DIRECT EXECUTION: call /execute on agent container (bypasses event loop, ~5s instead of 3min)
+          const CHIEF_AGENTS_URL = process.env.CHIEF_AGENTS_URL || "https://chief-agents-production.up.railway.app";
+          fetch(`${CHIEF_AGENTS_URL}/execute`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ agent_id: agent.id, task_id: taskId }),
+          }).then(async (execRes) => {
+            try {
+              const execResult = await execRes.json();
+              console.log(`[delegar_tarea] /execute result: ${execResult.status}, turns=${execResult.turns}, cost=$${execResult.cost_usd?.toFixed(4) || '?'}`);
+            } catch { console.log(`[delegar_tarea] /execute responded ${execRes.status}`); }
+          }).catch(err => {
+            // If /execute fails, event loop (safety net) will pick up the task in <5min
+            console.warn(`[delegar_tarea] /execute failed (event loop will pick up): ${err.message}`);
+          });
+
           return {
             success: true,
             agent: agent.name,

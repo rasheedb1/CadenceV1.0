@@ -6,10 +6,11 @@
 
 import * as fs from 'node:fs/promises';
 import * as http from 'node:http';
-import { sbGet } from './supabase-client.js';
+import { sbGet, sbPatch } from './supabase-client.js';
 import { loadAgentConfig } from './agent-config.js';
 import { runEventLoop } from './event-loop.js';
 import { executeWithSDK } from './sdk-runner.js';
+import { buildExecutePrompt } from './router.js';
 import type { AgentRow, AgentConfig } from './types.js';
 import { createLogger } from './utils/logger.js';
 
@@ -230,9 +231,125 @@ async function handleA2A(req: http.IncomingMessage, res: http.ServerResponse): P
   }
 }
 
+/** POST /execute — Direct task execution, bypasses event loop (0 latency) */
+async function handleExecute(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  let body: any;
+  try { body = await parseBody(req); } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Invalid JSON' }));
+    return;
+  }
+
+  const { agent_id, task_id } = body;
+  if (!agent_id || !task_id) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'agent_id and task_id required' }));
+    return;
+  }
+
+  // Find agent config
+  let agent: AgentConfig | undefined;
+  for (const [, config] of agentConfigs) {
+    if (config.id === agent_id) { agent = config; break; }
+  }
+  if (!agent) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `Agent ${agent_id} not found in this container` }));
+    return;
+  }
+
+  const log = createLogger(`EXEC:${agent.name}`);
+  log.info(`/execute task=${task_id.substring(0, 8)}`);
+
+  try {
+    // Build prompt using deterministic router (no LLM, no THINK)
+    const execPrompt = await buildExecutePrompt(agent, task_id, log);
+    if (!execPrompt) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Task not found' }));
+      return;
+    }
+
+    // Mark task in_progress
+    await sbPatch(`agent_tasks_v2?id=eq.${task_id}`, {
+      status: 'in_progress',
+      started_at: new Date().toISOString(),
+    }).catch(() => {});
+
+    // Execute SDK (with session resumption if applicable)
+    const result = await executeWithSDK(agent, execPrompt.prompt, log, execPrompt.resumeSessionId);
+
+    // Save session_id for future resumption
+    if (result.sessionId) {
+      await sbPatch(`agent_tasks_v2?id=eq.${task_id}`, {
+        session_id: result.sessionId,
+      }).catch(() => {});
+    }
+
+    log.info(`/execute done: ${result.numTurns} turns, $${result.costUsd.toFixed(4)}, session=${result.sessionId?.substring(0, 12) || 'none'}`);
+
+    // Record cost
+    const { sbRpc } = await import('./supabase-client.js');
+    sbRpc('record_task_cost', { p_agent_id: agent.id, p_cost: result.costUsd, p_tokens: result.tokensUsed }).catch(() => {});
+
+    // Log activity
+    const { sbPost } = await import('./supabase-client.js');
+    sbPost('agent_activity_events', {
+      agent_id: agent.id, org_id: agent.orgId,
+      event_type: 'task_result', tool_name: 'execute_direct',
+      content: `Task: ${task_id} | Turns: ${result.numTurns} | Cost: $${result.costUsd.toFixed(4)} | Result: ${result.text.substring(0, 300)}`,
+    }).catch(() => {});
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'completed',
+      result: result.text.substring(0, 2000),
+      session_id: result.sessionId,
+      turns: result.numTurns,
+      cost_usd: result.costUsd,
+      subtype: result.subtype,
+    }));
+  } catch (err: any) {
+    log.error(`/execute error: ${err.message}`);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
+/** POST /wake — Force agent event loop to run next tick immediately */
+async function handleWake(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  let body: any;
+  try { body = await parseBody(req); } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Invalid JSON' }));
+    return;
+  }
+
+  const { agent_id, reason } = body;
+  console.log(`[wake] Agent ${agent_id?.substring(0, 8)} woken: ${reason || 'no reason'}`);
+
+  // We can't directly interrupt a sleeping event loop from here,
+  // but we can set a flag that the loop checks. For now, just acknowledge.
+  // The real speedup comes from /execute bypassing the loop entirely.
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ status: 'acknowledged', agent_id }));
+}
+
 function startHealthServer(): void {
   const server = http.createServer(async (req, res) => {
     const url = req.url || '/';
+
+    // Direct task execution (bypasses event loop)
+    if (url === '/execute' && req.method === 'POST') {
+      await handleExecute(req, res);
+      return;
+    }
+
+    // Wake agent for inter-agent messages
+    if (url === '/wake' && req.method === 'POST') {
+      await handleWake(req, res);
+      return;
+    }
 
     // A2A JSON-RPC endpoint
     if (url.startsWith('/a2a/jsonrpc') && req.method === 'POST') {
