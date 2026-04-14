@@ -261,6 +261,13 @@ async function handleExecute(req: http.IncomingMessage, res: http.ServerResponse
   const log = createLogger(`EXEC:${agent.name}`);
   log.info(`/execute task=${task_id.substring(0, 8)}`);
 
+  // Set currentTaskId so MCP tools (ask_human_via_whatsapp, save_artifact, etc.) work correctly
+  agent.currentTaskId = task_id;
+
+  // Clear MCP server cache to pick up new currentTaskId
+  const { clearMcpCache } = await import('./sdk-runner.js');
+  clearMcpCache(agent.id);
+
   try {
     // Build prompt using deterministic router (no LLM, no THINK)
     const execPrompt = await buildExecutePrompt(agent, task_id, log);
