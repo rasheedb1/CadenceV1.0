@@ -515,9 +515,17 @@ async function processRun(
     return { success: true, action: 'waiting_for_agent' }
 
   } else if (nodeType === 'condition_task_result') {
+    // Re-read run from DB to get latest context (trigger may have updated it after in-memory load)
+    const { data: freshRun } = await supabase
+      .from('workflow_runs')
+      .select('context_json')
+      .eq('id', run.id)
+      .single()
+    const freshContext = freshRun?.context_json || run.context_json || {}
+
     // Evaluate condition on last task result
-    const lastResult = run.context_json?.last_task_result as Record<string, unknown> || {}
-    const lastStatus = run.context_json?.last_task_status as string || 'unknown'
+    const lastResult = freshContext.last_task_result as Record<string, unknown> || {}
+    const lastStatus = freshContext.last_task_status as string || 'unknown'
     const field = nodeData.field as string || 'status'
     const operator = nodeData.operator as string || '=='
     const value = nodeData.value as string || ''
