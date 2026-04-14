@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useMemo } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useWorkflow } from '@/contexts/WorkflowContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,20 +28,37 @@ import { PageTransition } from '@/components/PageTransition'
 
 export function Workflows() {
   const navigate = useNavigate()
-  const { workflows, isLoading, createWorkflow, deleteWorkflow, activateWorkflow, pauseWorkflow } = useWorkflow()
+  const location = useLocation()
+  const isAgentMode = location.pathname.startsWith('/agents/workflows')
+  const { workflows: allWorkflows, isLoading, createWorkflow, deleteWorkflow, activateWorkflow, pauseWorkflow } = useWorkflow()
   const [newWorkflowName, setNewWorkflowName] = useState('')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
+
+  // Filter workflows by type based on route
+  const workflows = useMemo(() =>
+    allWorkflows.filter(w => {
+      const wType = (w as unknown as { workflow_type?: string }).workflow_type || 'lead'
+      return isAgentMode ? wType === 'agent' : wType === 'lead'
+    }),
+    [allWorkflows, isAgentMode]
+  )
+
+  const basePath = isAgentMode ? '/agents/workflows' : '/workflows'
+  const pageTitle = isAgentMode ? 'Agent Workflows' : 'Lead Workflows'
+  const pageDescription = isAgentMode
+    ? 'Diseña workflows autónomos para tus agentes con decision paths y scheduling'
+    : 'Build conditional LinkedIn automation flows'
 
   const handleCreate = async () => {
     if (!newWorkflowName.trim()) return
     setCreating(true)
     try {
-      const workflow = await createWorkflow(newWorkflowName)
+      const workflow = await createWorkflow(newWorkflowName, isAgentMode ? 'agent' : 'lead')
       setIsCreateOpen(false)
       setNewWorkflowName('')
       if (workflow) {
-        navigate(`/workflows/${workflow.id}`)
+        navigate(`${basePath}/${workflow.id}`)
       }
     } catch (error) {
       console.error('Failed to create workflow:', error)
@@ -68,8 +85,8 @@ export function Workflows() {
     <PageTransition className="p-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-[28px] font-bold tracking-tight font-heading">Workflows</h1>
-          <p className="text-muted-foreground">Build conditional LinkedIn automation flows</p>
+          <h1 className="text-[28px] font-bold tracking-tight font-heading">{pageTitle}</h1>
+          <p className="text-muted-foreground">{pageDescription}</p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <PermissionGate permission="workflows_create">
@@ -94,7 +111,7 @@ export function Workflows() {
                   id="workflow-name"
                   value={newWorkflowName}
                   onChange={(e) => setNewWorkflowName(e.target.value)}
-                  placeholder="e.g., Connection + Follow-up Flow"
+                  placeholder={isAgentMode ? "e.g., Ventas Diarias Nando" : "e.g., Connection + Follow-up Flow"}
                   onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
                 />
               </div>
@@ -117,7 +134,10 @@ export function Workflows() {
             <GitBranch className="mb-4 h-12 w-12 text-muted-foreground" />
             <h3 className="mb-2 text-lg font-medium">Sin workflows aún</h3>
             <p className="mb-4 text-sm text-muted-foreground text-center max-w-md">
-              Create your first workflow to build conditional LinkedIn automation flows with branching logic
+              {isAgentMode
+                ? 'Crea tu primer workflow de agentes con skills, decision paths y scheduling automático'
+                : 'Create your first workflow to build conditional LinkedIn automation flows with branching logic'
+              }
             </p>
             <PermissionGate permission="workflows_create">
               <Button onClick={() => setIsCreateOpen(true)}>
@@ -136,7 +156,7 @@ export function Workflows() {
               <Card
                 key={workflow.id}
                 className="cursor-pointer transition-shadow hover:shadow-md"
-                onClick={() => navigate(`/workflows/${workflow.id}`)}
+                onClick={() => navigate(`${basePath}/${workflow.id}`)}
               >
                 <CardHeader className="flex flex-row items-start justify-between">
                   <div>

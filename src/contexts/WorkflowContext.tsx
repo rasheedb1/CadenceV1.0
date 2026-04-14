@@ -8,7 +8,7 @@ import type { Workflow, WorkflowGraph, WorkflowRun, WorkflowEventLog } from '@/t
 interface WorkflowContextType {
   workflows: Workflow[]
   isLoading: boolean
-  createWorkflow: (name: string) => Promise<Workflow | null>
+  createWorkflow: (name: string, workflowType?: 'lead' | 'agent') => Promise<Workflow | null>
   updateWorkflow: (id: string, data: Partial<Workflow>) => Promise<void>
   deleteWorkflow: (id: string) => Promise<void>
   saveGraph: (id: string, graphJson: WorkflowGraph) => Promise<void>
@@ -42,7 +42,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
   })
 
   const createWorkflowMutation = useMutation({
-    mutationFn: async ({ name }: { name: string }) => {
+    mutationFn: async ({ name, workflowType = 'lead' }: { name: string; workflowType?: 'lead' | 'agent' }) => {
       if (!user || !orgId) throw new Error('Not authenticated')
 
       const defaultGraph: WorkflowGraph = {
@@ -66,6 +66,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           status: 'draft',
           graph_json: defaultGraph,
           trigger_type: 'manual',
+          workflow_type: workflowType,
         })
         .select()
         .single()
@@ -176,7 +177,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
       value={{
         workflows,
         isLoading,
-        createWorkflow: async (name) => createWorkflowMutation.mutateAsync({ name }),
+        createWorkflow: async (name, workflowType) => createWorkflowMutation.mutateAsync({ name, workflowType }),
         updateWorkflow: async (id, data) => updateWorkflowMutation.mutateAsync({ id, data }),
         deleteWorkflow: async (id) => deleteWorkflowMutation.mutateAsync(id),
         saveGraph: async (id, graphJson) => saveGraphMutation.mutateAsync({ id, graphJson }),
