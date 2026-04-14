@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -13,6 +13,7 @@ import {
 import { X } from 'lucide-react'
 import type { Node } from '@xyflow/react'
 import { WORKFLOW_NODE_CONFIG, type WorkflowNodeType } from '@/types/workflow'
+import { supabase } from '@/integrations/supabase/client'
 
 interface NodeConfigPanelProps {
   node: Node | null
@@ -286,8 +287,358 @@ export function NodeConfigPanel({ node, onUpdate, onClose }: NodeConfigPanelProp
               </div>
             </>
           )}
+
+          {/* ========================================== */}
+          {/* AGENT WORKFLOW NODE CONFIGS                */}
+          {/* ========================================== */}
+
+          {(nodeType === 'action_agent_skill' || nodeType === 'action_agent_task' || nodeType === 'action_agent_review') && (
+            <AgentSelector
+              agentId={node.data.agentId as string || ''}
+              agentName={node.data.agentName as string || ''}
+              onChange={(id, name) => {
+                handleChange('agentId', id)
+                handleChange('agentName', name)
+              }}
+              label={nodeType === 'action_agent_review' ? 'Reviewer Agent' : 'Agent'}
+            />
+          )}
+
+          {nodeType === 'action_agent_skill' && (
+            <>
+              <SkillSelector
+                agentId={node.data.agentId as string || ''}
+                skillName={node.data.skillName as string || ''}
+                onChange={(name, displayName) => {
+                  handleChange('skillName', name)
+                  handleChange('skillDisplayName', displayName)
+                }}
+              />
+              <div className="space-y-2">
+                <Label>On Empty Result</Label>
+                <Select value={node.data.onEmpty as string || 'skip'} onValueChange={v => handleChange('onEmpty', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="skip">Skip & continue</SelectItem>
+                    <SelectItem value="ask_human">Ask human</SelectItem>
+                    <SelectItem value="retry">Retry</SelectItem>
+                    <SelectItem value="stop">Stop workflow</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>On Error</Label>
+                <Select value={node.data.onError as string || 'retry'} onValueChange={v => handleChange('onError', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="retry">Retry (max 3)</SelectItem>
+                    <SelectItem value="notify">Notify & continue</SelectItem>
+                    <SelectItem value="stop">Stop workflow</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          )}
+
+          {nodeType === 'action_agent_task' && (
+            <div className="space-y-2">
+              <Label>Instruction</Label>
+              <Textarea
+                value={node.data.instruction as string || ''}
+                onChange={e => handleChange('instruction', e.target.value)}
+                placeholder="Investiga la empresa y genera un resumen..."
+                rows={4}
+              />
+              <p className="text-xs text-muted-foreground">
+                Use {'{{step_name.field}}'} to reference previous step results
+              </p>
+            </div>
+          )}
+
+          {nodeType === 'action_agent_review' && (
+            <div className="space-y-2">
+              <Label>Review Criteria</Label>
+              <Textarea
+                value={node.data.criteria as string || ''}
+                onChange={e => handleChange('criteria', e.target.value)}
+                placeholder="Verifica que los datos financieros sean correctos..."
+                rows={3}
+              />
+            </div>
+          )}
+
+          {nodeType === 'action_notify_human' && (
+            <>
+              <div className="space-y-2">
+                <Label>Channel</Label>
+                <Select value={node.data.channel as string || 'whatsapp'} onValueChange={v => handleChange('channel', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                    <SelectItem value="email">Email</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Message</Label>
+                <Textarea
+                  value={node.data.message as string || ''}
+                  onChange={e => handleChange('message', e.target.value)}
+                  placeholder="✅ Workflow completado. Resultados: {{last_task_result.summary}}"
+                  rows={3}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Use {'{{step_name.field}}'} for dynamic values
+                </p>
+              </div>
+            </>
+          )}
+
+          {nodeType === 'condition_task_result' && (
+            <>
+              <div className="space-y-2">
+                <Label>Field</Label>
+                <Input
+                  value={node.data.field as string || 'status'}
+                  onChange={e => handleChange('field', e.target.value)}
+                  placeholder="status, count, summary, result.companies"
+                />
+                <p className="text-xs text-muted-foreground">
+                  "status" checks task status. Other fields check last_task_result.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Operator</Label>
+                <Select value={node.data.operator as string || '=='} onValueChange={v => handleChange('operator', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="==">Equals (==)</SelectItem>
+                    <SelectItem value="!=">Not equals (!=)</SelectItem>
+                    <SelectItem value=">">Greater than (&gt;)</SelectItem>
+                    <SelectItem value="<">Less than (&lt;)</SelectItem>
+                    <SelectItem value="contains">Contains</SelectItem>
+                    <SelectItem value="is_empty">Is empty</SelectItem>
+                    <SelectItem value="is_not_empty">Is not empty</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Value</Label>
+                <Input
+                  value={node.data.value as string || ''}
+                  onChange={e => handleChange('value', e.target.value)}
+                  placeholder="done, 0, etc."
+                />
+              </div>
+            </>
+          )}
+
+          {nodeType === 'condition_human_approval' && (
+            <>
+              <div className="space-y-2">
+                <Label>Question</Label>
+                <Textarea
+                  value={node.data.question as string || ''}
+                  onChange={e => handleChange('question', e.target.value)}
+                  placeholder="No encontré leads. ¿Busco con otros criterios?"
+                  rows={3}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Options (comma-separated)</Label>
+                <Input
+                  value={(node.data.options as string[] || []).join(', ')}
+                  onChange={e => handleChange('options', e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean))}
+                  placeholder="Sí continuar, No parar, Ajustar criterios"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Timeout (hours)</Label>
+                <Input
+                  type="number" min={1} max={72}
+                  value={node.data.timeoutHours as number || 4}
+                  onChange={e => handleChange('timeoutHours', parseInt(e.target.value) || 4)}
+                />
+              </div>
+            </>
+          )}
+
+          {nodeType === 'trigger_scheduled' && (
+            <>
+              <div className="space-y-2">
+                <Label>Schedule</Label>
+                <Select
+                  value={node.data.cron as string || '0 9 * * 1-5'}
+                  onValueChange={v => {
+                    handleChange('cron', v)
+                    const labels: Record<string, string> = {
+                      '0 9 * * 1-5': 'Lunes a Viernes 9am',
+                      '0 9 * * 1': 'Cada Lunes 9am',
+                      '0 9 * * *': 'Todos los días 9am',
+                      '0 */6 * * *': 'Cada 6 horas',
+                      '0 */2 * * *': 'Cada 2 horas',
+                    }
+                    handleChange('description', labels[v] || v)
+                  }}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0 9 * * 1-5">Lun-Vie 9am</SelectItem>
+                    <SelectItem value="0 9 * * 1">Cada Lunes 9am</SelectItem>
+                    <SelectItem value="0 9 * * *">Todos los días 9am</SelectItem>
+                    <SelectItem value="0 */6 * * *">Cada 6 horas</SelectItem>
+                    <SelectItem value="0 */2 * * *">Cada 2 horas</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Timezone</Label>
+                <Select value={node.data.timezone as string || 'America/Mexico_City'} onValueChange={v => handleChange('timezone', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="America/Mexico_City">México (CST)</SelectItem>
+                    <SelectItem value="America/Bogota">Colombia (COT)</SelectItem>
+                    <SelectItem value="America/Lima">Perú (PET)</SelectItem>
+                    <SelectItem value="America/Santiago">Chile (CLT)</SelectItem>
+                    <SelectItem value="America/Argentina/Buenos_Aires">Argentina (ART)</SelectItem>
+                    <SelectItem value="America/Sao_Paulo">Brasil (BRT)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          )}
+
+          {nodeType === 'action_for_each' && (
+            <>
+              <div className="space-y-2">
+                <Label>Array Source</Label>
+                <Input
+                  value={node.data.arraySource as string || ''}
+                  onChange={e => handleChange('arraySource', e.target.value)}
+                  placeholder="{{discover.companies}}"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Reference an array from a previous step result
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Item Variable Name</Label>
+                <Input
+                  value={node.data.itemVar as string || 'item'}
+                  onChange={e => handleChange('itemVar', e.target.value)}
+                  placeholder="company"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Access in next steps as {'{{company.name}}'}, {'{{company.id}}'}
+                </p>
+              </div>
+            </>
+          )}
+
+          {nodeType === 'action_retry' && (
+            <>
+              <div className="space-y-2">
+                <Label>Max Retries</Label>
+                <Input
+                  type="number" min={1} max={10}
+                  value={node.data.maxRetries as number || 3}
+                  onChange={e => handleChange('maxRetries', parseInt(e.target.value) || 3)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Backoff (seconds)</Label>
+                <Input
+                  type="number" min={10} max={3600}
+                  value={node.data.backoffSeconds as number || 60}
+                  onChange={e => handleChange('backoffSeconds', parseInt(e.target.value) || 60)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Doubles each retry (60s → 120s → 240s)
+                </p>
+              </div>
+            </>
+          )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ========================================
+// SUB-COMPONENTS: Agent & Skill Selectors
+// ========================================
+
+function AgentSelector({ agentId, agentName, onChange, label }: {
+  agentId: string; agentName: string;
+  onChange: (id: string, name: string) => void; label: string
+}) {
+  const [agents, setAgents] = useState<Array<{ id: string; name: string }>>([])
+
+  useEffect(() => {
+    supabase.from('agents').select('id, name').eq('status', 'active').then(({ data }) => {
+      if (data) setAgents(data)
+    })
+  }, [])
+
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <Select
+        value={agentId}
+        onValueChange={id => {
+          const agent = agents.find(a => a.id === id)
+          onChange(id, agent?.name || '')
+        }}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder="Select agent..." />
+        </SelectTrigger>
+        <SelectContent>
+          {agents.map(a => (
+            <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
+function SkillSelector({ agentId, skillName, onChange }: {
+  agentId: string; skillName: string;
+  onChange: (name: string, displayName: string) => void
+}) {
+  const [skills, setSkills] = useState<Array<{ name: string; display_name: string }>>([])
+
+  useEffect(() => {
+    if (!agentId) { setSkills([]); return }
+    // Load skills assigned to this agent
+    supabase.from('agent_skills').select('skill_name').eq('agent_id', agentId).eq('enabled', true).then(async ({ data }) => {
+      if (!data || data.length === 0) { setSkills([]); return }
+      const names = data.map(s => s.skill_name)
+      const { data: defs } = await supabase.from('skill_registry').select('name, display_name').in('name', names)
+      if (defs) setSkills(defs)
+    })
+  }, [agentId])
+
+  return (
+    <div className="space-y-2">
+      <Label>Skill</Label>
+      <Select
+        value={skillName}
+        onValueChange={name => {
+          const skill = skills.find(s => s.name === name)
+          onChange(name, skill?.display_name || name)
+        }}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder={agentId ? "Select skill..." : "Select agent first"} />
+        </SelectTrigger>
+        <SelectContent>
+          {skills.map(s => (
+            <SelectItem key={s.name} value={s.name}>{s.display_name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   )
 }
