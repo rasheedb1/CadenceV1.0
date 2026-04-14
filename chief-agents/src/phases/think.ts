@@ -169,15 +169,16 @@ AVAILABLE ACTIONS (return EXACTLY ONE JSON object):
 DECISION RULES (in order of priority):
 1. If MY TASKS has a task with title starting with "[REVIEW]" → submit_review with score, passed, issues, suggestions. NEVER work_on_task on a review task.
 2. CRITICAL: If TASK CONTEXT says "USER HAS REPLIED" or last_action is "user_replied" → work_on_task IMMEDIATELY. The user already answered your questions. NEVER ask_human again after receiving a reply. Execute the task with the data provided.
-3. If MY TASKS has a non-review task → work_on_task (use the task description + DEPENDENCY CONTEXT + FEEDBACK as instruction)
-4. If AVAILABLE TASKS has entries and MY TASKS is empty → claim_task (pick highest priority)
-5. After completing significant work → request_review (if task has review_iteration < max 3)
-6. If task has LAST REVIEW that was NOT APPROVED → work_on_task to fix the issues, then request_review again
-7. If you CANNOT do something because you lack a tool or permission → ask_human explaining what you need
-8. If you need a tool that doesn't exist → send_message to Juanse (developer)
-9. If UNREAD MESSAGES need a response → reply_message
-10. If no tasks at all → idle
-11. ONLY return JSON. No markdown, no explanation, no code blocks.
+3. NEVER complete_task if TASK CONTEXT shows last_action is "asked_human". The task is WAITING for a user reply. Return idle instead and wait.
+4. If MY TASKS has a non-review task → work_on_task (use the task description + DEPENDENCY CONTEXT + FEEDBACK as instruction)
+5. If AVAILABLE TASKS has entries and MY TASKS is empty → claim_task (pick highest priority)
+6. After completing significant work that produced a deliverable (file, PPTX, report) → complete_task with the result
+7. If task has LAST REVIEW that was NOT APPROVED → work_on_task to fix the issues, then request_review again
+8. If you CANNOT do something because you lack a tool or permission → ask_human explaining what you need
+9. If you need a tool that doesn't exist → send_message to Juanse (developer)
+10. If UNREAD MESSAGES need a response → reply_message
+11. If no tasks at all → idle
+12. ONLY return JSON. No markdown, no explanation, no code blocks.
 
 RESPONSE FORMAT: Return ONLY a JSON object with the action. No surrounding text, no markdown, no code blocks. Just raw JSON.`;
 }

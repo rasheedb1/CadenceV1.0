@@ -1289,73 +1289,39 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
                 });
                 console.log(`[scratchpad] Injected user reply into task ${tasks[0].id} for agent ${targetAgentId.substring(0, 8)}`);
               } else {
-                // NO active task → create one so the agent has structure + scratchpad
-                // This happens when conversation_control is still active but previous task is done
-                console.log(`[scratchpad] No active task for agent ${targetAgentId.substring(0, 8)} — creating task from reply`);
-
-                // Get agent capabilities for skill enrichment
-                const agentRes2 = await fetch(`${SB_URL}/rest/v1/agents?id=eq.${targetAgentId}&select=capabilities`, {
+                // NO active task → REOPEN the most recent done task (preserves full conversation)
+                // This is the key fix: instead of creating a new task (losing all context),
+                // we reopen the previous task so the agent sees the full conversation history.
+                const recentRes = await fetch(`${SB_URL}/rest/v1/agent_tasks_v2?assigned_agent_id=eq.${targetAgentId}&status=eq.done&order=updated_at.desc&limit=1&select=id,context_summary,description`, {
                   headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
                 });
-                const agentData = await agentRes2.json();
-                const caps = (Array.isArray(agentData) && agentData[0]?.capabilities) || [];
+                const recentTasks = await recentRes.json();
 
-                // Auto-resolve skills: find matching skill for this instruction
-                let enrichedInstruction = replyText;
-                try {
-                  const skillRes = await fetch(`${SB_URL}/rest/v1/agent_skills?agent_id=eq.${targetAgentId}&enabled=eq.true&select=skill_name`, {
-                    headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+                if (Array.isArray(recentTasks) && recentTasks[0]) {
+                  // Reopen the last task — inject reply into its existing scratchpad
+                  const lastTask = recentTasks[0];
+                  let pad;
+                  try { pad = JSON.parse(lastTask.context_summary || '{}'); } catch { pad = {}; }
+                  if (!pad.conversation) pad.conversation = [];
+                  pad.conversation.push({ role: 'user', ts: new Date().toISOString(), content: replyText.substring(0, 2000) });
+                  pad.last_action = 'user_replied';
+                  pad.version = (pad.version || 0) + 1;
+
+                  await fetch(`${SB_URL}/rest/v1/agent_tasks_v2?id=eq.${lastTask.id}`, {
+                    method: "PATCH",
+                    headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
+                    body: JSON.stringify({
+                      status: "in_progress",
+                      completed_at: null,
+                      context_summary: JSON.stringify(pad),
+                      result: null,
+                    }),
                   });
-                  const agentSkills = await skillRes.json();
-                  if (Array.isArray(agentSkills) && agentSkills.length > 0) {
-                    const orFilter = agentSkills.map(s => `name.eq.${s.skill_name}`).join(',');
-                    const defRes = await fetch(`${SB_URL}/rest/v1/skill_registry?or=(${orFilter})&select=name,display_name,skill_definition`, {
-                      headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
-                    });
-                    const skillDefs = await defRes.json();
-                    if (Array.isArray(skillDefs) && skillDefs.length > 0) {
-                      const instrLower = replyText.toLowerCase();
-                      const scored = skillDefs.map(s => {
-                        const words = `${s.display_name} ${s.name}`.toLowerCase().split(/[\s_-]+/);
-                        const matches = words.filter(w => w.length > 3 && instrLower.includes(w)).length;
-                        return { ...s, score: matches };
-                      }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
-                      if (scored.length > 0) {
-                        const best = scored[0];
-                        const fullUserData = replyText.substring(0, 2000);
-                        enrichedInstruction = `USER REQUEST:\n${fullUserData}\n\nEXECUTE THIS SKILL: "${best.display_name}"\n${best.skill_definition}\n\nIMPORTANT: The user data is in USER REQUEST above. Map it directly to the skill params and call call_skill. Do NOT re-ask for data that is already provided above.`;
-                        console.log(`[conversation_control] Skill enrichment: "${best.display_name}" for ${targetAgentId.substring(0, 8)}`);
-                      }
-                    }
-                  }
-                } catch (skillErr) { console.warn("[conversation_control] Skill enrichment error:", skillErr.message); }
-
-                // Create the task
-                const scratchpad = JSON.stringify({
-                  conversation: [{ role: 'user', ts: new Date().toISOString(), content: replyText.substring(0, 1000) }],
-                  last_action: 'user_replied',
-                  version: 1,
-                });
-                const newTaskRes = await fetch(`${SB_URL}/rest/v1/agent_tasks_v2`, {
-                  method: "POST",
-                  headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=representation" },
-                  body: JSON.stringify({
-                    org_id: routeOrgId,
-                    title: replyText.substring(0, 120),
-                    description: enrichedInstruction,
-                    task_type: "general",
-                    required_capabilities: caps,
-                    assigned_agent_id: targetAgentId,
-                    assigned_at: new Date().toISOString(),
-                    status: "claimed",
-                    priority: 10,
-                    context_summary: scratchpad,
-                    created_by: "conversation_control",
-                  }),
-                });
-                const newTask = await newTaskRes.json();
-                const newTaskId = Array.isArray(newTask) && newTask[0] ? newTask[0].id : null;
-                console.log(`[conversation_control] Created task ${newTaskId?.substring(0, 8)} for agent ${targetAgentId.substring(0, 8)}`);
+                  console.log(`[conversation_control] REOPENED task ${lastTask.id.substring(0, 8)} with user reply — full conversation preserved`);
+                } else {
+                  // No recent task at all — log warning (this shouldn't happen with conversation_control active)
+                  console.warn(`[conversation_control] No recent task found for agent ${targetAgentId.substring(0, 8)} — reply stored in agent_messages only`);
+                }
               }
             } catch (e) { console.warn("[scratchpad] Failed to inject reply:", e.message); }
 
