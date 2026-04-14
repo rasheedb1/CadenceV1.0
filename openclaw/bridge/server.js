@@ -2047,6 +2047,9 @@ The agent can install ANY CLI tool via npx or npm at runtime — they have full 
     { name: "identificar_usuario", description: "Look up a user by email in an organization.", input_schema: { type: "object", properties: { org_id: { type: "string" }, email: { type: "string" } }, required: ["org_id", "email"] } },
     { name: "enviar_otp", description: "Send OTP verification code to email.", input_schema: { type: "object", properties: { email: { type: "string" } }, required: ["email"] } },
     { name: "verificar_otp", description: "Verify OTP code and establish session.", input_schema: { type: "object", properties: { email: { type: "string" }, token: { type: "string" }, org_id: { type: "string" }, whatsapp_number: { type: "string" } }, required: ["email", "token"] } },
+    // --- Agent Workflows ---
+    { name: "crear_workflow_agente", description: "Create an agent workflow from a natural language description. The workflow can involve multiple agents, skills, conditions, loops, retries, human approvals, and scheduled triggers. Use when the user wants to automate a multi-step process. Examples: 'daily sales prospecting pipeline', 'research + business case + review loop', 'weekly report with Nando and Paula'. The system will generate the visual workflow graph automatically.", input_schema: { type: "object", properties: { org_id: { type: "string" }, description: { type: "string", description: "Natural language description of the workflow. Be detailed about: which agents, what skills, what conditions, what happens on failure, schedule." }, name: { type: "string", description: "Short name for the workflow" }, activate: { type: "boolean", description: "Whether to activate immediately (default: false, saves as draft)" } }, required: ["org_id", "description", "name"] } },
+    { name: "listar_workflows_agente", description: "List all agent workflows for this org.", input_schema: { type: "object", properties: { org_id: { type: "string" } }, required: ["org_id"] } },
   ];
 
   // Tools that should run in background (>30s expected)
@@ -4081,6 +4084,173 @@ Tus aprendizajes se cargan automáticamente en cada sesión para que seas cada v
               for (const s of skills) msg += `• ${s.display_name} — ${s.description.substring(0, 80)}\n`;
             }
             return { success: true, skills: data, message: msg };
+          } catch (e) { return { success: false, error: e.message }; }
+        }
+
+        // ================================================================
+        // AGENT WORKFLOWS — Create from natural language
+        // ================================================================
+        case "crear_workflow_agente": {
+          try {
+            // 1. Load all agents + their skills
+            const agents = await sbFetch(`${base}/rest/v1/agents?org_id=eq.${args.org_id}&status=eq.active&select=id,name,role,capabilities`, { headers: sbHeaders() });
+            if (!Array.isArray(agents) || agents.length === 0) return { success: false, error: "No hay agentes activos" };
+
+            const agentSkillsMap = {};
+            for (const ag of agents) {
+              const skills = await sbFetch(`${base}/rest/v1/agent_skills?agent_id=eq.${ag.id}&enabled=eq.true&select=skill_name`, { headers: sbHeaders() });
+              if (Array.isArray(skills) && skills.length > 0) {
+                const names = skills.map(s => s.skill_name);
+                const defs = await sbFetch(`${base}/rest/v1/skill_registry?or=(${names.map(n => `name.eq.${n}`).join(',')})&select=name,display_name,description`, { headers: sbHeaders() });
+                agentSkillsMap[ag.name] = { id: ag.id, role: ag.role, capabilities: ag.capabilities, skills: Array.isArray(defs) ? defs : [] };
+              } else {
+                agentSkillsMap[ag.name] = { id: ag.id, role: ag.role, capabilities: ag.capabilities, skills: [] };
+              }
+            }
+
+            // 2. Build context for LLM to generate workflow graph
+            const agentContext = Object.entries(agentSkillsMap).map(([name, data]) =>
+              `- ${name} (${data.role}): capabilities=[${data.capabilities.join(',')}], skills=[${data.skills.map(s => s.name).join(',')}]`
+            ).join('\n');
+
+            const graphPrompt = `Generate a workflow graph JSON for this request:
+
+"${args.description}"
+
+AVAILABLE AGENTS AND SKILLS:
+${agentContext}
+
+AVAILABLE NODE TYPES (use these exactly):
+- trigger_scheduled: {cron, timezone, description}
+- trigger_manual: {label}
+- action_agent_skill: {agentId, agentName, skillName, skillDisplayName, params:{}, onEmpty:"skip"|"ask_human"|"retry"|"stop", onError:"retry"|"notify"|"stop", maxRetries:3}
+- action_agent_task: {agentId, agentName, instruction, maxBudgetUsd:1}
+- action_agent_review: {reviewerAgentId, reviewerAgentName, criteria, maxIterations:3}
+- action_notify_human: {channel:"whatsapp", message:"..."}
+- action_for_each: {arraySource:"{{step.field}}", itemVar:"item"}
+- action_retry: {maxRetries:3, backoffSeconds:60, targetNodeId:"..."}
+- condition_task_result: {field, operator:"=="|">"|"<"|"is_not_empty"|"is_empty", value}
+- condition_human_approval: {question, options:["Yes","No"], timeoutHours:4}
+- delay_wait: {duration:1, unit:"hours"|"days"}
+
+EDGE RULES:
+- Condition nodes have sourceHandle "yes" and "no"
+- action_agent_review has sourceHandle "approved" and "needs_revision"
+- action_for_each has sourceHandle "each_item" and "loop_complete"
+- action_retry has sourceHandle "retry_success" and "max_retries_exceeded"
+- Regular nodes have no sourceHandle (default edge)
+
+TEMPLATE VARIABLES:
+- Use {{step_label.field}} to reference previous step results
+- step_label is the lowercase/underscored version of the node label
+
+Return ONLY valid JSON with this structure:
+{
+  "nodes": [{"id":"node1","type":"trigger_scheduled","position":{"x":400,"y":50},"data":{...}}, ...],
+  "edges": [{"id":"e1","source":"node1","target":"node2","sourceHandle":null}, ...]
+}
+
+Position nodes vertically (y increments of 150). Branch conditions left/right.
+Use agent IDs from the list above, not made-up IDs.
+Every node MUST have a label in data.
+Return ONLY the JSON, no explanation.`;
+
+            // 3. Call Claude to generate the graph
+            const Anthropic = require("@anthropic-ai/sdk");
+            const client = new Anthropic.default();
+            const graphResponse = await client.messages.create({
+              model: "claude-sonnet-4-6",
+              max_tokens: 4096,
+              temperature: 0,
+              messages: [{ role: "user", content: graphPrompt }],
+            });
+
+            const graphText = graphResponse.content.filter(b => b.type === "text").map(b => b.text).join("");
+
+            // 4. Parse and validate the graph
+            let graph;
+            try {
+              // Extract JSON from possible markdown code blocks
+              const jsonMatch = graphText.match(/\{[\s\S]*\}/);
+              if (!jsonMatch) throw new Error("No JSON found in response");
+              graph = JSON.parse(jsonMatch[0]);
+            } catch (parseErr) {
+              return { success: false, error: `Failed to parse workflow graph: ${parseErr.message}`, raw: graphText.substring(0, 500) };
+            }
+
+            if (!graph.nodes || !graph.edges || !Array.isArray(graph.nodes)) {
+              return { success: false, error: "Invalid graph structure — missing nodes or edges" };
+            }
+
+            // 5. Get owner_id
+            const sessRes = await sbFetch(`${base}/rest/v1/chief_sessions?org_id=eq.${args.org_id}&select=user_id&limit=1`, { headers: sbHeaders() });
+            const ownerId = Array.isArray(sessRes) && sessRes[0] ? sessRes[0].user_id : null;
+            if (!ownerId) return { success: false, error: "No session found — user not identified" };
+
+            // 6. Determine trigger type from graph
+            const triggerNode = graph.nodes.find(n => n.type?.startsWith('trigger_'));
+            const triggerType = triggerNode?.type === 'trigger_scheduled' ? 'scheduled' : 'manual';
+            const triggerConfig = triggerType === 'scheduled' ? {
+              cron: triggerNode?.data?.cron || '0 9 * * 1-5',
+              timezone: triggerNode?.data?.timezone || 'America/Mexico_City',
+            } : {};
+
+            // 7. Save workflow
+            const wfRes = await sbFetch(`${base}/rest/v1/workflows`, {
+              method: "POST",
+              headers: { ...sbHeaders(), Prefer: "return=representation" },
+              body: JSON.stringify({
+                name: args.name,
+                owner_id: ownerId,
+                org_id: args.org_id,
+                workflow_type: "agent",
+                status: args.activate ? "active" : "draft",
+                trigger_type: triggerType,
+                trigger_config: triggerConfig,
+                graph_json: graph,
+              }),
+            });
+
+            const workflow = Array.isArray(wfRes) && wfRes[0] ? wfRes[0] : null;
+            if (!workflow) return { success: false, error: "Failed to save workflow" };
+
+            // 8. Build summary for user
+            const nodesSummary = graph.nodes
+              .filter(n => !n.type.startsWith('trigger_'))
+              .map((n, i) => `${i + 1}. ${n.data?.label || n.type} (${n.data?.agentName || n.type})`)
+              .join('\n');
+
+            const agentsUsed = [...new Set(graph.nodes.filter(n => n.data?.agentName).map(n => n.data.agentName))];
+
+            return {
+              success: true,
+              workflow_id: workflow.id,
+              status: args.activate ? "active" : "draft",
+              message: `✅ Workflow "${args.name}" creado (${args.activate ? 'ACTIVO' : 'borrador'})
+
+📋 *Pasos (${graph.nodes.length} nodos):*
+${nodesSummary}
+
+👥 *Agentes:* ${agentsUsed.join(', ')}
+${triggerType === 'scheduled' ? `⏰ *Schedule:* ${triggerConfig.cron} (${triggerConfig.timezone})` : '🖐️ *Trigger:* Manual'}
+
+${!args.activate ? 'Para activar: ve a Agent Workflows en el dashboard o dime "activa el workflow"' : 'El workflow se ejecutará según el schedule configurado.'}`,
+            };
+          } catch (e) {
+            return { success: false, error: `Error creando workflow: ${e.message}` };
+          }
+        }
+
+        case "listar_workflows_agente": {
+          try {
+            const wfs = await sbFetch(`${base}/rest/v1/workflows?org_id=eq.${args.org_id}&workflow_type=eq.agent&select=id,name,status,trigger_type,trigger_config,created_at&order=created_at.desc`, { headers: sbHeaders() });
+            if (!Array.isArray(wfs) || wfs.length === 0) return { success: true, message: "No hay agent workflows aún." };
+            let msg = `📋 *Agent Workflows (${wfs.length}):*\n`;
+            for (const w of wfs) {
+              const schedule = w.trigger_type === 'scheduled' ? ` ⏰ ${w.trigger_config?.cron || ''}` : '';
+              msg += `\n• *${w.name}* — ${w.status}${schedule}\n  ID: ${w.id.substring(0, 8)}`;
+            }
+            return { success: true, workflows: wfs, message: msg };
           } catch (e) { return { success: false, error: e.message }; }
         }
 
