@@ -450,13 +450,16 @@ Nando y Paula colaboran: Nando investiga y revisa, Paula genera. Si Nando no apr
 
 ## Timeline
 
-| Fase | Qué | Días | Status |
-|------|-----|------|--------|
-| **0** | Session resumption | 1 | ✅ DONE |
-| **1** | Event-driven execution (/execute + /wake + router + callback) | 2 | ✅ DONE |
-| — | Validar 3-5 skills diferentes | 0.5 | Pendiente |
-| **2** | Workflow engine + decision paths + UI | 5 | Pendiente |
-| **Total** | | **5.5 días restantes** | |
+| Fase | Qué | Status |
+|------|-----|--------|
+| **0** | Session resumption | ✅ DONE |
+| **1** | Event-driven execution (/execute + /wake + router + callback) | ✅ DONE |
+| **2A** | DB schema + node types + process-workflow handlers | ✅ DONE |
+| **2B** | Data flow + for_each + human approval + agent review | ✅ DONE |
+| **2D** | UI components (AgentNode, ControlNode, palette) | ✅ DONE |
+| **2E** | Scheduling (pg_cron) + WorkflowBuilder routing | ✅ DONE |
+| **Nav** | Agent Workflows separado de Chief Outreach | ✅ DONE |
+| **Total** | **PLAN COMPLETO** | ✅ |
 
 ## Impacto
 

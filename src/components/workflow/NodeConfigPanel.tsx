@@ -568,8 +568,8 @@ export function NodeConfigPanel({ node, onUpdate, onClose }: NodeConfigPanelProp
 // SUB-COMPONENTS: Agent & Skill Selectors
 // ========================================
 
-function AgentSelector({ agentId, agentName, onChange, label }: {
-  agentId: string; agentName: string;
+function AgentSelector({ agentId, onChange, label }: {
+  agentId: string; agentName?: string;
   onChange: (id: string, name: string) => void; label: string
 }) {
   const [agents, setAgents] = useState<Array<{ id: string; name: string }>>([])
