@@ -326,11 +326,21 @@ async function handleExecute(req: http.IncomingMessage, res: http.ServerResponse
     }
 
     // Determine if the agent is waiting for human input or done
-    // Check if the SDK called ask_human_via_whatsapp (writes to outbound_human_messages)
-    const recentOutbound = await sbGet<Array<{ id: string }>>(
-      `outbound_human_messages?from_agent_id=eq.${agent.id}&created_at=gt.${new Date(Date.now() - 30000).toISOString()}&limit=1&select=id`,
-    ).catch(() => []);
-    const askedHuman = Array.isArray(recentOutbound) && recentOutbound.length > 0;
+    // Heuristic: if the result text contains question patterns, agent needs input
+    // This is more reliable than checking outbound_human_messages timing
+    const resultLower = result.text.toLowerCase()
+    const questionPatterns = [
+      'necesito', 'proporciona', 'confirma', 'responde', 'por favor',
+      'cuál es', 'qué es', '¿', 'datos que faltan', 'información',
+      'pendiente', 'waiting', 'need', 'please provide', 'missing',
+    ]
+    const hasQuestionMark = result.text.includes('?')
+    const hasQuestionPattern = questionPatterns.some(p => resultLower.includes(p))
+    const hasSkillResult = resultLower.includes('business case') && (resultLower.includes('generado') || resultLower.includes('pptx') || resultLower.includes('descargar'))
+    const hasCallSkillResult = resultLower.includes('call_skill') && resultLower.includes('success')
+
+    // Agent asked human if: has questions AND doesn't have a deliverable result
+    const askedHuman = (hasQuestionMark || hasQuestionPattern) && !hasSkillResult && !hasCallSkillResult && result.numTurns <= 3;
 
     if (askedHuman) {
       // Agent asked a question → save scratchpad, keep task in_progress
