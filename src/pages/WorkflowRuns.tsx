@@ -129,7 +129,7 @@ export function WorkflowRuns() {
                     </div>
                   </CardHeader>
                   {/* Event log timeline for agent workflows */}
-                  {isAgentMode && eventLog && eventLog.length > 0 && (
+                  {isAgentMode && Array.isArray(eventLog) && eventLog.length > 0 ? (
                     <CardContent className="pt-0 pb-4">
                       <div className="border-t pt-3">
                         <p className="text-xs font-medium text-muted-foreground mb-2">Steps</p>
@@ -150,9 +150,9 @@ export function WorkflowRuns() {
                         </div>
                       </div>
                     </CardContent>
-                  )}
+                  ) : null}
                   {/* Context preview for agent workflows */}
-                  {isAgentMode && context.last_task_result && (
+                  {isAgentMode && context.last_task_result ? (
                     <CardContent className="pt-0 pb-4">
                       <div className="border-t pt-3">
                         <p className="text-xs font-medium text-muted-foreground mb-1">Last result</p>
@@ -164,7 +164,7 @@ export function WorkflowRuns() {
                         </p>
                       </div>
                     </CardContent>
-                  )}
+                  ) : null}
                 </Card>
               )
             })}
