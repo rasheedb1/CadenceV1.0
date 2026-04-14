@@ -69,6 +69,7 @@ const sdr_sections: NavSection[] = [
       { name: 'LinkedIn Inbox', href: '/inbox', icon: MessageSquare, featureFlag: 'section_linkedin_inbox' },
       { name: 'Lead Search', href: '/lead-search', icon: Search, featureFlag: 'section_lead_search' },
       { name: 'AI Agents', href: '/agents', icon: Bot, featureFlag: 'section_agents' },
+      { name: 'Agent Workflows', href: '/agents/workflows', icon: GitBranch, featureFlag: 'section_agents' },
       { name: 'Outreach Activity', href: '/outreach', icon: Activity, featureFlag: 'section_cadences' },
     ],
   },
@@ -81,7 +82,7 @@ const sdr_sections: NavSection[] = [
       { name: 'AI Prompts', href: '/ai-prompts', icon: Brain, featureFlag: 'section_ai_prompts' },
       { name: 'Business Cases', href: '/business-cases', icon: Briefcase, featureFlag: 'section_business_cases' },
       { name: 'Templates', href: '/templates', icon: FileText, featureFlag: 'section_templates' },
-      { name: 'Workflows', href: '/workflows', icon: GitBranch, featureFlag: 'section_workflows' },
+      { name: 'Lead Workflows', href: '/workflows', icon: GitBranch, featureFlag: 'section_workflows' },
     ],
   },
   {
