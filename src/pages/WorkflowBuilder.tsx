@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
   ReactFlow,
   MiniMap,
@@ -71,6 +71,9 @@ function getNodeId() {
 export function WorkflowBuilder() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
+  const isAgentMode = location.pathname.startsWith('/agents/workflows')
+  const basePath = isAgentMode ? '/agents/workflows' : '/workflows'
   const { workflows, updateWorkflow, saveGraph, activateWorkflow, pauseWorkflow } = useWorkflow()
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -229,7 +232,7 @@ export function WorkflowBuilder() {
       {/* Header */}
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/workflows')}>
+          <Button variant="ghost" size="icon" onClick={() => navigate(basePath)}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <Input
@@ -245,7 +248,7 @@ export function WorkflowBuilder() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => navigate(`/workflows/${id}/runs`)}
+            onClick={() => navigate(`${basePath}/${id}/runs`)}
           >
             <Users className="mr-2 h-4 w-4" />
             Runs

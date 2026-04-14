@@ -807,6 +807,86 @@ serve(async (req: Request) => {
     const supabase = createSupabaseClient()
     const now = new Date().toISOString()
 
+    // ================================================================
+    // STEP 0: Create runs for scheduled agent workflows
+    // Find workflows with trigger_type='scheduled' and active status,
+    // check if their cron matches the current time window, and create runs.
+    // ================================================================
+    try {
+      const { data: scheduledWorkflows } = await supabase
+        .from('workflows')
+        .select('id, owner_id, org_id, trigger_config, graph_json')
+        .eq('status', 'active')
+        .eq('trigger_type', 'scheduled')
+        .eq('workflow_type', 'agent')
+
+      if (scheduledWorkflows && scheduledWorkflows.length > 0) {
+        for (const sw of scheduledWorkflows) {
+          const config = sw.trigger_config as { cron?: string; timezone?: string; last_triggered_at?: string } || {}
+          if (!config.cron) continue
+
+          // Simple cron check: compare last_triggered_at with current time
+          // Only trigger if last trigger was > 5 min ago (prevent double-triggers)
+          const lastTriggered = config.last_triggered_at ? new Date(config.last_triggered_at) : new Date(0)
+          const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000)
+          if (lastTriggered > fiveMinAgo) continue
+
+          // Parse simple cron: check if current time matches
+          // For now, support: "0 9 * * 1-5" (weekday 9am), "*/30 * * * *" (every 30min)
+          const cronParts = config.cron.split(' ')
+          if (cronParts.length !== 5) continue
+
+          const nowDate = new Date()
+          const minute = nowDate.getMinutes()
+          const hour = nowDate.getHours()
+          const dayOfWeek = nowDate.getDay() // 0=Sun, 1=Mon...
+
+          const matchesCron = (
+            (cronParts[0] === '*' || cronParts[0] === String(minute) || (cronParts[0].startsWith('*/') && minute % parseInt(cronParts[0].slice(2)) === 0)) &&
+            (cronParts[1] === '*' || cronParts[1] === String(hour)) &&
+            (cronParts[2] === '*') && // day of month
+            (cronParts[3] === '*') && // month
+            (cronParts[4] === '*' || cronParts[4].split(',').some(d => {
+              if (d.includes('-')) {
+                const [start, end] = d.split('-').map(Number)
+                return dayOfWeek >= start && dayOfWeek <= end
+              }
+              return Number(d) === dayOfWeek
+            }))
+          )
+
+          if (!matchesCron) continue
+
+          // Find the first node (trigger node)
+          const graph = sw.graph_json as WorkflowGraph
+          const triggerNode = graph.nodes.find(n => n.type?.startsWith('trigger_'))
+          const firstNodeId = triggerNode ? getNextNodeId(graph, triggerNode.id) || triggerNode.id : graph.nodes[0]?.id
+
+          if (!firstNodeId) continue
+
+          // Create a new run
+          const { error: runError } = await supabase.from('workflow_runs').insert({
+            workflow_id: sw.id,
+            owner_id: sw.owner_id,
+            org_id: sw.org_id,
+            current_node_id: firstNodeId,
+            status: 'running',
+            context_json: { triggered_by: 'schedule', triggered_at: now },
+          })
+
+          if (!runError) {
+            // Update last_triggered_at
+            await supabase.from('workflows').update({
+              trigger_config: { ...config, last_triggered_at: now },
+            }).eq('id', sw.id)
+            console.log(`[scheduler] Created run for workflow ${sw.id}`)
+          }
+        }
+      }
+    } catch (schedErr) {
+      console.warn('[scheduler] Error processing scheduled workflows:', schedErr)
+    }
+
     // Query runs that need processing:
     // 1. Running runs (need to execute their current node)
     // 2. Waiting runs whose wait has expired
