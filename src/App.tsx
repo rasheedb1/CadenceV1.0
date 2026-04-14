@@ -100,11 +100,10 @@ function App() {
                 {/* Agents — standalone app (not inside Chief Outreach) */}
                 <Route path="/agents" element={<Agents />} />
                 <Route path="/agents/:id" element={<AgentDetail />} />
+                <Route path="/agents/workflows" element={<Workflows />} />
+                <Route path="/agents/workflows/:id" element={<WorkflowBuilder />} />
+                <Route path="/agents/workflows/:id/runs" element={<WorkflowRuns />} />
                 <Route element={<MainLayout />}>
-                  {/* Agent Workflows — inside MainLayout for sidebar */}
-                  <Route path="/agents/workflows" element={<Workflows />} />
-                  <Route path="/agents/workflows/:id" element={<WorkflowBuilder />} />
-                  <Route path="/agents/workflows/:id/runs" element={<WorkflowRuns />} />
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/cadences" element={<FeatureRoute flag="section_cadences"><Cadences /></FeatureRoute>} />
                   <Route path="/cadences/:id" element={<FeatureRoute flag="section_cadences"><CadenceBuilder /></FeatureRoute>} />

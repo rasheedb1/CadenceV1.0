@@ -15,7 +15,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { Plus, GitBranch, MoreVertical, Pencil, Trash2, Play, Pause } from 'lucide-react'
+import { Plus, GitBranch, MoreVertical, Pencil, Trash2, Play, Pause, ArrowLeft, Bot } from 'lucide-react'
 import { PermissionGate } from '@/components/PermissionGate'
 import {
   DropdownMenu,
@@ -82,7 +82,23 @@ export function Workflows() {
   }
 
   return (
-    <PageTransition className="p-8">
+    <PageTransition className={isAgentMode ? "min-h-screen bg-background" : ""}>
+      {/* Agent mode: standalone header (no Chief Outreach sidebar) */}
+      {isAgentMode && (
+        <div className="border-b bg-background/95 backdrop-blur px-6 py-3 flex items-center gap-4">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/agents')}>
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            Agentes
+          </Button>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Bot className="h-4 w-4" />
+            <span>Agentes IA</span>
+            <span>/</span>
+            <span className="text-foreground font-medium">Workflows</span>
+          </div>
+        </div>
+      )}
+      <div className={isAgentMode ? "p-8" : "p-8"}>
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-[28px] font-bold tracking-tight font-heading">{pageTitle}</h1>
@@ -231,6 +247,7 @@ export function Workflows() {
           })}
         </div>
       )}
+      </div>
     </PageTransition>
   )
 }
