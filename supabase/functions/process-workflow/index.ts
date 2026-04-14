@@ -44,6 +44,62 @@ interface WorkflowGraph {
   edges: GraphEdge[]
 }
 
+// ================================================================
+// TEMPLATE RESOLVER — resolves {{step_name.field}} from context_json
+// ================================================================
+function resolveTemplate(template: string, context: Record<string, unknown>): string {
+  return template.replace(/\{\{([^}]+)\}\}/g, (_match, path: string) => {
+    const parts = path.trim().split('.')
+    let val: unknown = context
+    for (const p of parts) { val = (val as Record<string, unknown>)?.[p] }
+    if (val === undefined || val === null) return ''
+    if (typeof val === 'object') return JSON.stringify(val)
+    return String(val)
+  })
+}
+
+function resolveTemplateValue(template: string, context: Record<string, unknown>): unknown {
+  // If the entire value is a single template variable, return the raw value (not stringified)
+  const singleVarMatch = template.match(/^\{\{([^}]+)\}\}$/)
+  if (singleVarMatch) {
+    const parts = singleVarMatch[1].trim().split('.')
+    let val: unknown = context
+    for (const p of parts) { val = (val as Record<string, unknown>)?.[p] }
+    return val
+  }
+  // Otherwise resolve as string interpolation
+  return resolveTemplate(template, context)
+}
+
+function resolveParams(params: Record<string, string>, context: Record<string, unknown>): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {}
+  for (const [key, val] of Object.entries(params)) {
+    if (typeof val === 'string' && val.includes('{{')) {
+      resolved[key] = resolveTemplateValue(val, context)
+    } else {
+      resolved[key] = val
+    }
+  }
+  return resolved
+}
+
+/** Save a step result in context_json under a named key */
+function buildContextWithStepResult(
+  existingContext: Record<string, unknown>,
+  nodeId: string,
+  nodeData: Record<string, unknown>,
+  result: unknown,
+): Record<string, unknown> {
+  // Use node's stepName (from config) or fall back to nodeId
+  const stepName = (nodeData.stepName as string) || (nodeData.label as string)?.toLowerCase().replace(/[^a-z0-9]+/g, '_') || nodeId
+  return {
+    ...existingContext,
+    [stepName]: result,
+    last_task_result: result,
+    last_step: stepName,
+  }
+}
+
 // Map action node types to LinkedIn Edge Function endpoints
 const ACTION_TO_ENDPOINT: Record<string, string> = {
   action_linkedin_message: '/functions/v1/linkedin-send-message',
@@ -381,21 +437,10 @@ async function processRun(
     if (nodeType === 'action_agent_skill') {
       const skillName = nodeData.skillName as string
       const params = nodeData.params as Record<string, string> || {}
-      // Resolve template variables {{step1.companies}} from context_json
-      const resolvedParams: Record<string, unknown> = {}
-      for (const [key, val] of Object.entries(params)) {
-        if (typeof val === 'string' && val.startsWith('{{') && val.endsWith('}}')) {
-          const path = val.slice(2, -2).split('.')
-          let resolved: unknown = run.context_json
-          for (const p of path) { resolved = (resolved as Record<string, unknown>)?.[p] }
-          resolvedParams[key] = resolved
-        } else {
-          resolvedParams[key] = val
-        }
-      }
-      instruction = `Execute skill "${skillName}" with params: ${JSON.stringify(resolvedParams)}`
+      const resolvedParams = resolveParams(params, run.context_json)
+      instruction = `Execute skill "${skillName}" with params: ${JSON.stringify(resolvedParams)}\n\nUse the call_skill tool with function_name="${skillName}" and these exact params. Do NOT ask the user for data — all params are provided.`
     } else {
-      instruction = nodeData.instruction as string || ''
+      instruction = resolveTemplate(nodeData.instruction as string || '', run.context_json)
     }
 
     // Create agent task linked to this workflow run
@@ -509,17 +554,7 @@ async function processRun(
   } else if (nodeType === 'action_notify_human') {
     // Send notification via bridge callback (non-blocking)
     const CALLBACK_URL = Deno.env.get('CALLBACK_URL') || 'https://twilio-bridge-production-241b.up.railway.app/api/agent-callback'
-    const message = nodeData.message as string || 'Workflow notification'
-
-    // Resolve template variables
-    let resolvedMsg = message
-    const templateMatches = message.matchAll(/\{\{([^}]+)\}\}/g)
-    for (const match of templateMatches) {
-      const path = match[1].split('.')
-      let val: unknown = run.context_json
-      for (const p of path) { val = (val as Record<string, unknown>)?.[p] }
-      resolvedMsg = resolvedMsg.replace(match[0], String(val ?? ''))
-    }
+    const resolvedMsg = resolveTemplate(nodeData.message as string || 'Workflow notification', run.context_json)
 
     fetch(CALLBACK_URL, {
       method: 'POST',
@@ -556,6 +591,159 @@ async function processRun(
         context_json: { ...run.context_json, _retry_count: 0 },
       }).eq('id', run.id)
     }
+
+  } else if (nodeType === 'action_for_each') {
+    // Loop over an array from a previous step result
+    const arraySource = nodeData.arraySource as string || ''
+    const itemVar = nodeData.itemVar as string || 'item'
+    const items = resolveTemplateValue(arraySource, run.context_json)
+
+    if (!Array.isArray(items) || items.length === 0) {
+      // Empty array — follow 'empty' edge or advance normally
+      nextNodeId = getNextNodeId(graph, currentNode.id, 'empty') || getNextNodeId(graph, currentNode.id)
+    } else {
+      // Get the next node (the body of the loop)
+      const bodyNodeId = getNextNodeId(graph, currentNode.id, 'each_item') || getNextNodeId(graph, currentNode.id)
+
+      // Create sub-runs for each item (they share the same workflow_run but execute sequentially)
+      // Store iteration state in context_json
+      await supabase.from('workflow_runs').update({
+        current_node_id: bodyNodeId,
+        context_json: {
+          ...run.context_json,
+          _for_each: {
+            items,
+            currentIndex: 0,
+            itemVar,
+            returnNodeId: currentNode.id,
+            results: [],
+          },
+          [itemVar]: items[0], // Set current item
+        },
+      }).eq('id', run.id)
+
+      await supabase.from('workflow_event_log').insert({
+        workflow_run_id: run.id,
+        workflow_id: run.workflow_id,
+        lead_id: run.lead_id || '00000000-0000-0000-0000-000000000000',
+        owner_id: run.owner_id,
+        org_id: run.org_id,
+        node_id: currentNode.id,
+        node_type: nodeType,
+        action: 'for_each_start',
+        status: 'success',
+        details: { total_items: items.length, item_var: itemVar },
+      })
+
+      return { success: true, action: `for_each_start_${items.length}_items` }
+    }
+
+  } else if (nodeType === 'condition_human_approval') {
+    // Send question to human via WhatsApp and wait for response
+    const question = resolveTemplate(nodeData.question as string || '', run.context_json)
+    const options = nodeData.options as string[] || ['Continue', 'Stop']
+    const timeoutHours = (nodeData.timeoutHours as number) || 4
+    const CALLBACK_URL = Deno.env.get('CALLBACK_URL') || 'https://twilio-bridge-production-241b.up.railway.app/api/agent-callback'
+
+    const formattedQuestion = `🔔 *Workflow necesita tu decisión:*\n\n${question}\n\nResponde con una de estas opciones:\n${options.map((o, i) => `${i + 1}. ${o}`).join('\n')}`
+
+    fetch(CALLBACK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agent_name: 'Workflow',
+        result: { text: formattedQuestion },
+        whatsapp_number: null,
+      }),
+    }).catch(() => {})
+
+    const waitUntil = new Date(Date.now() + timeoutHours * 3600000).toISOString()
+    await supabase.from('workflow_runs').update({
+      status: 'waiting',
+      waiting_for_event: 'human_approval',
+      waiting_until: waitUntil,
+      context_json: { ...run.context_json, _approval_options: options },
+    }).eq('id', run.id)
+
+    await supabase.from('workflow_event_log').insert({
+      workflow_run_id: run.id,
+      workflow_id: run.workflow_id,
+      lead_id: run.lead_id || '00000000-0000-0000-0000-000000000000',
+      owner_id: run.owner_id,
+      org_id: run.org_id,
+      node_id: currentNode.id,
+      node_type: nodeType,
+      action: 'human_approval_requested',
+      status: 'success',
+      details: { question, options, timeout_hours: timeoutHours },
+    })
+
+    return { success: true, action: 'waiting_for_human_approval' }
+
+  } else if (nodeType === 'action_agent_review') {
+    // Have a reviewer agent evaluate the last task's result
+    const reviewerAgentId = nodeData.reviewerAgentId as string
+    const criteria = resolveTemplate(nodeData.criteria as string || '', run.context_json)
+    const lastResult = run.context_json?.last_task_result || {}
+    const CHIEF_AGENTS_URL = Deno.env.get('CHIEF_AGENTS_URL') || 'https://chief-agents-production.up.railway.app'
+
+    const reviewInstruction = `REVIEW TASK: Evaluate this work output and decide if it meets the criteria.
+
+WORK OUTPUT TO REVIEW:
+${JSON.stringify(lastResult, null, 2)}
+
+CRITERIA:
+${criteria}
+
+RESPOND WITH EXACTLY ONE OF:
+- "APPROVED" if the work meets the criteria
+- "NEEDS_REVISION: [your feedback]" if it needs changes
+
+Be specific about what needs to change if you recommend revision.`
+
+    // Create review task
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const taskRes = await fetch(`${supabaseUrl}/rest/v1/agent_tasks_v2`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${serviceKey}`,
+        'apikey': serviceKey,
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify({
+        org_id: run.org_id,
+        title: `[REVIEW] ${criteria.substring(0, 100)}`,
+        description: reviewInstruction,
+        task_type: 'general',
+        assigned_agent_id: reviewerAgentId,
+        assigned_at: new Date().toISOString(),
+        status: 'claimed',
+        priority: 5,
+        workflow_run_id: run.id,
+        workflow_node_id: currentNode.id,
+      }),
+    })
+    const tasks = await taskRes.json()
+    const taskId = Array.isArray(tasks) && tasks[0] ? tasks[0].id : null
+
+    if (taskId) {
+      // Execute review immediately
+      fetch(`${CHIEF_AGENTS_URL}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: reviewerAgentId, task_id: taskId }),
+      }).catch(() => {})
+
+      await supabase.from('workflow_runs').update({
+        status: 'waiting',
+        waiting_for_event: 'task_completed',
+        waiting_task_id: taskId,
+      }).eq('id', run.id)
+    }
+
+    return { success: true, action: 'waiting_for_review' }
   }
 
   // Advance to next node
