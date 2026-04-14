@@ -1322,8 +1322,8 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
                       }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
                       if (scored.length > 0) {
                         const best = scored[0];
-                        const userIntent = replyText.substring(0, 200);
-                        enrichedInstruction = `USER REQUEST: ${userIntent}\n\nEXECUTE THIS SKILL: "${best.display_name}"\n${best.skill_definition}\n\nUse the call_skill tool with the correct function_name and params. Ask the user for any data you need BEFORE executing.`;
+                        const fullUserData = replyText.substring(0, 2000);
+                        enrichedInstruction = `USER REQUEST:\n${fullUserData}\n\nEXECUTE THIS SKILL: "${best.display_name}"\n${best.skill_definition}\n\nIMPORTANT: The user data is in USER REQUEST above. Map it directly to the skill params and call call_skill. Do NOT re-ask for data that is already provided above.`;
                         console.log(`[conversation_control] Skill enrichment: "${best.display_name}" for ${targetAgentId.substring(0, 8)}`);
                       }
                     }
@@ -2682,10 +2682,10 @@ ${args.description ? `\n${args.description}\n` : ""}
                 }).filter(s => s.score > 0).sort((a, b) => b.score - a.score);
                 if (scored.length > 0) {
                   const best = scored[0];
-                  // REPLACE Chief's instruction entirely — the skill defines HOW to execute
-                  // Keep only the user's intent (first sentence or up to 200 chars) as context
-                  const userIntent = (args.instruction || "").split(/[.\n]/).filter(s => s.trim())[0]?.trim().substring(0, 200) || args.instruction?.substring(0, 200);
-                  enrichedInstruction = `USER REQUEST: ${userIntent}\n\nEXECUTE THIS SKILL: "${best.display_name}"\n${best.skill_definition}\n\nUse the call_skill tool with the correct function_name and params. Ask the user for any data you need BEFORE executing. Do NOT research or guess — only use call_skill with data the user provides.`;
+                  // APPEND skill definition to Chief's instruction — preserve ALL user data
+                  // Previous bug: split by [.\n] + substring(0,200) deleted all user data after first line
+                  const fullInstruction = (args.instruction || "").substring(0, 2000);
+                  enrichedInstruction = `USER REQUEST:\n${fullInstruction}\n\nEXECUTE THIS SKILL: "${best.display_name}"\n${best.skill_definition}\n\nIMPORTANT: The user data is in USER REQUEST above. Map it directly to the skill params and call call_skill. Do NOT re-ask for data that is already provided above.`;
                   console.log(`[delegar_tarea] Skill OVERRIDE: "${best.display_name}" for ${agent.name} (replaced Chief instruction)`);
                 }
               }
