@@ -28,6 +28,8 @@ import { TriggerNode } from '@/components/workflow/nodes/TriggerNode'
 import { ActionNode } from '@/components/workflow/nodes/ActionNode'
 import { ConditionNode } from '@/components/workflow/nodes/ConditionNode'
 import { DelayNode } from '@/components/workflow/nodes/DelayNode'
+import { AgentNode } from '@/components/workflow/nodes/AgentNode'
+import { ControlNode } from '@/components/workflow/nodes/ControlNode'
 import {
   WORKFLOW_NODE_CONFIG,
   WORKFLOW_STATUS_CONFIG,
@@ -35,18 +37,30 @@ import {
 } from '@/types/workflow'
 
 const nodeTypes: NodeTypes = {
+  // Lead workflow nodes
   trigger_manual: TriggerNode,
   trigger_new_lead: TriggerNode,
   action_linkedin_message: ActionNode,
   action_linkedin_connect: ActionNode,
   action_linkedin_like: ActionNode,
   action_linkedin_comment: ActionNode,
+  action_send_email: ActionNode,
   action_task: ActionNode,
   condition_connection_accepted: ConditionNode,
   condition_message_received: ConditionNode,
   condition_lead_attribute: ConditionNode,
   condition_time_elapsed: ConditionNode,
   delay_wait: DelayNode,
+  // Agent workflow nodes
+  trigger_scheduled: ControlNode,
+  action_agent_skill: AgentNode,
+  action_agent_task: AgentNode,
+  action_agent_review: AgentNode,
+  action_notify_human: AgentNode,
+  action_for_each: ControlNode,
+  action_retry: ControlNode,
+  condition_task_result: ControlNode,
+  condition_human_approval: ControlNode,
 }
 
 let nodeId = 0

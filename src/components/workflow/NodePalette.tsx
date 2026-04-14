@@ -9,6 +9,17 @@ import {
   Filter,
   Clock,
   Timer,
+  Mail,
+  // Agent workflow icons
+  Bot,
+  BrainCircuit,
+  CheckCircle,
+  Bell,
+  Repeat,
+  RotateCcw,
+  GitBranch,
+  HandMetal,
+  CalendarClock,
 } from 'lucide-react'
 import {
   WORKFLOW_NODE_CONFIG,
@@ -28,15 +39,27 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   Filter,
   Clock,
   Timer,
+  Mail,
+  // Agent icons
+  Bot,
+  BrainCircuit,
+  CheckCircle,
+  Bell,
+  Repeat,
+  RotateCcw,
+  GitBranch,
+  HandMetal,
+  CalendarClock,
 }
 
-const CATEGORY_ORDER: WorkflowNodeCategory[] = ['trigger', 'action', 'condition', 'delay']
+const CATEGORY_ORDER: WorkflowNodeCategory[] = ['trigger', 'action', 'condition', 'delay', 'control']
 
 const CATEGORY_COLORS: Record<WorkflowNodeCategory, string> = {
   trigger: 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400',
   action: 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400',
   condition: 'bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400',
   delay: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400',
+  control: 'bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400',
 }
 
 export function NodePalette() {
@@ -54,6 +77,8 @@ export function NodePalette() {
           const nodes = Object.entries(WORKFLOW_NODE_CONFIG).filter(
             ([, config]) => config.category === category
           )
+
+          if (nodes.length === 0) return null
 
           return (
             <div key={category} className="mb-5">
@@ -73,7 +98,9 @@ export function NodePalette() {
                       <div className={`flex h-6 w-6 items-center justify-center rounded-md ${CATEGORY_COLORS[category]}`}>
                         <Icon className="h-3.5 w-3.5" />
                       </div>
-                      <span className="text-xs font-medium">{config.label}</span>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-xs font-medium block truncate">{config.label}</span>
+                      </div>
                     </div>
                   )
                 })}
