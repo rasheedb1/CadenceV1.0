@@ -21,7 +21,7 @@ import {
   LayoutGrid, Network, Cpu, Crown, UserCog, User,
   Circle, Zap, AlertTriangle, WifiOff, Home, Moon, Sun,
   Radio, ListTodo, BarChart3, CheckCircle, XCircle, Clock, MessageSquare,
-  Plug,
+  Plug, GitBranch,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -927,6 +927,7 @@ export function Agents() {
               <TabsTrigger value="kanban" className="h-6 px-2 text-xs"><ListTodo className="h-3.5 w-3.5 mr-1" />Kanban</TabsTrigger>
               <TabsTrigger value="performance" className="h-6 px-2 text-xs"><BarChart3 className="h-3.5 w-3.5 mr-1" />Rendimiento</TabsTrigger>
               <TabsTrigger value="integrations" className="h-6 px-2 text-xs"><Plug className="h-3.5 w-3.5 mr-1" />Integraciones</TabsTrigger>
+              <TabsTrigger value="workflows" className="h-6 px-2 text-xs" onClick={() => navigate('/agents/workflows')}><GitBranch className="h-3.5 w-3.5 mr-1" />Workflows</TabsTrigger>
             </TabsList>
           </Tabs>
           <Dialog open={isCreateOpen} onOpenChange={v => { setIsCreateOpen(v); if (!v) resetForm() }}>
