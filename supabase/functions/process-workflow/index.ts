@@ -368,6 +368,194 @@ async function processRun(
     })
 
     return { success: true, action: 'delay_started' }
+
+  // ================================================================
+  // AGENT WORKFLOW NODES
+  // ================================================================
+  } else if (nodeType === 'action_agent_skill' || nodeType === 'action_agent_task') {
+    const agentId = nodeData.agentId as string
+    const CHIEF_AGENTS_URL = Deno.env.get('CHIEF_AGENTS_URL') || 'https://chief-agents-production.up.railway.app'
+
+    // Build skill instruction from node config
+    let instruction = ''
+    if (nodeType === 'action_agent_skill') {
+      const skillName = nodeData.skillName as string
+      const params = nodeData.params as Record<string, string> || {}
+      // Resolve template variables {{step1.companies}} from context_json
+      const resolvedParams: Record<string, unknown> = {}
+      for (const [key, val] of Object.entries(params)) {
+        if (typeof val === 'string' && val.startsWith('{{') && val.endsWith('}}')) {
+          const path = val.slice(2, -2).split('.')
+          let resolved: unknown = run.context_json
+          for (const p of path) { resolved = (resolved as Record<string, unknown>)?.[p] }
+          resolvedParams[key] = resolved
+        } else {
+          resolvedParams[key] = val
+        }
+      }
+      instruction = `Execute skill "${skillName}" with params: ${JSON.stringify(resolvedParams)}`
+    } else {
+      instruction = nodeData.instruction as string || ''
+    }
+
+    // Create agent task linked to this workflow run
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const taskRes = await fetch(`${supabaseUrl}/rest/v1/agent_tasks_v2`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${serviceKey}`,
+        'apikey': serviceKey,
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify({
+        org_id: run.org_id,
+        title: instruction.substring(0, 120),
+        description: instruction,
+        task_type: 'general',
+        assigned_agent_id: agentId,
+        assigned_at: new Date().toISOString(),
+        status: 'claimed',
+        priority: 10,
+        workflow_run_id: run.id,
+        workflow_node_id: currentNode.id,
+      }),
+    })
+    const tasks = await taskRes.json()
+    const taskId = Array.isArray(tasks) && tasks[0] ? tasks[0].id : null
+
+    if (!taskId) {
+      await supabase.from('workflow_runs').update({
+        status: 'failed',
+        context_json: { ...run.context_json, last_error: 'Failed to create agent task' },
+      }).eq('id', run.id)
+      return { success: false, action: 'task_creation_failed' }
+    }
+
+    // Execute immediately via /execute endpoint
+    fetch(`${CHIEF_AGENTS_URL}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_id: agentId, task_id: taskId }),
+    }).catch((e: Error) => console.warn(`[workflow] /execute failed: ${e.message}`))
+
+    // Pause workflow — the DB trigger (trg_advance_workflow) will resume it when task completes
+    await supabase.from('workflow_runs').update({
+      status: 'waiting',
+      waiting_for_event: 'task_completed',
+      waiting_task_id: taskId,
+      context_json: { ...run.context_json, waiting_task_id: taskId },
+    }).eq('id', run.id)
+
+    await supabase.from('workflow_event_log').insert({
+      workflow_run_id: run.id,
+      workflow_id: run.workflow_id,
+      lead_id: run.lead_id || '00000000-0000-0000-0000-000000000000',
+      owner_id: run.owner_id,
+      org_id: run.org_id,
+      node_id: currentNode.id,
+      node_type: nodeType,
+      action: 'agent_task_created',
+      status: 'success',
+      details: { task_id: taskId, agent_id: agentId },
+    })
+
+    return { success: true, action: 'waiting_for_agent' }
+
+  } else if (nodeType === 'condition_task_result') {
+    // Evaluate condition on last task result
+    const lastResult = run.context_json?.last_task_result as Record<string, unknown> || {}
+    const lastStatus = run.context_json?.last_task_status as string || 'unknown'
+    const field = nodeData.field as string || 'status'
+    const operator = nodeData.operator as string || '=='
+    const value = nodeData.value as string || ''
+
+    let fieldValue: unknown
+    if (field === 'status') {
+      fieldValue = lastStatus
+    } else if (field.includes('.')) {
+      fieldValue = field.split('.').reduce((obj: unknown, key) => (obj as Record<string, unknown>)?.[key], lastResult)
+    } else {
+      fieldValue = lastResult[field]
+    }
+
+    let passed = false
+    switch (operator) {
+      case '>': passed = Number(fieldValue) > Number(value); break
+      case '<': passed = Number(fieldValue) < Number(value); break
+      case '==': passed = String(fieldValue) === value; break
+      case '!=': passed = String(fieldValue) !== value; break
+      case 'contains': passed = String(fieldValue).includes(value); break
+      case 'is_empty': passed = !fieldValue || (Array.isArray(fieldValue) && fieldValue.length === 0); break
+      case 'is_not_empty': passed = !!fieldValue && (!Array.isArray(fieldValue) || fieldValue.length > 0); break
+    }
+
+    await supabase.from('workflow_event_log').insert({
+      workflow_run_id: run.id,
+      workflow_id: run.workflow_id,
+      lead_id: run.lead_id || '00000000-0000-0000-0000-000000000000',
+      owner_id: run.owner_id,
+      org_id: run.org_id,
+      node_id: currentNode.id,
+      node_type: nodeType,
+      action: `condition_${passed ? 'yes' : 'no'}`,
+      status: 'success',
+      details: { field, operator, value, fieldValue, passed },
+    })
+
+    nextNodeId = getNextNodeId(graph, currentNode.id, passed ? 'yes' : 'no')
+
+  } else if (nodeType === 'action_notify_human') {
+    // Send notification via bridge callback (non-blocking)
+    const CALLBACK_URL = Deno.env.get('CALLBACK_URL') || 'https://twilio-bridge-production-241b.up.railway.app/api/agent-callback'
+    const message = nodeData.message as string || 'Workflow notification'
+
+    // Resolve template variables
+    let resolvedMsg = message
+    const templateMatches = message.matchAll(/\{\{([^}]+)\}\}/g)
+    for (const match of templateMatches) {
+      const path = match[1].split('.')
+      let val: unknown = run.context_json
+      for (const p of path) { val = (val as Record<string, unknown>)?.[p] }
+      resolvedMsg = resolvedMsg.replace(match[0], String(val ?? ''))
+    }
+
+    fetch(CALLBACK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agent_name: 'Workflow',
+        result: { text: resolvedMsg },
+        whatsapp_number: null,
+      }),
+    }).catch(() => {})
+
+    nextNodeId = getNextNodeId(graph, currentNode.id)
+
+  } else if (nodeType === 'action_retry') {
+    const maxRetries = (nodeData.maxRetries as number) || 3
+    const backoffSeconds = (nodeData.backoffSeconds as number) || 60
+    const targetNodeId = nodeData.targetNodeId as string
+    const retryCount = (run.context_json?._retry_count as number) || 0
+
+    if (retryCount < maxRetries) {
+      const waitUntil = new Date(Date.now() + backoffSeconds * 1000 * Math.pow(2, retryCount)).toISOString()
+      await supabase.from('workflow_runs').update({
+        current_node_id: targetNodeId,
+        status: 'waiting',
+        waiting_until: waitUntil,
+        context_json: { ...run.context_json, _retry_count: retryCount + 1 },
+      }).eq('id', run.id)
+      return { success: true, action: `retry_${retryCount + 1}/${maxRetries}` }
+    } else {
+      // Max retries exceeded — follow 'max_retries_exceeded' edge
+      nextNodeId = getNextNodeId(graph, currentNode.id, 'max_retries_exceeded')
+      // Reset retry count
+      await supabase.from('workflow_runs').update({
+        context_json: { ...run.context_json, _retry_count: 0 },
+      }).eq('id', run.id)
+    }
   }
 
   // Advance to next node

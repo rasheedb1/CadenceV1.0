@@ -7,6 +7,7 @@ type AnyRecord = Record<string, any>
 // NODE TYPES
 // =====================================================
 export type WorkflowNodeType =
+  // Existing lead workflow nodes
   | 'trigger_manual'
   | 'trigger_new_lead'
   | 'action_linkedin_message'
@@ -20,8 +21,18 @@ export type WorkflowNodeType =
   | 'condition_lead_attribute'
   | 'condition_time_elapsed'
   | 'delay_wait'
+  // Agent workflow nodes
+  | 'trigger_scheduled'
+  | 'action_agent_skill'
+  | 'action_agent_task'
+  | 'action_agent_review'
+  | 'action_notify_human'
+  | 'action_for_each'
+  | 'action_retry'
+  | 'condition_task_result'
+  | 'condition_human_approval'
 
-export type WorkflowNodeCategory = 'trigger' | 'action' | 'condition' | 'delay'
+export type WorkflowNodeCategory = 'trigger' | 'action' | 'condition' | 'delay' | 'control'
 
 // =====================================================
 // NODE CONFIG DATA
@@ -91,6 +102,76 @@ export interface DelayWaitData {
   unit: 'hours' | 'days'
 }
 
+// --- Agent workflow node data ---
+
+export interface TriggerScheduledData {
+  label: string
+  cron: string            // e.g. '0 9 * * 1-5' (Mon-Fri 9am)
+  timezone: string        // e.g. 'America/Mexico_City'
+  description: string     // Human readable: 'Lunes a Viernes 9am'
+}
+
+export interface ActionAgentSkillData {
+  label: string
+  agentId: string
+  agentName: string
+  skillName: string
+  skillDisplayName: string
+  params: Record<string, string>    // key: value or "{{step.field}}" template
+  onEmpty: 'skip' | 'ask_human' | 'retry' | 'stop'
+  onError: 'retry' | 'notify' | 'stop'
+  maxRetries: number
+}
+
+export interface ActionAgentTaskData {
+  label: string
+  agentId: string
+  agentName: string
+  instruction: string
+  maxBudgetUsd: number
+}
+
+export interface ActionAgentReviewData {
+  label: string
+  reviewerAgentId: string
+  reviewerAgentName: string
+  criteria: string
+  maxIterations: number
+}
+
+export interface ActionNotifyHumanData {
+  label: string
+  channel: 'whatsapp' | 'email'
+  message: string         // Supports {{variable}} templates
+}
+
+export interface ActionForEachData {
+  label: string
+  arraySource: string     // e.g. "{{step1.companies}}"
+  itemVar: string         // e.g. "company"
+}
+
+export interface ActionRetryData {
+  label: string
+  maxRetries: number
+  backoffSeconds: number
+  targetNodeId: string
+}
+
+export interface ConditionTaskResultData {
+  label: string
+  field: string           // e.g. "count", "status", "result.companies"
+  operator: '>' | '<' | '==' | '!=' | 'contains' | 'is_empty' | 'is_not_empty'
+  value: string
+}
+
+export interface ConditionHumanApprovalData {
+  label: string
+  question: string
+  options: string[]       // e.g. ['Sí, continuar', 'No, parar', 'Ajustar criterios']
+  timeoutHours: number
+}
+
 export type WorkflowNodeData =
   | TriggerNodeData
   | ActionLinkedInMessageData
@@ -103,6 +184,16 @@ export type WorkflowNodeData =
   | ConditionLeadAttributeData
   | ConditionTimeElapsedData
   | DelayWaitData
+  // Agent workflow data
+  | TriggerScheduledData
+  | ActionAgentSkillData
+  | ActionAgentTaskData
+  | ActionAgentReviewData
+  | ActionNotifyHumanData
+  | ActionForEachData
+  | ActionRetryData
+  | ConditionTaskResultData
+  | ConditionHumanApprovalData
 
 // =====================================================
 // REACT FLOW TYPES
@@ -122,7 +213,8 @@ export interface WorkflowGraph {
 // =====================================================
 export type WorkflowStatus = 'draft' | 'active' | 'paused' | 'archived'
 export type WorkflowRunStatus = 'running' | 'waiting' | 'completed' | 'failed' | 'paused'
-export type WorkflowTriggerType = 'manual' | 'new_lead_added'
+export type WorkflowTriggerType = 'manual' | 'new_lead_added' | 'scheduled' | 'on_demand' | 'webhook'
+export type WorkflowType = 'lead' | 'agent'
 
 // =====================================================
 // INTERFACES
@@ -178,6 +270,7 @@ export const WORKFLOW_NODE_CATEGORIES: Record<WorkflowNodeCategory, { label: str
   action: { label: 'Actions', color: 'blue' },
   condition: { label: 'Conditions', color: 'amber' },
   delay: { label: 'Delays', color: 'slate' },
+  control: { label: 'Control', color: 'purple' },
 }
 
 export const WORKFLOW_NODE_CONFIG: Record<WorkflowNodeType, {
@@ -277,6 +370,70 @@ export const WORKFLOW_NODE_CONFIG: Record<WorkflowNodeType, {
     icon: 'Timer',
     description: 'Wait for a specified duration',
     defaultData: { label: 'Wait', duration: 1, unit: 'days' },
+  },
+  // --- Agent workflow nodes ---
+  trigger_scheduled: {
+    label: 'Scheduled Trigger',
+    category: 'trigger',
+    icon: 'CalendarClock',
+    description: 'Run on a schedule (daily, weekly, custom cron)',
+    defaultData: { label: 'Daily 9am', cron: '0 9 * * 1-5', timezone: 'America/Mexico_City', description: 'Lunes a Viernes 9am' },
+  },
+  action_agent_skill: {
+    label: 'Agent Skill',
+    category: 'action',
+    icon: 'Bot',
+    description: 'Execute a skill with a specific agent',
+    defaultData: { label: 'Agent Skill', agentId: '', agentName: '', skillName: '', skillDisplayName: '', params: {}, onEmpty: 'skip', onError: 'retry', maxRetries: 3 },
+  },
+  action_agent_task: {
+    label: 'Agent Task',
+    category: 'action',
+    icon: 'BrainCircuit',
+    description: 'Give an agent a free-form instruction',
+    defaultData: { label: 'Agent Task', agentId: '', agentName: '', instruction: '', maxBudgetUsd: 1 },
+  },
+  action_agent_review: {
+    label: 'Agent Review',
+    category: 'action',
+    icon: 'CheckCircle',
+    description: 'Have an agent review another agent\'s work',
+    defaultData: { label: 'Agent Review', reviewerAgentId: '', reviewerAgentName: '', criteria: '', maxIterations: 3 },
+  },
+  action_notify_human: {
+    label: 'Notify Human',
+    category: 'action',
+    icon: 'Bell',
+    description: 'Send a notification without blocking the workflow',
+    defaultData: { label: 'Notify', channel: 'whatsapp', message: '' },
+  },
+  action_for_each: {
+    label: 'For Each',
+    category: 'control',
+    icon: 'Repeat',
+    description: 'Loop over an array from a previous step',
+    defaultData: { label: 'For Each', arraySource: '', itemVar: 'item' },
+  },
+  action_retry: {
+    label: 'Retry',
+    category: 'control',
+    icon: 'RotateCcw',
+    description: 'Retry a failed step with exponential backoff',
+    defaultData: { label: 'Retry', maxRetries: 3, backoffSeconds: 60, targetNodeId: '' },
+  },
+  condition_task_result: {
+    label: 'Task Result',
+    category: 'condition',
+    icon: 'GitBranch',
+    description: 'Branch based on the result of the previous agent step',
+    defaultData: { label: 'Task Result?', field: 'count', operator: '>', value: '0' },
+  },
+  condition_human_approval: {
+    label: 'Human Approval',
+    category: 'condition',
+    icon: 'HandMetal',
+    description: 'Ask a human to choose the next step',
+    defaultData: { label: 'Human Approval', question: '', options: ['Continue', 'Stop'], timeoutHours: 4 },
   },
 }
 
