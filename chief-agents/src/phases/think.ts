@@ -27,10 +27,10 @@ function buildPrompt(agent: AgentConfig, context: SenseContext, state: LoopState
     const desc = typeof t.content === 'object'
       ? (t.content?.description || JSON.stringify(t.content))
       : (t.description || t.content || '');
-    return `- [${t.id}] ${t.title} (pri=${t.priority}, type=${t.task_type || 'general'}) — ${(desc || '').substring(0, 150)}`;
+    return `- [${t.id}] ${t.title} (pri=${t.priority}, type=${t.task_type || 'general'}) — ${(desc || '').substring(0, 500)}`;
   };
 
-  // --- Build memory context sections (exact port) ---
+  // --- Build memory context sections ---
   let memoryContext = '';
 
   // Parent task results (from dependency resolution)
@@ -39,10 +39,32 @@ function buildPrompt(agent: AgentConfig, context: SenseContext, state: LoopState
     memoryContext += `\nDEPENDENCY CONTEXT:\n${(taskWithParent as any).parent_result_summary}\n`;
   }
 
-  // Context summary (accumulated from resolved dependencies)
+  // Context summary — parse scratchpad into human-readable format for THINK
   const taskWithContext = (context.myTasks || []).find((t: any) => t.context_summary);
   if (taskWithContext && taskWithContext !== taskWithParent) {
-    memoryContext += `\nTASK CONTEXT:\n${(taskWithContext as any).context_summary}\n`;
+    const raw = (taskWithContext as any).context_summary;
+    try {
+      const pad = JSON.parse(raw);
+      // Build readable summary instead of dumping raw JSON
+      let readable = '';
+      if (pad.last_action === 'user_replied') {
+        readable += '⚡ USER HAS REPLIED — proceed with work_on_task immediately. Do NOT ask_human again.\n';
+      }
+      if (pad.data_collected && Object.keys(pad.data_collected).length > 0) {
+        readable += `DATA COLLECTED: ${JSON.stringify(pad.data_collected)}\n`;
+      }
+      if (pad.next_action) {
+        readable += `NEXT ACTION: ${pad.next_action}\n`;
+      }
+      if (pad.conversation && pad.conversation.length > 0) {
+        const lastMsg = pad.conversation[pad.conversation.length - 1];
+        readable += `LAST MESSAGE: [${lastMsg.role}] ${(lastMsg.content || '').substring(0, 200)}\n`;
+      }
+      memoryContext += `\nTASK CONTEXT:\n${readable || raw.substring(0, 500)}\n`;
+    } catch {
+      // Legacy format or plain text
+      memoryContext += `\nTASK CONTEXT:\n${raw.substring(0, 500)}\n`;
+    }
   }
 
   // Latest artifact summary
@@ -146,15 +168,16 @@ AVAILABLE ACTIONS (return EXACTLY ONE JSON object):
 
 DECISION RULES (in order of priority):
 1. If MY TASKS has a task with title starting with "[REVIEW]" → submit_review with score, passed, issues, suggestions. NEVER work_on_task on a review task.
-2. If AVAILABLE TASKS has entries and MY TASKS is empty → claim_task (pick highest priority)
+2. CRITICAL: If TASK CONTEXT says "USER HAS REPLIED" or last_action is "user_replied" → work_on_task IMMEDIATELY. The user already answered your questions. NEVER ask_human again after receiving a reply. Execute the task with the data provided.
 3. If MY TASKS has a non-review task → work_on_task (use the task description + DEPENDENCY CONTEXT + FEEDBACK as instruction)
-4. After completing significant work → request_review (if task has review_iteration < max 3)
-5. If task has LAST REVIEW that was NOT APPROVED → work_on_task to fix the issues, then request_review again
-6. If you CANNOT do something because you lack a tool or permission → ask_human explaining what you need
-7. If you need a tool that doesn't exist → send_message to Juanse (developer)
-8. If UNREAD MESSAGES need a response → reply_message
-9. If no tasks at all → idle
-10. ONLY return JSON. No markdown, no explanation, no code blocks.
+4. If AVAILABLE TASKS has entries and MY TASKS is empty → claim_task (pick highest priority)
+5. After completing significant work → request_review (if task has review_iteration < max 3)
+6. If task has LAST REVIEW that was NOT APPROVED → work_on_task to fix the issues, then request_review again
+7. If you CANNOT do something because you lack a tool or permission → ask_human explaining what you need
+8. If you need a tool that doesn't exist → send_message to Juanse (developer)
+9. If UNREAD MESSAGES need a response → reply_message
+10. If no tasks at all → idle
+11. ONLY return JSON. No markdown, no explanation, no code blocks.
 
 RESPONSE FORMAT: Return ONLY a JSON object with the action. No surrounding text, no markdown, no code blocks. Just raw JSON.`;
 }

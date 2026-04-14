@@ -327,7 +327,12 @@ export async function act(
       const skillsContext = context.skills && context.skills.length > 0
         ? `\nAVAILABLE SKILLS:\n${context.skills.map(s =>
             `- ${s.display_name} [${s.name}]: ${s.description}\n  How: ${s.skill_definition}`
-          ).join('\n')}\nWhen the task matches a skill, use the call_skill tool with the skill name and required params.`
+          ).join('\n')}\n
+SKILL EXECUTION RULES:
+1. If CONVERSATION HISTORY has [USER REPLIED] with data AND a matching skill exists → call call_skill IMMEDIATELY with the user's data mapped to the skill params. Do NOT re-ask questions that are already answered.
+2. If DATA ALREADY COLLECTED is present → map those fields directly to skill params. Do NOT ask the user to confirm data you already have.
+3. Only use ask_human_via_whatsapp if you are genuinely missing required params that are NOT in the task description, conversation history, or collected data.
+4. When calling call_skill, extract numbers/percentages from the user's text and pass them as the correct param types (numbers, not strings).`
         : '';
 
       const sdkPrompt = `${instruction}
