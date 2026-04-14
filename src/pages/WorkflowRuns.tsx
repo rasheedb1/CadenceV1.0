@@ -129,12 +129,12 @@ export function WorkflowRuns() {
                     </div>
                   </CardHeader>
                   {/* Event log timeline for agent workflows */}
-                  {isAgentMode && eventLog.length > 0 && (
+                  {isAgentMode && eventLog && eventLog.length > 0 && (
                     <CardContent className="pt-0 pb-4">
                       <div className="border-t pt-3">
                         <p className="text-xs font-medium text-muted-foreground mb-2">Steps</p>
                         <div className="flex flex-wrap gap-2">
-                          {eventLog.map((evt, i) => {
+                          {eventLog.map((evt: { node_id: string; action: string; status: string }, i: number) => {
                             const evtNode = workflow.graph_json.nodes.find(n => n.id === evt.node_id)
                             return (
                               <div key={i} className="flex items-center gap-1.5 text-xs bg-muted/50 rounded px-2 py-1">
