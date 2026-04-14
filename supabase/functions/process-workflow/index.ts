@@ -756,6 +756,65 @@ Be specific about what needs to change if you recommend revision.`
     return { success: true, action: 'waiting_for_review' }
   }
 
+  // ================================================================
+  // FOR_EACH LOOP-BACK: if we're inside a loop and reached the end
+  // of the body (no next node from current), advance to next item
+  // or exit the loop.
+  // ================================================================
+  const forEachState = run.context_json?._for_each as {
+    items: unknown[]; currentIndex: number; itemVar: string;
+    returnNodeId: string; results: unknown[];
+  } | undefined
+
+  if (!nextNodeId && forEachState) {
+    const { items, currentIndex, itemVar, returnNodeId, results } = forEachState
+    const nextIndex = currentIndex + 1
+
+    // Save current iteration result
+    const updatedResults = [...results, run.context_json?.last_task_result || null]
+
+    if (nextIndex < items.length) {
+      // More items — loop back to the body's first node
+      const bodyNodeId = getNextNodeId(graph, returnNodeId, 'each_item') || getNextNodeId(graph, returnNodeId)
+
+      await supabase.from('workflow_runs').update({
+        current_node_id: bodyNodeId,
+        status: 'running',
+        context_json: {
+          ...run.context_json,
+          _for_each: { ...forEachState, currentIndex: nextIndex, results: updatedResults },
+          [itemVar]: items[nextIndex],
+          last_task_result: null, // Clear for next iteration
+          last_task_status: null,
+        },
+      }).eq('id', run.id)
+
+      console.log(`[for_each] Item ${nextIndex + 1}/${items.length}`)
+      return { success: true, action: `for_each_item_${nextIndex + 1}/${items.length}` }
+    } else {
+      // Loop complete — save all results and follow 'loop_complete' edge
+      const loopCompleteNodeId = getNextNodeId(graph, returnNodeId, 'loop_complete')
+
+      await supabase.from('workflow_runs').update({
+        current_node_id: loopCompleteNodeId || null,
+        status: loopCompleteNodeId ? 'running' : 'completed',
+        context_json: {
+          ...run.context_json,
+          _for_each: undefined, // Clean up loop state
+          [`${itemVar}_results`]: updatedResults, // Save all results as {{company_results}}
+          last_task_result: { all_results: updatedResults, total: items.length },
+        },
+      }).eq('id', run.id)
+
+      console.log(`[for_each] Loop complete: ${items.length} items processed`)
+
+      if (loopCompleteNodeId) {
+        return { success: true, action: `for_each_complete_${items.length}_items` }
+      }
+      // Fall through to workflow completion below
+    }
+  }
+
   // Advance to next node
   if (nextNodeId) {
     await supabase.from('workflow_runs').update({
@@ -767,7 +826,7 @@ Be specific about what needs to change if you recommend revision.`
 
     return { success: true, action: 'advanced' }
   } else {
-    // No next node — workflow completed for this lead
+    // No next node — workflow completed
     await supabase.from('workflow_runs').update({
       status: 'completed',
       current_node_id: null,
@@ -776,7 +835,7 @@ Be specific about what needs to change if you recommend revision.`
     await supabase.from('workflow_event_log').insert({
       workflow_run_id: run.id,
       workflow_id: run.workflow_id,
-      lead_id: run.lead_id,
+      lead_id: run.lead_id || '00000000-0000-0000-0000-000000000000',
       owner_id: run.owner_id,
       org_id: run.org_id,
       node_id: currentNode.id,
