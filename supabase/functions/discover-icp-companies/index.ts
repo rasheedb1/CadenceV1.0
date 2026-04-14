@@ -135,11 +135,15 @@ serve(async (req: Request) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return errorResponse('Missing authorization header', 401)
 
-    const ctx = await getAuthContext(authHeader)
+    // Parse request body first so we can pass org_id/owner_id for service role auth (agent workers)
+    const body: DiscoverRequest & { org_id?: string; owner_id?: string } = await req.json()
+
+    const ctx = await getAuthContext(authHeader, {
+      orgId: body.org_id,
+      ownerId: body.owner_id,
+    })
     if (!ctx) return errorResponse('Unauthorized', 401)
 
-    // Parse request
-    const body: DiscoverRequest = await req.json()
     const {
       icpDescription,
       minCompanies = 5,

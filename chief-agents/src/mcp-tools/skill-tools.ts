@@ -36,7 +36,7 @@ The org_id is automatically injected — you don't need to provide it.`,
     },
     async ({ function_name, params }) => {
       try {
-        const body = { ...params, org_id: agent.orgId };
+        const body = { ...params, org_id: agent.orgId, owner_id: agent.id };
 
         // Determine endpoint: bridge or Supabase edge function
         const isBridge = BRIDGE_SKILLS[function_name];
