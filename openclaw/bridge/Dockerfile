@@ -15,7 +15,7 @@ COPY --chown=node:node workspace/ /home/node/.openclaw/workspace/
 WORKDIR /home/node/bridge
 COPY --chown=node:node package.json package-lock.json* ./
 RUN npm install --omit=dev
-COPY --chown=node:node server.js pgmq.js a2a-client.js ./
+COPY --chown=node:node server.js pgmq.js a2a-client.js generate_business_case.js ./
 
 # Startup
 COPY --chown=node:node startup.sh /home/node/bridge/startup.sh
