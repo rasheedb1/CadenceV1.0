@@ -160,7 +160,7 @@ export function buildChiefToolsServer(agent: AgentConfig) {
             try { pad = JSON.parse(taskRows[0].context_summary); } catch { pad = {}; }
           }
           if (!pad.conversation) pad.conversation = [];
-          pad.conversation.push({ role: 'agent', ts: new Date().toISOString(), content: message.substring(0, 500) });
+          pad.conversation.push({ role: 'agent', ts: new Date().toISOString(), content: message.substring(0, 2000) });
           pad.last_action = 'asked_human';
           pad.version = pad.version || 1;
           await sbPatch(`agent_tasks_v2?id=eq.${agent.currentTaskId}`, {

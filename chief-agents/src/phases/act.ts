@@ -820,7 +820,7 @@ ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
       if (agent.currentTaskId) {
         try {
           if (!scratchpad.conversation) scratchpad.conversation = [];
-          scratchpad.conversation.push({ role: 'agent', ts: new Date().toISOString(), content: question.substring(0, 500) });
+          scratchpad.conversation.push({ role: 'agent', ts: new Date().toISOString(), content: question.substring(0, 2000) });
           scratchpad.last_action = 'asked_human';
           scratchpad.version = scratchpad.version || 1;
           await sbPatch(`agent_tasks_v2?id=eq.${agent.currentTaskId}`, {
