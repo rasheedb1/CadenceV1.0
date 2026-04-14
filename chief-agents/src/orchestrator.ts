@@ -307,6 +307,44 @@ async function handleExecute(req: http.IncomingMessage, res: http.ServerResponse
       content: `Task: ${task_id} | Turns: ${result.numTurns} | Cost: $${result.costUsd.toFixed(4)} | Result: ${result.text.substring(0, 300)}`,
     }).catch(() => {});
 
+    // CRITICAL: Send result to WhatsApp via bridge callback
+    // The SDK may return text directly without calling ask_human_via_whatsapp,
+    // so we ALWAYS send the result through the callback pipeline.
+    const CALLBACK_URL = process.env.CALLBACK_URL || 'https://twilio-bridge-production-241b.up.railway.app/api/agent-callback';
+    if (result.text && result.text.length > 10) {
+      fetch(CALLBACK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_id,
+          agent_name: agent.name,
+          result: { text: result.text },
+          whatsapp_number: null, // Bridge resolves from org
+        }),
+      }).catch((e: any) => log.warn(`Callback failed: ${e.message}`));
+      log.info(`/execute callback sent to bridge for WhatsApp delivery`);
+    }
+
+    // Save scratchpad for conversation continuity
+    if (result.text) {
+      try {
+        const taskRows2 = await sbGet<Array<{ context_summary: string | null }>>(
+          `agent_tasks_v2?id=eq.${task_id}&select=context_summary`,
+        ).catch(() => []);
+        let pad: any = {};
+        if (Array.isArray(taskRows2) && taskRows2[0]?.context_summary) {
+          try { pad = JSON.parse(taskRows2[0].context_summary); } catch { pad = {}; }
+        }
+        if (!pad.conversation) pad.conversation = [];
+        pad.conversation.push({ role: 'agent', ts: new Date().toISOString(), content: result.text.substring(0, 2000) });
+        pad.last_action = 'asked_human';
+        pad.version = (pad.version || 0) + 1;
+        await sbPatch(`agent_tasks_v2?id=eq.${task_id}`, {
+          context_summary: JSON.stringify(pad),
+        }).catch(() => {});
+      } catch {}
+    }
+
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       status: 'completed',
