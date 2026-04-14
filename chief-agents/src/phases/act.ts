@@ -138,17 +138,29 @@ export async function act(
     // ==============================
     case 'work_on_task': {
       if (!params.task_id) break;
+      let resumeSessionId: string | undefined;
+      let conversationHistory = '';
 
       // Auto-fill instruction from task description if THINK didn't provide it
       if (!params.instruction) {
         try {
-          const taskRows = await sbGet<Array<{ description: string; title: string; context_summary: string; parent_result_summary: string }>>(
-            `agent_tasks_v2?id=eq.${params.task_id}&select=description,title,context_summary,parent_result_summary`,
+          const taskRows = await sbGet<Array<{ description: string; title: string; context_summary: string; parent_result_summary: string; session_id: string | null }>>(
+            `agent_tasks_v2?id=eq.${params.task_id}&select=description,title,context_summary,parent_result_summary,session_id`,
           );
           if (Array.isArray(taskRows) && taskRows.length > 0) {
             const t = taskRows[0];
+            // Session resumption: if task has a session_id AND user replied, resume instead of starting fresh
+            if (t.session_id && t.context_summary) {
+              try {
+                const padCheck = JSON.parse(t.context_summary);
+                if (padCheck.last_action === 'user_replied') {
+                  resumeSessionId = t.session_id;
+                  log.info(`[session] Will RESUME session ${t.session_id.substring(0, 16)} (user replied)`);
+                }
+              } catch {}
+            }
             // Build conversation history from scratchpad
-            let conversationHistory = '';
+            conversationHistory = '';
             if (t.context_summary) {
               try {
                 const pad = JSON.parse(t.context_summary);
@@ -335,7 +347,10 @@ SKILL EXECUTION RULES:
 4. When calling call_skill, extract numbers/percentages from the user's text and pass them as the correct param types (numbers, not strings).`
         : '';
 
-      const sdkPrompt = `${instruction}
+      // When resuming a session, send ONLY the user's new reply — the session already has all prior context
+      const sdkPrompt = resumeSessionId
+        ? `The user has replied to your previous questions. Here is their response:\n\n${conversationHistory || instruction}\n\nYou now have all the data you need. Execute the skill immediately with call_skill. Do NOT ask any more questions.`
+        : `${instruction}
 
 ENVIRONMENT:
 - Working directory: ${workDir}
@@ -345,9 +360,16 @@ ${isCodeAgent ? `- Repo cloned, npm installed, ready to edit code.
 ${artifactsIndex}${skillsContext}
 ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
 
-      const result = await executeWithSDK(agent, sdkPrompt, log);
+      const result = await executeWithSDK(agent, sdkPrompt, log, resumeSessionId);
       state.budget.tokens += result.tokensUsed;
-      log.info(`Task ${(params.task_id as string).substring(0, 8)} (${result.numTurns} turns, $${result.costUsd.toFixed(4)})`);
+      log.info(`Task ${(params.task_id as string).substring(0, 8)} (${result.numTurns} turns, $${result.costUsd.toFixed(4)}, session: ${result.sessionId?.substring(0, 12) || 'none'})`);
+
+      // Save session_id for future resumption (critical for multi-turn skill execution)
+      if (result.sessionId) {
+        sbPatch(`agent_tasks_v2?id=eq.${params.task_id}`, {
+          session_id: result.sessionId,
+        }).catch((e: any) => log.warn(`Failed to save session_id: ${e.message}`));
+      }
       logActivity(agent.id, agent.orgId, 'task_result', 'work_on_task',
         `Task: ${params.task_id} | Turns: ${result.numTurns} | Cost: $${result.costUsd.toFixed(4)} | Result: ${result.text.substring(0, 300)}`);
 

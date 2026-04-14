@@ -40,6 +40,7 @@ export async function executeWithSDK(
   agent: AgentConfig,
   taskPrompt: string,
   log: Logger,
+  resumeSessionId?: string, // Pass existing session_id to resume instead of starting fresh
 ): Promise<SDKResult> {
   const chiefTools = getChiefToolsServer(agent);
   const roleTools = ROLE_TOOLS[agent.roleKey] || ROLE_TOOLS.sales;
@@ -81,12 +82,16 @@ export async function executeWithSDK(
   let totalCost = 0;
   let totalTokens = 0;
   let numTurns = 0;
+  let capturedSessionId: string | null = null;
+  let resultSubtype: string | null = null;
   const stderrLines: string[] = [];
 
   try {
     const safeName = agent.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
-    log.info(`Starting SDK query for ${agent.name}, model=${model}, cwd=/workspace/${safeName}`);
-    const enhancedPrompt = `IMPORTANT: You have FULL permission to use ALL tools including Bash. Execute shell commands directly — do NOT simulate, infer, or skip them. The environment is sandboxed and safe. Run git, npm, node, and any CLI commands without hesitation.
+    log.info(`Starting SDK query for ${agent.name}, model=${model}, cwd=/workspace/${safeName}${resumeSessionId ? `, RESUMING session ${resumeSessionId.substring(0, 12)}` : ''}`);
+    const enhancedPrompt = resumeSessionId
+      ? taskPrompt  // When resuming, the session already has context — just send the new info
+      : `IMPORTANT: You have FULL permission to use ALL tools including Bash. Execute shell commands directly — do NOT simulate, infer, or skip them. The environment is sandboxed and safe. Run git, npm, node, and any CLI commands without hesitation.
 
 ${taskPrompt}`;
 
@@ -139,7 +144,10 @@ When done, provide a clear summary: what files you changed, what you implemented
       prompt: enhancedPrompt,
       options: {
         model,
-        systemPrompt: stableSystemPrompt,
+        // When resuming, don't pass systemPrompt — the session already has it
+        ...(resumeSessionId
+          ? { resume: resumeSessionId }
+          : { systemPrompt: stableSystemPrompt }),
         allowedTools,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
@@ -171,9 +179,16 @@ When done, provide a clear summary: what files you changed, what you implemented
         }
       }
 
+      // Capture session_id from every message (it's the same across all messages in a session)
+      if ((message as any).session_id) {
+        capturedSessionId = (message as any).session_id;
+      }
+
       if (message.type === 'result') {
         totalCost = (message as any).total_cost_usd || 0;
         numTurns = (message as any).num_turns || 0;
+        resultSubtype = (message as any).subtype || null;
+        capturedSessionId = (message as any).session_id || capturedSessionId;
         const usage = (message as any).usage;
         if (usage) {
           totalTokens = (usage.input_tokens || 0) + (usage.output_tokens || 0);
@@ -187,6 +202,7 @@ When done, provide a clear summary: what files you changed, what you implemented
         if ((message as any).result) {
           resultText = (message as any).result;
         }
+        log.info(`SDK session_id: ${capturedSessionId?.substring(0, 16) || 'none'}, subtype: ${resultSubtype}`);
       }
     }
   } catch (err: any) {
@@ -209,5 +225,7 @@ When done, provide a clear summary: what files you changed, what you implemented
     tokensUsed: totalTokens,
     costUsd: totalCost,
     numTurns,
+    sessionId: capturedSessionId,
+    subtype: resultSubtype,
   };
 }

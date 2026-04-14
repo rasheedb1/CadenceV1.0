@@ -240,6 +240,8 @@ export interface SDKResult {
   tokensUsed: number;
   costUsd: number;
   numTurns: number;
+  sessionId: string | null; // For session resumption — save this to resume later
+  subtype: string | null;   // 'success' | 'error_max_turns' | 'error_during_execution' etc.
 }
 
 // --- Model pricing ---
