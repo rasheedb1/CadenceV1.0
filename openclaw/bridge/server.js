@@ -1558,16 +1558,17 @@ async function sendOutboundMessage(msg, agentName) {
     }
 
     // Set conversation control so reply routes back to this agent
-    await fetch(`${SB_URL}/rest/v1/conversation_control`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
+    // Use PATCH on existing row (upsert via POST fails silently on duplicate key)
+    await fetch(`${SB_URL}/rest/v1/conversation_control?org_id=eq.${msg.org_id}&whatsapp_number=eq.${waNum}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
       body: JSON.stringify({
-        org_id: msg.org_id, whatsapp_number: waNum,
         active_agent_id: msg.from_agent_id, active_message_id: msg.id,
         context: msg.context || {}, updated_at: new Date().toISOString(),
         expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
       }),
-    });
+    }).then(() => console.log(`[conversation_control] Set active_agent=${msg.from_agent_id?.substring(0,8)} for ${waNum}`))
+      .catch(e => console.error(`[conversation_control] FAILED:`, e.message));
 
     console.log(`[gateway-worker] Sent [${agentName}] message to ${waNum}`);
   } catch (err) {
