@@ -138,10 +138,10 @@ export function WorkflowBuilder() {
       const config = WORKFLOW_NODE_CONFIG[nodeType]
       if (!config) return
 
-      const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect()
+      // screenToFlowPosition already handles the viewport offset — pass raw client coords
       const position = reactFlowInstance.screenToFlowPosition({
-        x: event.clientX - reactFlowBounds.left,
-        y: event.clientY - reactFlowBounds.top,
+        x: event.clientX,
+        y: event.clientY,
       })
 
       const newNode: Node = {
