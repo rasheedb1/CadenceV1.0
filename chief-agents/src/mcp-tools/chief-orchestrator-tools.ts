@@ -88,8 +88,26 @@ export function buildChiefOrchestratorServer(orgId: string) {
         const agent = await resolveAgent(orgId, agent_name);
         if (!agent) return { content: [{ type: 'text' as const, text: `Agente "${agent_name}" no encontrado.` }] };
 
+        // CONTEXT INJECTION: Include last completed task result for follow-up context
+        // This allows the agent to understand references like "ese borrador", "ese correo", etc.
+        let previousContext = '';
+        try {
+          const lastTask = await sbGet<any[]>(
+            `agent_tasks_v2?assigned_agent_id=eq.${agent.id}&status=eq.done&org_id=eq.${orgId}&order=completed_at.desc&limit=1&select=title,result,completed_at`
+          ).catch(() => []);
+          if (Array.isArray(lastTask) && lastTask[0]?.result) {
+            const result = lastTask[0].result;
+            const summary = typeof result === 'string' ? result : (result.summary || result.text || JSON.stringify(result));
+            const age = Date.now() - new Date(lastTask[0].completed_at || 0).getTime();
+            // Only include if less than 30 min old (recent enough to be a follow-up)
+            if (age < 30 * 60 * 1000) {
+              previousContext = `\n\nPREVIOUS TASK CONTEXT (your last completed task — the user may reference this):\nTask: "${lastTask[0].title}"\nResult: ${typeof summary === 'string' ? summary.substring(0, 1000) : ''}`;
+            }
+          }
+        } catch {}
+
         // Skill enrichment
-        let enrichedInstruction = instruction;
+        let enrichedInstruction = instruction + previousContext;
         try {
           const agentSkills = await sbGet<any[]>(`agent_skills?agent_id=eq.${agent.id}&enabled=eq.true&select=skill_name`).catch(() => []);
           if (Array.isArray(agentSkills) && agentSkills.length > 0) {
@@ -126,7 +144,8 @@ export function buildChiefOrchestratorServer(orgId: string) {
           required_capabilities: caps,
           assigned_agent_id: agent.id,
           assigned_at: new Date().toISOString(),
-          status: 'claimed',
+          started_at: new Date().toISOString(),
+          status: 'in_progress', // in_progress (not claimed) so event loop doesn't also pick it up
           priority: priority || 10,
           created_by: 'chief_delegator',
         });
@@ -165,16 +184,33 @@ export function buildChiefOrchestratorServer(orgId: string) {
         const agent = await resolveAgent(orgId, agent_name);
         if (!agent) return { content: [{ type: 'text' as const, text: `Agente "${agent_name}" no encontrado.` }] };
 
+        // CONTEXT INJECTION: Include last completed task result for follow-up context
+        let previousContext = '';
+        try {
+          const lastTask = await sbGet<any[]>(
+            `agent_tasks_v2?assigned_agent_id=eq.${agent.id}&status=eq.done&org_id=eq.${orgId}&order=completed_at.desc&limit=1&select=title,result,completed_at`
+          ).catch(() => []);
+          if (Array.isArray(lastTask) && lastTask[0]?.result) {
+            const result = lastTask[0].result;
+            const summary = typeof result === 'string' ? result : (result.summary || result.text || JSON.stringify(result));
+            const age = Date.now() - new Date(lastTask[0].completed_at || 0).getTime();
+            if (age < 30 * 60 * 1000) {
+              previousContext = `\n\nPREVIOUS TASK CONTEXT (your last completed task — the user may reference this):\nTask: "${lastTask[0].title}"\nResult: ${typeof summary === 'string' ? summary.substring(0, 1000) : ''}`;
+            }
+          }
+        } catch {}
+
         // Create a real task (not just a message) so it executes immediately
         const taskRows = await sbPostReturn<any>('agent_tasks_v2', {
           org_id: orgId,
           title: message.substring(0, 120),
-          description: message,
+          description: message + previousContext,
           task_type: 'general',
           required_capabilities: agent.capabilities || [],
           assigned_agent_id: agent.id,
           assigned_at: new Date().toISOString(),
-          status: 'claimed',
+          started_at: new Date().toISOString(),
+          status: 'in_progress', // in_progress so event loop doesn't also pick it up
           priority: 10,
           created_by: 'chief_delegator',
         });
