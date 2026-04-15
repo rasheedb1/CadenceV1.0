@@ -4495,7 +4495,59 @@ ${!args.activate ? 'Para activar: ve a Agent Workflows en el dashboard o dime "a
 
     // Add a dynamic system instruction reminding the LLM what the CURRENT request is
     // This prevents the LLM from re-processing old conversation messages as new tasks
-    const currentRequestReminder = `\n\n---\nCURRENT USER REQUEST (this is the ONLY thing you should act on):\n"${message.substring(0, 500)}"\n\nDo NOT create tasks or take actions based on previous messages in the conversation. Only respond to the request above.`;
+    const currentRequestReminder = `\n\n---\n⚠️ REGLA CRÍTICA — LEE ESTO ANTES DE ACTUAR:
+
+MENSAJE ACTUAL DEL USUARIO (lo ÚNICO que debes ejecutar):
+"${message.substring(0, 500)}"
+
+PROHIBIDO:
+- Crear tareas basadas en mensajes ANTERIORES de la conversación
+- Re-ejecutar o duplicar tareas que ya se completaron antes
+- Mezclar requests viejos con el request actual
+- Crear MÁS tareas de las que el usuario pide explícitamente
+
+Si el usuario pide UNA cosa, creas UNA tarea. No dos. No tres. UNA.`;
+
+    // Clean history in-place: strip old tool_use/tool_result exchanges
+    // This prevents the LLM from seeing old delegar_tarea calls and re-creating tasks
+    const currentMsg = history.pop(); // Save the current user message
+    const cleaned = [];
+    for (const msg of history) {
+      if (msg.role === "user" && typeof msg.content === "string") {
+        cleaned.push(msg);
+      } else if (msg.role === "user" && Array.isArray(msg.content)) {
+        // tool_result arrays from previous turns — skip
+        continue;
+      } else if (msg.role === "assistant" && Array.isArray(msg.content)) {
+        const textBlocks = msg.content.filter(b => b.type === "text" && b.text);
+        if (msg.content.some(b => b.type === "tool_use")) {
+          // Had tool calls — only keep text if any, skip tool_use blocks
+          if (textBlocks.length > 0) cleaned.push({ role: "assistant", content: textBlocks });
+        } else {
+          cleaned.push(msg);
+        }
+      } else {
+        cleaned.push(msg);
+      }
+    }
+    // Ensure valid alternating user/assistant before current message
+    // (removing tool exchanges can break alternation)
+    const fixed = [];
+    for (const m of cleaned) {
+      const last = fixed[fixed.length - 1];
+      if (last && last.role === m.role) {
+        // Merge same-role messages
+        if (typeof last.content === "string" && typeof m.content === "string") {
+          last.content += "\n" + m.content;
+        }
+        continue;
+      }
+      fixed.push(m);
+    }
+    // Replace history in-place
+    history.length = 0;
+    fixed.forEach(m => history.push(m));
+    history.push(currentMsg);
 
     for (let i = 0; i < 10; i++) {
       const response = await anthropic.messages.create({
