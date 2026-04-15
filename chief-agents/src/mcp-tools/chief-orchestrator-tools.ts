@@ -117,7 +117,7 @@ export function buildChiefOrchestratorServer(orgId: string) {
         else if (caps.includes('research')) taskType = 'research';
         else if (caps.includes('inbox')) taskType = 'inbox';
 
-        const taskRows = await sbPostReturn<any[]>('agent_tasks_v2', {
+        const taskRows = await sbPostReturn<any>('agent_tasks_v2', {
           org_id: orgId,
           title: instruction.substring(0, 120),
           description: enrichedInstruction,
@@ -129,7 +129,7 @@ export function buildChiefOrchestratorServer(orgId: string) {
           priority: priority || 10,
           created_by: 'chief_delegator',
         });
-        const taskId = Array.isArray(taskRows) && taskRows[0] ? taskRows[0].id : null;
+        const taskId = taskRows?.id || (Array.isArray(taskRows) && taskRows[0]?.id) || null;
         if (!taskId) return { content: [{ type: 'text' as const, text: 'Error creando la tarea.' }] };
 
         // Log message
@@ -212,12 +212,12 @@ export function buildChiefOrchestratorServer(orgId: string) {
           };
           const defaults = ROLE_DEFAULTS[role || 'custom'] || { caps: [], team: 'general', tier: 'worker' };
           const soulMd = `# ${name}\n\n## Identidad\nEres **${name}**, un agente AI con el rol de **${role || 'custom'}**.\n${description ? `\n${description}\n` : ''}\n## Reglas\n- Directo y eficiente.\n- Reporta resultados concisos.\n- Nunca expongas tokens o claves internas.`;
-          const res = await sbPostReturn<any[]>('agents', {
+          const res = await sbPostReturn<any>('agents', {
             org_id: orgId, name, role: role || 'custom', description,
             soul_md: soulMd, model: model || 'claude-sonnet-4-6',
             tier: defaults.tier, team: defaults.team, capabilities: defaults.caps, status: 'active',
           });
-          const created = Array.isArray(res) && res[0] ? res[0] : null;
+          const created = res?.id ? res : null;
           return { content: [{ type: 'text' as const, text: created ? `Agente "${name}" creado. Team: ${defaults.team}, Tier: ${defaults.tier}, Capabilities: ${defaults.caps.join(', ')}` : 'Error creando agente.' }] };
         }
         return { content: [{ type: 'text' as const, text: 'Operación no válida.' }] };
@@ -354,12 +354,12 @@ export function buildChiefOrchestratorServer(orgId: string) {
         const ownerId = Array.isArray(sess) && sess[0] ? sess[0].user_id : null;
 
         // 6. Save workflow
-        const wfRows = await sbPostReturn<any[]>('workflows', {
+        const wfRows = await sbPostReturn<any>('workflows', {
           name: wfName, owner_id: ownerId, org_id: orgId,
           workflow_type: 'agent', status: activate ? 'active' : 'draft',
           trigger_type: triggerType, trigger_config: triggerConfig, graph_json: graph,
         });
-        const workflow = Array.isArray(wfRows) && wfRows[0] ? wfRows[0] : null;
+        const workflow = wfRows?.id ? wfRows : null;
         if (!workflow) return { content: [{ type: 'text' as const, text: 'Error guardando workflow.' }] };
 
         // 7. Build summary
