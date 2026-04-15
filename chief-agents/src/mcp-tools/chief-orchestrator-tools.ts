@@ -155,7 +155,7 @@ export function buildChiefOrchestratorServer(orgId: string) {
 
   const consultarAgente = tool(
     'consultar_agente',
-    'Pregunta rápida a un agente sin crear tarea formal. Para "¿qué opina X?", "pregúntale a X...".',
+    'Pregunta a un agente. Crea una tarea y la ejecuta inmediatamente. Usa para "pregúntale a X", "consulta con X". Funciona igual que delegar_tarea pero para preguntas.',
     {
       agent_name: z.string().describe('Nombre del agente'),
       message: z.string().describe('La pregunta o mensaje'),
@@ -164,11 +164,33 @@ export function buildChiefOrchestratorServer(orgId: string) {
       try {
         const agent = await resolveAgent(orgId, agent_name);
         if (!agent) return { content: [{ type: 'text' as const, text: `Agente "${agent_name}" no encontrado.` }] };
-        // Send via agent_messages (SENSE phase reads inbox)
-        await sbPost('agent_messages', {
-          org_id: orgId, to_agent_id: agent.id, role: 'user', content: message,
-          message_type: 'chat', metadata: { from: 'chief', requires_response: true },
+
+        // Create a real task (not just a message) so it executes immediately
+        const taskRows = await sbPostReturn<any>('agent_tasks_v2', {
+          org_id: orgId,
+          title: message.substring(0, 120),
+          description: message,
+          task_type: 'general',
+          required_capabilities: agent.capabilities || [],
+          assigned_agent_id: agent.id,
+          assigned_at: new Date().toISOString(),
+          status: 'claimed',
+          priority: 10,
+          created_by: 'chief_delegator',
         });
+        const taskId = taskRows?.id || null;
+        if (!taskId) {
+          console.error('[consultar_agente] Task creation failed:', JSON.stringify(taskRows));
+          return { content: [{ type: 'text' as const, text: `Error creando la consulta para ${agent.name}.` }] };
+        }
+
+        // Direct execution (fire-and-forget)
+        fetch(`${CHIEF_AGENTS_URL}/execute`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent_id: agent.id, task_id: taskId }),
+        }).catch(() => {});
+
         return { content: [{ type: 'text' as const, text: `Consulta enviada a ${agent.name}. Te llegará la respuesta por WhatsApp.` }] };
       } catch (e: any) {
         return { content: [{ type: 'text' as const, text: `Error consultando: ${e.message}` }] };
