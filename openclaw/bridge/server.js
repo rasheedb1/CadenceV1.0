@@ -1420,13 +1420,7 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
             }
 
             // Send response to WhatsApp (split into chunks for long messages)
-            // Cap at 4800 chars (~3 WhatsApp messages max) to prevent spam
-            let responseText = sdkResult.text;
-            if (responseText.length > 4800) {
-              responseText = responseText.substring(0, 4800) + "\n\n_[Respuesta truncada — pide más detalles si los necesitas]_";
-              console.log(`[whatsapp] Truncated response from ${sdkResult.text.length} to 4800 chars`);
-            }
-            const chunks = splitMessage(responseText);
+            const chunks = splitMessage(sdkResult.text);
             for (const chunk of chunks) {
               await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: From, body: chunk });
               if (chunks.length > 1) await new Promise(r => setTimeout(r, 800));
