@@ -349,9 +349,14 @@ export function buildChiefOrchestratorServer(orgId: string) {
           timezone: triggerNode?.data?.timezone || 'America/Mexico_City',
         } : {};
 
-        // 5. Get owner_id
+        // 5. Get owner_id (required by workflows table)
         const sess = await sbGet<any[]>(`chief_sessions?org_id=eq.${orgId}&select=user_id&limit=1`).catch(() => []);
-        const ownerId = Array.isArray(sess) && sess[0] ? sess[0].user_id : null;
+        let ownerId = Array.isArray(sess) && sess[0] ? sess[0].user_id : null;
+        if (!ownerId) {
+          // Fallback: get any org member
+          const members = await sbGet<any[]>(`organization_members?org_id=eq.${orgId}&select=user_id&limit=1`).catch(() => []);
+          ownerId = Array.isArray(members) && members[0] ? members[0].user_id : '00000000-0000-0000-0000-000000000000';
+        }
 
         // 6. Save workflow
         const wfRows = await sbPostReturn<any>('workflows', {
