@@ -397,24 +397,34 @@ export function buildChiefOrchestratorServer(orgId: string) {
     },
     async ({ description: desc, name: wfName, activate }) => {
       try {
-        // 1. Load agents + their skills
+        // 1. Load agents + their skills — build lookup map
         const agents = await sbGet<any[]>(`agents?org_id=eq.${orgId}&status=eq.active&select=id,name,role,capabilities`).catch(() => []);
         if (!Array.isArray(agents) || agents.length === 0) {
           return { content: [{ type: 'text' as const, text: 'No hay agentes activos.' }] };
         }
+        // Build name→id lookup (case-insensitive)
+        const agentLookup = new Map<string, { id: string; name: string }>();
+        for (const ag of agents) {
+          agentLookup.set(ag.name.toLowerCase(), { id: ag.id, name: ag.name });
+          // Also map by first name for partial matches
+          const firstName = ag.name.split(/[\s(]/)[0].toLowerCase();
+          if (!agentLookup.has(firstName)) agentLookup.set(firstName, { id: ag.id, name: ag.name });
+        }
+
         const agentMap: Record<string, any> = {};
         for (const ag of agents) {
           const skills = await sbGet<any[]>(`agent_skills?agent_id=eq.${ag.id}&enabled=eq.true&select=skill_name`).catch(() => []);
           const names = Array.isArray(skills) ? skills.map((s: any) => s.skill_name) : [];
           agentMap[ag.name] = { id: ag.id, role: ag.role, capabilities: ag.capabilities, skills: names };
         }
+        // Context for Claude — emphasize using UUIDs
         const agentContext = Object.entries(agentMap).map(([name, data]: [string, any]) =>
-          `- ${name} (${data.role}): capabilities=[${data.capabilities.join(',')}], skills=[${data.skills.join(',')}]`
+          `- ${name} (id="${data.id}", role=${data.role}): capabilities=[${data.capabilities.join(',')}], skills=[${data.skills.join(',')}]`
         ).join('\n');
 
         // 2. Call Claude to generate the graph
         const client = new Anthropic();
-        const graphPrompt = `Generate a workflow graph JSON for this request:\n\n"${desc}"\n\nAVAILABLE AGENTS AND SKILLS:\n${agentContext}\n\nAVAILABLE NODE TYPES:\n- trigger_scheduled: {cron, timezone, description}\n- trigger_manual: {label}\n- action_agent_task: {agentId, agentName, instruction, maxBudgetUsd:1}\n- action_notify_human: {channel:"whatsapp", message:"..."}\n- condition_task_result: {field, operator:"=="|">"|"<"|"is_not_empty"|"is_empty", value}\n- delay_wait: {duration:1, unit:"hours"|"days"}\n\nEDGE RULES:\n- Condition nodes have sourceHandle "yes" and "no"\n- Regular nodes have no sourceHandle\n\nReturn ONLY valid JSON: {"nodes":[...],"edges":[...]}\nUse agent IDs from the list. Position nodes vertically (y increments of 150). Every node MUST have a label in data.`;
+        const graphPrompt = `Generate a workflow graph JSON for this request:\n\n"${desc}"\n\nAVAILABLE AGENTS (use the exact id values for agentId):\n${agentContext}\n\nAVAILABLE NODE TYPES:\n- trigger_scheduled: {cron, timezone, label}\n- trigger_manual: {label}\n- action_agent_task: {agentId:"USE-UUID-FROM-LIST", agentName:"name", instruction:"detailed instruction", maxBudgetUsd:1}\n- action_notify_human: {channel:"whatsapp", message:"...", label}\n- condition_task_result: {field, operator:"=="|">"|"<"|"is_not_empty"|"is_empty", value, label}\n- delay_wait: {duration:1, unit:"hours"|"days", label}\n\nCRITICAL RULES:\n- agentId MUST be a UUID from the list above (e.g. "2a3fe079-cc50-48e1-9c1d-36c5f9370504"), NOT a name\n- Every node MUST have a "label" in data\n- Position nodes vertically (y increments of 150)\n- Condition nodes have sourceHandle "yes" and "no"\n- Regular nodes have no sourceHandle\n\nReturn ONLY valid JSON: {"nodes":[...],"edges":[...]}`;
 
         const graphResponse = await client.messages.create({
           model: 'claude-sonnet-4-6', max_tokens: 4096, temperature: 0,
@@ -430,7 +440,57 @@ export function buildChiefOrchestratorServer(orgId: string) {
           return { content: [{ type: 'text' as const, text: 'Error: grafo inválido.' }] };
         }
 
-        // 4. Determine trigger type
+        // ================================================================
+        // 4. VALIDATE & NORMALIZE — fix issues BEFORE saving
+        // ================================================================
+        const errors: string[] = [];
+        for (const node of graph.nodes) {
+          const d = node.data || {};
+
+          // Ensure every node has a label
+          if (!d.label) d.label = node.type;
+
+          // Validate & resolve agentId for agent nodes
+          if (node.type === 'action_agent_task' || node.type === 'action_agent_skill') {
+            const rawId = d.agentId || '';
+            const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawId);
+
+            if (!isUUID) {
+              // Resolve name → UUID
+              const match = agentLookup.get(rawId.toLowerCase());
+              if (match) {
+                d.agentId = match.id;
+                d.agentName = match.name;
+                console.log(`[workflow-validate] Resolved "${rawId}" → ${match.id} (${match.name})`);
+              } else {
+                errors.push(`Agente "${rawId}" no encontrado`);
+              }
+            } else {
+              // Verify UUID exists
+              const exists = agents.find((a: any) => a.id === rawId);
+              if (!exists) errors.push(`Agent ID ${rawId} no existe`);
+            }
+
+            // Ensure instruction exists for agent_task nodes
+            if (node.type === 'action_agent_task' && !d.instruction) {
+              errors.push(`Nodo "${d.label}" no tiene instrucción`);
+            }
+          }
+
+          // Validate edges reference existing nodes
+          node.data = d;
+        }
+        const nodeIds = new Set(graph.nodes.map((n: any) => n.id));
+        for (const edge of graph.edges) {
+          if (!nodeIds.has(edge.source)) errors.push(`Edge referencia nodo inexistente: ${edge.source}`);
+          if (!nodeIds.has(edge.target)) errors.push(`Edge referencia nodo inexistente: ${edge.target}`);
+        }
+
+        if (errors.length > 0) {
+          return { content: [{ type: 'text' as const, text: `Error validando workflow:\n${errors.join('\n')}` }] };
+        }
+
+        // 5. Determine trigger type
         const triggerNode = graph.nodes.find((n: any) => n.type?.startsWith('trigger_'));
         const triggerType = triggerNode?.type === 'trigger_scheduled' ? 'scheduled' : 'manual';
         const triggerConfig = triggerType === 'scheduled' ? {
@@ -438,16 +498,15 @@ export function buildChiefOrchestratorServer(orgId: string) {
           timezone: triggerNode?.data?.timezone || 'America/Mexico_City',
         } : {};
 
-        // 5. Get owner_id (required by workflows table)
+        // 6. Get owner_id
         const sess = await sbGet<any[]>(`chief_sessions?org_id=eq.${orgId}&select=user_id&limit=1`).catch(() => []);
         let ownerId = Array.isArray(sess) && sess[0] ? sess[0].user_id : null;
         if (!ownerId) {
-          // Fallback: get any org member
           const members = await sbGet<any[]>(`organization_members?org_id=eq.${orgId}&select=user_id&limit=1`).catch(() => []);
           ownerId = Array.isArray(members) && members[0] ? members[0].user_id : '00000000-0000-0000-0000-000000000000';
         }
 
-        // 6. Save workflow
+        // 7. Save validated workflow
         const wfRows = await sbPostReturn<any>('workflows', {
           name: wfName, owner_id: ownerId, org_id: orgId,
           workflow_type: 'agent', status: activate ? 'active' : 'draft',
@@ -456,10 +515,10 @@ export function buildChiefOrchestratorServer(orgId: string) {
         const workflow = wfRows?.id ? wfRows : null;
         if (!workflow) return { content: [{ type: 'text' as const, text: 'Error guardando workflow.' }] };
 
-        // 7. Build summary
+        // 8. Build summary
         const nodesSummary = graph.nodes
           .filter((n: any) => !n.type.startsWith('trigger_'))
-          .map((n: any, i: number) => `${i + 1}. ${n.data?.label || n.type} (${n.data?.agentName || n.type})`)
+          .map((n: any, i: number) => `${i + 1}. ${n.data?.label || n.type}${n.data?.agentName ? ` (${n.data.agentName})` : ''}`)
           .join('\n');
         const agentsUsed = [...new Set(graph.nodes.filter((n: any) => n.data?.agentName).map((n: any) => n.data.agentName))];
 
