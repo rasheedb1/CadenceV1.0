@@ -143,7 +143,7 @@ export function buildChiefOrchestratorServer(orgId: string) {
               }).filter((s: any) => s.score > 0).sort((a: any, b: any) => b.score - a.score);
               if (scored.length > 0) {
                 const best = scored[0];
-                enrichedInstruction = `USER REQUEST:\n${instruction.substring(0, 2000)}\n\nEXECUTE THIS SKILL: "${best.display_name}"\n${best.skill_definition}\n\nIMPORTANT: The user data is in USER REQUEST above. Map it directly to the skill params and call call_skill. Do NOT re-ask for data that is already provided above.`;
+                enrichedInstruction = `USER REQUEST:\n${instruction.substring(0, 2000)}\n\nMATCHING SKILL: "${best.display_name}"\n${best.skill_definition}\n\nRULES:\n- Check which REQUIRED params the user provided vs which are MISSING.\n- If the user provided ALL required params → execute immediately with call_skill.\n- If ANY required params are MISSING → ask the user via ask_human_via_whatsapp BEFORE executing. List exactly which params you need.\n- NEVER invent or estimate params the user didn't provide. Always ask.`;
               }
             }
           }
