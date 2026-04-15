@@ -307,23 +307,70 @@ export function buildChiefOrchestratorServer(orgId: string) {
     },
     async ({ description: desc, name: wfName, activate }) => {
       try {
-        // Call bridge endpoint which has the LLM graph generation logic
-        const res = await fetch(`${BRIDGE_URL}/api/create-workflow`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ org_id: orgId, description: desc, name: wfName, activate: activate || false }),
-        });
-        const data = await res.json();
-        if (data?.success) {
-          return { content: [{ type: 'text' as const, text: data.message || `Workflow "${wfName}" creado.` }] };
+        // 1. Load agents + their skills
+        const agents = await sbGet<any[]>(`agents?org_id=eq.${orgId}&status=eq.active&select=id,name,role,capabilities`).catch(() => []);
+        if (!Array.isArray(agents) || agents.length === 0) {
+          return { content: [{ type: 'text' as const, text: 'No hay agentes activos.' }] };
         }
-        // Fallback: call the bridge tool handler directly via the existing mechanism
-        const result = await sbFetch(`${BRIDGE_URL}/api/tool-call`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tool: 'crear_workflow_agente', args: { org_id: orgId, description: desc, name: wfName, activate: activate || false } }),
+        const agentMap: Record<string, any> = {};
+        for (const ag of agents) {
+          const skills = await sbGet<any[]>(`agent_skills?agent_id=eq.${ag.id}&enabled=eq.true&select=skill_name`).catch(() => []);
+          const names = Array.isArray(skills) ? skills.map((s: any) => s.skill_name) : [];
+          agentMap[ag.name] = { id: ag.id, role: ag.role, capabilities: ag.capabilities, skills: names };
+        }
+        const agentContext = Object.entries(agentMap).map(([name, data]: [string, any]) =>
+          `- ${name} (${data.role}): capabilities=[${data.capabilities.join(',')}], skills=[${data.skills.join(',')}]`
+        ).join('\n');
+
+        // 2. Call Claude to generate the graph
+        const Anthropic = (await import('@anthropic-ai/sdk')).default;
+        const client = new Anthropic();
+        const graphPrompt = `Generate a workflow graph JSON for this request:\n\n"${desc}"\n\nAVAILABLE AGENTS AND SKILLS:\n${agentContext}\n\nAVAILABLE NODE TYPES:\n- trigger_scheduled: {cron, timezone, description}\n- trigger_manual: {label}\n- action_agent_task: {agentId, agentName, instruction, maxBudgetUsd:1}\n- action_notify_human: {channel:"whatsapp", message:"..."}\n- condition_task_result: {field, operator:"=="|">"|"<"|"is_not_empty"|"is_empty", value}\n- delay_wait: {duration:1, unit:"hours"|"days"}\n\nEDGE RULES:\n- Condition nodes have sourceHandle "yes" and "no"\n- Regular nodes have no sourceHandle\n\nReturn ONLY valid JSON: {"nodes":[...],"edges":[...]}\nUse agent IDs from the list. Position nodes vertically (y increments of 150). Every node MUST have a label in data.`;
+
+        const graphResponse = await client.messages.create({
+          model: 'claude-sonnet-4-6', max_tokens: 4096, temperature: 0,
+          messages: [{ role: 'user', content: graphPrompt }],
         });
-        return { content: [{ type: 'text' as const, text: result?.message || JSON.stringify(result).substring(0, 2000) }] };
+        const graphText = graphResponse.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+
+        // 3. Parse graph
+        const jsonMatch = graphText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) return { content: [{ type: 'text' as const, text: 'Error: no se pudo generar el grafo del workflow.' }] };
+        const graph = JSON.parse(jsonMatch[0]);
+        if (!graph.nodes || !graph.edges) {
+          return { content: [{ type: 'text' as const, text: 'Error: grafo inválido.' }] };
+        }
+
+        // 4. Determine trigger type
+        const triggerNode = graph.nodes.find((n: any) => n.type?.startsWith('trigger_'));
+        const triggerType = triggerNode?.type === 'trigger_scheduled' ? 'scheduled' : 'manual';
+        const triggerConfig = triggerType === 'scheduled' ? {
+          cron: triggerNode?.data?.cron || '0 9 * * 1-5',
+          timezone: triggerNode?.data?.timezone || 'America/Mexico_City',
+        } : {};
+
+        // 5. Get owner_id
+        const sess = await sbGet<any[]>(`chief_sessions?org_id=eq.${orgId}&select=user_id&limit=1`).catch(() => []);
+        const ownerId = Array.isArray(sess) && sess[0] ? sess[0].user_id : null;
+
+        // 6. Save workflow
+        const wfRows = await sbPostReturn<any[]>('workflows', {
+          name: wfName, owner_id: ownerId, org_id: orgId,
+          workflow_type: 'agent', status: activate ? 'active' : 'draft',
+          trigger_type: triggerType, trigger_config: triggerConfig, graph_json: graph,
+        });
+        const workflow = Array.isArray(wfRows) && wfRows[0] ? wfRows[0] : null;
+        if (!workflow) return { content: [{ type: 'text' as const, text: 'Error guardando workflow.' }] };
+
+        // 7. Build summary
+        const nodesSummary = graph.nodes
+          .filter((n: any) => !n.type.startsWith('trigger_'))
+          .map((n: any, i: number) => `${i + 1}. ${n.data?.label || n.type} (${n.data?.agentName || n.type})`)
+          .join('\n');
+        const agentsUsed = [...new Set(graph.nodes.filter((n: any) => n.data?.agentName).map((n: any) => n.data.agentName))];
+
+        const msg = `Workflow "${wfName}" creado (${activate ? 'ACTIVO' : 'borrador'})\n\nPasos:\n${nodesSummary}\n\nAgentes: ${agentsUsed.join(', ')}\n${triggerType === 'scheduled' ? `Schedule: ${triggerConfig.cron} (${triggerConfig.timezone})` : 'Trigger: Manual'}`;
+        return { content: [{ type: 'text' as const, text: msg }] };
       } catch (e: any) {
         return { content: [{ type: 'text' as const, text: `Error creando workflow: ${e.message}` }] };
       }
