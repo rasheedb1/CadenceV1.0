@@ -1368,9 +1368,77 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
       return;
     }
 
-    // Team context injection REMOVED — Chief was mixing project info into
-    // unrelated responses. Chief can use ver_equipo/standup_equipo tools
-    // when the user explicitly asks for team status.
+    // ============================================================
+    // SDK ROUTING: if CHIEF_USE_SDK=true, route to /execute-chief
+    // ============================================================
+    if (process.env.CHIEF_USE_SDK === 'true') {
+      const sessionKey = WaId || From.replace('whatsapp:+', '');
+      console.log(`[whatsapp] SDK mode — routing to /execute-chief for ${sessionKey}`);
+
+      // Send thinking message after 5s
+      const thinkingTimer = setTimeout(async () => {
+        try {
+          await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: From, body: "Processing..." });
+        } catch {}
+      }, 5000);
+
+      try {
+        const CHIEF_AGENTS_URL = process.env.CHIEF_AGENTS_URL || "https://chief-agents-production.up.railway.app";
+
+        // Resolve org_id from chief_sessions
+        let sdkOrgId = null;
+        let sdkSessionId = null;
+        try {
+          const sessRows = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/chief_sessions?whatsapp_number=eq.${sessionKey}&select=org_id,session_id&limit=1`, { headers: sbHeadersGlobal() });
+          if (Array.isArray(sessRows) && sessRows[0]) {
+            sdkOrgId = sessRows[0].org_id;
+            sdkSessionId = sessRows[0].session_id;
+          }
+        } catch {}
+
+        if (!sdkOrgId) {
+          clearTimeout(thinkingTimer);
+          // No session — fall through to legacy for onboarding flow
+          console.log(`[whatsapp] No org_id for ${sessionKey}, falling to legacy for onboarding`);
+        } else {
+          const sdkRes = await fetch(`${CHIEF_AGENTS_URL}/execute-chief`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: Body, org_id: sdkOrgId, session_id: sdkSessionId, whatsapp_number: sessionKey }),
+          });
+          clearTimeout(thinkingTimer);
+          const sdkResult = await sdkRes.json();
+
+          if (sdkResult?.text) {
+            // Save session_id for next resumption
+            if (sdkResult.session_id) {
+              sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/chief_sessions?whatsapp_number=eq.${sessionKey}`, {
+                method: "PATCH",
+                headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" },
+                body: JSON.stringify({ session_id: sdkResult.session_id, updated_at: new Date().toISOString() }),
+              }).catch(e => console.warn("[whatsapp] Failed to save SDK session_id:", e.message));
+            }
+
+            // Send response to WhatsApp (split into chunks for long messages)
+            const chunks = splitMessage(sdkResult.text);
+            for (const chunk of chunks) {
+              await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: From, body: chunk });
+              if (chunks.length > 1) await new Promise(r => setTimeout(r, 800));
+            }
+            console.log(`[whatsapp] SDK response sent (${chunks.length} msg(s), ${sdkResult.text.length} chars, $${sdkResult.cost_usd?.toFixed(4)})`);
+            return; // Done — don't fall through to legacy
+          }
+          console.warn(`[whatsapp] SDK returned no text, falling to legacy`);
+        }
+      } catch (sdkErr) {
+        clearTimeout(thinkingTimer);
+        console.error(`[whatsapp] SDK error, falling to legacy:`, sdkErr.message);
+      }
+    }
+
+    // ============================================================
+    // LEGACY PATH: OpenClaw (only runs if SDK mode is off or failed)
+    // ============================================================
     let messageToSend = Body;
 
     // Ensure connected
@@ -1401,13 +1469,10 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
     }
 
     // Detect image URLs in AI response for media messages
-    // Matches full URLs with image extensions + query params (e.g., Firecrawl GCS URLs)
     const imgRegex = /(https?:\/\/[^\s")\]]+\.(?:png|jpg|jpeg|webp|gif)[^\s")\]]*)/gi;
     const imageUrls = aiResponse.match(imgRegex) || [];
-    // Also clean up markdown link syntax around the URL: [text](URL) → text
     let textBody = aiResponse;
     for (const url of imageUrls) {
-      // Remove the URL and any markdown link wrapping it
       const escaped = url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       textBody = textBody.replace(new RegExp(`\\[([^\\]]*)\\]\\(${escaped}\\)`, "g"), "$1");
       textBody = textBody.replace(url, "");
@@ -1418,24 +1483,14 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
     if (textBody.trim()) {
       const chunks = splitMessage(textBody);
       for (const chunk of chunks) {
-        await twilioClient.messages.create({
-          from: TWILIO_WHATSAPP_NUMBER,
-          to: From,
-          body: chunk,
-        });
+        await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: From, body: chunk });
         if (chunks.length > 1) await new Promise(r => setTimeout(r, 500));
       }
       console.log(`[out] Sent ${chunks.length > 1 ? chunks.length + " text msgs" : "1 text msg"} to ${From}`);
     }
 
-    // Send image URLs as media messages
     for (const imgUrl of imageUrls) {
-      await twilioClient.messages.create({
-        from: TWILIO_WHATSAPP_NUMBER,
-        to: From,
-        body: "",
-        mediaUrl: [imgUrl],
-      });
+      await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: From, body: "", mediaUrl: [imgUrl] });
       console.log(`[out] Sent image to ${From}: ${imgUrl.substring(0, 80)}`);
     }
 
