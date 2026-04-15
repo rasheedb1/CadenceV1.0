@@ -13,6 +13,7 @@ import { executeWithSDK } from './sdk-runner.js';
 import { buildExecutePrompt } from './router.js';
 import type { AgentRow, AgentConfig } from './types.js';
 import { createLogger } from './utils/logger.js';
+import { buildChiefOrchestratorServer } from './mcp-tools/chief-orchestrator-tools.js';
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 
@@ -409,9 +410,105 @@ async function handleWake(req: http.IncomingMessage, res: http.ServerResponse): 
   res.end(JSON.stringify({ status: 'acknowledged', agent_id }));
 }
 
+/** POST /execute-chief — Chief orchestrator via Claude Agent SDK with session resumption */
+async function handleExecuteChief(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  let body: any;
+  try { body = await parseBody(req); } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Invalid JSON' }));
+    return;
+  }
+
+  const { message, org_id, session_id, whatsapp_number, system_prompt } = body;
+  if (!message || !org_id) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'message and org_id required' }));
+    return;
+  }
+
+  const log = createLogger('CHIEF-SDK');
+  log.info(`/execute-chief msg="${message.substring(0, 80)}" session=${session_id?.substring(0, 12) || 'new'}`);
+
+  try {
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+
+    // Build MCP server for Chief's orchestrator tools
+    const chiefMcp = buildChiefOrchestratorServer(org_id);
+
+    const chiefSystemPrompt = system_prompt || `You are Chief, an AI orchestrator for a multi-agent workforce platform.
+You manage a team of AI agents and help the user delegate tasks, create workflows, and monitor their team.
+
+RULES:
+1. FIRST decide: does the user want a ONE-TIME action or a RECURRING/AUTOMATED process?
+   - ONE-TIME → use delegar_tarea
+   - RECURRING ("todos los días", "cada semana", "diario", "rutina") → use crear_workflow_agente
+2. Only act on the CURRENT message. Never re-execute old tasks.
+3. If the user mentions an agent by name ("dile a Paula"), delegate to that agent.
+4. Keep responses SHORT (2-3 lines for WhatsApp).
+5. Respond in the same language as the user.
+6. Create ONE task per request. Not two. Not three. ONE.`;
+
+    let resultText = '';
+    let capturedSessionId: string | null = null;
+    let totalCost = 0;
+    let numTurns = 0;
+
+    for await (const msg of query({
+      prompt: message,
+      options: {
+        model: 'claude-sonnet-4-6',
+        ...(session_id
+          ? { resume: session_id }
+          : { systemPrompt: chiefSystemPrompt }),
+        allowedTools: ['mcp__chief-orchestrator__*'],
+        permissionMode: 'bypassPermissions' as any,
+        maxTurns: 10,
+        mcpServers: { 'chief-orchestrator': chiefMcp },
+        canUseTool: async (_t: string, input: Record<string, unknown>) => ({
+          behavior: 'allow' as const,
+          updatedInput: input,
+        }),
+      },
+    })) {
+      if (msg.type === 'assistant') {
+        for (const block of msg.message.content) {
+          if (block.type === 'text') resultText += (block as any).text;
+        }
+      }
+      if ((msg as any).session_id) capturedSessionId = (msg as any).session_id;
+      if (msg.type === 'result') {
+        totalCost = (msg as any).total_cost_usd || 0;
+        numTurns = (msg as any).num_turns || 0;
+        capturedSessionId = (msg as any).session_id || capturedSessionId;
+        if ((msg as any).result) resultText = (msg as any).result;
+      }
+    }
+
+    log.info(`/execute-chief done: ${numTurns} turns, $${totalCost.toFixed(4)}, session=${capturedSessionId?.substring(0, 12) || 'none'}`);
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      text: resultText || '(sin respuesta)',
+      session_id: capturedSessionId,
+      turns: numTurns,
+      cost_usd: totalCost,
+    }));
+  } catch (err: any) {
+    log.error(`/execute-chief error: ${err.message}`);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
 function startHealthServer(): void {
   const server = http.createServer(async (req, res) => {
     const url = req.url || '/';
+
+    // Chief SDK execution (WhatsApp → bridge → here)
+    if (url === '/execute-chief' && req.method === 'POST') {
+      await handleExecuteChief(req, res);
+      return;
+    }
 
     // Direct task execution (bypasses event loop)
     if (url === '/execute' && req.method === 'POST') {
