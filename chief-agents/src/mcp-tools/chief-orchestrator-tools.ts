@@ -7,6 +7,7 @@
 import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { sbGet, sbPost, sbPostReturn, sbPatch, sbRpc, getSupabaseUrl, getSupabaseHeaders } from '../supabase-client.js';
+import Anthropic from '@anthropic-ai/sdk';
 
 const SB_URL = getSupabaseUrl();
 const CHIEF_AGENTS_URL = process.env.CHIEF_AGENTS_URL || 'https://chief-agents-production.up.railway.app';
@@ -323,7 +324,6 @@ export function buildChiefOrchestratorServer(orgId: string) {
         ).join('\n');
 
         // 2. Call Claude to generate the graph
-        const Anthropic = (await import('@anthropic-ai/sdk')).default;
         const client = new Anthropic();
         const graphPrompt = `Generate a workflow graph JSON for this request:\n\n"${desc}"\n\nAVAILABLE AGENTS AND SKILLS:\n${agentContext}\n\nAVAILABLE NODE TYPES:\n- trigger_scheduled: {cron, timezone, description}\n- trigger_manual: {label}\n- action_agent_task: {agentId, agentName, instruction, maxBudgetUsd:1}\n- action_notify_human: {channel:"whatsapp", message:"..."}\n- condition_task_result: {field, operator:"=="|">"|"<"|"is_not_empty"|"is_empty", value}\n- delay_wait: {duration:1, unit:"hours"|"days"}\n\nEDGE RULES:\n- Condition nodes have sourceHandle "yes" and "no"\n- Regular nodes have no sourceHandle\n\nReturn ONLY valid JSON: {"nodes":[...],"edges":[...]}\nUse agent IDs from the list. Position nodes vertically (y increments of 150). Every node MUST have a label in data.`;
 
@@ -372,6 +372,7 @@ export function buildChiefOrchestratorServer(orgId: string) {
         const msg = `Workflow "${wfName}" creado (${activate ? 'ACTIVO' : 'borrador'})\n\nPasos:\n${nodesSummary}\n\nAgentes: ${agentsUsed.join(', ')}\n${triggerType === 'scheduled' ? `Schedule: ${triggerConfig.cron} (${triggerConfig.timezone})` : 'Trigger: Manual'}`;
         return { content: [{ type: 'text' as const, text: msg }] };
       } catch (e: any) {
+        console.error('[crear_workflow_agente] Error:', e.message, e.stack?.substring(0, 300));
         return { content: [{ type: 'text' as const, text: `Error creando workflow: ${e.message}` }] };
       }
     },
