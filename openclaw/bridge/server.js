@@ -4466,7 +4466,8 @@ ${!args.activate ? 'Para activar: ve a Agent Workflows en el dashboard o dime "a
     const effectiveOrgId = session.orgId || orgId;
 
     // 1.1 Detect explicit agent name ("dile a Paula que...", "Paula, haz...")
-    if (effectiveOrgId) {
+    // Skip pre-route when SDK mode is active — let Chief SDK decide (it knows one-time vs workflow)
+    if (effectiveOrgId && process.env.CHIEF_USE_SDK !== 'true') {
       const mention = detectAgentMention(message, effectiveOrgId);
       if (mention) {
         const agent = await resolveAgentByName(effectiveOrgId, mention.name);
@@ -4485,6 +4486,68 @@ ${!args.activate ? 'Para activar: ve a Agent Workflows en el dashboard o dime "a
           saveMessage(sessionKey, effectiveOrgId, "assistant", reply);
           return reply;
         }
+      }
+    }
+
+    // ============================================================
+    // SDK ROUTING: if CHIEF_USE_SDK=true, route to /execute-chief
+    // ============================================================
+    if (process.env.CHIEF_USE_SDK === 'true' && effectiveOrgId) {
+      console.log(`[gateway] SDK mode — routing to /execute-chief`);
+      try {
+        const CHIEF_AGENTS_URL = process.env.CHIEF_AGENTS_URL || "https://chief-agents-production.up.railway.app";
+
+        // Load session_id from chief_sessions for resumption
+        let sdkSessionId = null;
+        try {
+          const sessRows = await sbFetch(`${SB_URL}/rest/v1/chief_sessions?whatsapp_number=eq.${sessionKey}&select=session_id&limit=1`, { headers: sbHeaders() });
+          if (Array.isArray(sessRows) && sessRows[0]?.session_id) {
+            sdkSessionId = sessRows[0].session_id;
+          }
+        } catch {}
+
+        const sdkRes = await fetch(`${CHIEF_AGENTS_URL}/execute-chief`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message,
+            org_id: effectiveOrgId,
+            session_id: sdkSessionId,
+            whatsapp_number: sessionKey,
+            system_prompt: systemPrompt,
+          }),
+        });
+        const sdkResult = await sdkRes.json();
+
+        if (sdkResult?.text) {
+          const reply = sdkResult.text;
+
+          // Save new session_id for next resumption
+          if (sdkResult.session_id) {
+            sbFetch(`${SB_URL}/rest/v1/chief_sessions?whatsapp_number=eq.${sessionKey}`, {
+              method: "PATCH",
+              headers: { ...sbHeaders(), Prefer: "return=minimal" },
+              body: JSON.stringify({ session_id: sdkResult.session_id, updated_at: new Date().toISOString() }),
+            }).catch(e => console.warn("[gateway] Failed to save SDK session_id:", e.message));
+          }
+
+          // Persist to conversation history
+          saveMessage(sessionKey, effectiveOrgId, "user", message);
+          saveMessage(sessionKey, effectiveOrgId, "assistant", reply);
+
+          // Keep in-memory history for compatibility
+          history.push({ role: "user", content: message });
+          history.push({ role: "assistant", content: [{ type: "text", text: reply }] });
+          if (history.length > GW_MAX_HISTORY) session.history = history.slice(-GW_MAX_HISTORY);
+
+          console.log(`[gateway] SDK response: ${reply.substring(0, 100)}... (${sdkResult.turns} turns, $${sdkResult.cost_usd?.toFixed(4)})`);
+          return reply;
+        }
+
+        // If SDK returned error, fall through to legacy
+        console.warn(`[gateway] SDK returned no text, falling through to legacy:`, JSON.stringify(sdkResult).substring(0, 200));
+      } catch (sdkErr) {
+        console.error(`[gateway] SDK routing error, falling through to legacy:`, sdkErr.message);
       }
     }
 
