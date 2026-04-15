@@ -194,6 +194,7 @@ export interface SkillDef {
   description: string;
   skill_definition: string;
   category: string;
+  route?: 'edge_function' | 'bridge' | 'agent';
 }
 
 export interface SenseContext {

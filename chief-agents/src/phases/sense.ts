@@ -107,7 +107,7 @@ export async function sense(
       if (skillNames.length > 0) {
         const nameFilter = skillNames.map(n => `name.eq.${n}`).join(',');
         const defs = await sbGet<SkillDef[]>(
-          `skill_registry?or=(${nameFilter})&select=name,display_name,description,skill_definition,category`,
+          `skill_registry?or=(${nameFilter})&select=name,display_name,description,skill_definition,category,route`,
         );
         skills = safe<SkillDef>(defs);
         state.cachedSkills = skills;

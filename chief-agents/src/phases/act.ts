@@ -337,17 +337,19 @@ export async function act(
       const workDir = isCodeAgent ? repoDir : cwd;
       // Skills context — inject available skill definitions so agent knows how to execute them
       const skillsContext = context.skills && context.skills.length > 0
-        ? `\nAVAILABLE SKILLS:\n${context.skills.map(s =>
-            `- ${s.display_name} [${s.name}]: ${s.description}\n  How: ${s.skill_definition}`
-          ).join('\n')}\n
+        ? `\nAVAILABLE SKILLS:\n${context.skills.map(s => {
+            const route = s.route || 'edge_function';
+            const routeLabel = route === 'agent' ? '[AGENT-ROUTE — use your own tools]' : `[${route.toUpperCase()} — use call_skill]`;
+            return `- ${s.display_name} [${s.name}] ${routeLabel}: ${s.description}\n  How: ${s.skill_definition}`;
+          }).join('\n')}\n
 SKILL EXECUTION RULES:
-1. TWO TYPES OF SKILLS:
-   - Edge function skills (skill_definition mentions "Calls <function-name> edge function"): execute via call_skill tool with function_name and params.
-   - Agent-route skills (skill_definition says "ROUTE: agent" or "NO edge function"): execute DIRECTLY using your own tools (web_search_firecrawl, scrape_url, WebSearch, etc.) following the EXECUTION steps in the skill_definition. Do NOT use call_skill for these — you ARE the executor.
-2. If CONVERSATION HISTORY has [USER REPLIED] with data AND a matching skill exists → execute IMMEDIATELY with the user's data. Do NOT re-ask questions that are already answered.
-3. If DATA ALREADY COLLECTED is present → map those fields directly. Do NOT ask the user to confirm data you already have.
-4. Only use ask_human_via_whatsapp if you are genuinely missing required params that are NOT in the task description, conversation history, or collected data.
-5. When calling call_skill, extract numbers/percentages from the user's text and pass them as the correct param types (numbers, not strings).`
+1. Check the route label on each skill:
+   - [EDGE_FUNCTION] or [BRIDGE]: execute via call_skill tool with function_name and params from the skill_definition.
+   - [AGENT-ROUTE]: execute DIRECTLY using your own tools (web_search_firecrawl, scrape_url, WebSearch, etc.) following the EXECUTION steps in the skill_definition. Do NOT use call_skill for these — you ARE the executor.
+2. If CONVERSATION HISTORY has [USER REPLIED] with data AND a matching skill exists → execute IMMEDIATELY. Do NOT re-ask answered questions.
+3. If DATA ALREADY COLLECTED is present → map those fields directly. Do NOT re-confirm.
+4. Only use ask_human_via_whatsapp if you are genuinely missing required params not in the task, conversation history, or collected data.
+5. When calling call_skill, pass numbers as numbers (not strings).`
         : '';
 
       // When resuming a session, send ONLY the user's new reply — the session already has all prior context

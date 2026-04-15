@@ -166,7 +166,7 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
 
   // --- Create Skill Dialog ---
   const [showCreateSkill, setShowCreateSkill] = useState(false)
-  const [newSkill, setNewSkill] = useState({ name: '', display_name: '', description: '', category: 'sales', skill_definition: '', requires_integrations: '' })
+  const [newSkill, setNewSkill] = useState({ name: '', display_name: '', description: '', category: 'sales', skill_definition: '', requires_integrations: '', route: 'agent' as 'edge_function' | 'bridge' | 'agent' })
   const [creatingSk, setCreatingSk] = useState(false)
 
   const autoSlug = (display: string) => display.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
@@ -189,6 +189,7 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
         category: newSkill.category,
         skill_definition: newSkill.skill_definition,
         requires_integrations: integrations,
+        route: newSkill.route,
         is_system: false,
       })
       .select('name,display_name,description,category')
@@ -205,7 +206,7 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
       toast.success(`Skill "${newSkill.display_name}" creado y asignado`)
     }
     setShowCreateSkill(false)
-    setNewSkill({ name: '', display_name: '', description: '', category: 'sales', skill_definition: '', requires_integrations: '' })
+    setNewSkill({ name: '', display_name: '', description: '', category: 'sales', skill_definition: '', requires_integrations: '', route: 'agent' })
   }
 
   // Fetch integration status
@@ -451,7 +452,7 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
           <DialogHeader>
             <DialogTitle>Crear nuevo Skill</DialogTitle>
             <DialogDescription>
-              Define un skill que cualquier agente puede ejecutar. Debe apuntar a una edge function o endpoint existente.
+              Define un skill que cualquier agente puede ejecutar. Puede ser un agent-route (el agente usa sus herramientas) o llamar una edge function.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
@@ -488,16 +489,51 @@ export function AgentSkillsPanel({ agent, onUpdate }: Props) {
               </Select>
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground">Definicion del skill (como se ejecuta) *</label>
+              <label className="text-xs font-medium text-muted-foreground">Tipo de ejecucion *</label>
+              <Select value={newSkill.route} onValueChange={(v: 'edge_function' | 'bridge' | 'agent') => {
+                const templates: Record<string, string> = {
+                  agent: 'ROUTE: agent\n\nCONTEXT:\n[Describe el contexto y conocimiento necesario]\n\nEXECUTION:\n1. [Paso 1 — usa web_search_firecrawl, scrape_url, etc.]\n2. [Paso 2]\n3. [Paso 3]\n\nREQUIRED PARAMS:\n1. param1 (type) — descripcion\n\nOUTPUT FORMAT:\n[Describe el formato de respuesta esperado]',
+                  edge_function: 'Calls [function-name] edge function.\nParams: param1 (type), param2 (type, optional).',
+                  bridge: 'Calls [function-name] edge function via bridge.\nParams: param1 (type), param2 (type).',
+                }
+                setNewSkill(prev => ({ ...prev, route: v, skill_definition: prev.skill_definition || templates[v] }))
+              }}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="agent" className="text-xs">
+                    <span className="font-medium">Agente</span>
+                    <span className="text-muted-foreground ml-1">— el agente ejecuta con sus propias herramientas (web search, scrape, etc.)</span>
+                  </SelectItem>
+                  <SelectItem value="edge_function" className="text-xs">
+                    <span className="font-medium">Edge Function</span>
+                    <span className="text-muted-foreground ml-1">— llama una Supabase edge function</span>
+                  </SelectItem>
+                  <SelectItem value="bridge" className="text-xs">
+                    <span className="font-medium">Bridge</span>
+                    <span className="text-muted-foreground ml-1">— llama un endpoint del bridge</span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">
+                {newSkill.route === 'agent' ? 'Instrucciones de ejecucion *' : 'Definicion del skill (como se ejecuta) *'}
+              </label>
               <Textarea
-                placeholder={"Calls generate-business-case edge function via bridge.\nParams: clientName, countries[{country, txnPerMonth}], ticketPromedio, mdrActual, mdrNuevo, pricingType (flat|tranches)."}
+                placeholder={newSkill.route === 'agent'
+                  ? "ROUTE: agent\n\nCONTEXT:\nDescribe el contexto...\n\nEXECUTION:\n1. Busca en web...\n2. Scrape sitios...\n\nREQUIRED PARAMS:\n1. region (string)\n\nOUTPUT FORMAT:\nLista estructurada..."
+                  : "Calls generate-business-case edge function via bridge.\nParams: clientName, countries[{country, txnPerMonth}], ticketPromedio."}
                 value={newSkill.skill_definition}
                 onChange={(e) => setNewSkill(prev => ({ ...prev, skill_definition: e.target.value }))}
-                rows={4}
+                rows={newSkill.route === 'agent' ? 8 : 4}
                 className="font-mono text-xs"
               />
               <p className="text-[10px] text-muted-foreground mt-0.5">
-                Formato: "Calls [function-name] edge function. Params: param1, param2[], param3 (opcion1|opcion2)."
+                {newSkill.route === 'agent'
+                  ? 'El agente usara sus herramientas (web_search_firecrawl, scrape_url, WebSearch) para ejecutar los pasos.'
+                  : 'Formato: "Calls [function-name] edge function. Params: param1, param2[]."'}
               </p>
             </div>
             <div>
