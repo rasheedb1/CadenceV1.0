@@ -47,7 +47,7 @@ export function buildGongTools(agent: AgentConfig): any[] {
       try {
         const from = from_date || new Date(Date.now() - 7 * 86400000).toISOString();
         const to = to_date || new Date().toISOString();
-        const data = await gongFetch('/calls', a.auth, {
+        const data = await gongFetch('/calls/extensive', a.auth, {
           method: 'POST',
           body: JSON.stringify({
             filter: { fromDateTime: from, toDateTime: to },
@@ -159,7 +159,7 @@ export function buildGongTools(agent: AgentConfig): any[] {
       if ('error' in a) return { content: [{ type: 'text' as const, text: a.error }] };
       try {
         const from = new Date(Date.now() - (days_back || 90) * 86400000).toISOString();
-        const data = await gongFetch('/calls', a.auth, {
+        const data = await gongFetch('/calls/extensive', a.auth, {
           method: 'POST',
           body: JSON.stringify({ filter: { fromDateTime: from, toDateTime: new Date().toISOString() } }),
         });
