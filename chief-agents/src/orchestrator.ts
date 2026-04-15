@@ -494,11 +494,12 @@ BEHAVIOR:
         totalCost = (msg as any).total_cost_usd || 0;
         numTurns = (msg as any).num_turns || 0;
         capturedSessionId = (msg as any).session_id || capturedSessionId;
-        if ((msg as any).result) resultText = (msg as any).result;
+        // Don't use (msg as any).result — it contains ALL text including tool results/JSON dumps
+        // We only want lastAssistantText (the final human-readable response)
       }
     }
-    // Prefer the SDK's result text, fallback to last assistant text
-    if (!resultText) resultText = lastAssistantText;
+    // Always prefer the last assistant text (clean, no tool dumps)
+    resultText = lastAssistantText || resultText || '(sin respuesta)';
 
     log.info(`/execute-chief done: ${numTurns} turns, $${totalCost.toFixed(4)}, session=${capturedSessionId?.substring(0, 12) || 'none'}`);
 

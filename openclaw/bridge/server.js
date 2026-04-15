@@ -1385,14 +1385,22 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
       try {
         const CHIEF_AGENTS_URL = process.env.CHIEF_AGENTS_URL || "https://chief-agents-production.up.railway.app";
 
-        // Resolve org_id from chief_sessions
+        // Resolve org_id + session_id from chief_sessions
         let sdkOrgId = null;
         let sdkSessionId = null;
         try {
-          const sessRows = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/chief_sessions?whatsapp_number=eq.${sessionKey}&select=org_id,session_id&limit=1`, { headers: sbHeadersGlobal() });
+          const sessRows = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/chief_sessions?whatsapp_number=eq.${sessionKey}&select=org_id,session_id,updated_at&limit=1`, { headers: sbHeadersGlobal() });
           if (Array.isArray(sessRows) && sessRows[0]) {
             sdkOrgId = sessRows[0].org_id;
-            sdkSessionId = sessRows[0].session_id;
+            // Only resume session if it's fresh (< 30 min old) — stale sessions cause phantom tasks
+            if (sessRows[0].session_id && sessRows[0].updated_at) {
+              const ageMs = Date.now() - new Date(sessRows[0].updated_at).getTime();
+              if (ageMs < 30 * 60 * 1000) {
+                sdkSessionId = sessRows[0].session_id;
+              } else {
+                console.log(`[whatsapp] Session expired (${Math.round(ageMs / 60000)}min old), starting fresh`);
+              }
+            }
           }
         } catch {}
 
