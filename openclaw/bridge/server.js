@@ -1420,12 +1420,18 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
             }
 
             // Send response to WhatsApp (split into chunks for long messages)
-            const chunks = splitMessage(sdkResult.text);
+            // Cap at 4800 chars (~3 WhatsApp messages max) to prevent spam
+            let responseText = sdkResult.text;
+            if (responseText.length > 4800) {
+              responseText = responseText.substring(0, 4800) + "\n\n_[Respuesta truncada — pide más detalles si los necesitas]_";
+              console.log(`[whatsapp] Truncated response from ${sdkResult.text.length} to 4800 chars`);
+            }
+            const chunks = splitMessage(responseText);
             for (const chunk of chunks) {
               await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: From, body: chunk });
               if (chunks.length > 1) await new Promise(r => setTimeout(r, 800));
             }
-            console.log(`[whatsapp] SDK response sent (${chunks.length} msg(s), ${sdkResult.text.length} chars, $${sdkResult.cost_usd?.toFixed(4)})`);
+            console.log(`[whatsapp] SDK response sent (${chunks.length} msg(s), ${responseText.length} chars, $${sdkResult.cost_usd?.toFixed(4)})`);
             return; // Done — don't fall through to legacy
           }
           console.warn(`[whatsapp] SDK returned no text, falling to legacy`);

@@ -453,6 +453,10 @@ RULES:
     let totalCost = 0;
     let numTurns = 0;
 
+    // Collect only the LAST assistant text (the final response to the user)
+    // Intermediate tool calls and their results are internal — don't send to WhatsApp
+    let lastAssistantText = '';
+
     for await (const msg of query({
       prompt: message,
       options: {
@@ -471,9 +475,9 @@ RULES:
       },
     })) {
       if (msg.type === 'assistant') {
-        for (const block of msg.message.content) {
-          if (block.type === 'text') resultText += (block as any).text;
-        }
+        // Only keep text from this turn (overwrite previous — we want the LAST one)
+        const textBlocks = msg.message.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+        if (textBlocks) lastAssistantText = textBlocks;
       }
       if ((msg as any).session_id) capturedSessionId = (msg as any).session_id;
       if (msg.type === 'result') {
@@ -483,6 +487,8 @@ RULES:
         if ((msg as any).result) resultText = (msg as any).result;
       }
     }
+    // Prefer the SDK's result text, fallback to last assistant text
+    if (!resultText) resultText = lastAssistantText;
 
     log.info(`/execute-chief done: ${numTurns} turns, $${totalCost.toFixed(4)}, session=${capturedSessionId?.substring(0, 12) || 'none'}`);
 
