@@ -88,26 +88,46 @@ export function buildChiefOrchestratorServer(orgId: string) {
         const agent = await resolveAgent(orgId, agent_name);
         if (!agent) return { content: [{ type: 'text' as const, text: `Agente "${agent_name}" no encontrado.` }] };
 
-        // CONTEXT INJECTION: Include last completed task result for follow-up context
-        // This allows the agent to understand references like "ese borrador", "ese correo", etc.
-        let previousContext = '';
+        // CHECK FOR FOLLOW-UP: if agent has a recent completed task with a session_id,
+        // resume that session instead of creating a new task. This gives the agent full
+        // conversation memory (like chatting with Claude normally).
         try {
           const lastTask = await sbGet<any[]>(
-            `agent_tasks_v2?assigned_agent_id=eq.${agent.id}&status=eq.done&org_id=eq.${orgId}&order=completed_at.desc&limit=1&select=title,result,completed_at`
+            `agent_tasks_v2?assigned_agent_id=eq.${agent.id}&status=eq.done&org_id=eq.${orgId}&order=completed_at.desc&limit=1&select=id,title,session_id,completed_at,context_summary`
           ).catch(() => []);
-          if (Array.isArray(lastTask) && lastTask[0]?.result) {
-            const result = lastTask[0].result;
-            const summary = typeof result === 'string' ? result : (result.summary || result.text || JSON.stringify(result));
+          if (Array.isArray(lastTask) && lastTask[0]?.session_id) {
             const age = Date.now() - new Date(lastTask[0].completed_at || 0).getTime();
-            // Only include if less than 30 min old (recent enough to be a follow-up)
             if (age < 30 * 60 * 1000) {
-              previousContext = `\n\nPREVIOUS TASK CONTEXT (your last completed task — the user may reference this):\nTask: "${lastTask[0].title}"\nResult: ${typeof summary === 'string' ? summary.substring(0, 1000) : ''}`;
+              // FOLLOW-UP: Reopen the task with the user's new message and resume session
+              const taskId = lastTask[0].id;
+              let pad: any = {};
+              try { pad = JSON.parse(lastTask[0].context_summary || '{}'); } catch { pad = {}; }
+              if (!pad.conversation) pad.conversation = [];
+              pad.conversation.push({ role: 'user', ts: new Date().toISOString(), content: instruction.substring(0, 1000) });
+              pad.last_action = 'user_replied';
+
+              await sbPatch(`agent_tasks_v2?id=eq.${taskId}`, {
+                status: 'in_progress',
+                context_summary: JSON.stringify(pad),
+                updated_at: new Date().toISOString(),
+              });
+
+              // Execute with session resumption
+              fetch(`${CHIEF_AGENTS_URL}/execute`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ agent_id: agent.id, task_id: taskId }),
+              }).catch(() => {});
+
+              console.log(`[delegar_tarea] FOLLOW-UP: resumed session ${lastTask[0].session_id.substring(0, 12)} for ${agent.name}`);
+              return { content: [{ type: 'text' as const, text: `Follow-up enviado a ${agent.name}. Te llegará la respuesta por WhatsApp.` }] };
             }
           }
         } catch {}
 
+        // NEW TASK: no recent session to resume
         // Skill enrichment
-        let enrichedInstruction = instruction + previousContext;
+        let enrichedInstruction = instruction;
         try {
           const agentSkills = await sbGet<any[]>(`agent_skills?agent_id=eq.${agent.id}&enabled=eq.true&select=skill_name`).catch(() => []);
           if (Array.isArray(agentSkills) && agentSkills.length > 0) {
@@ -184,27 +204,38 @@ export function buildChiefOrchestratorServer(orgId: string) {
         const agent = await resolveAgent(orgId, agent_name);
         if (!agent) return { content: [{ type: 'text' as const, text: `Agente "${agent_name}" no encontrado.` }] };
 
-        // CONTEXT INJECTION: Include last completed task result for follow-up context
-        let previousContext = '';
+        // CHECK FOR FOLLOW-UP: resume session if agent has recent task
         try {
           const lastTask = await sbGet<any[]>(
-            `agent_tasks_v2?assigned_agent_id=eq.${agent.id}&status=eq.done&org_id=eq.${orgId}&order=completed_at.desc&limit=1&select=title,result,completed_at`
+            `agent_tasks_v2?assigned_agent_id=eq.${agent.id}&status=eq.done&org_id=eq.${orgId}&order=completed_at.desc&limit=1&select=id,session_id,completed_at,context_summary`
           ).catch(() => []);
-          if (Array.isArray(lastTask) && lastTask[0]?.result) {
-            const result = lastTask[0].result;
-            const summary = typeof result === 'string' ? result : (result.summary || result.text || JSON.stringify(result));
+          if (Array.isArray(lastTask) && lastTask[0]?.session_id) {
             const age = Date.now() - new Date(lastTask[0].completed_at || 0).getTime();
             if (age < 30 * 60 * 1000) {
-              previousContext = `\n\nPREVIOUS TASK CONTEXT (your last completed task — the user may reference this):\nTask: "${lastTask[0].title}"\nResult: ${typeof summary === 'string' ? summary.substring(0, 1000) : ''}`;
+              const taskId = lastTask[0].id;
+              let pad: any = {};
+              try { pad = JSON.parse(lastTask[0].context_summary || '{}'); } catch { pad = {}; }
+              if (!pad.conversation) pad.conversation = [];
+              pad.conversation.push({ role: 'user', ts: new Date().toISOString(), content: message.substring(0, 1000) });
+              pad.last_action = 'user_replied';
+              await sbPatch(`agent_tasks_v2?id=eq.${taskId}`, {
+                status: 'in_progress', context_summary: JSON.stringify(pad), updated_at: new Date().toISOString(),
+              });
+              fetch(`${CHIEF_AGENTS_URL}/execute`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ agent_id: agent.id, task_id: taskId }),
+              }).catch(() => {});
+              console.log(`[consultar_agente] FOLLOW-UP: resumed session for ${agent.name}`);
+              return { content: [{ type: 'text' as const, text: `Follow-up enviado a ${agent.name}. Te llegará la respuesta por WhatsApp.` }] };
             }
           }
         } catch {}
 
-        // Create a real task (not just a message) so it executes immediately
+        // NEW TASK: no recent session to resume
         const taskRows = await sbPostReturn<any>('agent_tasks_v2', {
           org_id: orgId,
           title: message.substring(0, 120),
-          description: message + previousContext,
+          description: message,
           task_type: 'general',
           required_capabilities: agent.capabilities || [],
           assigned_agent_id: agent.id,
