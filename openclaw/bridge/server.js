@@ -1369,83 +1369,94 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
     }
 
     // ============================================================
-    // SDK ROUTING: if CHIEF_USE_SDK=true, route to /execute-chief
+    // SDK ROUTING (CHIEF_USE_SDK=true): EXCLUSIVE path — no legacy fallthrough
     // ============================================================
     if (process.env.CHIEF_USE_SDK === 'true') {
       const sessionKey = WaId || From.replace('whatsapp:+', '');
       console.log(`[whatsapp] SDK mode — routing to /execute-chief for ${sessionKey}`);
 
-      // Send thinking message after 5s
-      const thinkingTimer = setTimeout(async () => {
-        try {
-          await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: From, body: "Processing..." });
-        } catch {}
-      }, 5000);
-
+      // Resolve org_id from chief_sessions
+      let sdkOrgId = null;
+      let lastExchange = null;
       try {
-        const CHIEF_AGENTS_URL = process.env.CHIEF_AGENTS_URL || "https://chief-agents-production.up.railway.app";
+        const sessRows = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/chief_sessions?whatsapp_number=eq.${sessionKey}&select=org_id,last_exchange&limit=1`, { headers: sbHeadersGlobal() });
+        if (Array.isArray(sessRows) && sessRows[0]) {
+          sdkOrgId = sessRows[0].org_id;
+          lastExchange = sessRows[0].last_exchange; // {user: "...", chief: "..."} for follow-up context
+        }
+      } catch {}
 
-        // Resolve org_id + session_id from chief_sessions
-        let sdkOrgId = null;
-        let sdkSessionId = null;
+      if (!sdkOrgId) {
+        // No session — ONLY case where we fall through to legacy (onboarding)
+        console.log(`[whatsapp] No org_id for ${sessionKey}, falling to legacy for onboarding`);
+      } else {
+        // Send thinking message after 5s
+        const thinkingTimer = setTimeout(async () => {
+          try {
+            await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: From, body: "Un momento..." });
+          } catch {}
+        }, 5000);
+
         try {
-          const sessRows = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/chief_sessions?whatsapp_number=eq.${sessionKey}&select=org_id,session_id,updated_at&limit=1`, { headers: sbHeadersGlobal() });
-          if (Array.isArray(sessRows) && sessRows[0]) {
-            sdkOrgId = sessRows[0].org_id;
-            // Only resume session if it's fresh (< 30 min old) — stale sessions cause phantom tasks
-            if (sessRows[0].session_id && sessRows[0].updated_at) {
-              const ageMs = Date.now() - new Date(sessRows[0].updated_at).getTime();
-              if (ageMs < 30 * 60 * 1000) {
-                sdkSessionId = sessRows[0].session_id;
-              } else {
-                console.log(`[whatsapp] Session expired (${Math.round(ageMs / 60000)}min old), starting fresh`);
-              }
-            }
-          }
-        } catch {}
+          const CHIEF_AGENTS_URL = process.env.CHIEF_AGENTS_URL || "https://chief-agents-production.up.railway.app";
 
-        if (!sdkOrgId) {
-          clearTimeout(thinkingTimer);
-          // No session — fall through to legacy for onboarding flow
-          console.log(`[whatsapp] No org_id for ${sessionKey}, falling to legacy for onboarding`);
-        } else {
+          // Build context from last exchange (NOT session resumption — stateless)
+          let contextPrefix = '';
+          if (lastExchange) {
+            try {
+              const ex = typeof lastExchange === 'string' ? JSON.parse(lastExchange) : lastExchange;
+              if (ex.user && ex.chief) {
+                contextPrefix = `PREVIOUS EXCHANGE (for follow-up context only — do NOT re-execute):\nUser: "${ex.user.substring(0, 200)}"\nChief: "${ex.chief.substring(0, 200)}"\n\n`;
+              }
+            } catch {}
+          }
+
           const sdkRes = await fetch(`${CHIEF_AGENTS_URL}/execute-chief`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: Body, org_id: sdkOrgId, session_id: sdkSessionId, whatsapp_number: sessionKey }),
+            body: JSON.stringify({
+              message: contextPrefix + `CURRENT REQUEST:\n${Body}`,
+              org_id: sdkOrgId,
+              // NO session_id — each message is independent (stateless Chief)
+            }),
           });
           clearTimeout(thinkingTimer);
           const sdkResult = await sdkRes.json();
 
           if (sdkResult?.text) {
-            // Save session_id for next resumption
-            if (sdkResult.session_id) {
-              sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/chief_sessions?whatsapp_number=eq.${sessionKey}`, {
-                method: "PATCH",
-                headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" },
-                body: JSON.stringify({ session_id: sdkResult.session_id, updated_at: new Date().toISOString() }),
-              }).catch(e => console.warn("[whatsapp] Failed to save SDK session_id:", e.message));
-            }
+            // Save last exchange for follow-up context (NOT session_id)
+            sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/chief_sessions?whatsapp_number=eq.${sessionKey}`, {
+              method: "PATCH",
+              headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" },
+              body: JSON.stringify({
+                last_exchange: JSON.stringify({ user: Body.substring(0, 300), chief: sdkResult.text.substring(0, 300) }),
+                updated_at: new Date().toISOString(),
+              }),
+            }).catch(() => {});
 
-            // Send response to WhatsApp (split into chunks for long messages)
+            // Send response to WhatsApp (split into N chunks — no truncation)
             const chunks = splitMessage(sdkResult.text);
             for (const chunk of chunks) {
               await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: From, body: chunk });
               if (chunks.length > 1) await new Promise(r => setTimeout(r, 800));
             }
-            console.log(`[whatsapp] SDK response sent (${chunks.length} msg(s), ${responseText.length} chars, $${sdkResult.cost_usd?.toFixed(4)})`);
-            return; // Done — don't fall through to legacy
+            console.log(`[whatsapp] SDK response: ${chunks.length} msg(s), ${sdkResult.text.length} chars, $${sdkResult.cost_usd?.toFixed(4)}`);
+          } else {
+            // SDK returned no text — send error to user (do NOT fall to legacy)
+            await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: From, body: "⚠️ Error procesando tu mensaje. Intenta de nuevo." });
+            console.error(`[whatsapp] SDK returned no text:`, JSON.stringify(sdkResult).substring(0, 200));
           }
-          console.warn(`[whatsapp] SDK returned no text, falling to legacy`);
+        } catch (sdkErr) {
+          clearTimeout(thinkingTimer);
+          console.error(`[whatsapp] SDK error:`, sdkErr.message);
+          await twilioClient.messages.create({ from: TWILIO_WHATSAPP_NUMBER, to: From, body: `⚠️ Error: ${sdkErr.message.substring(0, 100)}. Intenta de nuevo.` }).catch(() => {});
         }
-      } catch (sdkErr) {
-        clearTimeout(thinkingTimer);
-        console.error(`[whatsapp] SDK error, falling to legacy:`, sdkErr.message);
+        return; // ALWAYS return — never fall through to legacy
       }
     }
 
     // ============================================================
-    // LEGACY PATH: OpenClaw (only runs if SDK mode is off or failed)
+    // LEGACY PATH: OpenClaw (only for onboarding — no org_id yet)
     // ============================================================
     let messageToSend = Body;
 

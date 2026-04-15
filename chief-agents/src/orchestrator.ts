@@ -427,7 +427,7 @@ async function handleExecuteChief(req: http.IncomingMessage, res: http.ServerRes
   }
 
   const log = createLogger('CHIEF-SDK');
-  log.info(`/execute-chief msg="${message.substring(0, 80)}" session=${session_id?.substring(0, 12) || 'new'}`);
+  log.info(`/execute-chief msg="${message.substring(0, 80)}"`);
 
   try {
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
@@ -471,9 +471,8 @@ BEHAVIOR:
       prompt: message,
       options: {
         model: 'claude-sonnet-4-6',
-        ...(session_id
-          ? { resume: session_id }
-          : { systemPrompt: chiefSystemPrompt }),
+        systemPrompt: chiefSystemPrompt,
+        // NO session resumption — Chief is stateless. Context comes via last_exchange in the prompt.
         allowedTools: ['mcp__chief-orchestrator__*'],
         permissionMode: 'bypassPermissions' as any,
         maxTurns: 10,
@@ -501,12 +500,11 @@ BEHAVIOR:
     // Always prefer the last assistant text (clean, no tool dumps)
     resultText = lastAssistantText || resultText || '(sin respuesta)';
 
-    log.info(`/execute-chief done: ${numTurns} turns, $${totalCost.toFixed(4)}, session=${capturedSessionId?.substring(0, 12) || 'none'}`);
+    log.info(`/execute-chief done: ${numTurns} turns, $${totalCost.toFixed(4)}`);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       text: resultText || '(sin respuesta)',
-      session_id: capturedSessionId,
       turns: numTurns,
       cost_usd: totalCost,
     }));
