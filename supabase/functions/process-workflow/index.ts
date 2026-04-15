@@ -435,8 +435,23 @@ async function processRun(
   // AGENT WORKFLOW NODES
   // ================================================================
   } else if (nodeType === 'action_agent_skill' || nodeType === 'action_agent_task') {
-    const agentId = nodeData.agentId as string
+    let agentId = nodeData.agentId as string
     const CHIEF_AGENTS_URL = Deno.env.get('CHIEF_AGENTS_URL') || 'https://chief-agents-production.up.railway.app'
+
+    // Resolve agent name to UUID if needed (workflow generator may use names instead of IDs)
+    if (agentId && !agentId.includes('-')) {
+      const { data: agentRows } = await supabase
+        .from('agents')
+        .select('id')
+        .eq('org_id', run.org_id)
+        .ilike('name', `%${agentId}%`)
+        .neq('status', 'destroyed')
+        .limit(1)
+      if (agentRows && agentRows.length > 0) {
+        console.log(`[workflow] Resolved agent name "${agentId}" → ${agentRows[0].id}`)
+        agentId = agentRows[0].id
+      }
+    }
 
     // Build skill instruction from node config
     let instruction = ''
