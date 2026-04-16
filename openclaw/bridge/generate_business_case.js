@@ -1,10 +1,10 @@
 /**
- * Yuno Business Case Generator — 16-slide branded PPTX.
+ * Yuno Business Case Generator — 12-slide branded PPTX.
  * Exports generateBusinessCase(config) that returns { buffer, summary }.
  *
  * Slides: Cover, Solution, Pain Points, Business Case Text, Divider,
  * Volume Table, Divider, Efecto Yuno, Dev Cost, Impact Summary,
- * Commercial Proposal, Divider, 3x Case Studies, Closing.
+ * Commercial Proposal, Closing.
  */
 const pptxgen = require("pptxgenjs");
 const path = require("path");
@@ -95,7 +95,7 @@ async function generateBusinessCase(cfg) {
   s1.addShape(pres.shapes.RECTANGLE, { x: 7, y: -0.5, w: 4, h: 6.6, fill: { color: DEEP_BLUE, transparency: 60 } });
   s1.addText("yuno", { x: 0.6, y: 0.4, w: 2, h: 0.35, fontSize: 22, fontFace: FONT, color: WHITE, bold: true });
   s1.addText("W W W . Y . U N O", { x: 7.2, y: 0.4, w: 2.3, h: 0.35, fontSize: 9, fontFace: FONT, color: SECURITY_GRAY, align: "right", charSpacing: 2 });
-  s1.addText("impulsando el flujo de dinero\nglobal sin fricciones", { x: 0.6, y: 1.4, w: 8.5, h: 1.8, fontSize: 40, fontFace: FONT, color: WHITE, lineSpacingMultiple: 1.05 });
+  s1.addText("Impulsando el flujo de dinero\nglobal sin fricciones", { x: 0.6, y: 1.4, w: 8.5, h: 1.8, fontSize: 40, fontFace: FONT, color: WHITE, lineSpacingMultiple: 1.05 });
   s1.addText("ORQUESTACION E INFRAESTRUCTURA DE PAGOS A ESCALA MUNDIAL", { x: 0.6, y: 3.3, w: 8, h: 0.4, fontSize: 11, fontFace: FONT, color: SECURITY_GRAY, charSpacing: 1.5 });
   if (hasLogos) {
     s1.addImage({ path: clientLogoPath, x: 3.0, y: 3.95, w: 0.85, h: 0.85 });
@@ -110,7 +110,7 @@ async function generateBusinessCase(cfg) {
   // --- SLIDE 2: SOLUTION DIAGRAM ---
   let s2 = pres.addSlide();
   s2.background = { color: HARMONY_LILAC };
-  s2.addText("yuno impulsa tu equipo de pagos global", { x: 0.6, y: 0.4, w: 7, h: 0.55, fontSize: 26, fontFace: FONT, color: UNITY_BLACK, margin: 0 });
+  s2.addText("Yuno impulsa tu equipo de pagos global", { x: 0.6, y: 0.4, w: 7, h: 0.55, fontSize: 26, fontFace: FONT, color: UNITY_BLACK, margin: 0 });
   s2.addText("SOLUCION", { x: 8.2, y: 0.4, w: 1.3, h: 0.35, fontSize: 10, fontFace: FONT, color: SECURITY_GRAY, align: "right" });
   if (hasLogos) {
     s2.addImage({ path: clientLogoPath, x: 4.55, y: 1.15, w: 0.6, h: 0.6 });
@@ -134,13 +134,13 @@ async function generateBusinessCase(cfg) {
       iy += 0.48;
     });
   });
-  s2.addText("impulsar la eficiencia, simplificar los pagos y escalar a nivel global.", { x: 1, y: 5.15, w: 8, h: 0.3, fontSize: 10, fontFace: FONT, color: SECURITY_GRAY, align: "center", italic: true });
+  s2.addText("Impulsar la eficiencia, simplificar los pagos y escalar a nivel global.", { x: 1, y: 5.15, w: 8, h: 0.3, fontSize: 10, fontFace: FONT, color: SECURITY_GRAY, align: "center", italic: true });
 
   // --- SLIDE 3: PAIN POINTS ---
   let s3 = pres.addSlide();
   s3.background = { color: HARMONY_LILAC };
   s3.addText("ANALISIS", { x: 8.2, y: 0.4, w: 1.3, h: 0.3, fontSize: 10, fontFace: FONT, color: SECURITY_GRAY, align: "right" });
-  s3.addText("analizamos en profundidad\nsus operaciones de pago\ny los retos que presentan", { x: 0.6, y: 0.4, w: 4.5, h: 2.2, fontSize: 28, fontFace: FONT, color: UNITY_BLACK, lineSpacingMultiple: 1.0 });
+  s3.addText("Analizamos en profundidad\nsus operaciones de pago\ny los retos que presentan", { x: 0.6, y: 0.4, w: 4.5, h: 2.2, fontSize: 28, fontFace: FONT, color: UNITY_BLACK, lineSpacingMultiple: 1.0 });
   const retos = [
     { title: "Rutas sin fallback", desc: "entre proveedores, generando perdida de ventas ante caidas del procesador primario" },
     { title: "Multiples dashboards", desc: "al tener varios proveedores, cada uno con su propio panel y reporteria independiente" },
@@ -158,7 +158,7 @@ async function generateBusinessCase(cfg) {
   let s4 = pres.addSlide();
   s4.background = { color: UNITY_BLACK };
   s4.addShape(pres.shapes.RECTANGLE, { x: 5, y: -0.5, w: 6, h: 6.6, fill: { color: YUNO_BLUE, transparency: 80 } });
-  s4.addText(`caso de negocios para ${clientName.toLowerCase()}`, { x: 0.6, y: 0.4, w: 8.8, h: 0.7, fontSize: 30, fontFace: FONT, color: WHITE, align: "center" });
+  s4.addText(`Caso de negocios para ${clientName}`, { x: 0.6, y: 0.4, w: 8.8, h: 0.7, fontSize: 30, fontFace: FONT, color: WHITE, align: "center" });
   s4.addText("OPTIMIZACION DE COSTOS POR COMISIONES", { x: 0.6, y: 1.3, w: 8.8, h: 0.3, fontSize: 10, fontFace: FONT, color: SOFT_BLUE, charSpacing: 1.5 });
   s4.addText(`Actualmente ${clientName} procesa un estimado de ${fmtNum(totalTxnMes)} transacciones al mes con un ticket promedio de $${ticketPromedio} USD, equivalente a $${(totalTPVMensual/1e6).toFixed(1)}M USD/mes en TPV. Con un MDR promedio del ${(mdrActual*100).toFixed(1)}%, mediante la optimizacion de rutas a traves de Yuno se podria reducir a ${(mdrNuevo*100).toFixed(1)}%, generando un ahorro de ${fmt(ahorroMDRMensual)} USD/mes (${fmt(ahorroMDRMensual*12)}/ano).`, { x: 0.6, y: 1.65, w: 8.8, h: 0.85, fontSize: 11, fontFace: FONT, color: SOFT_BLUE, lineSpacingMultiple: 1.3 });
   s4.addText("AUMENTO DE APROBACION", { x: 0.6, y: 2.65, w: 8.8, h: 0.3, fontSize: 10, fontFace: FONT, color: SOFT_BLUE, charSpacing: 1.5 });
@@ -169,12 +169,12 @@ async function generateBusinessCase(cfg) {
   let s5 = pres.addSlide();
   s5.background = { color: UNITY_BLACK };
   s5.addShape(pres.shapes.RECTANGLE, { x: 3.5, y: 0, w: 6.5, h: 5.625, fill: { color: YUNO_BLUE, transparency: 82 } });
-  s5.addText("escenario actual", { x: 1, y: 1.8, w: 8, h: 2, fontSize: 44, fontFace: FONT, color: WHITE, align: "center", valign: "middle" });
+  s5.addText("Escenario actual", { x: 1, y: 1.8, w: 8, h: 2, fontSize: 44, fontFace: FONT, color: WHITE, align: "center", valign: "middle" });
 
   // --- SLIDE 6: VOLUME TABLE ---
   let s6 = pres.addSlide();
   s6.background = { color: HARMONY_LILAC };
-  s6.addText("volumen procesado por pais", { x: 0.5, y: 0.3, w: 7, h: 0.5, fontSize: 24, fontFace: FONT, color: UNITY_BLACK, margin: 0 });
+  s6.addText("Volumen procesado por pais", { x: 0.5, y: 0.3, w: 7, h: 0.5, fontSize: 24, fontFace: FONT, color: UNITY_BLACK, margin: 0 });
   s6.addText("CASO DE NEGOCIO", { x: 7.5, y: 0.3, w: 2, h: 0.35, fontSize: 10, fontFace: FONT, color: SECURITY_GRAY, align: "right" });
   const tHdr = { fill: { color: YUNO_BLUE }, color: WHITE, bold: true, fontSize: 9, fontFace: FONT, align: "center", valign: "middle" };
   const tCell = { fontSize: 9.5, fontFace: FONT, color: UNITY_BLACK, align: "right", valign: "middle" };
@@ -197,12 +197,12 @@ async function generateBusinessCase(cfg) {
   let s7 = pres.addSlide();
   s7.background = { color: UNITY_BLACK };
   s7.addShape(pres.shapes.RECTANGLE, { x: 3.5, y: 0, w: 6.5, h: 5.625, fill: { color: YUNO_BLUE, transparency: 82 } });
-  s7.addText("escenario con yuno", { x: 1, y: 1.8, w: 8, h: 2, fontSize: 44, fontFace: FONT, color: WHITE, align: "center", valign: "middle" });
+  s7.addText("Escenario con Yuno", { x: 1, y: 1.8, w: 8, h: 2, fontSize: 44, fontFace: FONT, color: WHITE, align: "center", valign: "middle" });
 
   // --- SLIDE 8: EFECTO YUNO ---
   let s8 = pres.addSlide();
   s8.background = { color: HARMONY_LILAC };
-  s8.addText("efecto yuno", { x: 0.5, y: 0.3, w: 7, h: 0.55, fontSize: 26, fontFace: FONT, color: UNITY_BLACK, margin: 0 });
+  s8.addText("Efecto Yuno", { x: 0.5, y: 0.3, w: 7, h: 0.55, fontSize: 26, fontFace: FONT, color: UNITY_BLACK, margin: 0 });
   s8.addText("CASO DE NEGOCIO", { x: 7.5, y: 0.3, w: 2, h: 0.35, fontSize: 10, fontFace: FONT, color: SECURITY_GRAY, align: "right" });
   const eHdr = { fill: { color: YUNO_BLUE }, color: WHITE, bold: true, fontSize: 12, fontFace: FONT, align: "center", valign: "middle" };
   const eCell = { fontSize: 12, fontFace: FONT, color: UNITY_BLACK, valign: "middle" };
@@ -220,7 +220,7 @@ async function generateBusinessCase(cfg) {
   // --- SLIDE 9: DEV COST TABLE ---
   let s9 = pres.addSlide();
   s9.background = { color: HARMONY_LILAC };
-  s9.addText("costo de desarrollo global", { x: 0.5, y: 0.25, w: 7, h: 0.5, fontSize: 22, fontFace: FONT, color: UNITY_BLACK, margin: 0 });
+  s9.addText("Costo de desarrollo global", { x: 0.5, y: 0.25, w: 7, h: 0.5, fontSize: 22, fontFace: FONT, color: UNITY_BLACK, margin: 0 });
   s9.addText("BUSINESS CASE", { x: 7.5, y: 0.25, w: 2, h: 0.35, fontSize: 10, fontFace: FONT, color: SECURITY_GRAY, align: "right" });
   const devTeams = [{e:"Producto",c:2250,t:"50%",ci:3375,ct:20250},{e:"Ingenieria",c:5000,t:"90%",ci:13500,ct:81000},{e:"Pagos",c:2250,t:"70%",ci:4725,ct:28350},{e:"Tesoreria",c:1350,t:"40%",ci:1620,ct:9720},{e:"Compliance/Legal",c:1500,t:"40%",ci:1800,ct:10800},{e:"Finanzas",c:1125,t:"40%",ci:1350,ct:8100},{e:"Operaciones",c:2625,t:"60%",ci:4725,ct:28350}];
   const dH = { fill: { color: YUNO_BLUE }, color: WHITE, bold: true, fontSize: 7.5, fontFace: FONT, align: "center", valign: "middle" };
@@ -243,11 +243,11 @@ async function generateBusinessCase(cfg) {
   s10.background = { color: UNITY_BLACK };
   s10.addText("IMPACTO", { x: 0.6, y: 0.35, w: 2, h: 0.25, fontSize: 10, fontFace: FONT, color: SECURITY_GRAY, charSpacing: 1.5 });
   s10.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.4, y: 0.8, w: 3, h: 4.4, fill: { color: "1E2026" }, rectRadius: 0.12 });
-  s10.addText("impacto economico\nestimado (USD)", { x: 0.6, y: 1.1, w: 2.6, h: 0.7, fontSize: 17, fontFace: FONT, color: WHITE });
+  s10.addText("Impacto economico\nestimado (USD)", { x: 0.6, y: 1.1, w: 2.6, h: 0.7, fontSize: 17, fontFace: FONT, color: WHITE });
   s10.addText("Ahorro Costo Nuevas\nIntegraciones", { x: 0.6, y: 2.3, w: 2.6, h: 0.4, fontSize: 11, fontFace: FONT, color: SECURITY_GRAY });
   s10.addText("$186K/ANO", { x: 0.6, y: 2.8, w: 2.6, h: 0.5, fontSize: 22, fontFace: FONT, color: YUNO_BLUE, bold: true });
   s10.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 3.6, y: 0.8, w: 6.1, h: 4.4, fill: { color: "1E2026" }, rectRadius: 0.12 });
-  s10.addText("impacto economico (USD)", { x: 3.9, y: 0.95, w: 5.4, h: 0.35, fontSize: 17, fontFace: FONT, color: WHITE });
+  s10.addText("Impacto economico (USD)", { x: 3.9, y: 0.95, w: 5.4, h: 0.35, fontSize: 17, fontFace: FONT, color: WHITE });
   const mets = [
     { label: approvalMetricLabel, value: `${fmt(aumentoRevenue)}/MES`, y: 1.6 },
     { label: "REDUCCION COMISION (MDR)", value: `${fmt(ahorroMDRMensual)}/MES`, y: 1.6 },
@@ -265,7 +265,7 @@ async function generateBusinessCase(cfg) {
   // --- SLIDE 11: COMMERCIAL PROPOSAL ---
   let s11 = pres.addSlide();
   s11.background = { color: HARMONY_LILAC };
-  s11.addText("propuesta comercial", { x: 0.6, y: 0.35, w: 5, h: 0.6, fontSize: 28, fontFace: FONT, color: UNITY_BLACK, margin: 0 });
+  s11.addText("Propuesta comercial", { x: 0.6, y: 0.35, w: 5, h: 0.6, fontSize: 28, fontFace: FONT, color: UNITY_BLACK, margin: 0 });
   const terms = [
     { num: "01.", text: `Minimo transaccional: ${minimoTransaccional}` },
     { num: "02.", text: saasFee > 0 ? `Fee fijo SaaS mensual: ${fmtNum(saasFee)} USD` : "Sin fee fijo SaaS mensual" },
@@ -298,41 +298,14 @@ async function generateBusinessCase(cfg) {
   }
   s11.addText("yuno", { x: 0.5, y: 5.05, w: 1.5, h: 0.3, fontSize: 18, fontFace: FONT, color: YUNO_BLUE, bold: true });
 
-  // --- SLIDE 12: DIVIDER ---
-  let s12 = pres.addSlide();
-  s12.background = { color: UNITY_BLACK };
-  s12.addShape(pres.shapes.RECTANGLE, { x: 3.5, y: 0, w: 6.5, h: 5.625, fill: { color: YUNO_BLUE, transparency: 82 } });
-  s12.addText("casos de exito", { x: 1, y: 1.8, w: 8, h: 2, fontSize: 44, fontFace: FONT, color: WHITE, align: "center", valign: "middle" });
-
-  // --- SLIDES 13-15: CASE STUDIES ---
-  function makeCase(title, stats, footnote) {
-    let sl = pres.addSlide();
-    sl.background = { color: HARMONY_LILAC };
-    sl.addText(title, { x: 0.5, y: 0.35, w: 7.5, h: 0.5, fontSize: 20, fontFace: FONT, color: UNITY_BLACK, margin: 0 });
-    sl.addText("SOLUCION", { x: 8.2, y: 0.35, w: 1.3, h: 0.35, fontSize: 10, fontFace: FONT, color: SECURITY_GRAY, align: "right" });
-    stats.forEach((c, i) => {
-      const cx = 0.6 + i * 4.6;
-      const ac = i === 0 ? "34A853" : YUNO_BLUE;
-      sl.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx, y: 1.1, w: 4, h: 1.8, fill: { color: WHITE }, rectRadius: 0.1, shadow: mkShadow() });
-      sl.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: cx, y: 1.1, w: 0.07, h: 1.8, fill: { color: ac }, rectRadius: 0.035 });
-      sl.addText(c.label, { x: cx + 0.25, y: 1.2, w: 3.4, h: 0.25, fontSize: 11, fontFace: FONT, color: SECURITY_GRAY });
-      sl.addText(c.value, { x: cx + 0.25, y: 1.5, w: 3.4, h: 0.6, fontSize: 36, fontFace: FONT, color: ac, bold: true });
-      sl.addText(c.sub, { x: cx + 0.25, y: 2.2, w: 3.4, h: 0.25, fontSize: 9.5, fontFace: FONT, color: SECURITY_GRAY });
-    });
-    sl.addText(footnote, { x: 0.6, y: 3.3, w: 8.8, h: 0.35, fontSize: 10, fontFace: FONT, color: SECURITY_GRAY, italic: true });
-  }
-  makeCase("delivery superapp - suscripciones", [{ label: "Con retries", value: "90.40%", sub: "5.42M pagos exitosos" },{ label: "Sin retries", value: "85.09%", sub: "5.1M pagos exitosos" }], "Tasa de aprobacion mensual de tarjetas con y sin retries (Ago - Nov 2025)");
-  makeCase("cadena de gimnasios - subscripcion", [{ label: "Con retries", value: "84.07%", sub: "648.71K pagos exitosos" },{ label: "Sin retries", value: "81.40%", sub: "628.08K pagos exitosos" }], "Mejora de ~79% a ~87% en tasa de aprobacion con retries inteligentes (Jul - Oct 2025)");
-  makeCase("empresa seguros CO - caida de primer proveedor", [{ label: "Con retries (fallback)", value: "80.23%", sub: "338.27K pagos exitosos" },{ label: "Sin retries", value: "72.41%", sub: "305.32K pagos exitosos" }], "Sin el fallback de Yuno, la tasa cayo de 72% a 63% al fallar el proveedor primario (Oct 2025)");
-
-  // --- SLIDE 16: CLOSING ---
+  // --- SLIDE 12: CLOSING ---
   let s16 = pres.addSlide();
   s16.background = { color: UNITY_BLACK };
   s16.addShape(pres.shapes.RECTANGLE, { x: 5, y: -0.5, w: 6, h: 6.6, fill: { color: YUNO_BLUE, transparency: 80 } });
   s16.addText("yuno", { x: 0.6, y: 0.4, w: 2, h: 0.35, fontSize: 22, fontFace: FONT, color: WHITE, bold: true });
   s16.addText("W W W . Y . U N O", { x: 7.2, y: 0.4, w: 2.3, h: 0.35, fontSize: 9, fontFace: FONT, color: SECURITY_GRAY, align: "right", charSpacing: 2 });
-  s16.addText("crezcamos juntos", { x: 0.6, y: 1.8, w: 8, h: 1.2, fontSize: 48, fontFace: FONT, color: WHITE });
-  s16.addText("agendemos un 1:1 para mas detalles", { x: 0.6, y: 3.1, w: 8, h: 0.4, fontSize: 16, fontFace: FONT, color: SECURITY_GRAY });
+  s16.addText("Crezcamos juntos", { x: 0.6, y: 1.8, w: 8, h: 1.2, fontSize: 48, fontFace: FONT, color: WHITE });
+  s16.addText("Agendemos un 1:1 para mas detalles", { x: 0.6, y: 3.1, w: 8, h: 0.4, fontSize: 16, fontFace: FONT, color: SECURITY_GRAY });
   s16.addText("Rasheed Bayter", { x: 5.5, y: 3.9, w: 3, h: 0.3, fontSize: 13, fontFace: FONT, color: WHITE, bold: true });
   s16.addText("RASHEED@Y.UNO", { x: 5.5, y: 4.2, w: 3, h: 0.25, fontSize: 10, fontFace: FONT, color: SECURITY_GRAY });
   s16.addShape(pres.shapes.LINE, { x: 0.6, y: 5.05, w: 8.8, h: 0, line: { color: MID_GRAY, width: 0.4 } });
@@ -342,7 +315,7 @@ async function generateBusinessCase(cfg) {
   const buffer = await pres.write({ outputType: "nodebuffer" });
   try { fs.rmSync(logoDir, { recursive: true }); } catch {}
 
-  return { buffer, summary: { clientName, totalTPVMensual, totalTxnMes, ahorroMDRMensual, aumentoRevenue, totalMensual, slides: 16 } };
+  return { buffer, summary: { clientName, totalTPVMensual, totalTxnMes, ahorroMDRMensual, aumentoRevenue, totalMensual, slides: 12 } };
 }
 
 module.exports = { generateBusinessCase };
