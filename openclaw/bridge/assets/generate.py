@@ -97,23 +97,124 @@ def set_cell_text_multiline(cell, lines):
         p_elem.getparent().remove(p_elem)
 
 
-# ============ LOGO FALLBACK ============
+# ============ LOGO ROUNDED CORNERS ============
+def apply_rounded_corners(input_path, output_path, radius_ratio=0.09):
+    """Make a square logo with rounded corners. Preserves the image content."""
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        return False
+    try:
+        img = Image.open(input_path).convert("RGBA")
+        # Ensure square — crop to center square if not
+        w, h = img.size
+        if w != h:
+            m = min(w, h)
+            left = (w - m) // 2
+            top = (h - m) // 2
+            img = img.crop((left, top, left + m, top + m))
+            w = h = m
+        # Resize to 600x600 for consistency
+        size = 600
+        img = img.resize((size, size), Image.LANCZOS)
+        # Create rounded mask
+        radius = int(size * radius_ratio)
+        mask = Image.new("L", (size, size), 0)
+        draw = ImageDraw.Draw(mask)
+        draw.rounded_rectangle((0, 0, size, size), radius=radius, fill=255)
+        # Apply mask
+        output = Image.new("RGBA", (size, size), (255, 255, 255, 0))
+        output.paste(img, (0, 0), mask=mask)
+        output.save(output_path, "PNG")
+        return True
+    except Exception as e:
+        print(f"Rounded corners failed: {e}", file=sys.stderr)
+        return False
+
+
+# ============ LOGO FETCH VIA FIRECRAWL ============
+def fetch_logo_via_firecrawl(company_name, output_path):
+    """Search the web for the company logo using Firecrawl, download and process it."""
+    import urllib.request
+    import urllib.parse
+
+    api_key = os.environ.get("FIRECRAWL_API_KEY")
+    if not api_key:
+        print("FIRECRAWL_API_KEY not set, skipping web logo fetch", file=sys.stderr)
+        return False
+
+    try:
+        # 1. Search for the company logo URL
+        query = f"{company_name} logo png transparent"
+        req = urllib.request.Request(
+            "https://api.firecrawl.dev/v2/search",
+            data=json.dumps({"query": query, "limit": 5}).encode(),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            search_data = json.loads(r.read())
+
+        # Extract candidate URLs from web results
+        results = search_data.get("data", [])
+        if isinstance(results, dict):
+            results = results.get("web", [])
+        candidate_urls = []
+        for item in results:
+            url = item.get("url", "")
+            # Prefer direct image URLs
+            if any(url.lower().endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp"]):
+                candidate_urls.append(url)
+
+        # Also try Clearbit logo API (free, no auth)
+        # Guess domain from company name
+        domain_guess = company_name.lower().replace(" ", "").replace(".", "") + ".com"
+        candidate_urls.insert(0, f"https://logo.clearbit.com/{domain_guess}?size=600")
+
+        # 2. Download first working URL
+        for url in candidate_urls[:5]:
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    img_data = r.read()
+                if len(img_data) < 1000:
+                    continue
+                # Save raw download
+                raw_path = output_path + ".raw"
+                with open(raw_path, "wb") as f:
+                    f.write(img_data)
+                # Apply rounded corners
+                if apply_rounded_corners(raw_path, output_path):
+                    os.unlink(raw_path)
+                    print(f"Logo fetched from {url[:60]}...", file=sys.stderr)
+                    return True
+                os.unlink(raw_path)
+            except Exception as e:
+                continue
+
+        return False
+    except Exception as e:
+        print(f"Firecrawl logo fetch failed: {e}", file=sys.stderr)
+        return False
+
+
+# ============ LOGO FALLBACK (text-based) ============
 def create_logo_fallback(company_name, color_hex, output_path):
-    """Create a simple branded logo using PIL (avoids Node/sharp dependency)."""
+    """Create a text-based branded logo with rounded corners (PIL)."""
     try:
         from PIL import Image, ImageDraw, ImageFont
     except ImportError:
-        # Create a simple colored square as last resort
         with open(output_path, "wb") as f:
-            # 1x1 white PNG
             f.write(bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010100000000376ef9240000000a49444154789c6300010000000500010d0a2db40000000049454e44ae426082"))
         return
 
     size = 600
-    img = Image.new("RGB", (size, size), "white")
+    # Use RGBA with rounded corners from the start
+    img = Image.new("RGBA", (size, size), (255, 255, 255, 255))
     draw = ImageDraw.Draw(img)
     r, g, b = int(color_hex[0:2], 16), int(color_hex[2:4], 16), int(color_hex[4:6], 16)
-    # Try common fonts
     font = None
     for font_path in ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/System/Library/Fonts/Helvetica.ttc", "Arial.ttf"]:
         try:
@@ -124,12 +225,18 @@ def create_logo_fallback(company_name, color_hex, output_path):
             continue
     if font is None:
         font = ImageFont.load_default()
-    # Center text
     text = company_name.upper()
     bbox = draw.textbbox((0, 0), text, font=font)
     w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
     draw.text(((size - w) / 2, (size - h) / 2 - bbox[1]), text, fill=(r, g, b), font=font)
-    img.save(output_path, "PNG")
+
+    # Apply rounded corners mask
+    radius = int(size * 0.09)
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, size, size), radius=radius, fill=255)
+    output = Image.new("RGBA", (size, size), (255, 255, 255, 0))
+    output.paste(img, (0, 0), mask=mask)
+    output.save(output_path, "PNG")
 
 
 # ============ MAIN TEMPLATE EDITOR ============
@@ -472,20 +579,24 @@ def main():
         default_output = f"Business_Case_{company.replace(' ', '_')}.pptx"
         output = sys.argv[3] if len(sys.argv) > 3 else config.get("outputFile", default_output)
 
-    # Logo: use provided path or generate fallback
+    # Logo: use provided path, or fetch via Firecrawl, or generate text fallback
     logo_path = config.get("logoPath")
     logo_tmp = None
     if not logo_path:
-        color = config.get("brandColor", "3E4FE0")
         company_safe = config["clientName"].replace(" ", "_").replace("/", "_")
         logo_tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False, prefix=f"{company_safe}_logo_")
         logo_tmp.close()
         logo_path = logo_tmp.name
-        try:
-            create_logo_fallback(config["clientName"], color, logo_path)
-        except Exception as e:
-            print(f"Logo fallback failed: {e}", file=sys.stderr)
-            logo_path = None
+        # Try Firecrawl web search first
+        fetched = fetch_logo_via_firecrawl(config["clientName"], logo_path)
+        if not fetched:
+            # Fallback: text-based logo with brand color
+            color = config.get("brandColor", "3E4FE0")
+            try:
+                create_logo_fallback(config["clientName"], color, logo_path)
+            except Exception as e:
+                print(f"Logo fallback failed: {e}", file=sys.stderr)
+                logo_path = None
 
     try:
         result = edit_template(config, template, output, logo_path)
