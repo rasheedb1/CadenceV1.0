@@ -88,27 +88,34 @@ export function buildChiefOrchestratorServer(orgId: string) {
         const agent = await resolveAgent(orgId, agent_name);
         if (!agent) return { content: [{ type: 'text' as const, text: `Agente "${agent_name}" no encontrado.` }] };
 
-        // CHECK FOR FOLLOW-UP: if agent has a recent completed task with a session_id,
-        // resume that session instead of creating a new task. This gives the agent full
-        // conversation memory (like chatting with Claude normally).
+        // CHECK FOR FOLLOW-UP: only resume a recent session if the agent was actually
+        // WAITING for a reply (asked a question via ask_human). Otherwise, each new user
+        // message must start a fresh task so skill enrichment runs and the agent can ask
+        // the right questions for whichever skill is being invoked.
+        //
+        // Signal: previous task's scratchpad has last_action='asked_human'. If the agent
+        // simply completed a task, last_action will be absent or something else → new task.
         try {
           const lastTask = await sbGet<any[]>(
-            `agent_tasks_v2?assigned_agent_id=eq.${agent.id}&status=eq.done&org_id=eq.${orgId}&order=completed_at.desc&limit=1&select=id,title,session_id,completed_at,context_summary`
+            `agent_tasks_v2?assigned_agent_id=eq.${agent.id}&org_id=eq.${orgId}&order=updated_at.desc&limit=1&select=id,title,session_id,status,completed_at,updated_at,context_summary`
           ).catch(() => []);
-          if (Array.isArray(lastTask) && lastTask[0]?.session_id) {
-            const age = Date.now() - new Date(lastTask[0].completed_at || 0).getTime();
-            if (age < 30 * 60 * 1000) {
-              // FOLLOW-UP: Reopen the task with the user's new message and resume session
+          if (Array.isArray(lastTask) && lastTask[0]?.session_id && lastTask[0]?.context_summary) {
+            let prevPad: any = {};
+            try { prevPad = JSON.parse(lastTask[0].context_summary); } catch { prevPad = {}; }
+            const wasWaitingForReply = prevPad.last_action === 'asked_human';
+            const ageRef = lastTask[0].completed_at || lastTask[0].updated_at || 0;
+            const age = Date.now() - new Date(ageRef).getTime();
+
+            if (wasWaitingForReply && age < 30 * 60 * 1000) {
+              // FOLLOW-UP: agent asked a question, user is replying → resume session
               const taskId = lastTask[0].id;
-              let pad: any = {};
-              try { pad = JSON.parse(lastTask[0].context_summary || '{}'); } catch { pad = {}; }
-              if (!pad.conversation) pad.conversation = [];
-              pad.conversation.push({ role: 'user', ts: new Date().toISOString(), content: instruction.substring(0, 1000) });
-              pad.last_action = 'user_replied';
+              if (!prevPad.conversation) prevPad.conversation = [];
+              prevPad.conversation.push({ role: 'user', ts: new Date().toISOString(), content: instruction.substring(0, 1000) });
+              prevPad.last_action = 'user_replied';
 
               await sbPatch(`agent_tasks_v2?id=eq.${taskId}`, {
                 status: 'in_progress',
-                context_summary: JSON.stringify(pad),
+                context_summary: JSON.stringify(prevPad),
                 updated_at: new Date().toISOString(),
               });
 
@@ -119,7 +126,7 @@ export function buildChiefOrchestratorServer(orgId: string) {
                 body: JSON.stringify({ agent_id: agent.id, task_id: taskId }),
               }).catch(() => {});
 
-              console.log(`[delegar_tarea] FOLLOW-UP: resumed session ${lastTask[0].session_id.substring(0, 12)} for ${agent.name}`);
+              console.log(`[delegar_tarea] FOLLOW-UP: resumed session ${lastTask[0].session_id.substring(0, 12)} for ${agent.name} (was waiting for reply)`);
               return { content: [{ type: 'text' as const, text: `Follow-up enviado a ${agent.name}. Te llegará la respuesta por WhatsApp.` }] };
             }
           }
@@ -204,28 +211,33 @@ export function buildChiefOrchestratorServer(orgId: string) {
         const agent = await resolveAgent(orgId, agent_name);
         if (!agent) return { content: [{ type: 'text' as const, text: `Agente "${agent_name}" no encontrado.` }] };
 
-        // CHECK FOR FOLLOW-UP: resume session if agent has recent task
+        // CHECK FOR FOLLOW-UP: only resume a recent session if the agent was actually
+        // WAITING for a reply (last_action='asked_human'). Otherwise each new user message
+        // must start a fresh task so skill enrichment runs correctly.
         try {
           const lastTask = await sbGet<any[]>(
-            `agent_tasks_v2?assigned_agent_id=eq.${agent.id}&status=eq.done&org_id=eq.${orgId}&order=completed_at.desc&limit=1&select=id,session_id,completed_at,context_summary`
+            `agent_tasks_v2?assigned_agent_id=eq.${agent.id}&org_id=eq.${orgId}&order=updated_at.desc&limit=1&select=id,session_id,status,completed_at,updated_at,context_summary`
           ).catch(() => []);
-          if (Array.isArray(lastTask) && lastTask[0]?.session_id) {
-            const age = Date.now() - new Date(lastTask[0].completed_at || 0).getTime();
-            if (age < 30 * 60 * 1000) {
+          if (Array.isArray(lastTask) && lastTask[0]?.session_id && lastTask[0]?.context_summary) {
+            let prevPad: any = {};
+            try { prevPad = JSON.parse(lastTask[0].context_summary); } catch { prevPad = {}; }
+            const wasWaitingForReply = prevPad.last_action === 'asked_human';
+            const ageRef = lastTask[0].completed_at || lastTask[0].updated_at || 0;
+            const age = Date.now() - new Date(ageRef).getTime();
+
+            if (wasWaitingForReply && age < 30 * 60 * 1000) {
               const taskId = lastTask[0].id;
-              let pad: any = {};
-              try { pad = JSON.parse(lastTask[0].context_summary || '{}'); } catch { pad = {}; }
-              if (!pad.conversation) pad.conversation = [];
-              pad.conversation.push({ role: 'user', ts: new Date().toISOString(), content: message.substring(0, 1000) });
-              pad.last_action = 'user_replied';
+              if (!prevPad.conversation) prevPad.conversation = [];
+              prevPad.conversation.push({ role: 'user', ts: new Date().toISOString(), content: message.substring(0, 1000) });
+              prevPad.last_action = 'user_replied';
               await sbPatch(`agent_tasks_v2?id=eq.${taskId}`, {
-                status: 'in_progress', context_summary: JSON.stringify(pad), updated_at: new Date().toISOString(),
+                status: 'in_progress', context_summary: JSON.stringify(prevPad), updated_at: new Date().toISOString(),
               });
               fetch(`${CHIEF_AGENTS_URL}/execute`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ agent_id: agent.id, task_id: taskId }),
               }).catch(() => {});
-              console.log(`[consultar_agente] FOLLOW-UP: resumed session for ${agent.name}`);
+              console.log(`[consultar_agente] FOLLOW-UP: resumed session for ${agent.name} (was waiting for reply)`);
               return { content: [{ type: 'text' as const, text: `Follow-up enviado a ${agent.name}. Te llegará la respuesta por WhatsApp.` }] };
             }
           }

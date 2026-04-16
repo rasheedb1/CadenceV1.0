@@ -248,7 +248,24 @@ def edit_template(config, template_path, output_path, logo_path=None):
     mdr_nuevo = config["mdrNuevo"]
     total_txns = config["totalTxnMes"]
     ticket = config["ticketPromedio"]
-    tpv_mensual = total_txns * ticket
+
+    # Compute TPV from per-country data so ticket-per-country inputs propagate
+    # to slide 8 / 12 calculations. Falls back to global ticket × totalTxnMes
+    # when countries is empty or tickets aren't specified per country.
+    _countries = config.get("countries") or []
+    per_country_txns = sum(c.get("txnsPerMonth", c.get("txnPerMonth", 0)) for c in _countries)
+    per_country_tpv = sum(
+        c.get("txnsPerMonth", c.get("txnPerMonth", 0)) * c.get("ticketPromedio", ticket)
+        for c in _countries
+    )
+    if per_country_tpv > 0:
+        tpv_mensual = per_country_tpv
+        # Keep totalTxnMes consistent with the countries breakdown
+        if per_country_txns > 0:
+            total_txns = per_country_txns
+    else:
+        tpv_mensual = total_txns * ticket
+
     costo_actual = tpv_mensual * mdr_actual
     costo_nuevo = tpv_mensual * mdr_nuevo
     reduccion_mdr = costo_actual - costo_nuevo
