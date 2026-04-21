@@ -718,7 +718,7 @@ async function executeTool(name, args) {
       case 'capturar_pantalla': {
         const FIRECRAWL_KEY = process.env.FIRECRAWL_API_KEY;
         if (!FIRECRAWL_KEY) return { success: false, error: 'FIRECRAWL_API_KEY no configurada' };
-        const redirectTo = `https://laiky-cadence.vercel.app${args.page_path}`;
+        const redirectTo = `https://chief.yuno.tools${args.page_path}`;
         const linkRes = await supabaseFetch(`${base}/auth/v1/admin/generate_link`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, 'apikey': SUPABASE_SERVICE_ROLE_KEY },

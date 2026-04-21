@@ -106,7 +106,7 @@ export function OrgMembers() {
         .single()
 
       if (error) throw error
-      const link = `https://laiky-cadence.vercel.app/invite/${inv.token}`
+      const link = `https://chief.yuno.tools/invite/${inv.token}`
       navigator.clipboard.writeText(link)
       toast.success('Invite link copied to clipboard!')
       fetchData()
@@ -321,7 +321,7 @@ export function OrgMembers() {
                       size="icon"
                       className="h-8 w-8"
                       onClick={() => {
-                        navigator.clipboard.writeText(`https://laiky-cadence.vercel.app/invite/${inv.token}`)
+                        navigator.clipboard.writeText(`https://chief.yuno.tools/invite/${inv.token}`)
                         toast.success('Link copied')
                       }}
                     >

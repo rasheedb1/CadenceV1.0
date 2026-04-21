@@ -4,7 +4,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { createSupabaseClient, getAuthContext } from '../_shared/supabase.ts'
 
-const REDIRECT_URI = 'https://laiky-cadence.vercel.app/account-executive?calendar=connected'
+const REDIRECT_URI = 'https://chief.yuno.tools/account-executive?calendar=connected'
 
 interface TokenResponse {
   access_token: string

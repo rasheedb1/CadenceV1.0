@@ -219,7 +219,7 @@ export function buildChiefToolsServer(agent: AgentConfig) {
     'screenshot_page',
     'Take a screenshot of a web page. Returns a screenshot URL. Use this to visually audit UI pages, check layouts, verify designs.',
     {
-      url: z.string().describe('Full URL to screenshot (e.g. https://laiky-cadence.vercel.app/leads)'),
+      url: z.string().describe('Full URL to screenshot (e.g. https://chief.yuno.tools/leads)'),
       wait_ms: z.number().optional().describe('Wait time in ms for page to load (default 5000)'),
     },
     async ({ url, wait_ms }) => {

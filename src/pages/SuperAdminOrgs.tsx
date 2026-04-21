@@ -329,7 +329,7 @@ export function SuperAdminOrgs() {
     if (invErr) {
       toast.error('Failed to create invitation: ' + invErr.message)
     } else {
-      const link = `https://laiky-cadence.vercel.app/invite/${inv.token}`
+      const link = `https://chief.yuno.tools/invite/${inv.token}`
       navigator.clipboard.writeText(link)
       toast.success('Enlace copiado al portapapeles')
     }
@@ -744,7 +744,7 @@ export function SuperAdminOrgs() {
                             size="icon"
                             className="h-7 w-7"
                             onClick={() => {
-                              navigator.clipboard.writeText(`https://laiky-cadence.vercel.app/invite/${inv.token}`)
+                              navigator.clipboard.writeText(`https://chief.yuno.tools/invite/${inv.token}`)
                               toast.success('Enlace copiado')
                             }}
                           >

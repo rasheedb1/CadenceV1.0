@@ -96,14 +96,14 @@ serve(async (req: Request) => {
     } else {
       // Default redirect with gmail_status query param
       hostedAuthPayload.success_redirect_url = supabaseUrl
-        ? `${supabaseUrl.replace('.supabase.co', '.vercel.app')}?gmail_status=success`
+        ? `https://chief.yuno.tools?gmail_status=success`
         : undefined
     }
     if (body.failureRedirectUrl) {
       hostedAuthPayload.failure_redirect_url = body.failureRedirectUrl
     } else {
       hostedAuthPayload.failure_redirect_url = supabaseUrl
-        ? `${supabaseUrl.replace('.supabase.co', '.vercel.app')}?gmail_status=failed`
+        ? `https://chief.yuno.tools?gmail_status=failed`
         : undefined
     }
 

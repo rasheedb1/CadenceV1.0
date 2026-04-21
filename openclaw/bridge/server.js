@@ -2519,7 +2519,7 @@ The agent can install ANY CLI tool via npx or npm at runtime — they have full 
           const FIRECRAWL_KEY = process.env.FIRECRAWL_API_KEY;
           if (!FIRECRAWL_KEY) return { success: false, error: "FIRECRAWL_API_KEY no configurada en el servidor" };
           // Step 1: Generate magic link
-          const redirectTo = `https://laiky-cadence.vercel.app${page_path}`;
+          const redirectTo = `https://chief.yuno.tools${page_path}`;
           const linkRes = await sbFetch(`${base}/auth/v1/admin/generate_link`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SB_KEY}`, "apikey": SB_KEY },

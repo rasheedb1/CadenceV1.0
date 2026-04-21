@@ -407,6 +407,7 @@ export class UnipileClient {
     limit?: number
     cursor?: string
     linkedin_url?: string
+    website?: string
   }): Promise<UnipileResponse> {
     const body: Record<string, unknown> = {
       api: 'sales_navigator',
@@ -454,6 +455,34 @@ export class UnipileClient {
                     companyLookupFailed = true
                   }
                 } catch {
+                  companyLookupFailed = true
+                }
+              } else if (params.website) {
+                // Retry with website domain as company identifier
+                const domain = params.website.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]
+                const domainName = domain.split('.')[0] // e.g., "cora" from "cora.com.br"
+                if (domainName && domainName.toLowerCase() !== name.toLowerCase()) {
+                  console.log(`✗ No results for "${name}", retrying with website domain "${domainName}"`)
+                  try {
+                    const domainLookup = await this.lookupSearchParameters(accountId, 'COMPANY', domainName, 3)
+                    if (domainLookup.success && domainLookup.data) {
+                      const domainItems = ((domainLookup.data as Record<string, unknown>)?.items || []) as Array<Record<string, unknown>>
+                      if (domainItems.length > 0 && domainItems[0].id != null) {
+                        const stringId = String(domainItems[0].id)
+                        companyIds.push(stringId)
+                        console.log(`✓ Resolved company via website domain "${domainName}" → ID "${stringId}"`)
+                      } else {
+                        console.warn(`✗ No lookup results for website domain "${domainName}"`)
+                        companyLookupFailed = true
+                      }
+                    } else {
+                      companyLookupFailed = true
+                    }
+                  } catch {
+                    companyLookupFailed = true
+                  }
+                } else {
+                  console.warn(`✗ No lookup results for company "${name}"`)
                   companyLookupFailed = true
                 }
               } else {

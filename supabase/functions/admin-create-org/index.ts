@@ -91,7 +91,7 @@ serve(async (req) => {
     if (inviteError) {
       console.error('Failed to create invitation:', inviteError)
     } else {
-      inviteLink = `https://laiky-cadence.vercel.app/invite/${invitation.token}`
+      inviteLink = `https://chief.yuno.tools/invite/${invitation.token}`
     }
 
     return new Response(
