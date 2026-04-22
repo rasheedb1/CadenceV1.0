@@ -220,19 +220,30 @@ slideBuilders.forEach((builder) => {
 </html>
 `
 
-function htmlResponse(html, status = 200) {
+function htmlResponse(html, status = 200, opts = {}) {
   return new Response(html, {
     status,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'public, max-age=60',
+      // Expired/not-found responses must not be cached by CDNs (regeneration scenario).
+      'Cache-Control': opts.noStore ? 'no-store' : 'public, max-age=60',
       'X-Content-Type-Options': 'nosniff',
     },
   })
 }
 
+// Proper HTML entity escape — strips nothing, escapes known dangerous chars.
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 function expiredHtml(clientName) {
-  const safeName = clientName.replace(/[<>&"']/g, '')
+  const safeName = escapeHtml(clientName || '')
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><title>Link expired · Yuno</title><link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@200;300;400;600&display=swap" rel="stylesheet" /><style>body{margin:0;font-family:'Titillium Web',sans-serif;background:radial-gradient(ellipse at 50% 0%,#1A1F35 0%,#06070B 60%);color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center}.card{max-width:520px;padding:48px 40px;text-align:center}.eyebrow{font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:rgba(140,153,255,0.9);font-weight:700;margin-bottom:24px}h1{font-size:48px;font-weight:200;letter-spacing:-0.02em;margin:0 0 20px}p{font-size:17px;line-height:1.55;color:rgba(255,255,255,0.68);margin:0 0 32px}a{color:#E0ED80;text-decoration:none;border-bottom:1px solid rgba(224,237,128,0.35);padding-bottom:2px;font-weight:600}</style></head><body><div class="card"><div class="eyebrow">· link expired</div><h1>This deck is no longer available</h1><p>The business case for ${safeName || 'this client'} has expired. Ask your Yuno contact to regenerate it.</p><a href="https://chief.yuno.tools/presentaciones">View active presentations →</a></div></body></html>`
 }
 
@@ -241,13 +252,19 @@ function notFoundHtml() {
 }
 
 Deno.serve(async (req) => {
+  const reqId = crypto.randomUUID().slice(0, 8)  // opaque log correlator
   const url = new URL(req.url)
   const slug = url.searchParams.get('slug') || url.pathname.split('/').filter(Boolean).pop() || ''
 
-  if (!slug) return htmlResponse(notFoundHtml(), 404)
+  if (!slug) return htmlResponse(notFoundHtml(), 404, { noStore: true })
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceKey = Deno.env.get('SERVICE_ROLE_KEY_FULL') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  if (!supabaseUrl || !serviceKey) {
+    console.error(`render[${reqId}]: missing supabase env`)
+    return htmlResponse(notFoundHtml(), 500, { noStore: true })
+  }
+
   const supabase = createClient(supabaseUrl, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
@@ -259,35 +276,58 @@ Deno.serve(async (req) => {
     .maybeSingle()
 
   if (error) {
-    console.error('DB error:', error)
-    return htmlResponse(notFoundHtml(), 500)
+    console.error(`render[${reqId}]: db lookup error`)
+    return htmlResponse(notFoundHtml(), 500, { noStore: true })
   }
-  if (!row) return htmlResponse(notFoundHtml(), 404)
-  if (row.archived) return htmlResponse(expiredHtml(row.client_name), 410)
+  if (!row) return htmlResponse(notFoundHtml(), 404, { noStore: true })
+  if (row.archived) return htmlResponse(expiredHtml(row.client_name), 410, { noStore: true })
 
   const now = new Date()
   const expiresAt = new Date(row.expires_at)
   if (expiresAt <= now) {
-    await supabase.from('presentations').update({ archived: true }).eq('slug', slug)
-    return htmlResponse(expiredHtml(row.client_name), 410)
+    // Lazy-archive with guard: .eq('archived', false) so concurrent requests no-op after
+    // the first archives the row (avoids redundant writes + trigger firing).
+    await supabase
+      .from('presentations')
+      .update({ archived: true })
+      .eq('slug', slug)
+      .eq('archived', false)
+    return htmlResponse(expiredHtml(row.client_name), 410, { noStore: true })
   }
 
+  // Belt-and-suspenders: the column is NOT NULL, but a malformed row shouldn't
+  // render "null" as BC_DEFAULTS and cascade NaN through every calc on the client.
+  if (!row.defaults || typeof row.defaults !== 'object') {
+    console.error(`render[${reqId}]: row.defaults malformed for slug=${slug}`)
+    return htmlResponse(notFoundHtml(), 500, { noStore: true })
+  }
+
+  // JSON-in-script escape:
+  //  - `<` and `-->`  : prevent </script> and comment break-out
+  //  - U+2028/U+2029  : JS line terminators that JSON.stringify leaves raw; they
+  //                     can break out of a JS string in older parsers.
   const defaultsJson = JSON.stringify(row.defaults)
-    .replace(/</g, '\u003c')
-    .replace(/-->/g, '--\u003e')
+    .replace(/</g, '\\u003c')
+    .replace(/-->/g, '--\\u003e')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
 
   const openIdx = TEMPLATE.indexOf(PLACEHOLDER_OPEN)
   const closeIdx = TEMPLATE.indexOf(PLACEHOLDER_CLOSE)
   if (openIdx === -1 || closeIdx === -1 || closeIdx < openIdx) {
-    console.error('Template placeholder missing')
-    return new Response('Template misconfigured', { status: 500 })
+    console.error(`render[${reqId}]: template placeholder missing`)
+    return new Response('Template misconfigured', {
+      status: 500,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+    })
   }
   const before = TEMPLATE.slice(0, openIdx)
   const after = TEMPLATE.slice(closeIdx + PLACEHOLDER_CLOSE.length)
   const injected = before + defaultsJson + after
 
-  const safeTitle = (row.client_name || 'Yuno').replace(/[<>&"']/g, '')
-  const final = injected.replace('__CLIENT_NAME__', safeTitle)
+  // __CLIENT_NAME__ is in <title>; HTML-escape properly (not strip-escape).
+  const safeTitle = escapeHtml(row.client_name || 'Yuno')
+  const finalHtml = injected.replace('__CLIENT_NAME__', safeTitle)
 
-  return htmlResponse(final)
+  return htmlResponse(finalHtml)
 })

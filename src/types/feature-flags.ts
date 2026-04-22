@@ -53,7 +53,7 @@ export const DEFAULT_FEATURE_FLAGS: OrgFeatureFlags = {
   section_notifications: true,
   section_lead_search: true,
   section_agents: false,
-  section_presentaciones: true,
+  section_presentaciones: false,  // flip to true per-org after migrations 097+098 deploy
   section_account_executive: true,
   ae_gong_integration: true,
   ae_calendar_integration: true,

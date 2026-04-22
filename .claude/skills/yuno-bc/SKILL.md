@@ -22,20 +22,28 @@ Preserve casing (Rappi stays Rappi, ikea stays ikea). Ask if not provided:
 > ¿Para qué cliente?
 
 ### 2. Get the org_id
-The edge function requires `orgId` on the body. For an interactive Claude Code session, query Supabase once to get the user's first/primary org:
+The edge function requires `orgId` on the body. For an interactive Claude Code session, query Supabase once to get the user's first/primary org. Reads the Supabase Personal Access Token from `$SUPABASE_ACCESS_TOKEN` — never hardcode it in files or chat:
+
 ```bash
+test -n "$SUPABASE_ACCESS_TOKEN" || { echo "Set SUPABASE_ACCESS_TOKEN in your shell env"; exit 1; }
 python3 - <<'PY'
-import json, urllib.request
+import json, os, urllib.request
 q = "SELECT id, name FROM organizations ORDER BY created_at LIMIT 1;"
 r = urllib.request.Request(
   'https://api.supabase.com/v1/projects/arupeqczrxmfkcbjwyad/database/query',
   data=json.dumps({'query': q}).encode(),
-  headers={'Authorization':'Bearer sbp_c50f8339753a1ef3d0949ca821f1b2e191a9e37b','Content-Type':'application/json','User-Agent':'supabase-cli/claude-code'},
+  headers={
+    'Authorization': f"Bearer {os.environ['SUPABASE_ACCESS_TOKEN']}",
+    'Content-Type': 'application/json',
+    'User-Agent': 'supabase-cli/claude-code',
+  },
   method='POST',
 )
 print(urllib.request.urlopen(r, timeout=30).read().decode())
 PY
 ```
+
+> ⚠️ The Supabase Personal Access Token (`sbp_...`) is an admin credential — never commit it, paste it in chat, or share in logs. If exposed, rotate immediately at https://supabase.com/dashboard/account/tokens.
 
 Save the `id` value for the create payload.
 

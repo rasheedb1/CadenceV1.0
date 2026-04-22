@@ -2,17 +2,17 @@
 // Creates a new business case deck row in `presentations`, optionally researching the client's
 // payment stack via Firecrawl. Called by Chief's MCP tool, the /yuno-bc skill, and the frontend.
 //
-// Auth: shared secret via X-Agent-Token header
-// Method: POST with JSON body
-// Returns: { slug, url, providers, expiresAt }
+// Auth: shared secret via X-Agent-Token header (constant-time compared).
+// Method: POST with JSON body.
+// Returns: { slug, url, providers, expiresAt }.
 
-import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { createSupabaseClient } from '../_shared/supabase.ts'
 import { createFirecrawlClient } from '../_shared/firecrawl.ts'
 
 const PUBLIC_BASE_URL = 'https://chief.yuno.tools'
+const FIRECRAWL_TIMEOUT_MS = 15_000
 
-// Same PSP list as the research.py helper.
+// Known PSPs/acquirers — kept in sync with .claude/skills/yuno-bc/research.py.
 const KNOWN_PSPS: Record<string, string[]> = {
   'stripe': ['stripe'],
   'adyen': ['adyen'],
@@ -53,7 +53,45 @@ const KNOWN_PSPS: Record<string, string[]> = {
   'ingenico': ['ingenico'],
 }
 
-// Regex-safe escape without using $& replacement (which flags a security hook as false positive).
+// Restrict CORS to known origins for an auth'd POST (we don't use the shared '*' helper).
+const ALLOWED_ORIGINS = new Set([
+  'https://chief.yuno.tools',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:8888',
+])
+
+function corsHeadersFor(origin: string | null): Record<string, string> {
+  const allow = origin && ALLOWED_ORIGINS.has(origin) ? origin : 'https://chief.yuno.tools'
+  return {
+    'Access-Control-Allow-Origin': allow,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-agent-token',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Vary': 'Origin',
+  }
+}
+
+function json(data: unknown, status: number, origin: string | null): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeadersFor(origin), 'Content-Type': 'application/json' },
+  })
+}
+
+function err(msg: string, status: number, origin: string | null): Response {
+  return json({ error: msg }, status, origin)
+}
+
+// Constant-time string equality (byte-level XOR accumulation).
+function timingSafeStrEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  const ua = new TextEncoder().encode(a)
+  const ub = new TextEncoder().encode(b)
+  let diff = 0
+  for (let i = 0; i < ua.length; i++) diff |= ua[i] ^ ub[i]
+  return diff === 0
+}
+
 function escapeRegex(s: string): string {
   const specials = new Set(['.', '*', '+', '?', '^', '{', '}', '(', ')', '|', '[', ']', '\\'])
   let out = ''
@@ -74,7 +112,9 @@ function slugify(name: string): string {
 function randomSuffix(len = 6): string {
   const chars = 'abcdefghijkmnpqrstuvwxyz23456789'
   let s = ''
-  for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * chars.length)]
+  const bytes = new Uint8Array(len)
+  crypto.getRandomValues(bytes)
+  for (let i = 0; i < len; i++) s += chars[bytes[i] % chars.length]
   return s
 }
 
@@ -105,6 +145,14 @@ function extractPSPs(corpus: string): string[] {
   return out.slice(0, 12)
 }
 
+type TimeoutTag = { _timeout: string }
+async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T | TimeoutTag> {
+  const timer = new Promise<TimeoutTag>((resolve) =>
+    setTimeout(() => resolve({ _timeout: label }), ms),
+  )
+  return Promise.race([p, timer])
+}
+
 async function researchPaymentStack(clientName: string): Promise<{ providers: string[]; raw: unknown }> {
   let firecrawl
   try {
@@ -113,18 +161,31 @@ async function researchPaymentStack(clientName: string): Promise<{ providers: st
     return { providers: [], raw: { error: 'FIRECRAWL_API_KEY not set' } }
   }
 
-  const q = (text: string) => text
   const queries = [
-    q('"' + clientName + '" payment providers stripe adyen PSP'),
-    q('"' + clientName + '" checkout payment processor acquirer'),
-    q('"' + clientName + '" pagos dlocal mercadopago payu'),
+    '"' + clientName + '" payment providers stripe adyen PSP',
+    '"' + clientName + '" checkout payment processor acquirer',
+    '"' + clientName + '" pagos dlocal mercadopago payu',
   ]
 
   const searchResults: Array<{ url?: string; title?: string; description?: string }> = []
+  const failures: string[] = []
+
+  // Per-call try/catch so one Firecrawl failure doesn't kill the whole create request.
   for (const query of queries) {
-    const r = await firecrawl.search(query, { limit: 5, maxRetries: 1 })
-    if (r.success && Array.isArray(r.data)) {
-      searchResults.push(...r.data)
+    try {
+      const res = await withTimeout(
+        firecrawl.search(query, { limit: 5, maxRetries: 1 }),
+        FIRECRAWL_TIMEOUT_MS,
+        'search',
+      )
+      if ('_timeout' in res) {
+        failures.push('search timeout')
+        continue
+      }
+      if (res.success && Array.isArray(res.data)) searchResults.push(...res.data)
+      else if (!res.success) failures.push(String(res.error || 'search failed'))
+    } catch (e) {
+      failures.push('search ' + (e instanceof Error ? e.message : 'unknown'))
     }
   }
 
@@ -142,8 +203,17 @@ async function researchPaymentStack(clientName: string): Promise<{ providers: st
     const deeper: string[] = []
     for (const r of unique.slice(0, 2)) {
       if (!r.url) continue
-      const s = await firecrawl.scrape(r.url, { maxCharacters: 4000 })
-      if (s.success && s.data?.markdown) deeper.push(s.data.markdown.slice(0, 4000))
+      try {
+        const s = await withTimeout(
+          firecrawl.scrape(r.url, { maxCharacters: 4000 }),
+          FIRECRAWL_TIMEOUT_MS,
+          'scrape',
+        )
+        if ('_timeout' in s) continue
+        if (s.success && s.data?.markdown) deeper.push(s.data.markdown.slice(0, 4000))
+      } catch {
+        // Best-effort; a failed scrape shouldn't cascade.
+      }
     }
     providers = extractPSPs(corpusCheap + ' ' + deeper.join(' '))
   }
@@ -153,174 +223,292 @@ async function researchPaymentStack(clientName: string): Promise<{ providers: st
     raw: {
       queries,
       resultsFound: unique.length,
+      failures: failures.length ? failures : undefined,
       topResults: unique.slice(0, 10).map((r) => ({ title: r.title, url: r.url })),
     },
   }
 }
 
-function assertRange(name: string, v: unknown, min: number, max: number): number {
-  const n = Number(v)
-  if (!Number.isFinite(n) || n < min || n > max) {
-    throw new Error(name + ' must be a number in [' + min + ', ' + max + '], got: ' + JSON.stringify(v))
+// Numeric range assertion. Throws on bad input.
+function n(name: string, v: unknown, min: number, max: number): number {
+  const x = Number(v)
+  if (!Number.isFinite(x) || x < min || x > max) {
+    throw new Error(name + ' must be a finite number in [' + min + ', ' + max + '], got: ' + JSON.stringify(v))
   }
-  return n
+  return x
+}
+
+// Shape-validate a rateTiers array. Returns sanitized array or throws.
+function validateRateTiers(input: unknown): Array<{ upToTx: number | null; ratePerTx: number }> {
+  if (!Array.isArray(input) || input.length === 0) throw new Error('rateTiers must be a non-empty array')
+  if (input.length > 20) throw new Error('rateTiers cannot exceed 20 tiers')
+  const out: Array<{ upToTx: number | null; ratePerTx: number }> = []
+  let prevUpTo = 0
+  for (let i = 0; i < input.length; i++) {
+    const t = input[i] as Record<string, unknown>
+    if (!t || typeof t !== 'object') throw new Error('rateTiers[' + i + '] must be an object')
+    const rate = Number(t.ratePerTx)
+    if (!Number.isFinite(rate) || rate <= 0 || rate > 10) {
+      throw new Error('rateTiers[' + i + '].ratePerTx must be a positive number ≤ 10, got: ' + JSON.stringify(t.ratePerTx))
+    }
+    let upTo: number | null
+    if (t.upToTx === null || t.upToTx === undefined) {
+      upTo = null
+      if (i !== input.length - 1) throw new Error('only the final rateTier may have upToTx=null')
+    } else {
+      const u = Number(t.upToTx)
+      if (!Number.isInteger(u) || u <= prevUpTo) {
+        throw new Error('rateTiers[' + i + '].upToTx must be an integer > previous tier upToTx (' + prevUpTo + ')')
+      }
+      upTo = u
+      prevUpTo = u
+    }
+    out.push({ upToTx: upTo, ratePerTx: rate })
+  }
+  return out
+}
+
+const COST_MODEL_KEYS = [
+  'integrationPerProvider',
+  'maintenancePerProvider3yr',
+  'fteCostYr',
+  'compliancePerMarket',
+  'yunoIntegration',
+  'yunoMaintenance3yr',
+  'yunoCompliance',
+] as const
+
+function validateCostModel(input: unknown): Record<string, number> | undefined {
+  if (input === undefined || input === null) return undefined
+  if (typeof input !== 'object') throw new Error('costModel must be an object')
+  const src = input as Record<string, unknown>
+  const out: Record<string, number> = {}
+  for (const k of COST_MODEL_KEYS) {
+    if (k in src) {
+      const v = Number(src[k])
+      if (!Number.isFinite(v) || v < 0 || v > 1e9) {
+        throw new Error('costModel.' + k + ' must be a finite non-negative number ≤ 1e9')
+      }
+      out[k] = v
+    }
+  }
+  return out
+}
+
+function mergeCostModels(
+  parent: Record<string, number> | undefined,
+  override: Record<string, number> | undefined,
+): Record<string, number> | undefined {
+  if (!parent && !override) return undefined
+  return { ...(parent || {}), ...(override || {}) }
 }
 
 Deno.serve(async (req: Request) => {
-  const cors = handleCors(req)
-  if (cors) return cors
+  const origin = req.headers.get('origin')
 
-  if (req.method !== 'POST') return errorResponse('Method not allowed', 405)
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeadersFor(origin) })
+  }
 
+  if (req.method !== 'POST') return err('Method not allowed', 405, origin)
+
+  // Auth: shared secret with constant-time comparison
   const expectedToken = Deno.env.get('PRESENTATIONS_AGENT_TOKEN')
-  if (!expectedToken) return errorResponse('Server misconfigured: PRESENTATIONS_AGENT_TOKEN not set', 500)
-  const provided = req.headers.get('x-agent-token') || req.headers.get('X-Agent-Token')
-  if (provided !== expectedToken) return errorResponse('Invalid X-Agent-Token', 401)
+  if (!expectedToken) return err('Server misconfigured: PRESENTATIONS_AGENT_TOKEN not set', 500, origin)
+  const provided = req.headers.get('x-agent-token') || req.headers.get('X-Agent-Token') || ''
+  if (!timingSafeStrEqual(provided, expectedToken)) {
+    return err('Invalid X-Agent-Token', 401, origin)
+  }
 
   let body: Record<string, unknown>
   try {
     body = await req.json()
   } catch {
-    return errorResponse('Invalid JSON body', 400)
+    return err('Invalid JSON body', 400, origin)
   }
 
   const supabase = createSupabaseClient()
 
+  // Regeneration: load parent row. costModel is deep-merged (partial overrides keep other keys).
   let parentId: string | null = null
-  let baseDefaults: Record<string, unknown> = {}
+  let base: Record<string, unknown> = {}
   let baseOrgId: string | null = null
-  const regenerateFrom = body.regenerateFrom as string | undefined
+  const regenerateFrom = typeof body.regenerateFrom === 'string' ? body.regenerateFrom : undefined
   if (regenerateFrom) {
-    const { data: parent, error: parentErr } = await supabase
+    const { data: parent, error: pErr } = await supabase
       .from('presentations')
       .select('id, org_id, defaults')
       .eq('slug', regenerateFrom)
       .maybeSingle()
-    if (parentErr || !parent) return errorResponse('regenerateFrom slug not found: ' + regenerateFrom, 404)
+    if (pErr) {
+      console.error('bc-create: regenerate lookup error')
+      return err('regenerateFrom lookup failed', 500, origin)
+    }
+    if (!parent) return err('regenerateFrom slug not found: ' + regenerateFrom, 404, origin)
     parentId = parent.id
     baseOrgId = parent.org_id
-    baseDefaults = (parent.defaults as Record<string, unknown>) || {}
+    base = (parent.defaults as Record<string, unknown>) || {}
   }
 
-  const d = { ...baseDefaults, ...body }
+  const orgId = (typeof body.orgId === 'string' && body.orgId) || baseOrgId
+  if (!orgId) return err('orgId is required', 400, origin)
 
-  const orgId = (d.orgId as string) || baseOrgId
-  if (!orgId) return errorResponse('orgId is required', 400)
+  // pick: prefer body override, fall back to parent defaults. No permissive spread.
+  const pick = <T = unknown>(k: string): T | undefined => {
+    const v = body[k]
+    return v !== undefined ? (v as T) : (base[k] as T)
+  }
 
-  const clientName = ((d.clientName as string) || '').trim()
-  if (!clientName) return errorResponse('clientName is required', 400)
+  const clientNameRaw = pick<string>('clientName')
+  const clientName = typeof clientNameRaw === 'string' ? clientNameRaw.trim() : ''
+  if (!clientName) return err('clientName is required', 400, origin)
+  if (clientName.length > 100) return err('clientName too long (max 100)', 400, origin)
 
-  let tpv, avgTicket, currentApproval, currentMDR, grossMargin
+  let tpv: number, avgTicket: number, currentApproval: number, currentMDR: number, grossMargin: number
+  let activeMarkets: number, currentAPMs: number, currentProviders: number, fteToday: number, fteTarget: number
+  let approvalLiftPp: number, mdrReductionBps: number, apmUpliftPct: number, newAPMsAdded: number
+  let integrationReductionPct: number, opsSavings: number
+  let minTxAnnual: number, monthlySaaS: number
+  let conservativeMult: number, optimisticMult: number, npvMultiplier: number
+  let ratePerTx: number
+  let rateTiers: Array<{ upToTx: number | null; ratePerTx: number }> = []
+  let costModelMerged: Record<string, number> | undefined
+  let pricingModel: 'flat' | 'tiered'
+
   try {
-    tpv = assertRange('tpv', d.tpv, 1, 1e12)
-    avgTicket = assertRange('avgTicket', d.avgTicket, 0.01, 1e6)
-    currentApproval = assertRange('currentApproval', d.currentApproval, 0.01, 100)
-    currentMDR = assertRange('currentMDR', d.currentMDR, 0.01, 10)
-    grossMargin = assertRange('grossMargin', d.grossMargin, 0.01, 100)
+    tpv = n('tpv', pick('tpv'), 1, 1e12)
+    avgTicket = n('avgTicket', pick('avgTicket'), 1, 1e6)
+    currentApproval = n('currentApproval', pick('currentApproval'), 0.01, 100)
+    currentMDR = n('currentMDR', pick('currentMDR'), 0.01, 10)
+    grossMargin = n('grossMargin', pick('grossMargin'), 0.01, 100)
+    activeMarkets = Math.round(n('activeMarkets', pick('activeMarkets') ?? 0, 0, 500))
+    currentAPMs = Math.round(n('currentAPMs', pick('currentAPMs') ?? 0, 0, 10_000))
+    currentProviders = Math.round(n('currentProviders', pick('currentProviders') ?? 0, 0, 500))
+    fteToday = n('fteToday', pick('fteToday') ?? 4, 0, 10_000)
+    fteTarget = n('fteTarget', pick('fteTarget') ?? 0.5, 0, 10_000)
+    approvalLiftPp = n('approvalLiftPp', pick('approvalLiftPp') ?? 7.4, 0, 100)
+    mdrReductionBps = n('mdrReductionBps', pick('mdrReductionBps') ?? 38, 0, 1_000)
+    apmUpliftPct = n('apmUpliftPct', pick('apmUpliftPct') ?? 6, 0, 100)
+    newAPMsAdded = Math.round(n('newAPMsAdded', pick('newAPMsAdded') ?? 180, 0, 10_000))
+    integrationReductionPct = n('integrationReductionPct', pick('integrationReductionPct') ?? 85, 0, 100)
+    opsSavings = n('opsSavings', pick('opsSavings') ?? 2_100_000, 0, 1e10)
+    minTxAnnual = Math.round(n('minTxAnnual', pick('minTxAnnual') ?? 0, 0, 1e11))
+    monthlySaaS = n('monthlySaaS', pick('monthlySaaS') ?? 0, 0, 1e8)
+    conservativeMult = n('conservativeMult', pick('conservativeMult') ?? 0.6, 0, 10)
+    optimisticMult = n('optimisticMult', pick('optimisticMult') ?? 1.4, 0, 10)
+    npvMultiplier = n('npvMultiplier', pick('npvMultiplier') ?? 2.6, 0, 100)
+
+    const pm = pick('pricingModel')
+    if (pm !== 'flat' && pm !== 'tiered') {
+      throw new Error('pricingModel must be "flat" or "tiered"')
+    }
+    pricingModel = pm
+
+    if (pricingModel === 'flat') {
+      ratePerTx = n('ratePerTx', pick('ratePerTx'), 0.0001, 10)  // must be strictly > 0
+    } else {
+      ratePerTx = 0
+      rateTiers = validateRateTiers(pick('rateTiers'))
+    }
+
+    const parentCost = validateCostModel(base.costModel)
+    const bodyCost = validateCostModel(body.costModel)
+    costModelMerged = mergeCostModels(parentCost, bodyCost)
   } catch (e) {
-    return errorResponse((e as Error).message, 400)
+    return err((e as Error).message, 400, origin)
   }
 
-  const pricingModel = d.pricingModel as string
-  if (pricingModel !== 'flat' && pricingModel !== 'tiered') {
-    return errorResponse('pricingModel must be "flat" or "tiered"', 400)
-  }
-  if (pricingModel === 'flat' && !Number.isFinite(Number(d.ratePerTx))) {
-    return errorResponse('ratePerTx required when pricingModel=flat', 400)
-  }
-  if (pricingModel === 'tiered') {
-    if (!Array.isArray(d.rateTiers) || d.rateTiers.length === 0) {
-      return errorResponse('rateTiers required (non-empty array) when pricingModel=tiered', 400)
-    }
-  }
-
-  let todayProviders = (d.todayProviders as string[]) || []
+  // todayProviders: trust body override first, then parent, else research.
+  let todayProviders: string[] = []
   let rawResearch: unknown = null
-  if (!Array.isArray(todayProviders) || todayProviders.length === 0) {
-    const research = await researchPaymentStack(clientName)
-    todayProviders = research.providers
-    rawResearch = research.raw
-  }
-
-  const prefix = slugify(clientName)
-  let slug = ''
-  for (let i = 0; i < 5; i++) {
-    const candidate = prefix + '-' + randomSuffix(6)
-    const { data: existing } = await supabase
-      .from('presentations')
-      .select('id')
-      .eq('slug', candidate)
-      .maybeSingle()
-    if (!existing) {
-      slug = candidate
-      break
+  if (Array.isArray(body.todayProviders) && body.todayProviders.length > 0) {
+    todayProviders = (body.todayProviders as unknown[])
+      .map((v) => (typeof v === 'string' ? v.trim().toLowerCase() : ''))
+      .filter((v): v is string => !!v)
+      .slice(0, 12)
+  } else if (Array.isArray(base.todayProviders) && (base.todayProviders as unknown[]).length > 0) {
+    todayProviders = (base.todayProviders as unknown[])
+      .map((v) => (typeof v === 'string' ? v.trim().toLowerCase() : ''))
+      .filter((v): v is string => !!v)
+      .slice(0, 12)
+  } else {
+    try {
+      const research = await researchPaymentStack(clientName)
+      todayProviders = research.providers
+      rawResearch = research.raw
+    } catch (e) {
+      console.error('bc-create: research crashed')
+      rawResearch = { error: 'research failed: ' + (e instanceof Error ? e.message : 'unknown') }
     }
   }
-  if (!slug) return errorResponse('Could not generate a unique slug after 5 tries', 500)
 
+  // Slug generation: INSERT + catch unique-violation (23505). Retry up to 5×.
+  const prefix = slugify(clientName)
   const defaults = {
     clientName,
-    date: d.date || '',
+    date: typeof pick('date') === 'string' ? pick('date') : '',
     tpv, avgTicket,
     currentApproval, currentMDR,
-    activeMarkets: Number(d.activeMarkets) || 0,
-    currentAPMs: Number(d.currentAPMs) || 0,
-    currentProviders: Number(d.currentProviders) || todayProviders.length || 0,
+    activeMarkets, currentAPMs, currentProviders,
     grossMargin,
-    fteToday: Number(d.fteToday) || 4,
+    fteToday,
     todayProviders,
     pricingModel,
-    ratePerTx: Number(d.ratePerTx) || 0,
-    rateTiers: (d.rateTiers as unknown[]) || [],
-    minTxAnnual: Number(d.minTxAnnual) || 0,
-    monthlySaaS: Number(d.monthlySaaS) || 0,
-    approvalLiftPp: Number(d.approvalLiftPp) || 7.4,
-    mdrReductionBps: Number(d.mdrReductionBps) || 38,
-    apmUpliftPct: Number(d.apmUpliftPct) || 6,
-    newAPMsAdded: Number(d.newAPMsAdded) || 180,
-    fteTarget: Number(d.fteTarget) || 0.5,
-    integrationReductionPct: Number(d.integrationReductionPct) || 85,
-    opsSavings: Number(d.opsSavings) || 2100000,
-    conservativeMult: Number(d.conservativeMult) || 0.6,
-    optimisticMult: Number(d.optimisticMult) || 1.4,
-    npvMultiplier: Number(d.npvMultiplier) || 2.6,
-    costModel: (d.costModel as Record<string, number>) || {
-      integrationPerProvider: 200000,
-      maintenancePerProvider3yr: 400000,
-      fteCostYr: 250000,
-      compliancePerMarket: 45000,
-      yunoIntegration: 100000,
-      yunoMaintenance3yr: 200000,
-      yunoCompliance: 100000,
-    },
+    ratePerTx,
+    rateTiers,
+    minTxAnnual,
+    monthlySaaS,
+    approvalLiftPp,
+    mdrReductionBps,
+    apmUpliftPct,
+    newAPMsAdded,
+    fteTarget,
+    integrationReductionPct,
+    opsSavings,
+    conservativeMult,
+    optimisticMult,
+    npvMultiplier,
+    costModel: costModelMerged,
   }
 
-  const { data: row, error: insertErr } = await supabase
-    .from('presentations')
-    .insert({
-      org_id: orgId,
-      created_by: (d.createdBy as string) || null,
-      kind: 'yuno_bc',
-      client_name: clientName,
-      slug,
-      defaults,
-      raw_research: rawResearch,
-      parent_id: parentId,
-    })
-    .select('id, slug, expires_at')
-    .single()
-
-  if (insertErr || !row) {
-    console.error('Insert failed:', insertErr)
-    return errorResponse('Insert failed: ' + (insertErr?.message || 'unknown'), 500)
+  let row: { id: string; slug: string; expires_at: string } | null = null
+  let lastErrCode: string | undefined
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const candidate = prefix + '-' + randomSuffix(6)
+    const { data, error: e } = await supabase
+      .from('presentations')
+      .insert({
+        org_id: orgId,
+        created_by: typeof body.createdBy === 'string' ? body.createdBy : null,
+        kind: 'yuno_bc',
+        client_name: clientName,
+        slug: candidate,
+        defaults,
+        raw_research: rawResearch,
+        parent_id: parentId,
+      })
+      .select('id, slug, expires_at')
+      .single()
+    if (!e) {
+      row = data
+      break
+    }
+    lastErrCode = (e as { code?: string }).code
+    if (lastErrCode === '23505') continue // unique slug collision, retry
+    break
   }
 
-  return jsonResponse({
+  if (!row) {
+    console.error('bc-create: insert failed code=' + (lastErrCode || 'unknown'))
+    return err('Insert failed', 500, origin)
+  }
+
+  return json({
     id: row.id,
     slug: row.slug,
     url: PUBLIC_BASE_URL + '/bc/' + row.slug,
     expiresAt: row.expires_at,
     providers: todayProviders,
     regeneratedFrom: parentId ? regenerateFrom : null,
-  })
+  }, 200, origin)
 })
