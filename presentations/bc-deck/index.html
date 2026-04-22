@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Yuno · Business Case</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@200;300;400;500;600;700;900&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="styles-bc.css" />
+</head>
+<body>
+
+<deck-stage width="1920" height="1080">
+  <section id="root-container" style="background:#06070B;"></section>
+</deck-stage>
+
+<div class="tweak-panel" id="tweak-panel">
+  <h3>Tweaks</h3>
+  <div class="tweak-row"><label>Client name</label><input type="text" id="tw-client" /></div>
+  <div class="tweak-row"><label>Date</label><input type="text" id="tw-date" /></div>
+  <div class="tweak-row"><label>Annual TPV (USD)</label><input type="number" id="tw-tpv" step="100000000" /></div>
+  <div class="tweak-row"><label>Current approval rate (%)</label><input type="number" id="tw-approval" step="0.1" /></div>
+  <div class="tweak-row"><label>Current MDR (bps)</label><input type="number" id="tw-mdr" step="1" /></div>
+</div>
+
+<script>
+  window.BC_DEFAULTS = {
+    "clientName": "Acme Global",
+    "date": "Q2 2026",
+    "tpv": 2400000000,
+    "currentApproval": 82.4,
+    "currentMDR": 245
+  };
+</script>
+
+<script src="deck-stage.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="components.jsx"></script>
+<script type="text/babel" src="bc-components.jsx"></script>
+<script type="text/babel" src="bc-slides-01.jsx"></script>
+<script type="text/babel" src="bc-slides-02.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+const DATA_EVENT = 'yuno-bc-data';
+
+function computeData(raw) {
+  const tpv = Number(raw.tpv) || 2.4e9;
+  const approval = Number(raw.currentApproval) || 82.4;
+  const mdr = Number(raw.currentMDR) || 245;
+  const L1 = tpv * 0.074 * 0.04;
+  const L2 = tpv * (38 / 10000);
+  const L3 = tpv * 0.06 * 0.04;
+  const L4 = 2.1e6;
+  const fee = tpv * 0.0009;
+  const netAnnualGain = L1 + L2 + L3 + L4 - fee;
+  return { clientName: raw.clientName || 'Acme Global', date: raw.date || 'Q2 2026', tpv, currentApproval: approval, currentMDR: mdr, netAnnualGain };
+}
+
+function useBCData() {
+  const [raw, setRaw] = useState(window.BC_DEFAULTS);
+  useEffect(() => {
+    const handler = (e) => {
+      if (!e.data || typeof e.data !== 'object') return;
+      if (e.data.type === '__activate_edit_mode') document.getElementById('tweak-panel').setAttribute('data-open', '');
+      else if (e.data.type === '__deactivate_edit_mode') document.getElementById('tweak-panel').removeAttribute('data-open');
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, []);
+  useEffect(() => {
+    [['tw-client','clientName'],['tw-date','date'],['tw-tpv','tpv'],['tw-approval','currentApproval'],['tw-mdr','currentMDR']].forEach(([id,key]) => {
+      const el = document.getElementById(id); if (!el) return;
+      el.value = raw[key] ?? '';
+      el.oninput = () => { const v = el.type === 'number' ? Number(el.value) : el.value; setRaw(prev => ({...prev, [key]: v})); };
+    });
+  }, [raw]);
+  return computeData(raw);
+}
+
+function SlideShell({ render }) {
+  const [data, setData] = useState(window.__bcData || computeData(window.BC_DEFAULTS));
+  useEffect(() => {
+    const onUpdate = (e) => setData(e.detail);
+    window.addEventListener(DATA_EVENT, onUpdate);
+    return () => window.removeEventListener(DATA_EVENT, onUpdate);
+  }, []);
+  return render(data);
+}
+
+function Controller() {
+  const data = useBCData();
+  useEffect(() => {
+    window.__bcData = data;
+    window.dispatchEvent(new CustomEvent(DATA_EVENT, { detail: data }));
+  }, [data]);
+  return null;
+}
+
+const stage = document.querySelector('deck-stage');
+document.getElementById('root-container').remove();
+
+const slideBuilders = [
+  (d) => <BCSlide01 data={d} />, (d) => <BCSlide02 data={d} />, (d) => <BCSlide03 data={d} />,
+  (d) => <BCSlide04 />, (d) => <BCSlide05 data={d} />, (d) => <BCSlide06 data={d} />,
+  (d) => <BCSlide07 />, (d) => <BCSlide08 />, (d) => <BCSlide09 />,
+  (d) => <BCSlide10 />, (d) => <BCSlide11 />, (d) => <BCSlide12 />,
+  (d) => <BCSlide13 />, (d) => <BCSlide14 data={d} />, (d) => <BCSlide15 data={d} />,
+  (d) => <BCSlide16 data={d} />, (d) => <BCSlide17 data={d} />, (d) => <BCSlide18 data={d} />,
+  (d) => <BCSlide19 data={d} />, (d) => <BCSlide20 data={d} />, (d) => <BCSlide21 />,
+  (d) => <BCSlide22 />, (d) => <BCSlide23 />, (d) => <BCSlide24 data={d} />,
+];
+
+slideBuilders.forEach((builder) => {
+  const node = document.createElement('section');
+  stage.appendChild(node);
+  ReactDOM.createRoot(node).render(<SlideShell render={builder} />);
+});
+
+const ctrlHost = document.createElement('div');
+ctrlHost.style.display = 'none';
+document.body.appendChild(ctrlHost);
+ReactDOM.createRoot(ctrlHost).render(<Controller />);
+</script>
+</body>
+</html>
