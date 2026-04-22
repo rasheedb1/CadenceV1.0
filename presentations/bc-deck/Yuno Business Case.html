@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Yuno · Business Case</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@200;300;400;500;600;700;900&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="styles-bc.css" />
+</head>
+<body>
+
+<deck-stage width="1920" height="1080">
+  <section id="root-container" style="background:#06070B;"></section>
+</deck-stage>
+
+<div class="tweak-panel" id="tweak-panel">
+  <h3>Tweaks</h3>
+  <div class="tweak-row"><label>Client name</label><input type="text" id="tw-client" /></div>
+  <div class="tweak-row"><label>Date</label><input type="text" id="tw-date" /></div>
+  <div class="tweak-row"><label>Annual TPV (USD)</label><input type="number" id="tw-tpv" step="100000000" /></div>
+  <div class="tweak-row"><label>Current approval rate (%)</label><input type="number" id="tw-approval" step="0.1" /></div>
+  <div class="tweak-row"><label>Current MDR (%)</label><input type="number" id="tw-mdr" step="0.01" /></div>
+</div>
+
+<script>
+  window.BC_DEFAULTS = {
+    // --- Client profile ---
+    clientName: "Acme Global",
+    date: "Q2 2026",
+    tpv: 2400000000,
+    avgTicket: 48,
+    currentApproval: 82.4,       // %
+    currentMDR: 2.45,            // %
+    activeMarkets: 18,
+    currentAPMs: 34,
+    currentProviders: 12,
+    grossMargin: 4,              // %
+    fteToday: 4,
+    todayProviders: ["stripe", "adyen", "dlocal", "checkout.com", "worldpay", "paypal", "mercado pago", "payu", "rapyd", "cybersource", "braintree", "fiserv"],
+
+    // --- Pricing (Yuno commercial terms) ---
+    pricingModel: "flat",        // 'flat' | 'tiered'
+    ratePerTx: 0.04,             // USD/tx (used if flat)
+    rateTiers: [                 // used if tiered
+      { upToTx: 200000, ratePerTx: 0.08 },
+      { upToTx: 500000, ratePerTx: 0.06 },
+      { upToTx: Infinity, ratePerTx: 0.04 }
+    ],
+    minTxAnnual: 200000,
+    monthlySaaS: 8000,
+
+    // --- Lever assumptions ---
+    approvalLiftPp: 7.4,
+    mdrReductionBps: 38,
+    apmUpliftPct: 6,
+    newAPMsAdded: 180,
+    fteTarget: 0.5,
+    integrationReductionPct: 85,
+    opsSavings: 2100000,
+
+    // --- Scenarios ---
+    conservativeMult: 0.6,
+    optimisticMult: 1.4,
+    npvMultiplier: 2.6,
+
+    // --- Cost model (build-vs-buy constants) ---
+    costModel: {
+      integrationPerProvider: 200000,
+      maintenancePerProvider3yr: 400000,
+      fteCostYr: 250000,
+      compliancePerMarket: 45000,
+      yunoIntegration: 100000,
+      yunoMaintenance3yr: 200000,
+      yunoCompliance: 100000
+    }
+  };
+</script>
+
+<script src="deck-stage.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="components.jsx"></script>
+<script type="text/babel" src="bc-components.jsx"></script>
+<script type="text/babel" src="bc-slides-01.jsx"></script>
+<script type="text/babel" src="bc-slides-02.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const DATA_EVENT = 'yuno-bc-data';
+
+function computeTieredFee(tx, tiers) {
+  if (!tiers || !tiers.length) return 0;
+  let fee = 0, remaining = tx, prev = 0;
+  for (const t of tiers) {
+    if (remaining <= 0) break;
+    const cap = t.upToTx === Infinity || t.upToTx == null ? remaining : Math.max(0, t.upToTx - prev);
+    const take = Math.min(remaining, cap);
+    fee += take * Number(t.ratePerTx);
+    remaining -= take;
+    prev = t.upToTx;
+  }
+  return fee;
+}
+
+function computeData(raw) {
+  const d = { ...window.BC_DEFAULTS, ...raw };
+
+  // --- Parse numerics ---
+  const tpv = Number(d.tpv);
+  const avgTicket = Number(d.avgTicket);
+  const currentApproval = Number(d.currentApproval);
+  const currentMDR = Number(d.currentMDR);            // %
+  const currentMDRBps = currentMDR * 100;             // bps
+  const grossMarginPct = Number(d.grossMargin);       // e.g., 4
+  const grossMargin = grossMarginPct / 100;           // e.g., 0.04
+  const currentProviders = Number(d.currentProviders);
+  const activeMarkets = Number(d.activeMarkets);
+  const currentAPMs = Number(d.currentAPMs);
+  const fteToday = Number(d.fteToday);
+  const fteTarget = Number(d.fteTarget);
+
+  // --- Lever knobs ---
+  const approvalLiftPp = Number(d.approvalLiftPp);
+  const mdrReductionBps = Number(d.mdrReductionBps);
+  const apmUpliftPct = Number(d.apmUpliftPct);
+  const newAPMsAdded = Number(d.newAPMsAdded);
+  const integrationReductionPct = Number(d.integrationReductionPct);
+  const opsSavings = Number(d.opsSavings);
+
+  // --- Derived basics ---
+  const numActualTx = avgTicket > 0 ? tpv / avgTicket : 0;
+
+  // --- Levers ---
+  const incrTPV_approvals = tpv * (approvalLiftPp / 100);
+  const L1 = incrTPV_approvals * grossMargin;
+  const targetApproval = currentApproval + approvalLiftPp;
+
+  const L2 = tpv * (mdrReductionBps / 10000);
+  const targetMDRBps = currentMDRBps - mdrReductionBps;
+  const targetMDR = targetMDRBps / 100;               // %
+
+  const incrTPV_apms = tpv * (apmUpliftPct / 100);
+  const L3 = incrTPV_apms * grossMargin;
+
+  const L4 = opsSavings;
+
+  // --- Pricing (per-transaction model) ---
+  let actualTxFee, minCommitFee;
+  if (d.pricingModel === 'tiered') {
+    actualTxFee = computeTieredFee(numActualTx, d.rateTiers);
+    minCommitFee = computeTieredFee(Number(d.minTxAnnual), d.rateTiers);
+  } else {
+    const rate = Number(d.ratePerTx);
+    actualTxFee = numActualTx * rate;
+    minCommitFee = Number(d.minTxAnnual) * rate;
+  }
+  const saasAnnualFee = Number(d.monthlySaaS) * 12;
+  const txAnnualFee = Math.max(actualTxFee, minCommitFee);
+  const yunoAnnualFee = txAnnualFee + saasAnnualFee;
+
+  // --- Totals ---
+  const grossGain = L1 + L2 + L3 + L4;
+  const netAnnualGain = grossGain - yunoAnnualFee;
+
+  // --- ROI ---
+  const roiYr1 = yunoAnnualFee > 0 ? netAnnualGain / yunoAnnualFee : 0;
+  const paybackMonths = netAnnualGain > 0 ? yunoAnnualFee / (netAnnualGain / 12) : 0;
+  const npv3yr = netAnnualGain * Number(d.npvMultiplier);
+  const conservative = netAnnualGain * Number(d.conservativeMult);
+  const optimistic = netAnnualGain * Number(d.optimisticMult);
+
+  // --- Build vs Buy (slide 18) ---
+  const cm = d.costModel || {};
+  const buildVsBuy = {
+    integration: {
+      build: currentProviders * (cm.integrationPerProvider || 200000),
+      yuno: cm.yunoIntegration || 100000,
+    },
+    maintenance: {
+      build: currentProviders * (cm.maintenancePerProvider3yr || 400000),
+      yuno: cm.yunoMaintenance3yr || 200000,
+    },
+    ops: {
+      build: fteToday * (cm.fteCostYr || 250000) * 3,
+      yuno: fteTarget * (cm.fteCostYr || 250000) * 3,
+    },
+    compliance: {
+      build: activeMarkets * (cm.compliancePerMarket || 45000),
+      yuno: cm.yunoCompliance || 100000,
+    },
+  };
+  const buildTotal3yr = buildVsBuy.integration.build + buildVsBuy.maintenance.build + buildVsBuy.ops.build + buildVsBuy.compliance.build;
+  const yunoTotal3yr = buildVsBuy.integration.yuno + buildVsBuy.maintenance.yuno + buildVsBuy.ops.yuno + buildVsBuy.compliance.yuno;
+
+  // --- Other derived ---
+  const valuePerPp = tpv * 0.01 * grossMargin;
+  const fteFreed = fteToday - fteTarget;
+
+  return {
+    // pass-through raw
+    clientName: d.clientName || 'Acme Global',
+    date: d.date || 'Q2 2026',
+    tpv, avgTicket,
+    currentApproval, currentMDR, currentMDRBps,
+    grossMargin: grossMarginPct, grossMarginFrac: grossMargin,
+    activeMarkets, currentAPMs, currentProviders,
+    fteToday, fteTarget,
+    todayProviders: Array.isArray(d.todayProviders) ? d.todayProviders : [],
+    approvalLiftPp, mdrReductionBps, apmUpliftPct,
+    newAPMsAdded, integrationReductionPct, opsSavings,
+    pricingModel: d.pricingModel, ratePerTx: d.ratePerTx,
+    rateTiers: d.rateTiers, minTxAnnual: d.minTxAnnual, monthlySaaS: d.monthlySaaS,
+    conservativeMult: d.conservativeMult, optimisticMult: d.optimisticMult, npvMultiplier: d.npvMultiplier,
+    costModel: d.costModel,
+
+    // derived
+    numActualTx,
+    incrTPV_approvals, incrTPV_apms,
+    L1, L2, L3, L4,
+    targetApproval, targetMDR, targetMDRBps,
+    actualTxFee, minCommitFee, saasAnnualFee, txAnnualFee, yunoAnnualFee,
+    grossGain, netAnnualGain,
+    roiYr1, paybackMonths, npv3yr, conservative, optimistic,
+    buildVsBuy, buildTotal3yr, yunoTotal3yr,
+    valuePerPp, fteFreed,
+  };
+}
+
+function useBCData() {
+  const [raw, setRaw] = useState(window.BC_DEFAULTS);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (!e.data || typeof e.data !== 'object') return;
+      if (e.data.type === '__activate_edit_mode') {
+        document.getElementById('tweak-panel').setAttribute('data-open', '');
+      } else if (e.data.type === '__deactivate_edit_mode') {
+        document.getElementById('tweak-panel').removeAttribute('data-open');
+      }
+    };
+    window.addEventListener('message', handler);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
+  useEffect(() => {
+    const fields = [
+      ['tw-client', 'clientName'],
+      ['tw-date', 'date'],
+      ['tw-tpv', 'tpv'],
+      ['tw-approval', 'currentApproval'],
+      ['tw-mdr', 'currentMDR'],
+    ];
+    fields.forEach(([id, key]) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.value = raw[key] ?? '';
+      el.oninput = () => {
+        const v = el.type === 'number' ? Number(el.value) : el.value;
+        setRaw(prev => ({ ...prev, [key]: v }));
+        window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { [key]: v } }, '*');
+      };
+    });
+  }, [raw]);
+
+  return computeData(raw);
+}
+
+function SlideShell({ render }) {
+  const [data, setData] = useState(window.__bcData || computeData(window.BC_DEFAULTS));
+  useEffect(() => {
+    const onUpdate = (e) => setData(e.detail);
+    window.addEventListener(DATA_EVENT, onUpdate);
+    return () => window.removeEventListener(DATA_EVENT, onUpdate);
+  }, []);
+  return render(data);
+}
+
+function Controller() {
+  const data = useBCData();
+  useEffect(() => {
+    window.__bcData = data;
+    window.dispatchEvent(new CustomEvent(DATA_EVENT, { detail: data }));
+  }, [data]);
+  return null;
+}
+
+const stage = document.querySelector('deck-stage');
+document.getElementById('root-container').remove();
+
+const slideBuilders = [
+  (d) => <BCSlide01 data={d} />,
+  (d) => <BCSlide02 data={d} />,
+  (d) => <BCSlide03 data={d} />,
+  (d) => <BCSlide04 />,
+  (d) => <BCSlide05 data={d} />,
+  (d) => <BCSlide06 data={d} />,
+  (d) => <BCSlide07 />,
+  (d) => <BCSlide08 />,
+  (d) => <BCSlide09 />,
+  (d) => <BCSlide10 />,
+  (d) => <BCSlide11 data={d} />,
+  (d) => <BCSlide12 />,
+  (d) => <BCSlide13 />,
+  (d) => <BCSlide14 data={d} />,
+  (d) => <BCSlide15 data={d} />,
+  (d) => <BCSlide16 data={d} />,
+  (d) => <BCSlide17 data={d} />,
+  (d) => <BCSlide18 data={d} />,
+  (d) => <BCSlide19 data={d} />,
+  (d) => <BCSlide20 data={d} />,
+  (d) => <BCSlide21 />,
+  (d) => <BCSlide22 />,
+  (d) => <BCSlide23 />,
+  (d) => <BCSlide24 data={d} />,
+];
+
+slideBuilders.forEach((builder) => {
+  const node = document.createElement('section');
+  stage.appendChild(node);
+  ReactDOM.createRoot(node).render(<SlideShell render={builder} />);
+});
+
+const ctrlHost = document.createElement('div');
+ctrlHost.style.display = 'none';
+document.body.appendChild(ctrlHost);
+ReactDOM.createRoot(ctrlHost).render(<Controller />);
+</script>
+
+</body>
+</html>
