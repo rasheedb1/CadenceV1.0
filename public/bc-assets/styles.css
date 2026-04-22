@@ -1,0 +1,133 @@
+/* ============================================================
+   Yuno BDM Deck — Global Styles
+   Based on Yuno Brand Guidelines (Jan 2026)
+   ============================================================ */
+
+:root {
+  /* Primary palette */
+  --yuno-blue: #3E4FE0;
+  --yuno-blue-deep: #1227AD;
+  --yuno-blue-mid: #5967E4;
+  --yuno-blue-light: #7C89EF;
+  --yuno-blue-pale: #BDC3F6;
+  --harmony-lilac: #E8EAF5;
+  --unity-black: #282A30;
+  --security-gray: #92959B;
+  --gray-alt: #616366;
+  --lime: #E0ED80;
+  --white: #FFFFFF;
+  --cyan: #38ADFF;
+
+  /* Semantic */
+  --bg-light: var(--harmony-lilac);
+  --bg-dark: var(--unity-black);
+  --fg-on-light: var(--unity-black);
+  --fg-on-dark: var(--white);
+  --muted-on-light: var(--security-gray);
+  --muted-on-dark: rgba(255, 255, 255, 0.56);
+
+  /* Grid */
+  --margin: 80px;
+  --u: 8px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Titillium Web', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 400;
+  color: var(--unity-black);
+  background: #000;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.slide {
+  position: relative;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  padding: var(--margin);
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+.slide.theme-light { background: var(--white); color: var(--unity-black); }
+.slide.theme-lilac { background: var(--harmony-lilac); color: var(--unity-black); }
+.slide.theme-dark { background: var(--unity-black); color: var(--white); }
+.slide.theme-blue { background: var(--yuno-blue); color: var(--white); }
+.slide.theme-gradient { background: linear-gradient(135deg, #000 0%, var(--yuno-blue) 100%); color: var(--white); }
+.slide.theme-blue-gradient { background: linear-gradient(135deg, var(--yuno-blue) 0%, var(--yuno-blue-deep) 100%); color: var(--white); }
+
+.t-title { font-family: 'Titillium Web', sans-serif; font-weight: 400; letter-spacing: -0.01em; line-height: 1; margin: 0; }
+.t-title-xl { font-size: 140px; font-weight: 300; line-height: 0.92; letter-spacing: -0.02em; }
+.t-title-l  { font-size: 96px;  font-weight: 300; line-height: 1; }
+.t-title-m  { font-size: 64px;  font-weight: 300; line-height: 1.05; }
+.t-title-s  { font-size: 44px;  font-weight: 400; line-height: 1.1; }
+
+.t-subtitle { font-family: 'Titillium Web', sans-serif; font-weight: 400; text-transform: uppercase; letter-spacing: 0.12em; font-size: 13px; line-height: 1; margin: 0; }
+.t-subtitle-alt { font-family: 'Titillium Web', sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.16em; font-size: 12px; margin: 0; }
+
+.t-body { font-family: 'Titillium Web', sans-serif; font-weight: 400; text-transform: lowercase; font-size: 20px; line-height: 1.45; margin: 0; }
+.t-body-l { font-size: 24px; line-height: 1.45; }
+.t-body-s { font-size: 16px; line-height: 1.5; }
+
+.t-label { font-family: 'Titillium Web', sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; font-size: 12px; }
+.t-caption { font-family: 'Titillium Web', sans-serif; font-weight: 300; font-size: 12px; color: var(--security-gray); }
+.t-number { font-family: 'Titillium Web', sans-serif; font-weight: 300; font-feature-settings: "tnum" 1; letter-spacing: -0.02em; }
+
+.u-uppercase { text-transform: uppercase; letter-spacing: 0.12em; }
+.u-lowercase { text-transform: lowercase; }
+
+.slide-chrome { position: absolute; inset: 0; padding: var(--margin); pointer-events: none; z-index: 5; }
+.chrome-topleft { position: absolute; top: 40px; left: 80px; }
+.chrome-topright { position: absolute; top: 40px; right: 80px; }
+.chrome-botleft { position: absolute; bottom: 40px; left: 80px; text-align: left; }
+.chrome-botright { position: absolute; bottom: 40px; right: 80px; text-align: right; }
+
+.slide-footer { position: absolute; bottom: 40px; left: 80px; right: 80px; display: flex; justify-content: space-between; align-items: center; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 600; color: var(--security-gray); z-index: 5; }
+.theme-dark .slide-footer, .theme-blue .slide-footer, .theme-gradient .slide-footer, .theme-blue-gradient .slide-footer { color: rgba(255, 255, 255, 0.55); }
+.slide-pagenum { font-variant-numeric: tabular-nums; }
+
+.yuno-logo { font-family: 'Titillium Web', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: -0.03em; text-transform: lowercase; display: inline-flex; align-items: center; line-height: 1; }
+.yuno-logo--lg { font-size: 44px; }
+.yuno-logo--xl { font-size: 72px; }
+
+.halftone-bg { position: absolute; inset: 0; pointer-events: none; opacity: 0.5; mix-blend-mode: normal; }
+
+.divider { height: 1px; background: currentColor; opacity: 0.15; }
+.divider-strong { opacity: 0.4; }
+
+.chip { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 999px; border: 1px solid currentColor; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.9; }
+
+.stat-row { display: flex; align-items: baseline; gap: 16px; }
+.stat-row .num { font-size: 120px; font-weight: 200; letter-spacing: -0.04em; line-height: 1; }
+.stat-row .label { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: var(--security-gray); }
+
+[data-deck-active] .anim-in { animation: animIn 700ms cubic-bezier(.22,.8,.22,1) both; }
+[data-deck-active] .anim-in-1 { animation-delay: 80ms; }
+[data-deck-active] .anim-in-2 { animation-delay: 200ms; }
+[data-deck-active] .anim-in-3 { animation-delay: 320ms; }
+[data-deck-active] .anim-in-4 { animation-delay: 440ms; }
+[data-deck-active] .anim-in-5 { animation-delay: 560ms; }
+[data-deck-active] .anim-in-6 { animation-delay: 680ms; }
+[data-deck-active] .anim-in-7 { animation-delay: 800ms; }
+[data-deck-active] .anim-in-8 { animation-delay: 920ms; }
+
+@keyframes animIn { from { opacity: 0; transform: translateY(14px); filter: blur(8px); } to { opacity: 1; transform: translateY(0); filter: blur(0); } }
+[data-deck-active] .anim-rise { animation: animRise 800ms cubic-bezier(.22,.8,.22,1) both; }
+@keyframes animRise { from { opacity: 0; transform: translateY(60px); } to { opacity: 1; transform: translateY(0); } }
+[data-deck-active] .anim-fade { animation: animFade 900ms ease both; }
+@keyframes animFade { from { opacity: 0; } to { opacity: 1; } }
+[data-deck-active] .anim-scale { animation: animScale 900ms cubic-bezier(.22,.8,.22,1) both; }
+@keyframes animScale { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+[data-deck-active] .anim-wipe { animation: animWipe 1.2s cubic-bezier(.7,0,.3,1) both; }
+@keyframes animWipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+[data-deck-active] .counter { animation: counterFade 600ms ease both; animation-delay: 200ms; }
+@keyframes counterFade { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.halftone-drift { animation: drift 20s linear infinite; }
+@keyframes drift { 0% { transform: translate(0, 0); } 50% { transform: translate(-20px, 10px); } 100% { transform: translate(0, 0); } }
+
+.export-hidden {}
