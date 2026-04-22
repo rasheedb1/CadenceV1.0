@@ -17,6 +17,7 @@ export interface OrgFeatureFlags {
   section_notifications: boolean
   section_lead_search: boolean
   section_agents: boolean
+  section_presentaciones: boolean
   // Account Executive section
   section_account_executive: boolean
   ae_gong_integration: boolean
@@ -52,6 +53,7 @@ export const DEFAULT_FEATURE_FLAGS: OrgFeatureFlags = {
   section_notifications: true,
   section_lead_search: true,
   section_agents: false,
+  section_presentaciones: true,
   section_account_executive: true,
   ae_gong_integration: true,
   ae_calendar_integration: true,
@@ -82,6 +84,7 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   section_notifications: 'Notifications',
   section_lead_search: 'Lead Search',
   section_agents: 'AI Agents',
+  section_presentaciones: 'Presentaciones (BC Decks)',
   section_account_executive: 'Account Executive',
   ae_gong_integration: 'Gong Integration',
   ae_calendar_integration: 'Google Calendar',
@@ -114,6 +117,7 @@ export const FEATURE_FLAG_GROUPS: { label: string; flags: FeatureFlagKey[]; pare
       'section_linkedin_inbox',
       'section_lead_search',
       'section_agents',
+      'section_presentaciones',
       'section_account_executive',
       'section_notifications',
     ],

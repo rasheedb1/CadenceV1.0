@@ -24,10 +24,10 @@ const ORBIT_RADII = [200]
 const ORBIT_DURATIONS = [120] // seconds
 
 const PLANETS: Planet[] = [
-  // Single orbit — only the 3 core apps
   { id: 'outreach', label: 'Chief Outreach', icon: '🚀', href: '/dashboard', color: '#6366F1', glow: 'rgba(99,102,241,0.5)', size: 76, orbit: 0, startAngle: 270, description: 'Ventas, cadencias, leads, templates, inbox' },
   { id: 'account-exec', label: 'Account Executive', icon: '🎯', href: '/account-executive', color: '#E11D48', glow: 'rgba(225,29,72,0.5)', size: 76, orbit: 0, startAngle: 30, description: 'Gestión de cuentas y calendario' },
   { id: 'agents', label: 'Agentes IA', icon: '🤖', href: '/agents', color: '#A855F7', glow: 'rgba(168,85,247,0.5)', size: 76, orbit: 0, startAngle: 150, description: 'Configura agentes y ve su actividad en vivo' },
+  { id: 'presentaciones', label: 'Presentaciones', icon: '📊', href: '/presentaciones', color: '#0891B2', glow: 'rgba(6,182,212,0.5)', size: 76, orbit: 0, startAngle: 330, description: 'Business case decks generados por Chief, compartibles por URL pública' },
 ]
 
 /* ── Variants ───────────────────────────────────────────────────────────── */
