@@ -51,6 +51,7 @@ import { CompanyResearch } from '@/pages/CompanyResearch'
 import { ResearchProjectDetail } from '@/pages/ResearchProjectDetail'
 import { BusinessCases } from '@/pages/BusinessCases'
 import { BusinessCaseNew } from '@/pages/BusinessCaseNew'
+import { Presentaciones } from '@/pages/Presentaciones'
 import { BusinessCaseTemplateEditor } from '@/pages/BusinessCaseTemplateEditor'
 import { BusinessCaseGenerate } from '@/pages/BusinessCaseGenerate'
 import { AccountExecutive } from '@/pages/AccountExecutive'
@@ -122,6 +123,7 @@ function App() {
                   <Route path="/business-cases/new" element={<FeatureRoute flag="section_business_cases"><BusinessCaseNew /></FeatureRoute>} />
                   <Route path="/business-cases/templates/:id" element={<FeatureRoute flag="section_business_cases"><BusinessCaseTemplateEditor /></FeatureRoute>} />
                   <Route path="/business-cases/generate" element={<FeatureRoute flag="section_business_cases"><BusinessCaseGenerate /></FeatureRoute>} />
+                  <Route path="/presentaciones" element={<FeatureRoute flag="section_presentaciones"><Presentaciones /></FeatureRoute>} />
                   <Route path="/account-executive" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><AccountExecutive /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/account-executive/crm" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><CRMPipeline /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/account-executive/:id" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><AccountExecutiveDetail /></PageErrorBoundary></FeatureRoute>} />
