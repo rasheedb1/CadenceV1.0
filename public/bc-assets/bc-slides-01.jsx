@@ -41,7 +41,7 @@ function BCSlide01({ data }) {
             <div style={{ fontSize: 36, fontWeight: 300, color: '#fff', letterSpacing: '-0.02em' }}>90<span style={{ fontSize: 18, color: 'rgba(255,255,255,0.5)' }}> days</span></div>
           </div>
         </div>
-        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.2em', fontWeight: 600, color: 'rgba(255,255,255,0.4)' }}>01 / 24</div>
+        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.2em', fontWeight: 600, color: 'rgba(255,255,255,0.4)' }}>01 / 18</div>
       </div>
     </div>
   );
@@ -96,7 +96,7 @@ function BCSlide02({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="executive summary" pageNum={2} total={26} />
+      <SlideFooter section="executive summary" pageNum={2} total={18} />
     </div>
   );
 }
@@ -128,7 +128,7 @@ function BCSlide03({ data }) {
           ))}
         </div>
       </div>
-      <SlideFooter section="agenda" pageNum={3} total={26} />
+      <SlideFooter section="agenda" pageNum={3} total={18} />
     </div>
   );
 }
@@ -142,7 +142,7 @@ function BCSlide04() {
         <div className="section-glyph anim-in">01</div>
         <h2 className="t-title anim-in anim-in-2" style={{ fontSize: 108, fontWeight: 300, color: '#fff' }}>The problem</h2>
       </div>
-      <SlideFooter section="the problem" pageNum={4} total={26} />
+      <SlideFooter section="the problem" pageNum={4} total={18} />
     </div>
   );
 }
@@ -177,7 +177,7 @@ function BCSlide05({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="the problem" pageNum={5} total={26} />
+      <SlideFooter section="the problem" pageNum={5} total={18} />
     </div>
   );
 }
@@ -223,7 +223,7 @@ function BCSlide06({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="the problem" pageNum={6} total={26} />
+      <SlideFooter section="the problem" pageNum={6} total={18} />
     </div>
   );
 }
@@ -237,7 +237,7 @@ function BCSlide07() {
         <div className="section-glyph anim-in">02</div>
         <h2 className="t-title anim-in anim-in-2" style={{ fontSize: 108, fontWeight: 300, color: '#fff' }}>The platform</h2>
       </div>
-      <SlideFooter section="the platform" pageNum={7} total={26} />
+      <SlideFooter section="the platform" pageNum={7} total={18} />
     </div>
   );
 }
@@ -273,7 +273,7 @@ function BCSlide08() {
           </div>
         </div>
       </div>
-      <SlideFooter section="the platform" pageNum={8} total={26} />
+      <SlideFooter section="the platform" pageNum={8} total={18} />
     </div>
   );
 }
@@ -310,7 +310,7 @@ function BCSlide09() {
           ))}
         </div>
       </div>
-      <SlideFooter section="the platform" pageNum={9} total={26} />
+      <SlideFooter section="the platform" pageNum={9} total={18} />
     </div>
   );
 }
@@ -342,7 +342,7 @@ function BCSlide10() {
           ))}
         </div>
       </div>
-      <SlideFooter section="the platform" pageNum={10} total={26} />
+      <SlideFooter section="the platform" pageNum={9} total={18} />
     </div>
   );
 }
@@ -388,7 +388,7 @@ function BCSlide11({ data }) {
           ))}
         </div>
       </div>
-      <SlideFooter section="the platform" pageNum={11} total={26} />
+      <SlideFooter section="the platform" pageNum={11} total={18} />
     </div>
   );
 }
@@ -442,7 +442,7 @@ function BCSlide12() {
           </div>
         </div>
       </div>
-      <SlideFooter section="the platform" pageNum={12} total={26} />
+      <SlideFooter section="the platform" pageNum={12} total={18} />
     </div>
   );
 }

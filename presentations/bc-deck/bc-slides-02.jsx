@@ -9,7 +9,7 @@ function BCSlide13() {
         <div className="section-glyph anim-in">03</div>
         <h2 className="t-title anim-in anim-in-2" style={{ fontSize: 108, fontWeight: 300, color: '#fff' }}>The business case</h2>
       </div>
-      <SlideFooter section="the business case" pageNum={13} total={26} />
+      <SlideFooter section="the business case" pageNum={10} total={18} />
     </div>
   );
 }
@@ -52,7 +52,7 @@ function BCSlide14({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="the business case" pageNum={14} total={26} />
+      <SlideFooter section="the business case" pageNum={11} total={18} />
     </div>
   );
 }
@@ -101,7 +101,7 @@ function BCSlide15({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="the business case" pageNum={16} total={26} />
+      <SlideFooter section="the business case" pageNum={13} total={18} />
     </div>
   );
 }
@@ -148,7 +148,7 @@ function BCSlide16({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="the business case" pageNum={17} total={26} />
+      <SlideFooter section="the business case" pageNum={14} total={18} />
     </div>
   );
 }
@@ -194,56 +194,61 @@ function BCSlide17({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="the business case" pageNum={18} total={26} />
+      <SlideFooter section="the business case" pageNum={18} total={18} />
     </div>
   );
 }
 
 function BCSlide18({ data }) {
+  const nInt = Number(data.numNewIntegrations) || 0;
+  const intBuild = Number(data.integrationCostBuild) || 0;
+  const ttmMonths = Number(data.timeToMarketMonthsSaved) || 0;
+  const reconOther = Number(data.reconciliationCostOtherAnnual) || 0;
+  const reconYuno = Number(data.reconciliationCostYunoAnnual) || 0;
+  const rows = [
+    { label: nInt > 0 ? 'integration (' + nInt + ' providers · 3mo each)' : 'integration', build: intBuild, yuno: 0, yunoNote: 'bundled' },
+    { label: 'reconciliation (annual)', build: reconOther, yuno: reconYuno, yunoNote: reconYuno === 0 ? 'bundled' : undefined },
+  ];
+  const buildTotal1yr = rows.reduce((a, r) => a + Number(r.build || 0), 0);
+  const yunoTotal1yr = rows.reduce((a, r) => a + (r.yunoNote === 'bundled' ? 0 : Number(r.yuno || 0)), 0);
   return (
-    <div className="slide theme-ink" data-screen-label="18 Lever 4: Ops">
+    <div className="slide theme-ink" data-screen-label="Lever 3: Ops">
       <div className="ink-grid" />
-      <SectionLabel color="rgba(255,255,255,0.6)">03 / lever 04</SectionLabel>
+      <SectionLabel color="rgba(255,255,255,0.6)">03 / lever 03</SectionLabel>
       <div style={{ position: 'absolute', top: 160, left: 80, right: 80 }}>
-        <h2 className="t-title anim-in" style={{ fontSize: 56, fontWeight: 300, color: '#fff', marginBottom: 8 }}>Lever 04: operational savings</h2>
-        <div className="t-subtitle-alt anim-in anim-in-1" style={{ color: 'rgba(255,255,255,0.5)', marginBottom: 40 }}>consolidate providers, automate reconciliation, reduce headcount</div>
+        <h2 className="t-title anim-in" style={{ fontSize: 56, fontWeight: 300, color: '#fff', marginBottom: 8 }}>Lever 03: operational savings</h2>
+        <div className="t-subtitle-alt anim-in anim-in-1" style={{ color: 'rgba(255,255,255,0.5)', marginBottom: 40 }}>consolidate providers, automate reconciliation, accelerate time-to-market</div>
         <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 48 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <KPI label="FTE freed" value={String(data.fteFreed)} sub="payments ops & engineering" />
-            <KPI label="avoided build cost" value={fmtMoney((data.buildVsBuy.maintenance.build - data.buildVsBuy.maintenance.yuno) / 3, { decimals: 1 })} sub="per year in engineering" />
+            <KPI label="time-to-market saved" value={ttmMonths + ' mo'} sub={nInt > 0 ? nInt + ' new providers · 3mo each' : 'faster than building in-house'} />
             <KPI label="reconciliation automated" value="80%" sub="vs. manual matching today" />
           </div>
           <div className="anim-in anim-in-3">
-            <div className="t-label" style={{ color: 'rgba(255,255,255,0.4)', marginBottom: 20 }}>build vs. buy: 3-year TCO</div>
+            <div className="t-label" style={{ color: 'rgba(255,255,255,0.4)', marginBottom: 20 }}>1-year comparison</div>
             <div style={{ borderRadius: 14, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.07)' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', background: 'rgba(255,255,255,0.04)', padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', background: 'rgba(255,255,255,0.04)', padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                 <div className="t-label" style={{ color: 'rgba(255,255,255,0.4)' }}></div>
-                <div className="t-label" style={{ color: '#FF6A6A', textAlign: 'center' }}>build in-house</div>
+                <div className="t-label" style={{ color: '#FF6A6A', textAlign: 'center' }}>build / other providers</div>
                 <div className="t-label" style={{ color: '#E0ED80', textAlign: 'center' }}>yuno</div>
               </div>
-              {[
-                { label: 'integration', build: data.buildVsBuy.integration.build, yuno: 0, yunoNote: 'bundled' },
-                { label: 'maintenance', build: data.buildVsBuy.maintenance.build, yuno: 0, yunoNote: 'bundled' },
-                { label: 'saas platform (3yr)', build: data.buildVsBuy.ops.build, yuno: data.saasAnnualFee * 3 },
-                { label: 'transaction fees (3yr)', build: data.buildVsBuy.compliance.build, yuno: data.txAnnualFee * 3 },
-                ...(Number(data.reconciliationAnnualFee) > 0 ? [{ label: 'reconciliation (3yr)', build: 0, buildNote: 'n/a', yuno: data.reconciliationAnnualFee * 3 }] : []),
-              ].map((r, i) => (
-                <div key={i} className={'anim-in anim-in-' + (i + 4)} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+              {rows.map((r, i) => (
+                <div key={i} className={'anim-in anim-in-' + (i + 4)} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.65)' }}>{r.label}</div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.5)', textAlign: 'center' }}>{r.buildNote ? <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, fontWeight: 500 }}>{r.buildNote}</span> : fmtMoney(r.build, { decimals: 1 })}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.5)', textAlign: 'center' }}>{fmtMoney(r.build, { decimals: 1 })}</div>
                   <div style={{ fontSize: 14, fontWeight: 600, color: '#E0ED80', textAlign: 'center' }}>{r.yunoNote ? <span style={{ color: 'rgba(224,237,128,0.55)', fontSize: 13, fontWeight: 500 }}>{r.yunoNote}</span> : fmtMoney(r.yuno, { decimals: 1 })}</div>
                 </div>
               ))}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '18px 20px', background: 'rgba(255,255,255,0.03)' }}>
-                <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>3yr total</div>
-                <div style={{ fontSize: 16, fontWeight: 600, color: '#FF6A6A', textAlign: 'center' }}>{fmtMoney(data.buildTotal3yr, { decimals: 1 })}</div>
-                <div style={{ fontSize: 16, fontWeight: 600, color: '#E0ED80', textAlign: 'center' }}>{fmtMoney(data.yunoAnnualFee * 3, { decimals: 1 })}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', padding: '18px 20px', background: 'rgba(255,255,255,0.03)' }}>
+                <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>1yr total</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: '#FF6A6A', textAlign: 'center' }}>{fmtMoney(buildTotal1yr, { decimals: 1 })}</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: '#E0ED80', textAlign: 'center' }}>{fmtMoney(yunoTotal1yr, { decimals: 1 })}</div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      <SlideFooter section="the business case" pageNum={19} total={26} />
+      <SlideFooter section="the business case" pageNum={15} total={18} />
     </div>
   );
 }
@@ -291,7 +296,7 @@ function BCSlide19({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="the business case" pageNum={20} total={26} />
+      <SlideFooter section="the business case" pageNum={20} total={18} />
     </div>
   );
 }
@@ -367,7 +372,7 @@ function BCSlide20({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="pricing" pageNum={21} total={26} />
+      <SlideFooter section="pricing" pageNum={16} total={18} />
     </div>
   );
 }
@@ -396,7 +401,7 @@ function BCSlide21() {
           ))}
         </div>
       </div>
-      <SlideFooter section="proof points" pageNum={23} total={26} />
+      <SlideFooter section="proof points" pageNum={23} total={18} />
     </div>
   );
 }
@@ -438,7 +443,7 @@ function BCSlide22() {
           ))}
         </div>
       </div>
-      <SlideFooter section="the plan" pageNum={24} total={26} />
+      <SlideFooter section="the plan" pageNum={24} total={18} />
     </div>
   );
 }
@@ -467,7 +472,7 @@ function BCSlide23() {
           ))}
         </div>
       </div>
-      <SlideFooter section="the plan" pageNum={25} total={26} />
+      <SlideFooter section="the plan" pageNum={25} total={18} />
     </div>
   );
 }
@@ -500,7 +505,7 @@ function BCSlide24({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="close" pageNum={26} total={26} />
+      <SlideFooter section="close" pageNum={18} total={18} />
     </div>
   );
 }
@@ -655,7 +660,7 @@ function BCSlide14B({ data }) {
 
         </div>
       </div>
-      <SlideFooter section="03 / business case" pageNum={15} total={26} logoColor="rgba(255,255,255,0.5)" />
+      <SlideFooter section="03 / business case" pageNum={12} total={18} logoColor="rgba(255,255,255,0.5)" />
     </div>
   );
 }
@@ -933,7 +938,7 @@ function BCSlide20B({ data }) {
         </div>
 
       </div>
-      <SlideFooter section="04 / pricing" pageNum={22} total={26} logoColor="rgba(255,255,255,0.5)" />
+      <SlideFooter section="04 / pricing" pageNum={17} total={18} logoColor="rgba(255,255,255,0.5)" />
     </div>
   );
 }

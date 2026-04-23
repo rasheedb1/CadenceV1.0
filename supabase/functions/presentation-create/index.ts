@@ -422,7 +422,7 @@ Deno.serve(async (req: Request) => {
   let activeMarkets: number, currentAPMs: number, currentProviders: number, fteToday: number, fteTarget: number
   let approvalLiftPp: number, mdrReductionBps: number, apmUpliftPct: number, newAPMsAdded: number
   let integrationReductionPct: number, opsSavings: number
-  let minTxAnnual: number, monthlySaaS: number, reconciliationFee: number
+  let minTxAnnual: number, monthlySaaS: number, reconciliationFee: number, numNewIntegrations: number
   let conservativeMult: number, optimisticMult: number, npvMultiplier: number
   let ratePerTx: number
   let rateTiers: Array<{ upToTx: number | null; ratePerTx: number }> = []
@@ -462,6 +462,7 @@ Deno.serve(async (req: Request) => {
     minTxAnnual = Math.round(n('minTxAnnual', pick('minTxAnnual') ?? 0, 0, 1e11))
     monthlySaaS = n('monthlySaaS', pick('monthlySaaS') ?? 0, 0, 1e8)
     reconciliationFee = n('reconciliationFee', pick('reconciliationFee') ?? 0, 0, 1e8)
+    numNewIntegrations = Math.round(n('numNewIntegrations', pick('numNewIntegrations') ?? 0, 0, 1000))
     conservativeMult = n('conservativeMult', pick('conservativeMult') ?? 0.6, 0, 10)
     optimisticMult = n('optimisticMult', pick('optimisticMult') ?? 1.4, 0, 10)
     npvMultiplier = n('npvMultiplier', pick('npvMultiplier') ?? 2.6, 0, 100)
@@ -528,6 +529,7 @@ Deno.serve(async (req: Request) => {
     minTxAnnual,
     monthlySaaS,
     reconciliationFee,
+    numNewIntegrations,
     approvalLiftPp,
     mdrReductionBps,
     apmUpliftPct,

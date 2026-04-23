@@ -147,6 +147,19 @@ function computeData(raw) {
   const valuePerPp = tpv * 0.01 * grossMargin;
   const fteFreed = fteToday - fteTarget;
 
+  // Lever 03 (operational savings) inputs — 1yr basis.
+  // Integration: N new providers × 3 months × $10K/month = N × $30K to build in-house, bundled via Yuno.
+  // Reconciliation: market rate ~$10K/mo for comparable SaaS vs. deal-specific reconciliationFee (else $0).
+  // Time-to-market: N integrations × 3 months parallel-ish saved by bundling.
+  const numNewIntegrations = Math.max(0, Math.round(Number(d.numNewIntegrations) || 0));
+  const integrationMonthsPerProvider = 3;
+  const integrationCostPerMonth = 10000;
+  const integrationCostBuild = numNewIntegrations * integrationMonthsPerProvider * integrationCostPerMonth;
+  const timeToMarketMonthsSaved = numNewIntegrations * integrationMonthsPerProvider;
+  const reconciliationMarketPerMonth = 10000;
+  const reconciliationCostOtherAnnual = reconciliationMarketPerMonth * 12;
+  const reconciliationCostYunoAnnual = reconciliationAnnualFee;
+
   return {
     clientName: d.clientName || 'Client',
     date: d.date || '',
@@ -172,6 +185,8 @@ function computeData(raw) {
     roiYr1, paybackMonths, npv3yr, conservative, optimistic,
     buildVsBuy, buildTotal3yr, yunoTotal3yr,
     valuePerPp, fteFreed,
+    numNewIntegrations, integrationCostBuild, timeToMarketMonthsSaved,
+    reconciliationCostOtherAnnual, reconciliationCostYunoAnnual,
   };
 }
 
@@ -194,23 +209,15 @@ const slideBuilders = [
   (d) => <BCSlide06 data={d} />,
   (d) => <BCSlide07 />,
   (d) => <BCSlide08 />,
-  (d) => <BCSlide09 />,
   (d) => <BCSlide10 />,
-  (d) => <BCSlide11 data={d} />,
-  (d) => <BCSlide12 />,
   (d) => <BCSlide13 />,
   (d) => <BCSlide14 data={d} />,
   (d) => <BCSlide14B data={d} />,
   (d) => <BCSlide15 data={d} />,
   (d) => <BCSlide16 data={d} />,
-  (d) => <BCSlide17 data={d} />,
   (d) => <BCSlide18 data={d} />,
-  (d) => <BCSlide19 data={d} />,
   (d) => <BCSlide20 data={d} />,
   (d) => <BCSlide20B data={d} />,
-  (d) => <BCSlide21 />,
-  (d) => <BCSlide22 />,
-  (d) => <BCSlide23 />,
   (d) => <BCSlide24 data={d} />,
 ];
 

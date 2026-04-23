@@ -77,10 +77,16 @@ Para generar el deck de <ClientName> necesito estos datos del cliente.
    Nota: el TPV global NO lo pregunto — se calcula como sum(tx × avgTicket) por país.
 
 3) PRICING YUNO (negociado por cliente — SIEMPRE confirmar):
-   pricingModel     = flat | tiered
-   ratePerTx        = ?      (USD/tx, si flat)    [o rateTiers si tiered]
-   minTxAnnual      = ?      (tx/año floor)
-   monthlySaaS      = ?      (USD/mes)
+   pricingModel       = flat | tiered
+   ratePerTx          = ?      (USD/tx, si flat)    [o rateTiers si tiered]
+   minTxAnnual        = ?      (tx/año floor)
+   monthlySaaS        = ?      (USD/mes)
+   reconciliationFee  = ?      (USD/mes — OPCIONAL, déjalo en 0 si no aplica)
+
+4) OPERACIÓN (Lever 03 operational savings):
+   numNewIntegrations = ?      (cuántos providers nuevos va a integrar el cliente vía Yuno)
+                               Cada integración cuesta $10K/mes × 3 meses = $30K in-house
+                               y Yuno la entrega bundled. También driver de time-to-market.
 
 Lo demás lo investigo yo (APMs actuales, providers actuales) o uso benchmarks Yuno
 (approvalLiftPp 7.4, mdrReductionBps 38, apmUpliftPct 6, etc). Si quieres cambiar
@@ -185,6 +191,8 @@ If the user says "regenera X" or "regenerate <slug>":
 - `0 < grossMargin ≤ 100`
 - `pricingModel` ∈ {"flat", "tiered"}
 - `minTxAnnual ≥ 0`, `monthlySaaS ≥ 0`
+- `reconciliationFee` optional, 0 ≤ x ≤ 1e8 (USD/mes; 0 = card muestra "minimum commitment" genérico)
+- `numNewIntegrations` optional integer, 0 ≤ x ≤ 1000 (drives Lever 03 integration cost $30K/int and time-to-market 3mo/int)
 - `countries`: optional array (≤20 entries). If present and non-empty, `tpv` is derived from sum(tx × avgTicket) per country.
   - Per country: `tx > 0` required; `mdrBps` (0 < x ≤ 1000) optional; `avgTicket` (0 < x ≤ 1e6) optional.
 - `tpv > 0` — required only if `countries` is empty/absent; ignored otherwise.
