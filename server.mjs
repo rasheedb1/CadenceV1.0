@@ -33,7 +33,10 @@ app.get('/bc/:slug', async (req, res) => {
     })
     const body = await resp.text()
     res.status(resp.status)
-    res.set('Content-Type', resp.headers.get('content-type') || 'text/html; charset=utf-8')
+    // presentation-render always returns HTML (ok / not-found / expired / error pages).
+    // Hardcode instead of forwarding upstream's header — pass-through was landing as
+    // text/plain at the Railway edge, which combined with nosniff shows deck source.
+    res.type('text/html; charset=utf-8')
     res.set('Cache-Control', resp.headers.get('cache-control') || 'public, max-age=60')
     res.set('X-Content-Type-Options', 'nosniff')
     res.send(body)
