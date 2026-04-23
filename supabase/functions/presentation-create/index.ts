@@ -423,6 +423,7 @@ Deno.serve(async (req: Request) => {
   let approvalLiftPp: number, mdrReductionBps: number, apmUpliftPct: number, newAPMsAdded: number
   let integrationReductionPct: number, opsSavings: number
   let minTxAnnual: number, monthlySaaS: number, reconciliationFee: number, numNewIntegrations: number
+  let salesName: string | undefined, salesTitle: string | undefined, salesEmail: string | undefined
   let conservativeMult: number, optimisticMult: number, npvMultiplier: number
   let ratePerTx: number
   let rateTiers: Array<{ upToTx: number | null; ratePerTx: number }> = []
@@ -463,6 +464,22 @@ Deno.serve(async (req: Request) => {
     monthlySaaS = n('monthlySaaS', pick('monthlySaaS') ?? 0, 0, 1e8)
     reconciliationFee = n('reconciliationFee', pick('reconciliationFee') ?? 0, 0, 1e8)
     numNewIntegrations = Math.round(n('numNewIntegrations', pick('numNewIntegrations') ?? 0, 0, 1000))
+
+    const pickStr = (k: string, max: number): string | undefined => {
+      const v = pick(k)
+      if (v == null) return undefined
+      if (typeof v !== 'string') throw new Error(k + ' must be a string')
+      const trimmed = v.trim()
+      if (trimmed.length === 0) return undefined
+      if (trimmed.length > max) throw new Error(k + ' too long (>' + max + ' chars)')
+      return trimmed
+    }
+    salesName = pickStr('salesName', 100)
+    salesTitle = pickStr('salesTitle', 80)
+    salesEmail = pickStr('salesEmail', 100)
+    if (salesEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(salesEmail)) {
+      throw new Error('salesEmail must be a valid email')
+    }
     conservativeMult = n('conservativeMult', pick('conservativeMult') ?? 0.6, 0, 10)
     optimisticMult = n('optimisticMult', pick('optimisticMult') ?? 1.4, 0, 10)
     npvMultiplier = n('npvMultiplier', pick('npvMultiplier') ?? 2.6, 0, 100)
@@ -530,6 +547,9 @@ Deno.serve(async (req: Request) => {
     monthlySaaS,
     reconciliationFee,
     numNewIntegrations,
+    salesName,
+    salesTitle,
+    salesEmail,
     approvalLiftPp,
     mdrReductionBps,
     apmUpliftPct,

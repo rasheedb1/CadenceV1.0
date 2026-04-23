@@ -493,15 +493,15 @@ function BCSlide24({ data }) {
         <div className="t-body-l anim-in anim-in-3" style={{ fontSize: 22, color: 'rgba(255,255,255,0.68)', textTransform: 'none', maxWidth: 1000, marginBottom: 48 }}>
           Sign a mutual NDA this week. Technical workshop next week. First transaction through Yuno inside 30 days.
         </div>
-        <div className="anim-in anim-in-4" style={{ display: 'flex', gap: 16, marginBottom: 56 }}>
+        <div className="anim-in anim-in-4 no-print" style={{ display: 'flex', gap: 16, marginBottom: 56 }}>
           <button style={{ background: '#E0ED80', color: '#0a0a1a', border: 'none', borderRadius: 10, padding: '16px 36px', fontSize: 16, fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em' }}>schedule technical workshop</button>
-          <button style={{ background: 'transparent', color: '#fff', border: '1.5px solid rgba(255,255,255,0.2)', borderRadius: 10, padding: '16px 36px', fontSize: 16, fontWeight: 600, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em' }}>download proposal</button>
+          <button onClick={() => window.print()} style={{ background: 'transparent', color: '#fff', border: '1.5px solid rgba(255,255,255,0.2)', borderRadius: 10, padding: '16px 36px', fontSize: 16, fontWeight: 600, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em' }}>download PDF</button>
         </div>
         <div className="anim-in anim-in-5" style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-          <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, color: '#fff' }}>CG</div>
+          <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, color: '#fff' }}>{data.salesInitials || 'CG'}</div>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>Carol Grunberg</div>
-            <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>Chief Business Officer {'\u00B7'} carol@yuno.co</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>{data.salesName || 'Carol Grunberg'}</div>
+            <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>{data.salesTitle || 'Chief Business Officer'} {'\u00B7'} {data.salesEmail || 'carol@yuno.co'}</div>
           </div>
         </div>
       </div>
@@ -680,22 +680,24 @@ function BCSlide20B({ data }) {
   const L1 = Number(data.L1) || 0;
   const L2 = Number(data.L2) || 0;
   const L3 = Number(data.L3) || 0;
-  const L4 = Number(data.L4) || 0;
-  const grossGain = Number(data.grossGain) || (L1 + L2 + L3 + L4);
+  const grossGain = Number(data.grossGain) || (L1 + L2 + L3);
   const netGain = Number(data.netAnnualGain) || (grossGain - yunoAnnualCost);
   const roi = yunoAnnualCost > 0 ? grossGain / yunoAnnualCost : 0;
   const paybackMonths = Number(data.paybackMonths) || 0;
 
   const approvalLiftPp = Number(data.approvalLiftPp) || 0;
   const mdrReductionBps = Number(data.mdrReductionBps) || 0;
-  const apmUpliftPct = Number(data.apmUpliftPct) || 0;
+  const nInt = Number(data.numNewIntegrations) || 0;
+  const ttmMonths = Number(data.timeToMarketMonthsSaved) || 0;
   const grossMarginPct = Number(data.grossMargin) || 0;
 
+  const opsNote = nInt > 0
+    ? `${nInt} integrations avoided + reconciliation delta · ${ttmMonths}mo faster`
+    : 'integration cost avoided + reconciliation delta';
   const benefits = [
     { label: 'approval uplift',    value: L1, note: `+${approvalLiftPp.toFixed(1)}pp · margin ${grossMarginPct}% on recovered TPV` },
     { label: 'MDR reduction',      value: L2, note: `−${Math.round(mdrReductionBps)} bps · savings on TPV` },
-    { label: 'new APMs activated', value: L3, note: `+${apmUpliftPct}% TPV · margin on new rails` },
-    { label: 'operations savings', value: L4, note: 'build→buy · FTEs freed + compliance' },
+    { label: 'operations savings', value: L3, note: opsNote },
   ];
 
   const pricingLabel = data.pricingModel === 'tiered' ? 'tiered · blended' : 'flat rate';
@@ -839,7 +841,7 @@ function BCSlide20B({ data }) {
               what yuno returns
             </div>
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginBottom: 24 }}>
-              annual gross value · four stacked levers
+              annual gross value · three stacked levers
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 26 }}>
@@ -917,7 +919,7 @@ function BCSlide20B({ data }) {
           <div style={{ fontSize: 15, color: 'rgba(255,255,255,0.7)', maxWidth: 900 }}>
             For every <span style={{ color: '#FF8A5B', fontWeight: 600 }}>$1</span> paid to Yuno, you recover{' '}
             <span style={{ color: '#E0ED80', fontWeight: 600 }}>${roi.toFixed(0)}</span>{' '}
-            in approvals, MDR savings, new rails and operations — net of our fee.
+            in approvals, MDR savings and operations — net of our fee.
           </div>
           <div style={{ display: 'flex', gap: 32 }}>
             <div>

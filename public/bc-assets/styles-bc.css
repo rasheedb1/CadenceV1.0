@@ -75,3 +75,47 @@
 
 [data-deck-active] .draw-in path { stroke-dasharray: var(--len, 1000); stroke-dashoffset: var(--len, 1000); animation: drawLine 1.8s cubic-bezier(.22,.8,.22,1) 300ms both; }
 @keyframes drawLine { to { stroke-dashoffset: 0; } }
+
+/* ============================================================
+   Print styles — user clicks "download PDF" on close slide.
+   Use browser's Save as PDF. Forces one slide per landscape page
+   at 1920x1080 aspect; disables animations and the stage scaler.
+   ============================================================ */
+@page { size: 1920px 1080px; margin: 0; }
+
+@media print {
+  .no-print { display: none !important; }
+  html, body { margin: 0 !important; padding: 0 !important; background: #06070B !important; }
+  deck-stage {
+    display: block !important;
+    transform: none !important;
+    width: 1920px !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  #root-container, [data-deck-root] {
+    transform: none !important;
+    width: 1920px !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .slide, [data-deck-slide] {
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    transform: none !important;
+    position: relative !important;
+    width: 1920px !important;
+    height: 1080px !important;
+    overflow: hidden !important;
+    display: block !important;
+    opacity: 1 !important;
+  }
+  .slide:last-child, [data-deck-slide]:last-child { page-break-after: auto !important; break-after: auto !important; }
+  /* Collapse all anim-in / draw-in / shimmer animations to final state */
+  .anim-in, [class*="anim-in-"] { opacity: 1 !important; transform: none !important; animation: none !important; }
+  .draw-in path { stroke-dashoffset: 0 !important; animation: none !important; }
+  .meter span { transform: scaleX(1) !important; animation: none !important; }
+  .map-pin { animation: none !important; }
+}

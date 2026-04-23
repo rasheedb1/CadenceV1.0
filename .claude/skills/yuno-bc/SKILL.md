@@ -88,6 +88,11 @@ Para generar el deck de <ClientName> necesito estos datos del cliente.
                                Cada integración cuesta $10K/mes × 3 meses = $30K in-house
                                y Yuno la entrega bundled. También driver de time-to-market.
 
+5) VENDEDOR (aparece en la slide de cierre como contacto):
+   salesName   = ?             (nombre completo, ej. "Rasheed Bayter")
+   salesEmail  = ?             (email — OPCIONAL, default "carol@yuno.co" si no das)
+   salesTitle  = ?             (cargo — OPCIONAL, default "Chief Business Officer")
+
 Lo demás lo investigo yo (APMs actuales, providers actuales) o uso benchmarks Yuno
 (approvalLiftPp 7.4, mdrReductionBps 38, apmUpliftPct 6, etc). Si quieres cambiar
 algún benchmark, dime. Si no, usamos defaults.
@@ -193,6 +198,7 @@ If the user says "regenera X" or "regenerate <slug>":
 - `minTxAnnual ≥ 0`, `monthlySaaS ≥ 0`
 - `reconciliationFee` optional, 0 ≤ x ≤ 1e8 (USD/mes; 0 = card muestra "minimum commitment" genérico)
 - `numNewIntegrations` optional integer, 0 ≤ x ≤ 1000 (drives Lever 03 integration cost $30K/int and time-to-market 3mo/int)
+- `salesName` / `salesTitle` / `salesEmail` optional strings (close-slide contact; salesEmail must match email regex). Defaults to Carol Grunberg if absent.
 - `countries`: optional array (≤20 entries). If present and non-empty, `tpv` is derived from sum(tx × avgTicket) per country.
   - Per country: `tx > 0` required; `mdrBps` (0 < x ≤ 1000) optional; `avgTicket` (0 < x ≤ 1e6) optional.
 - `tpv > 0` — required only if `countries` is empty/absent; ignored otherwise.

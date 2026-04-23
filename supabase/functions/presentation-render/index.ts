@@ -93,10 +93,9 @@ function computeData(raw) {
   const targetMDRBps = currentMDRBps - mdrReductionBps;
   const targetMDR = targetMDRBps / 100;
 
+  // APM uplift kept for backward compat (slide removed) — not summed into grossGain anymore.
   const incrTPV_apms = tpv * (apmUpliftPct / 100);
-  const L3 = incrTPV_apms * grossMargin;
-
-  const L4 = opsSavings;
+  const apmMarginGain = incrTPV_apms * grossMargin;
 
   let actualTxFee, minCommitFee;
   if (d.pricingModel === 'tiered') {
@@ -113,7 +112,21 @@ function computeData(raw) {
   const reconciliationAnnualFee = reconciliationFee * 12;
   const yunoAnnualFee = txAnnualFee + saasAnnualFee + reconciliationAnnualFee;
 
-  const grossGain = L1 + L2 + L3 + L4;
+  // Lever 03 — operational savings (replaces old Lever 03 APMs + Lever 04 opsSavings benchmark).
+  // Year-1: integration cost avoided + reconciliation annual delta vs. market.
+  const numNewIntegrations = Math.max(0, Math.round(Number(d.numNewIntegrations) || 0));
+  const integrationMonthsPerProvider = 3;
+  const integrationCostPerMonth = 10000;
+  const integrationCostBuild = numNewIntegrations * integrationMonthsPerProvider * integrationCostPerMonth;
+  const timeToMarketMonthsSaved = numNewIntegrations * integrationMonthsPerProvider;
+  const reconciliationMarketPerMonth = 10000;
+  const reconciliationCostOtherAnnual = reconciliationMarketPerMonth * 12;
+  const reconciliationCostYunoAnnual = reconciliationAnnualFee;
+  const reconciliationAnnualSavings = reconciliationCostOtherAnnual - reconciliationCostYunoAnnual;
+  const L3 = integrationCostBuild + reconciliationAnnualSavings;
+  const L4 = 0;
+
+  const grossGain = L1 + L2 + L3;
   const netAnnualGain = grossGain - yunoAnnualFee;
 
   const roiYr1 = yunoAnnualFee > 0 ? netAnnualGain / yunoAnnualFee : 0;
@@ -147,23 +160,22 @@ function computeData(raw) {
   const valuePerPp = tpv * 0.01 * grossMargin;
   const fteFreed = fteToday - fteTarget;
 
-  // Lever 03 (operational savings) inputs — 1yr basis.
-  // Integration: N new providers × 3 months × $10K/month = N × $30K to build in-house, bundled via Yuno.
-  // Reconciliation: market rate ~$10K/mo for comparable SaaS vs. deal-specific reconciliationFee (else $0).
-  // Time-to-market: N integrations × 3 months parallel-ish saved by bundling.
-  const numNewIntegrations = Math.max(0, Math.round(Number(d.numNewIntegrations) || 0));
-  const integrationMonthsPerProvider = 3;
-  const integrationCostPerMonth = 10000;
-  const integrationCostBuild = numNewIntegrations * integrationMonthsPerProvider * integrationCostPerMonth;
-  const timeToMarketMonthsSaved = numNewIntegrations * integrationMonthsPerProvider;
-  const reconciliationMarketPerMonth = 10000;
-  const reconciliationCostOtherAnnual = reconciliationMarketPerMonth * 12;
-  const reconciliationCostYunoAnnual = reconciliationAnnualFee;
+  // Salesperson identity for the close slide — overridable via defaults.
+  const salesName = (typeof d.salesName === 'string' && d.salesName.trim()) ? d.salesName.trim() : 'Carol Grunberg';
+  const salesTitle = (typeof d.salesTitle === 'string' && d.salesTitle.trim()) ? d.salesTitle.trim() : 'Chief Business Officer';
+  const salesEmail = (typeof d.salesEmail === 'string' && d.salesEmail.trim()) ? d.salesEmail.trim() : 'carol@yuno.co';
+  const salesInitials = (() => {
+    const parts = salesName.split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return '';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  })();
 
   return {
     clientName: d.clientName || 'Client',
     date: d.date || '',
     tpv, avgTicket,
+    countries: Array.isArray(d.countries) ? d.countries : [],
     currentApproval, currentMDR, currentMDRBps,
     grossMargin: grossMarginPct, grossMarginFrac: grossMargin,
     activeMarkets, currentAPMs, currentProviders,
@@ -171,6 +183,7 @@ function computeData(raw) {
     todayProviders: Array.isArray(d.todayProviders) ? d.todayProviders : [],
     approvalLiftPp, mdrReductionBps, apmUpliftPct,
     newAPMsAdded, integrationReductionPct, opsSavings,
+    salesName, salesTitle, salesEmail, salesInitials,
     pricingModel: d.pricingModel, ratePerTx: d.ratePerTx,
     rateTiers: d.rateTiers, minTxAnnual: d.minTxAnnual, monthlySaaS: d.monthlySaaS,
     conservativeMult: d.conservativeMult, optimisticMult: d.optimisticMult, npvMultiplier: d.npvMultiplier,
