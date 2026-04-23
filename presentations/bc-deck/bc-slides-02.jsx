@@ -9,7 +9,7 @@ function BCSlide13() {
         <div className="section-glyph anim-in">03</div>
         <h2 className="t-title anim-in anim-in-2" style={{ fontSize: 108, fontWeight: 300, color: '#fff' }}>The business case</h2>
       </div>
-      <SlideFooter section="the business case" pageNum={13} total={24} />
+      <SlideFooter section="the business case" pageNum={13} total={26} />
     </div>
   );
 }
@@ -52,7 +52,7 @@ function BCSlide14({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="the business case" pageNum={14} total={24} />
+      <SlideFooter section="the business case" pageNum={14} total={26} />
     </div>
   );
 }
@@ -101,7 +101,7 @@ function BCSlide15({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="the business case" pageNum={15} total={24} />
+      <SlideFooter section="the business case" pageNum={16} total={26} />
     </div>
   );
 }
@@ -148,7 +148,7 @@ function BCSlide16({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="the business case" pageNum={16} total={24} />
+      <SlideFooter section="the business case" pageNum={17} total={26} />
     </div>
   );
 }
@@ -177,7 +177,7 @@ function BCSlide17({ data }) {
         <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 48 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <KPI label="new methods activated" value={"+" + newAPMsAdded} />
-            <KPI label="conversion uplift" value="+6\u201330%" sub="varies by market" />
+            <KPI label="conversion uplift" value={"+" + apmUpliftPct + "%"} sub="varies by market" />
             <KPI label="incremental TPV" value={fmtMoney(incrTPV)} />
             <KPI label="incremental margin" value={fmtMoney(incrMargin)} sub={"@ " + grossMarginPct + "% gross margin"} />
           </div>
@@ -194,7 +194,7 @@ function BCSlide17({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="the business case" pageNum={17} total={24} />
+      <SlideFooter section="the business case" pageNum={18} total={26} />
     </div>
   );
 }
@@ -222,27 +222,28 @@ function BCSlide18({ data }) {
                 <div className="t-label" style={{ color: '#E0ED80', textAlign: 'center' }}>yuno</div>
               </div>
               {[
-                { label: 'integration', build: data.buildVsBuy.integration.build, yuno: data.buildVsBuy.integration.yuno },
-                { label: 'maintenance', build: data.buildVsBuy.maintenance.build, yuno: data.buildVsBuy.maintenance.yuno },
-                { label: 'ops headcount', build: data.buildVsBuy.ops.build, yuno: data.buildVsBuy.ops.yuno },
-                { label: 'compliance', build: data.buildVsBuy.compliance.build, yuno: data.buildVsBuy.compliance.yuno },
+                { label: 'integration', build: data.buildVsBuy.integration.build, yuno: 0, yunoNote: 'bundled' },
+                { label: 'maintenance', build: data.buildVsBuy.maintenance.build, yuno: 0, yunoNote: 'bundled' },
+                { label: 'saas platform (3yr)', build: data.buildVsBuy.ops.build, yuno: data.saasAnnualFee * 3 },
+                { label: 'transaction fees (3yr)', build: data.buildVsBuy.compliance.build, yuno: data.txAnnualFee * 3 },
+                ...(Number(data.reconciliationAnnualFee) > 0 ? [{ label: 'reconciliation (3yr)', build: 0, buildNote: 'n/a', yuno: data.reconciliationAnnualFee * 3 }] : []),
               ].map((r, i) => (
                 <div key={i} className={'anim-in anim-in-' + (i + 4)} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                   <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.65)' }}>{r.label}</div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.5)', textAlign: 'center' }}>{fmtMoney(r.build, { decimals: 1 })}</div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#E0ED80', textAlign: 'center' }}>{fmtMoney(r.yuno, { decimals: 1 })}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.5)', textAlign: 'center' }}>{r.buildNote ? <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, fontWeight: 500 }}>{r.buildNote}</span> : fmtMoney(r.build, { decimals: 1 })}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#E0ED80', textAlign: 'center' }}>{r.yunoNote ? <span style={{ color: 'rgba(224,237,128,0.55)', fontSize: 13, fontWeight: 500 }}>{r.yunoNote}</span> : fmtMoney(r.yuno, { decimals: 1 })}</div>
                 </div>
               ))}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '18px 20px', background: 'rgba(255,255,255,0.03)' }}>
                 <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>3yr total</div>
                 <div style={{ fontSize: 16, fontWeight: 600, color: '#FF6A6A', textAlign: 'center' }}>{fmtMoney(data.buildTotal3yr, { decimals: 1 })}</div>
-                <div style={{ fontSize: 16, fontWeight: 600, color: '#E0ED80', textAlign: 'center' }}>{fmtMoney(data.yunoTotal3yr, { decimals: 1 })}</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: '#E0ED80', textAlign: 'center' }}>{fmtMoney(data.yunoAnnualFee * 3, { decimals: 1 })}</div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      <SlideFooter section="the business case" pageNum={18} total={24} />
+      <SlideFooter section="the business case" pageNum={19} total={26} />
     </div>
   );
 }
@@ -290,7 +291,7 @@ function BCSlide19({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="the business case" pageNum={19} total={24} />
+      <SlideFooter section="the business case" pageNum={20} total={26} />
     </div>
   );
 }
@@ -304,12 +305,12 @@ function BCSlide20({ data }) {
       <div style={{ position: 'absolute', top: 160, left: 80, right: 80 }}>
         <h2 className="t-title anim-in" style={{ fontSize: 64, fontWeight: 300, color: '#fff', marginBottom: 48 }}>Pricing</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24, marginBottom: 32 }}>
-          {/* Card 1: per-tx rate */}
+          {/* Card 1: per-approved-tx rate */}
           <div className="anim-in anim-in-1" style={{ padding: 32, borderRadius: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-            <div className="t-label" style={{ color: '#8C99FF', marginBottom: 16 }}>per-transaction rate</div>
+            <div className="t-label" style={{ color: '#8C99FF', marginBottom: 16 }}>per approved transaction</div>
             {!isTiered && (
               <React.Fragment>
-                <div style={{ fontSize: 52, fontWeight: 300, color: '#fff', letterSpacing: '-0.02em', marginBottom: 8 }}>${Number(data.ratePerTx).toFixed(2)}<span style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }}>/tx</span></div>
+                <div style={{ fontSize: 52, fontWeight: 300, color: '#fff', letterSpacing: '-0.02em', marginBottom: 8 }}>${Number(data.ratePerTx).toFixed(2)}<span style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }}>/approved tx</span></div>
                 <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>flat rate across all volume</div>
               </React.Fragment>
             )}
@@ -328,11 +329,21 @@ function BCSlide20({ data }) {
               </div>
             )}
           </div>
-          {/* Card 2: min commitment */}
+          {/* Card 2: reconciliation fee (if set) OR minimum commitment */}
           <div className="anim-in anim-in-2" style={{ padding: 32, borderRadius: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-            <div className="t-label" style={{ color: '#8C99FF', marginBottom: 16 }}>minimum commitment</div>
-            <div style={{ fontSize: 52, fontWeight: 300, color: '#fff', letterSpacing: '-0.02em', marginBottom: 8 }}>{fmtNum(data.minTxAnnual)}<span style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }}> tx/yr</span></div>
-            <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>{'≈'} {fmtMoney(data.minCommitFee, { decimals: 1 })} equivalent</div>
+            {Number(data.reconciliationFee) > 0 ? (
+              <React.Fragment>
+                <div className="t-label" style={{ color: '#8C99FF', marginBottom: 16 }}>reconciliation product</div>
+                <div style={{ fontSize: 52, fontWeight: 300, color: '#fff', letterSpacing: '-0.02em', marginBottom: 8 }}>{fmtMoney(data.reconciliationFee, { decimals: 0 })}<span style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }}>/mo</span></div>
+                <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>{fmtMoney(Number(data.reconciliationFee) * 12, { decimals: 0 })} /year</div>
+              </React.Fragment>
+            ) : (
+              <React.Fragment>
+                <div className="t-label" style={{ color: '#8C99FF', marginBottom: 16 }}>minimum commitment</div>
+                <div style={{ fontSize: 52, fontWeight: 300, color: '#fff', letterSpacing: '-0.02em', marginBottom: 8 }}>{fmtNum(data.minTxAnnual)}<span style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }}> tx/yr</span></div>
+                <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>{'≈'} {fmtMoney(data.minCommitFee, { decimals: 1 })} equivalent</div>
+              </React.Fragment>
+            )}
           </div>
           {/* Card 3: SaaS fee */}
           <div className="anim-in anim-in-3" style={{ padding: 32, borderRadius: 16, background: 'rgba(224,237,128,0.06)', border: '1.5px solid rgba(224,237,128,0.25)' }}>
@@ -352,10 +363,11 @@ function BCSlide20({ data }) {
             <span>min commit: {fmtMoney(data.minCommitFee, { decimals: 2 })}</span>
             <span style={{ color: '#E0ED80' }}>tx annual (max): {fmtMoney(data.txAnnualFee, { decimals: 2 })}</span>
             <span>+ saas: {fmtMoney(data.saasAnnualFee, { decimals: 2 })}</span>
+            {Number(data.reconciliationAnnualFee) > 0 && <span>+ reconciliation: {fmtMoney(data.reconciliationAnnualFee, { decimals: 2 })}</span>}
           </div>
         </div>
       </div>
-      <SlideFooter section="pricing" pageNum={20} total={24} />
+      <SlideFooter section="pricing" pageNum={21} total={26} />
     </div>
   );
 }
@@ -384,7 +396,7 @@ function BCSlide21() {
           ))}
         </div>
       </div>
-      <SlideFooter section="proof points" pageNum={21} total={24} />
+      <SlideFooter section="proof points" pageNum={23} total={26} />
     </div>
   );
 }
@@ -426,7 +438,7 @@ function BCSlide22() {
           ))}
         </div>
       </div>
-      <SlideFooter section="the plan" pageNum={22} total={24} />
+      <SlideFooter section="the plan" pageNum={24} total={26} />
     </div>
   );
 }
@@ -455,7 +467,7 @@ function BCSlide23() {
           ))}
         </div>
       </div>
-      <SlideFooter section="the plan" pageNum={23} total={24} />
+      <SlideFooter section="the plan" pageNum={25} total={26} />
     </div>
   );
 }
@@ -488,7 +500,7 @@ function BCSlide24({ data }) {
           </div>
         </div>
       </div>
-      <SlideFooter section="close" pageNum={24} total={24} />
+      <SlideFooter section="close" pageNum={26} total={26} />
     </div>
   );
 }

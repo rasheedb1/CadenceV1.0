@@ -109,7 +109,9 @@ function computeData(raw) {
   }
   const saasAnnualFee = Number(d.monthlySaaS) * 12;
   const txAnnualFee = Math.max(actualTxFee, minCommitFee);
-  const yunoAnnualFee = txAnnualFee + saasAnnualFee;
+  const reconciliationFee = Number(d.reconciliationFee) > 0 ? Number(d.reconciliationFee) : 0;
+  const reconciliationAnnualFee = reconciliationFee * 12;
+  const yunoAnnualFee = txAnnualFee + saasAnnualFee + reconciliationAnnualFee;
 
   const grossGain = L1 + L2 + L3 + L4;
   const netAnnualGain = grossGain - yunoAnnualFee;
@@ -164,7 +166,8 @@ function computeData(raw) {
     incrTPV_approvals, incrTPV_apms,
     L1, L2, L3, L4,
     targetApproval, targetMDR, targetMDRBps,
-    actualTxFee, minCommitFee, saasAnnualFee, txAnnualFee, yunoAnnualFee,
+    actualTxFee, minCommitFee, saasAnnualFee, txAnnualFee,
+    reconciliationFee, reconciliationAnnualFee, yunoAnnualFee,
     grossGain, netAnnualGain,
     roiYr1, paybackMonths, npv3yr, conservative, optimistic,
     buildVsBuy, buildTotal3yr, yunoTotal3yr,
@@ -197,12 +200,14 @@ const slideBuilders = [
   (d) => <BCSlide12 />,
   (d) => <BCSlide13 />,
   (d) => <BCSlide14 data={d} />,
+  (d) => <BCSlide14B data={d} />,
   (d) => <BCSlide15 data={d} />,
   (d) => <BCSlide16 data={d} />,
   (d) => <BCSlide17 data={d} />,
   (d) => <BCSlide18 data={d} />,
   (d) => <BCSlide19 data={d} />,
   (d) => <BCSlide20 data={d} />,
+  (d) => <BCSlide20B data={d} />,
   (d) => <BCSlide21 />,
   (d) => <BCSlide22 />,
   (d) => <BCSlide23 />,
