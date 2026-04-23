@@ -493,4 +493,437 @@ function BCSlide24({ data }) {
   );
 }
 
-Object.assign(window, { BCSlide13, BCSlide14, BCSlide15, BCSlide16, BCSlide17, BCSlide18, BCSlide19, BCSlide20, BCSlide21, BCSlide22, BCSlide23, BCSlide24 });
+/* ============================================================
+   BCSlide14B — Country-level breakdown (between 14 and 15)
+   Reads data.countries: [{ code, name, tx, mdrBps?, avgTicket?, note? }]
+   Falls back to global data.currentMDRBps / data.avgTicket per row.
+   ============================================================ */
+function BCSlide14B({ data }) {
+  const globalAvgTkt = Number(data.avgTicket) || 0;
+  const globalMdrBps = Number(data.currentMDRBps) || 0;
+  const rawCountries = Array.isArray(data.countries) ? data.countries : [];
+
+  const rows = rawCountries
+    .filter((c) => c && Number(c.tx) > 0)
+    .map((c) => {
+      const avgTkt = Number(c.avgTicket) > 0 ? Number(c.avgTicket) : globalAvgTkt;
+      const mdrBps = Number(c.mdrBps) > 0 ? Number(c.mdrBps) : globalMdrBps;
+      const tx = Number(c.tx);
+      const countryTpv = tx * avgTkt;
+      const mdrPaid = countryTpv * (mdrBps / 10000);
+      const code = String(c.code || c.name || '—').slice(0, 3).toUpperCase();
+      const name = String(c.name || c.code || '—').toLowerCase();
+      const note = c.note ? String(c.note) : '';
+      return { code, name, tx, tkt: avgTkt, mdrBps, countryTpv, mdrPaid, note };
+    });
+
+  const totals = {
+    tpv: rows.reduce((a, r) => a + r.countryTpv, 0),
+    tx: rows.reduce((a, r) => a + r.tx, 0),
+    mdrPaid: rows.reduce((a, r) => a + r.mdrPaid, 0),
+  };
+  const avgTktBlended = totals.tx > 0 ? totals.tpv / totals.tx : 0;
+  const blendedBps = totals.tpv > 0 ? (totals.mdrPaid / totals.tpv) * 10000 : 0;
+
+  const fmtCompactNum = (n) => {
+    if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+    return Math.round(n).toLocaleString();
+  };
+
+  const empty = rows.length === 0;
+
+  return (
+    <div className="slide theme-ink-2" data-screen-label="14b Country Breakdown">
+      <div className="ink-grid" />
+      <SectionLabel color="rgba(255,255,255,0.6)">03 / business case · current state</SectionLabel>
+      <div style={{ position: 'absolute', top: 180, left: 80, right: 80, bottom: 110 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.05fr 1fr', gap: 56, alignItems: 'start' }}>
+
+          <div>
+            <div className="glow-chip anim-in" style={{ marginBottom: 24 }}>
+              <span className="dot" />today · by country
+            </div>
+            <h2 className="t-title anim-in anim-in-1" style={{
+              fontSize: 64, fontWeight: 300, letterSpacing: '-0.02em',
+              color: '#fff', marginBottom: 18, lineHeight: 1.02,
+            }}>
+              where the volume<br/>lives today.
+            </h2>
+            <div className="t-body-l" style={{
+              fontSize: 18, color: 'rgba(255,255,255,0.6)',
+              marginBottom: 36, textTransform: 'none', maxWidth: 620,
+            }}>
+              annual transactions, MDR paid and average ticket per country — your current payments baseline before Yuno.
+            </div>
+            <div className="anim-in anim-in-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20 }}>
+              <KPI label="total transactions / yr" value={fmtCompactNum(totals.tx)} sub={`across ${rows.length} market${rows.length === 1 ? '' : 's'}`} />
+              <KPI label="blended avg ticket" value={`$${avgTktBlended.toFixed(0)}`} sub="weighted by TPV" />
+              <KPI
+                label="total MDR paid / yr"
+                value={<span style={{ color: '#FF8A5B' }}>{fmtMoney(totals.mdrPaid)}</span>}
+                sub={`${blendedBps.toFixed(0)} bps blended`}
+              />
+              <KPI label="total TPV" value={fmtMoney(totals.tpv)} sub="sum of per-country" />
+            </div>
+          </div>
+
+          <div className="card-dark anim-in anim-in-3" style={{ padding: 28 }}>
+            <div className="t-subtitle-alt" style={{ color: 'rgba(140,153,255,0.9)', marginBottom: 18 }}>
+              current state · per country
+            </div>
+            {empty ? (
+              <div style={{
+                padding: 36, textAlign: 'center',
+                color: 'rgba(255,255,255,0.5)', fontSize: 14,
+              }}>
+                no country breakdown provided — add per-country transactions to populate this slide.
+              </div>
+            ) : (
+              <table className="bc-table" style={{ fontSize: 14 }}>
+                <thead>
+                  <tr>
+                    <th>market</th>
+                    <th style={{ textAlign: 'right' }}>transactions</th>
+                    <th style={{ textAlign: 'right' }}>avg ticket</th>
+                    <th style={{ textAlign: 'right' }}>MDR paid</th>
+                    <th style={{ textAlign: 'right' }}>bps</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr key={i}>
+                      <td style={{ padding: '12px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
+                            color: 'rgba(140,153,255,0.95)',
+                            padding: '3px 7px',
+                            border: '1px solid rgba(140,153,255,0.35)',
+                            borderRadius: 4,
+                            background: 'rgba(107,123,255,0.08)',
+                          }}>{r.code}</span>
+                          <span style={{ fontSize: 15, color: '#fff', textTransform: 'capitalize' }}>{r.name}</span>
+                        </div>
+                      </td>
+                      <td className="num" style={{ padding: '12px 16px', fontSize: 15 }}>{fmtCompactNum(r.tx)}</td>
+                      <td className="num" style={{ padding: '12px 16px', fontSize: 15, color: 'rgba(255,255,255,0.75)' }}>${Math.round(r.tkt)}</td>
+                      <td className="num" style={{ padding: '12px 16px', fontSize: 15, color: '#FF8A5B' }}>{fmtMoney(r.mdrPaid)}</td>
+                      <td className="num" style={{ padding: '12px 16px', fontSize: 14, color: 'rgba(255,255,255,0.55)' }}>{Math.round(r.mdrBps)}</td>
+                    </tr>
+                  ))}
+                  <tr className="total">
+                    <td style={{ padding: '16px' }}>total · blended</td>
+                    <td className="num" style={{ padding: '16px' }}>{fmtCompactNum(totals.tx)}</td>
+                    <td className="num" style={{ padding: '16px' }}>${avgTktBlended.toFixed(0)}</td>
+                    <td className="num" style={{ padding: '16px', color: '#FF8A5B' }}>{fmtMoney(totals.mdrPaid)}</td>
+                    <td className="num" style={{ padding: '16px' }}>{blendedBps.toFixed(0)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+            {!empty && (
+              <div style={{
+                marginTop: 20, padding: '14px 18px',
+                background: 'rgba(255,138,91,0.06)',
+                border: '1px solid rgba(255,138,91,0.25)',
+                borderRadius: 12,
+                display: 'flex', alignItems: 'center', gap: 16,
+              }}>
+                <div style={{
+                  fontSize: 11, color: 'rgba(255,138,91,0.95)',
+                  textTransform: 'uppercase', letterSpacing: '0.14em', fontWeight: 700,
+                }}>today's cost</div>
+                <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.78)' }}>
+                  {fmtMoney(totals.mdrPaid)} leaving the business every year in MDR — before we touch a single routing rule.
+                </div>
+              </div>
+            )}
+          </div>
+
+        </div>
+      </div>
+      <SlideFooter section="03 / business case" pageNum={15} total={26} logoColor="rgba(255,255,255,0.5)" />
+    </div>
+  );
+}
+
+/* ============================================================
+   BCSlide20B — Pay vs. Gain (between 20 and 21)
+   Uses data computed by computeData() (no hardcoded rates / levers).
+   ============================================================ */
+function BCSlide20B({ data }) {
+  const yunoAnnualCost = Number(data.yunoAnnualFee) || 0;
+  const txPerYear = Math.round(Number(data.numActualTx) || 0);
+  const saasAnnualFee = Number(data.saasAnnualFee) || 0;
+  const txAnnualFee = Number(data.txAnnualFee) || 0;
+  const saasMonthly = Number(data.monthlySaaS) || 0;
+  const blendedPerTx = txPerYear > 0 ? txAnnualFee / txPerYear : 0;
+
+  const L1 = Number(data.L1) || 0;
+  const L2 = Number(data.L2) || 0;
+  const L3 = Number(data.L3) || 0;
+  const L4 = Number(data.L4) || 0;
+  const grossGain = Number(data.grossGain) || (L1 + L2 + L3 + L4);
+  const netGain = Number(data.netAnnualGain) || (grossGain - yunoAnnualCost);
+  const roi = yunoAnnualCost > 0 ? grossGain / yunoAnnualCost : 0;
+  const paybackMonths = Number(data.paybackMonths) || 0;
+
+  const approvalLiftPp = Number(data.approvalLiftPp) || 0;
+  const mdrReductionBps = Number(data.mdrReductionBps) || 0;
+  const apmUpliftPct = Number(data.apmUpliftPct) || 0;
+  const grossMarginPct = Number(data.grossMargin) || 0;
+
+  const benefits = [
+    { label: 'approval uplift',    value: L1, note: `+${approvalLiftPp.toFixed(1)}pp · margin ${grossMarginPct}% on recovered TPV` },
+    { label: 'MDR reduction',      value: L2, note: `−${Math.round(mdrReductionBps)} bps · savings on TPV` },
+    { label: 'new APMs activated', value: L3, note: `+${apmUpliftPct}% TPV · margin on new rails` },
+    { label: 'operations savings', value: L4, note: 'build→buy · FTEs freed + compliance' },
+  ];
+
+  const pricingLabel = data.pricingModel === 'tiered' ? 'tiered · blended' : 'flat rate';
+  const paybackLabel = paybackMonths > 0 && paybackMonths < 1
+    ? `${Math.round(paybackMonths * 30)} days`
+    : paybackMonths > 0
+      ? `${paybackMonths.toFixed(1)} mo`
+      : '—';
+
+  return (
+    <div className="slide theme-ink-hero" data-screen-label="20b Pay vs Gain">
+      <div className="ink-grid" />
+      <SectionLabel color="rgba(255,255,255,0.6)">04 / pricing · value exchange</SectionLabel>
+      <div style={{ position: 'absolute', top: 160, left: 80, right: 80, bottom: 110 }}>
+
+        <h2 className="t-title anim-in" style={{
+          fontSize: 64, fontWeight: 300, letterSpacing: '-0.02em',
+          color: '#fff', marginBottom: 14,
+        }}>
+          what you pay <span style={{ color: 'rgba(255,255,255,0.45)' }}>vs.</span> what you get.
+        </h2>
+        <div className="t-body-l" style={{
+          fontSize: 19, color: 'rgba(255,255,255,0.6)',
+          marginBottom: 36, textTransform: 'none',
+        }}>
+          simple math: the invoice on the left, the return on the right — every year.
+        </div>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 60px 1.35fr',
+          gap: 24,
+          alignItems: 'stretch',
+        }}>
+
+          <div className="card-dark anim-in anim-in-1" style={{
+            padding: 34,
+            borderColor: 'rgba(255,138,91,0.28)',
+            background: 'linear-gradient(180deg, rgba(255,138,91,0.06), rgba(255,138,91,0.01))',
+          }}>
+            <div className="t-subtitle-alt" style={{ color: 'rgba(255,138,91,0.95)', marginBottom: 14 }}>
+              what you pay yuno
+            </div>
+            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginBottom: 28 }}>
+              annual cost · {pricingLabel} + fixed SaaS
+            </div>
+
+            <div style={{
+              marginBottom: 22, paddingBottom: 22,
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+            }}>
+              <div style={{
+                fontSize: 12, color: 'rgba(255,255,255,0.5)',
+                textTransform: 'uppercase', letterSpacing: '0.14em',
+                fontWeight: 600, marginBottom: 10,
+              }}>per-transaction fee</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 8 }}>
+                <div style={{ fontSize: 36, color: '#fff', fontWeight: 300 }}>${blendedPerTx.toFixed(3)}</div>
+                <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>× approved tx</div>
+              </div>
+              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)' }}>
+                {txPerYear.toLocaleString()} tx / yr →{' '}
+                <span style={{ color: '#FF8A5B', fontWeight: 500 }}>{fmtMoney(txAnnualFee)}</span>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 28 }}>
+              <div style={{
+                fontSize: 12, color: 'rgba(255,255,255,0.5)',
+                textTransform: 'uppercase', letterSpacing: '0.14em',
+                fontWeight: 600, marginBottom: 10,
+              }}>saas platform · fixed</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 8 }}>
+                <div style={{ fontSize: 36, color: '#fff', fontWeight: 300 }}>{fmtMoney(saasMonthly)}</div>
+                <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>/ month</div>
+              </div>
+              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)' }}>
+                12 months →{' '}
+                <span style={{ color: '#FF8A5B', fontWeight: 500 }}>{fmtMoney(saasAnnualFee)}</span>
+              </div>
+            </div>
+
+            <div style={{
+              padding: '20px 22px',
+              borderRadius: 14,
+              background: 'rgba(255,138,91,0.1)',
+              border: '1px solid rgba(255,138,91,0.35)',
+            }}>
+              <div style={{
+                fontSize: 11, color: 'rgba(255,138,91,0.95)',
+                textTransform: 'uppercase', letterSpacing: '0.16em',
+                fontWeight: 700, marginBottom: 8,
+              }}>total annual cost</div>
+              <div style={{
+                fontSize: 48, color: '#FF8A5B',
+                fontWeight: 300, letterSpacing: '-0.02em', lineHeight: 1,
+              }}>
+                {fmtMoney(yunoAnnualCost)}
+              </div>
+              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginTop: 6 }}>
+                ≈ {fmtMoney(yunoAnnualCost / 12)} / month all-in
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            display: 'flex', flexDirection: 'column',
+            justifyContent: 'center', alignItems: 'center', gap: 18,
+          }}>
+            <div style={{
+              fontSize: 10, color: 'rgba(255,255,255,0.45)',
+              textTransform: 'uppercase', letterSpacing: '0.18em',
+              fontWeight: 700,
+              writingMode: 'vertical-rl', transform: 'rotate(180deg)',
+            }}>returns</div>
+            <div style={{
+              width: 44, height: 44, borderRadius: '50%',
+              background: 'linear-gradient(135deg, #8C99FF, #2A3BC9)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 0 28px rgba(140,153,255,0.5)',
+              color: '#fff', fontSize: 22, fontWeight: 300,
+            }}>→</div>
+            <div style={{
+              fontSize: 34, fontWeight: 200, color: '#E0ED80',
+              letterSpacing: '-0.02em',
+            }}>
+              {roi.toFixed(0)}×
+            </div>
+            <div style={{
+              fontSize: 10, color: 'rgba(224,237,128,0.9)',
+              textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700,
+            }}>ROI</div>
+          </div>
+
+          <div className="card-dark anim-in anim-in-2" style={{
+            padding: 34,
+            borderColor: 'rgba(140,153,255,0.35)',
+            background: 'linear-gradient(180deg, rgba(107,123,255,0.08), rgba(107,123,255,0.015))',
+          }}>
+            <div className="t-subtitle-alt" style={{ color: 'rgba(140,153,255,0.95)', marginBottom: 14 }}>
+              what yuno returns
+            </div>
+            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginBottom: 24 }}>
+              annual gross value · four stacked levers
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 26 }}>
+              {benefits.map((b, i) => {
+                const pct = grossGain > 0 ? (b.value / grossGain) * 100 : 0;
+                return (
+                  <div key={i}>
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between',
+                      alignItems: 'baseline', marginBottom: 6,
+                    }}>
+                      <span style={{ fontSize: 14, color: '#fff', fontWeight: 500 }}>{b.label}</span>
+                      <span style={{
+                        fontSize: 18, color: '#E0ED80',
+                        fontWeight: 400, letterSpacing: '-0.01em',
+                      }}>+{fmtMoney(b.value)}</span>
+                    </div>
+                    <div className="meter" style={{ height: 6 }}>
+                      <span style={{ width: pct + '%', animationDelay: `${i * 120}ms` }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 5 }}>
+                      {b.note}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{
+              display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16,
+              padding: '20px 22px',
+              borderRadius: 14,
+              background: 'rgba(107,123,255,0.12)',
+              border: '1px solid rgba(140,153,255,0.4)',
+            }}>
+              <div>
+                <div style={{
+                  fontSize: 10, color: 'rgba(140,153,255,0.95)',
+                  textTransform: 'uppercase', letterSpacing: '0.16em',
+                  fontWeight: 700, marginBottom: 6,
+                }}>gross annual gain</div>
+                <div style={{
+                  fontSize: 36, color: '#fff', fontWeight: 300,
+                  letterSpacing: '-0.02em', lineHeight: 1,
+                }}>
+                  {fmtMoney(grossGain)}
+                </div>
+              </div>
+              <div>
+                <div style={{
+                  fontSize: 10, color: 'rgba(224,237,128,0.95)',
+                  textTransform: 'uppercase', letterSpacing: '0.16em',
+                  fontWeight: 700, marginBottom: 6,
+                }}>net of yuno fee</div>
+                <div style={{
+                  fontSize: 36, color: '#E0ED80', fontWeight: 300,
+                  letterSpacing: '-0.02em', lineHeight: 1,
+                }}>
+                  {fmtMoney(netGain)}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="anim-in anim-in-4" style={{
+          marginTop: 28,
+          padding: '20px 28px',
+          borderRadius: 14,
+          border: '1px solid rgba(255,255,255,0.1)',
+          background: 'rgba(255,255,255,0.02)',
+          display: 'flex', justifyContent: 'space-between',
+          alignItems: 'center', gap: 24,
+        }}>
+          <div style={{ fontSize: 15, color: 'rgba(255,255,255,0.7)', maxWidth: 900 }}>
+            For every <span style={{ color: '#FF8A5B', fontWeight: 600 }}>$1</span> paid to Yuno, you recover{' '}
+            <span style={{ color: '#E0ED80', fontWeight: 600 }}>${roi.toFixed(0)}</span>{' '}
+            in approvals, MDR savings, new rails and operations — net of our fee.
+          </div>
+          <div style={{ display: 'flex', gap: 32 }}>
+            <div>
+              <div style={{
+                fontSize: 10, color: 'rgba(255,255,255,0.5)',
+                textTransform: 'uppercase', letterSpacing: '0.14em', fontWeight: 600,
+              }}>payback</div>
+              <div style={{ fontSize: 22, color: '#fff', fontWeight: 300 }}>{paybackLabel}</div>
+            </div>
+            <div>
+              <div style={{
+                fontSize: 10, color: 'rgba(224,237,128,0.9)',
+                textTransform: 'uppercase', letterSpacing: '0.14em', fontWeight: 600,
+              }}>year-one net</div>
+              <div style={{ fontSize: 22, color: '#E0ED80', fontWeight: 300 }}>{fmtMoney(netGain)}</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <SlideFooter section="04 / pricing" pageNum={22} total={26} logoColor="rgba(255,255,255,0.5)" />
+    </div>
+  );
+}
+
+Object.assign(window, { BCSlide13, BCSlide14, BCSlide14B, BCSlide15, BCSlide16, BCSlide17, BCSlide18, BCSlide19, BCSlide20, BCSlide20B, BCSlide21, BCSlide22, BCSlide23, BCSlide24 });

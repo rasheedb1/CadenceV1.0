@@ -52,8 +52,13 @@ function computeTieredFee(tx, tiers) {
 
 function computeData(raw) {
   const d = { ...(window.BC_DEFAULTS || {}), ...raw };
-  const tpv = Number(d.tpv);
+  const countries = Array.isArray(d.countries)
+    ? d.countries.filter((c) => c && Number(c.tx) > 0)
+    : [];
   const avgTicket = Number(d.avgTicket);
+  const tpv = countries.length > 0
+    ? countries.reduce((acc, c) => acc + Number(c.tx) * (Number(c.avgTicket) > 0 ? Number(c.avgTicket) : avgTicket), 0)
+    : Number(d.tpv);
   const currentApproval = Number(d.currentApproval);
   const currentMDR = Number(d.currentMDR);
   const currentMDRBps = currentMDR * 100;
@@ -137,6 +142,7 @@ function computeData(raw) {
     clientName: d.clientName || 'Client',
     date: d.date || '',
     tpv, avgTicket,
+    countries,
     currentApproval, currentMDR, currentMDRBps,
     grossMargin: grossMarginPct, grossMarginFrac: grossMargin,
     activeMarkets, currentAPMs, currentProviders,
@@ -185,12 +191,14 @@ const slideBuilders = [
   (d) => <BCSlide12 />,
   (d) => <BCSlide13 />,
   (d) => <BCSlide14 data={d} />,
+  (d) => <BCSlide14B data={d} />,
   (d) => <BCSlide15 data={d} />,
   (d) => <BCSlide16 data={d} />,
   (d) => <BCSlide17 data={d} />,
   (d) => <BCSlide18 data={d} />,
   (d) => <BCSlide19 data={d} />,
   (d) => <BCSlide20 data={d} />,
+  (d) => <BCSlide20B data={d} />,
   (d) => <BCSlide21 />,
   (d) => <BCSlide22 />,
   (d) => <BCSlide23 />,

@@ -303,6 +303,60 @@ function mergeCostModels(
   return { ...(parent || {}), ...(override || {}) }
 }
 
+type CountryRow = {
+  code: string
+  name: string
+  tx: number
+  mdrBps?: number
+  avgTicket?: number
+  note?: string
+}
+
+function validateCountries(input: unknown): CountryRow[] {
+  if (input === undefined || input === null) return []
+  if (!Array.isArray(input)) throw new Error('countries must be an array')
+  if (input.length > 20) throw new Error('countries: max 20 entries')
+  const out: CountryRow[] = []
+  for (let i = 0; i < input.length; i++) {
+    const c = input[i]
+    if (!c || typeof c !== 'object') throw new Error('countries[' + i + '] must be an object')
+    const entry = c as Record<string, unknown>
+    const tx = Number(entry.tx)
+    if (!Number.isFinite(tx) || tx <= 0 || tx > 1e12) {
+      throw new Error('countries[' + i + '].tx must be a positive number ≤ 1e12')
+    }
+    const codeRaw = typeof entry.code === 'string' ? entry.code.trim() : ''
+    const nameRaw = typeof entry.name === 'string' ? entry.name.trim() : ''
+    if (!codeRaw && !nameRaw) {
+      throw new Error('countries[' + i + ']: code or name required')
+    }
+    const row: CountryRow = {
+      code: (codeRaw || nameRaw).slice(0, 5).toUpperCase(),
+      name: (nameRaw || codeRaw).slice(0, 40).toLowerCase(),
+      tx: Math.round(tx),
+    }
+    if (entry.mdrBps !== undefined && entry.mdrBps !== null && entry.mdrBps !== '') {
+      const m = Number(entry.mdrBps)
+      if (!Number.isFinite(m) || m <= 0 || m > 1000) {
+        throw new Error('countries[' + i + '].mdrBps must be a positive number ≤ 1000 (bps)')
+      }
+      row.mdrBps = m
+    }
+    if (entry.avgTicket !== undefined && entry.avgTicket !== null && entry.avgTicket !== '') {
+      const a = Number(entry.avgTicket)
+      if (!Number.isFinite(a) || a <= 0 || a > 1e6) {
+        throw new Error('countries[' + i + '].avgTicket must be a positive number ≤ 1e6 (USD)')
+      }
+      row.avgTicket = a
+    }
+    if (typeof entry.note === 'string' && entry.note.trim()) {
+      row.note = entry.note.trim().slice(0, 60)
+    }
+    out.push(row)
+  }
+  return out
+}
+
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get('origin')
 
@@ -374,10 +428,23 @@ Deno.serve(async (req: Request) => {
   let rateTiers: Array<{ upToTx: number | null; ratePerTx: number }> = []
   let costModelMerged: Record<string, number> | undefined
   let pricingModel: 'flat' | 'tiered'
+  let countries: CountryRow[] = []
 
   try {
-    tpv = n('tpv', pick('tpv'), 1, 1e12)
     avgTicket = n('avgTicket', pick('avgTicket'), 1, 1e6)
+    countries = validateCountries(pick('countries'))
+    if (countries.length > 0) {
+      const derivedTpv = countries.reduce(
+        (acc, c) => acc + c.tx * (c.avgTicket ?? avgTicket),
+        0,
+      )
+      if (!Number.isFinite(derivedTpv) || derivedTpv < 1 || derivedTpv > 1e12) {
+        throw new Error('derived tpv from countries must be between 1 and 1e12')
+      }
+      tpv = derivedTpv
+    } else {
+      tpv = n('tpv', pick('tpv'), 1, 1e12)
+    }
     currentApproval = n('currentApproval', pick('currentApproval'), 0.01, 100)
     currentMDR = n('currentMDR', pick('currentMDR'), 0.01, 10)
     grossMargin = n('grossMargin', pick('grossMargin'), 0.01, 100)
@@ -448,6 +515,7 @@ Deno.serve(async (req: Request) => {
     clientName,
     date: typeof pick('date') === 'string' ? pick('date') : '',
     tpv, avgTicket,
+    countries,
     currentApproval, currentMDR,
     activeMarkets, currentAPMs, currentProviders,
     grossMargin,

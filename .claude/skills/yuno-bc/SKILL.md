@@ -47,53 +47,67 @@ PY
 
 Save the `id` value for the create payload.
 
-### 3. Collect inputs (ONE message with the full template)
+### 3. Collect inputs
 
-Present this template to the user and let them reply with overrides or "all defaults":
+**CRITICAL: This step is two phases. DO NOT proceed to step 4 until the user has replied with the required values. NEVER default the fields in Phase A — each deck needs real client numbers or the output is meaningless.**
+
+#### Phase A — ASK the user, then STOP and wait
+
+Send this message exactly (with the placeholder `<ClientName>` replaced) and then **halt**. Do not generate the curl. Do not assume defaults. Wait for the user's reply before going to Phase B:
 
 ```
-Cliente: <ClientName>                (confirmado)
+Para generar el deck de <ClientName> necesito estos datos del cliente.
 
-PERFIL DEL CLIENTE (dime cuáles cambiar):
-  date             = "Q2 2026"
-  tpv              = 2_400_000_000     (USD/año)
-  avgTicket        = 48                (USD)
-  currentApproval  = 82.4              (%)
-  currentMDR       = 2.45              (%)
-  activeMarkets    = 18
-  currentAPMs      = 34
-  currentProviders = 12
-  grossMargin      = 4                 (%)
-  fteToday         = 4
+1) PER-COUNTRY BREAKDOWN (obligatorio — da forma a la slide 15):
+   Lista los países donde opera hoy el cliente, y para cada uno:
+     - tx       (transacciones/año, obligatorio)
+     - mdrBps   (MDR en bps — OPCIONAL, si lo omites uso el global)
+     - avgTicket (USD — OPCIONAL, si lo omites uso el global)
 
-PRICING YUNO (SIEMPRE preguntar — es negociado por cliente):
-  pricingModel     = "flat"            (o "tiered")
-  ratePerTx        = 0.04              (USD/tx, si flat)
-  rateTiers        = [                 (si tiered)
-    { upToTx: 200000, ratePerTx: 0.08 },
-    { upToTx: 500000, ratePerTx: 0.06 },
-    { upToTx: null,   ratePerTx: 0.04 }
-  ]
-  minTxAnnual      = 200000            (tx/año floor)
-  monthlySaaS      = 8000              (USD/mes)
+   Ejemplos válidos:
+     "BR 120M tx, MX 45M tx, CO 20M tx"                   (usa MDR y avgTicket globales)
+     "BR 120M tx mdr=285 tkt=42, MX 45M tx"               (BR custom, MX global)
 
-SUPUESTOS DE LEVERS (benchmarks Yuno, casi siempre default):
-  approvalLiftPp      = 7.4
-  mdrReductionBps     = 38
-  apmUpliftPct        = 6
-  newAPMsAdded        = 180
-  fteTarget           = 0.5
-  opsSavings          = 2_100_000
-  conservativeMult    = 0.6
-  optimisticMult      = 1.4
-  npvMultiplier       = 2.6
+2) VALORES GLOBALES (aplican donde no hay valor por país):
+   avgTicket        = ?      (USD por transacción, global)
+   currentApproval  = ?      (%, ej. 82.4)
+   currentMDR       = ?      (%, ej. 2.45 — equivale a 245 bps)
+   grossMargin      = ?      (%, ej. 4)
 
-NOTAS:
-- Si no conoces los providers actuales, DÉJALO VACÍO — el endpoint investiga con Firecrawl.
-- Para regenerar un deck existente, usa: "regenerate <slug>" y reemplazo solo los campos que cambies.
+   Nota: el TPV global NO lo pregunto — se calcula como sum(tx × avgTicket) por país.
+
+3) PRICING YUNO (negociado por cliente — SIEMPRE confirmar):
+   pricingModel     = flat | tiered
+   ratePerTx        = ?      (USD/tx, si flat)    [o rateTiers si tiered]
+   minTxAnnual      = ?      (tx/año floor)
+   monthlySaaS      = ?      (USD/mes)
+
+Lo demás lo investigo yo (APMs actuales, providers actuales) o uso benchmarks Yuno
+(approvalLiftPp 7.4, mdrReductionBps 38, apmUpliftPct 6, etc). Si quieres cambiar
+algún benchmark, dime. Si no, usamos defaults.
 ```
 
-If the user says "todo default con pricing: flat 0.04 / min 200K / saas 8000", use those.
+**STOP. Wait for user reply. Do not invent values. Do not proceed.**
+
+#### Phase B — After user replies
+
+Once the user has provided the inputs:
+
+1. **Build the `countries` array** from the user's list. Shape per entry:
+   ```json
+   { "code": "BR", "name": "brazil", "tx": 120000000, "mdrBps": 285, "avgTicket": 42 }
+   ```
+   - `code`: 2-3 letter ISO-ish (BR, MX, CO, CL, AR, US, ES, GB, IN…).
+   - `name`: lowercase human label.
+   - `tx`: integer transactions/year (parse "120M" → 120_000_000).
+   - `mdrBps`, `avgTicket`: only include if the user gave per-country overrides. Omit the fields otherwise — the endpoint and deck fall back to the globals.
+2. Set `activeMarkets` = `countries.length` (unless user overrode it).
+3. **Do NOT send `tpv`** — the endpoint derives it from `sum(tx × avgTicket)` per country. If you send it anyway, the endpoint ignores it when `countries.length > 0`.
+4. Take the user-provided values for `avgTicket`, `currentApproval`, `currentMDR`, `grossMargin`, and the pricing block.
+5. For `currentAPMs` and `currentProviders` (counts) — if Firecrawl research returns data, use it; otherwise send `0`.
+6. For `todayProviders` (list) — leave empty; the endpoint runs Firecrawl.
+7. Use Yuno default levers (`approvalLiftPp = 7.4`, `mdrReductionBps = 38`, `apmUpliftPct = 6`, `newAPMsAdded = 180`, `fteTarget = 0.5`, `opsSavings = 2_100_000`, `conservativeMult = 0.6`, `optimisticMult = 1.4`, `npvMultiplier = 2.6`) unless the user overrode them.
+8. Proceed to step 4.
 
 ### 4. POST to presentation-create
 
@@ -107,10 +121,22 @@ curl -sX POST \
     "orgId": "<ORG_ID_FROM_STEP_2>",
     "clientName": "<ClientName>",
     "date": "...",
-    "tpv": ...,
-    ... all fields ...
+    "countries": [
+      { "code": "BR", "name": "brazil", "tx": 120000000, "mdrBps": 285, "avgTicket": 42 },
+      { "code": "MX", "name": "mexico", "tx": 45000000 }
+    ],
+    "avgTicket": 48,
+    "currentApproval": 82.4,
+    "currentMDR": 2.45,
+    "grossMargin": 4,
+    "pricingModel": "flat",
+    "ratePerTx": 0.04,
+    "minTxAnnual": 200000,
+    "monthlySaaS": 8000
   }'
 ```
+
+Omit `tpv` — it's derived from `countries`. Omit Yuno lever defaults unless overriding.
 
 The Supabase anon key is baked in (public). The `PRESENTATIONS_AGENT_TOKEN` is read from `.env.local` at runtime.
 
@@ -153,12 +179,15 @@ If the user says "regenera X" or "regenerate <slug>":
 ## Validation rules
 
 - `clientName`: non-empty
-- `tpv > 0`, `avgTicket > 0`
+- `avgTicket > 0`
 - `0 < currentApproval ≤ 100`
 - `0 < currentMDR ≤ 10` (MDR is in %)
 - `0 < grossMargin ≤ 100`
 - `pricingModel` ∈ {"flat", "tiered"}
 - `minTxAnnual ≥ 0`, `monthlySaaS ≥ 0`
+- `countries`: optional array (≤20 entries). If present and non-empty, `tpv` is derived from sum(tx × avgTicket) per country.
+  - Per country: `tx > 0` required; `mdrBps` (0 < x ≤ 1000) optional; `avgTicket` (0 < x ≤ 1e6) optional.
+- `tpv > 0` — required only if `countries` is empty/absent; ignored otherwise.
 
 The edge function re-validates; this skill-side check is for faster feedback.
 
@@ -169,6 +198,7 @@ The edge function re-validates; this skill-side check is for faster feedback.
 - ❌ Don't lowercase the client name — casing is preserved end-to-end
 - ❌ Don't skip pricing questions — always confirm the Yuno commercial terms with the user
 - ❌ Don't manually fill `todayProviders` unless the user specifies — let Firecrawl find them
+- ❌ **Don't auto-default the client-specific inputs** (`activeMarkets`, `tpv`, `avgTicket`, `currentApproval`, `currentMDR`, `grossMargin`, and the pricing block). These are the whole point of the deck — every client is different. Using generic defaults (like Walmart's 2.4B TPV or 82.4% approval as a placeholder) produces a number-salad deck that doesn't match reality and is worse than no deck. **Always stop at Phase A of step 3 and wait for the user's reply.**
 
 ## Local debug helper (optional)
 
