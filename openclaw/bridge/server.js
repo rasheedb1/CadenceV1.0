@@ -1071,6 +1071,56 @@ app.post("/api/generate-business-case", express.json({ limit: "5mb" }), async (r
   }
 });
 
+// Yuno Order Form contract draft — copies Google Docs template + replaceAllText.
+// Pricing + client fields can be pre-filled from a recent business case in
+// `presentations`; any remaining required fields come from `overrides`.
+app.post("/api/generate-contract", express.json({ limit: "1mb" }), async (req, res) => {
+  try {
+    const { org_id, client_name, bc_slug, overrides } = req.body || {};
+    if (!org_id) return res.status(400).json({ success: false, error: "Missing org_id" });
+    if (!client_name && !bc_slug && !overrides?.COMPANY_NAME) {
+      return res.status(400).json({ success: false, error: "Provide client_name, bc_slug, or overrides.COMPANY_NAME" });
+    }
+
+    // Resolve Google access token via the existing refresh endpoint (tokens
+    // live in agent_integrations; bridge is the single source of truth).
+    const tokenRes = await fetch(`${BRIDGE_PUBLIC_URL}/integrations/google/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ org_id }),
+    });
+    const tokenData = await tokenRes.json();
+    if (!tokenRes.ok || !tokenData.access_token) {
+      return res.status(400).json({
+        success: false,
+        error: "Google not connected for this org. Run `conectar_gmail` first.",
+        details: tokenData,
+      });
+    }
+
+    const { generateContract } = require("./generate_contract");
+    const result = await generateContract({
+      orgId: org_id,
+      clientName: client_name,
+      bcSlug: bc_slug,
+      overrides: overrides || {},
+      accessToken: tokenData.access_token,
+    });
+
+    if (!result.success) {
+      // Missing required fields — 200 with success:false + missing list so
+      // Chief can read it and ask the user the remaining questions.
+      return res.status(200).json(result);
+    }
+
+    console.log(`[contract] Generated for ${result.vars_applied.length} vars — ${result.url}`);
+    return res.json(result);
+  } catch (e) {
+    console.error("[contract] error:", e);
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // Serve tmp files for fallback
 app.get("/api/download/:filename", (req, res) => {
   const filePath = `/tmp/${req.params.filename}`;

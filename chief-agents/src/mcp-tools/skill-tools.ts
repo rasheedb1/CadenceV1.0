@@ -17,6 +17,7 @@ const BRIDGE_URL = process.env.BRIDGE_URL || process.env.BRIDGE_PUBLIC_URL || 'h
 // Skills whose backing function lives on the bridge, not Supabase edge functions
 const BRIDGE_SKILLS: Record<string, string> = {
   'generate-business-case': '/api/generate-business-case',
+  'generate-contract': '/api/generate-contract',
 };
 
 export function buildSkillTools(agent: AgentConfig): any[] {
