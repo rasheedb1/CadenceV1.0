@@ -30,6 +30,8 @@ const DEFAULT_VARS = {
 
 // Variables that must be present before we create the copy. If any is missing
 // we return them to the caller so Chief can ask the user via WhatsApp.
+// TX_FEE_PAYMENT lives in a separate list because the caller can satisfy it
+// either via a flat string OR via structured pricing rows — see generateContract.
 const REQUIRED_VARS = [
   "COMPANY_NAME",
   "COUNTRY",
@@ -39,7 +41,6 @@ const REQUIRED_VARS = [
   "TERRITORY",
   "INTEGRATION_TYPE",
   "MONTHLY_PLATFORM_FEE",
-  "TX_FEE_PAYMENT",
   "PRIMARY_CONTACT",
   "TECHNICAL_CONTACT",
   "BILLING_CONTACT",
@@ -49,6 +50,56 @@ function formatUSD(n) {
   if (!Number.isFinite(n)) return null;
   if (n >= 1) return `USD ${Number(n).toLocaleString("en-US")}`;
   return `USD ${Number(n).toFixed(2)}`;
+}
+
+// European-style thousands separator for volume column (matches screenshot:
+// "50.000", "100.000"). We use a manual replace instead of toLocaleString("de-DE")
+// because Node's ICU build may or may not have German; manual is portable.
+function fmtVolume(n) {
+  return Math.trunc(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+// Turns BC pricing data into rows for the Transaction Pricing table.
+// Returns [] when the BC has no structured pricing; in that case generateContract
+// falls back to the legacy flat-string replacement of {{TX_FEE_PAYMENT}}.
+function buildPricingRows(defaults) {
+  if (!defaults || typeof defaults !== "object") return [];
+
+  const tiers = Array.isArray(defaults.rateTiers) ? defaults.rateTiers : [];
+  const validTiers = tiers.filter((t) => t && Number.isFinite(t.ratePerTx));
+
+  if (validTiers.length >= 2) {
+    const rows = [];
+    let prevUpTo = 0;
+    validTiers.forEach((t, i) => {
+      const from = i === 0 ? 0 : prevUpTo + 1;
+      const to = Number.isFinite(t.upToTx) ? t.upToTx : null;
+      rows.push({
+        type: i === 0 ? "TRANSACTION FEES - PAYMENT" : "",
+        volume: to == null
+          ? `${fmtVolume(from)}+ TRANSACTIONS`
+          : `${fmtVolume(from)} - ${fmtVolume(to)} TRANSACTIONS`,
+        tier: `Tier ${i + 1}`,
+        fee: `USD ${Number(t.ratePerTx).toFixed(3)}`,
+      });
+      if (to != null) prevUpTo = to;
+    });
+    return rows;
+  }
+
+  const flatRate = validTiers.length === 1 ? validTiers[0].ratePerTx : defaults.ratePerTx;
+  if (Number.isFinite(flatRate) && flatRate > 0) {
+    return [
+      {
+        type: "TRANSACTION FEES - PAYMENT",
+        volume: "ALL TRANSACTIONS",
+        tier: "Tier 1",
+        fee: `USD ${Number(flatRate).toFixed(3)}`,
+      },
+    ];
+  }
+
+  return [];
 }
 
 function varsFromBC(defaults) {
@@ -73,7 +124,13 @@ function varsFromBC(defaults) {
     out.MONTHLY_PLATFORM_FEE = formatUSD(defaults.monthlySaaS);
   }
 
-  if (Number.isFinite(defaults.ratePerTx) && defaults.ratePerTx > 0) {
+  // Only set TX_FEE_PAYMENT as a flat string when the BC has a single rate and
+  // no tier structure. Tiered pricing (or single-tier arrays) is handled by the
+  // table-insertion path in generateContract, which consumes the placeholder
+  // directly without going through replaceAllText.
+  const hasTiers = Array.isArray(defaults.rateTiers)
+    && defaults.rateTiers.filter((t) => t && Number.isFinite(t.ratePerTx)).length > 0;
+  if (!hasTiers && Number.isFinite(defaults.ratePerTx) && defaults.ratePerTx > 0) {
     out.TX_FEE_PAYMENT = `USD ${Number(defaults.ratePerTx).toFixed(2)} per successful transaction`;
   }
 
@@ -137,6 +194,139 @@ async function driveCopy({ templateId, name, folderId, accessToken }) {
   return res.json();
 }
 
+async function docsGet({ docId, accessToken }) {
+  const res = await fetch(
+    `https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`docs.get ${res.status}: ${txt.substring(0, 400)}`);
+  }
+  return res.json();
+}
+
+async function docsBatchUpdate({ docId, requests, accessToken }) {
+  const res = await fetch(
+    `https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}:batchUpdate`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ requests }),
+    },
+  );
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`docs.batchUpdate ${res.status}: ${txt.substring(0, 400)}`);
+  }
+  return res.json();
+}
+
+function findMarkerParagraph(doc, marker) {
+  const content = doc?.body?.content || [];
+  for (const el of content) {
+    if (!el.paragraph) continue;
+    const text = (el.paragraph.elements || [])
+      .map((e) => e.textRun?.content || "")
+      .join("");
+    if (text.includes(marker)) {
+      return { startIndex: el.startIndex, endIndex: el.endIndex };
+    }
+  }
+  return null;
+}
+
+function findTableAfterIndex(doc, afterIndex) {
+  const content = doc?.body?.content || [];
+  for (const el of content) {
+    if (!el.table) continue;
+    if (typeof el.startIndex !== "number" || el.startIndex < afterIndex) continue;
+    return el;
+  }
+  return null;
+}
+
+// Replaces the paragraph containing {{TX_FEE_PAYMENT}} with a native Google Docs
+// table populated from `rows`. Three API round-trips:
+//   1. documents.get  — locate the marker paragraph
+//   2. batchUpdate    — delete the paragraph, insert an empty table at that index
+//   3. documents.get  — read back the new table's cell indices
+//   4. batchUpdate    — insertText in each cell, in reverse order so earlier
+//                       indices don't shift while later ones are applied
+//
+// Returns { inserted, rowCount, reason? }. When the marker isn't found we no-op
+// and let the caller decide what to do (e.g. fall back to flat replaceAllText).
+async function insertPricingTable({ docId, accessToken, rows }) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { inserted: false, reason: "no_rows" };
+  }
+
+  const marker = "{{TX_FEE_PAYMENT}}";
+  const doc1 = await docsGet({ docId, accessToken });
+  const loc = findMarkerParagraph(doc1, marker);
+  if (!loc) return { inserted: false, reason: "marker_not_found" };
+
+  const numRows = rows.length + 1; // +1 for header
+  const numCols = 4;
+
+  await docsBatchUpdate({
+    docId,
+    accessToken,
+    requests: [
+      { deleteContentRange: { range: { startIndex: loc.startIndex, endIndex: loc.endIndex } } },
+      { insertTable: { rows: numRows, columns: numCols, location: { index: loc.startIndex } } },
+    ],
+  });
+
+  const doc2 = await docsGet({ docId, accessToken });
+  const table = findTableAfterIndex(doc2, loc.startIndex);
+  if (!table) throw new Error("Failed to locate newly inserted pricing table");
+
+  const header = ["FEE TYPE", "MONTHLY TRANSACTION VOLUME", "TIER", "FEE PER TRANSACTION"];
+  const grid = [header, ...rows.map((r) => [r.type, r.volume, r.tier, r.fee])];
+
+  const tableRows = table.table?.tableRows || [];
+  if (tableRows.length !== numRows) {
+    throw new Error(
+      `Inserted pricing table has ${tableRows.length} rows, expected ${numRows}`,
+    );
+  }
+
+  // Collect insertText requests with absolute doc indices, then sort descending
+  // so we apply the last cell first. Within a single batchUpdate, each request
+  // sees the document state AFTER previous ones in the same batch, so inserting
+  // in reverse keeps earlier indices valid.
+  const inserts = [];
+  for (let r = 0; r < tableRows.length; r++) {
+    const cells = tableRows[r].tableCells || [];
+    for (let c = 0; c < cells.length; c++) {
+      const text = grid[r]?.[c];
+      if (!text) continue;
+      const para = (cells[c].content || []).find((el) => el.paragraph);
+      if (!para || typeof para.startIndex !== "number") continue;
+      // +1 skips the implicit paragraph-start position so text lands inside the
+      // cell's paragraph, not in the structural cell boundary.
+      inserts.push({ index: para.startIndex + 1, text });
+    }
+  }
+  inserts.sort((a, b) => b.index - a.index);
+
+  if (inserts.length > 0) {
+    await docsBatchUpdate({
+      docId,
+      accessToken,
+      requests: inserts.map((i) => ({
+        insertText: { location: { index: i.index }, text: i.text },
+      })),
+    });
+  }
+
+  return { inserted: true, rowCount: rows.length };
+}
+
 async function docsBatchReplace({ docId, vars, accessToken }) {
   const requests = Object.entries(vars).map(([key, value]) => ({
     replaceAllText: {
@@ -176,10 +366,21 @@ async function generateContract({ orgId, clientName, bcSlug, overrides, accessTo
   if (!vars.COMPANY_NAME && clientName) vars.COMPANY_NAME = clientName;
   if (!vars.SIGNATURE_DATE && vars.EFFECTIVE_DATE) vars.SIGNATURE_DATE = vars.EFFECTIVE_DATE;
 
+  // Build structured pricing rows from the BC. When the caller provides
+  // `overrides.TX_FEE_PAYMENT` as a flat string we honor it via the legacy
+  // replaceAllText path and skip table insertion entirely — this is the "I just
+  // want a single-line flat rate" escape hatch.
+  const overrideFlat = overrides && typeof overrides.TX_FEE_PAYMENT === "string"
+    && overrides.TX_FEE_PAYMENT.trim() !== "";
+  const pricingRows = overrideFlat ? [] : buildPricingRows(bc ? bc.defaults : null);
+
   const missing = REQUIRED_VARS.filter((k) => {
     const v = vars[k];
     return v == null || String(v).trim() === "";
   });
+  if (pricingRows.length === 0 && !overrideFlat) {
+    missing.push("TX_FEE_PAYMENT");
+  }
   if (missing.length > 0) {
     return {
       success: false,
@@ -198,13 +399,31 @@ async function generateContract({ orgId, clientName, bcSlug, overrides, accessTo
 
   await docsBatchReplace({ docId, vars, accessToken });
 
+  // Replace the {{TX_FEE_PAYMENT}} placeholder (still intact in the copy since
+  // `vars` didn't include it when we have pricingRows) with a native table.
+  let tableResult = { inserted: false, reason: "not_attempted" };
+  if (pricingRows.length > 0) {
+    tableResult = await insertPricingTable({ docId, accessToken, rows: pricingRows });
+    if (!tableResult.inserted) {
+      console.warn(
+        `[contract] pricing table not inserted (${tableResult.reason}); marker may still be visible in doc ${docId}`,
+      );
+    }
+  }
+
   return {
     success: true,
     docId,
     url: `https://docs.google.com/document/d/${docId}/edit`,
     used_bc_slug: bc ? bc.slug : null,
     vars_applied: Object.keys(vars).sort(),
+    pricing_table: {
+      mode: overrideFlat ? "flat_override" : pricingRows.length > 1 ? "tiered" : pricingRows.length === 1 ? "flat_single" : "none",
+      rows: pricingRows.length,
+      inserted: tableResult.inserted,
+      reason: tableResult.reason || null,
+    },
   };
 }
 
-module.exports = { generateContract, REQUIRED_VARS, DEFAULT_VARS };
+module.exports = { generateContract, REQUIRED_VARS, DEFAULT_VARS, buildPricingRows };

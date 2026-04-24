@@ -83,10 +83,18 @@ If you get a row, extract:
 - `clientName` → use as `COMPANY_NAME`
 - `countries[].name` → first one becomes `COUNTRY`, all joined with `", "` become `TERRITORY`
 - `monthlySaaS` → `MONTHLY_PLATFORM_FEE` (format as `USD <n>`)
-- `ratePerTx` → `TX_FEE_PAYMENT` (format as `USD <n.nn> per successful transaction`)
+- `rateTiers[]` → **tabla de pricing** (ver abajo — ya no es un string plano)
+- `ratePerTx` (solo si NO hay rateTiers) → pricing flat
 - `minTxAnnual / 12` rounded → `MIN_TX_COUNT`
 
-If no row, all required fields must come from the user.
+**Pricing: el bridge maneja dos modos automáticamente según lo que traiga el BC**:
+- Si `rateTiers` tiene ≥1 entrada válida con `ratePerTx` → inserta una tabla nativa "Table 3: Transaction Pricing" en el Doc (FEE TYPE | MONTHLY VOLUME | TIER | FEE), con una fila por tier
+- Si sólo hay `ratePerTx` flat → tabla de 1 fila con volumen "ALL TRANSACTIONS"
+- Si el caller quiere forzar flat-string legacy, pasar `overrides.TX_FEE_PAYMENT = "USD X.XX per successful transaction"` (escape hatch — no se recomienda si hay BC)
+
+**Formato de volumen en la tabla:** `0 - 5.000.000 TRANSACTIONS`, última fila `20.000.001+ TRANSACTIONS` (separador europeo con punto, matches estilo del template).
+
+If no row, all required fields must come from the user (el usuario también puede dar los tiers a mano).
 
 ### 4. Collect inputs
 
@@ -104,8 +112,19 @@ Para el draft del contrato de <ClientName> necesito confirmar estos campos.
   COUNTRY               = <from BC first country, or ask>
   TERRITORY             = <from BC countries joined, or ask>
   MONTHLY_PLATFORM_FEE  = <from BC monthlySaaS formatted, or ask>
-  TX_FEE_PAYMENT        = <from BC ratePerTx formatted, or ask>
   MIN_TX_COUNT          = <from BC minTxAnnual/12, or ask>
+
+[Pricing: el bridge construye automáticamente la tabla del contrato. Muéstrale al usuario qué va a renderizar:]
+  Si BC tiene rateTiers:
+    "La tabla 'Table 3: Transaction Pricing' se va a generar con estos tiers:
+       Tier 1: 0 - X TRANSACTIONS     → USD <fee>
+       Tier 2: X+1 - Y TRANSACTIONS   → USD <fee>
+       Tier 3: Y+1+ TRANSACTIONS      → USD <fee>
+     ¿Los confirmas o quieres ajustar?"
+  Si BC tiene solo ratePerTx flat:
+    "Pricing flat detectado: USD <rate> por transacción → se renderiza como tabla de 1 fila 'ALL TRANSACTIONS'. ¿OK?"
+  Si no hay BC:
+    "¿Pricing flat o tiered? Si tiered, dame cada tier (volumen máximo + fee)."
 
 [Siempre pregunta estos — nunca vienen del BC:]
   REGISTRATION_NUMBER   = ?   (número de registro mercantil del cliente)
@@ -209,7 +228,7 @@ Sanity check:
   Cliente:         <COMPANY_NAME>
   Territorio:      <TERRITORY>
   Platform fee:    <MONTHLY_PLATFORM_FEE>
-  Tx fee:          <TX_FEE_PAYMENT>
+  Pricing:         <response.pricing_table.mode — "tiered" con N filas, "flat_single", o "flat_override">
   Vigencia:        <SUBSCRIPTION_TERM> desde <EFFECTIVE_DATE>
   BC usado:        <used_bc_slug or "ninguno">
 
@@ -222,8 +241,16 @@ Revisa el draft en Drive antes de mandárselo al cliente.
 - `COMPANY_NAME`, `COUNTRY`, `REGISTRATION_NUMBER`, `COMPANY_ADDRESS`
 - `EFFECTIVE_DATE`, `SIGNATURE_DATE`
 - `TERRITORY`, `INTEGRATION_TYPE`
-- `MONTHLY_PLATFORM_FEE`, `TX_FEE_PAYMENT`
+- `MONTHLY_PLATFORM_FEE`
 - `PRIMARY_CONTACT`, `TECHNICAL_CONTACT`, `BILLING_CONTACT`
+
+**Pricing (auto-table):**
+- `{{TX_FEE_PAYMENT}}` en el template es un **marcador** — el bridge lo borra e inserta una tabla nativa "Table 3: Transaction Pricing" con columnas `FEE TYPE | MONTHLY TRANSACTION VOLUME | TIER | FEE PER TRANSACTION`.
+- Source priority:
+  1. `overrides.TX_FEE_PAYMENT` string → modo legacy, se reemplaza como texto plano (no tabla). Sólo usar si quieres forzar flat sin BC.
+  2. `BC.defaults.rateTiers[]` con ≥2 entradas → tabla tiered (1 fila por tier)
+  3. `BC.defaults.rateTiers[]` con 1 entrada, o `BC.defaults.ratePerTx > 0` → tabla flat de 1 fila ("ALL TRANSACTIONS")
+  4. Nada → `{success: false, missing: ["TX_FEE_PAYMENT"]}`
 
 **Yuno defaults (overridable):**
 - `SUBSCRIPTION_TERM` = `"12 months"`
@@ -252,6 +279,7 @@ Revisa el draft en Drive antes de mandárselo al cliente.
 - ❌ **Don't retry on `{success: false, missing: [...]}` without asking the user** — that's the endpoint telling you what's still needed. Ask the user, don't guess.
 - ❌ **Don't assume the Google token is fresh** — the endpoint refreshes automatically. But if the org has never connected Google, it returns a clear error; relay it to the user.
 - ❌ **Don't modify the template from this skill.** Template edits are done manually in Drive; the skill only reads + copies it.
+- ❌ **Don't pass `overrides.TX_FEE_PAYMENT` when the BC has `rateTiers`.** El override legacy corta la tabla y mete un string plano en su lugar — se pierden los tiers. Sólo úsalo si de verdad quieres flat-string legacy y el BC no trae tiers.
 
 ## Debugging
 
@@ -266,3 +294,10 @@ Revisa el draft en Drive antes de mandárselo al cliente.
 
 **Placeholders left literal in the generated doc (e.g., `{{COMPANY_NAME}}` still visible)**
 → Either the variable name in `overrides` doesn't match the template, or the template still has the PDF-style `[X]` brackets instead of `{{X}}`. Verify both.
+
+**`{{TX_FEE_PAYMENT}}` aparece literal y NO hay tabla**
+→ El bridge intentó insertar la tabla pero el marker no se localizó. Causas posibles:
+  - El template no tiene `{{TX_FEE_PAYMENT}}` como placeholder (ej. ya está reemplazado o tiene formato distinto)
+  - El BC no trae `rateTiers` ni `ratePerTx` y no se mandó `overrides.TX_FEE_PAYMENT`
+  - El response trae `pricing_table.inserted: false` con un `reason` ("marker_not_found", "no_rows") — leerlo te dice qué falló
+→ Fix: confirmar que el template tiene `{{TX_FEE_PAYMENT}}` exactamente, o mandar `overrides.TX_FEE_PAYMENT` legacy.

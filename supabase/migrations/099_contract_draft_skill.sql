@@ -22,8 +22,18 @@ Params:
 Variables que el contrato necesita (required):
   COMPANY_NAME, COUNTRY, REGISTRATION_NUMBER, COMPANY_ADDRESS,
   EFFECTIVE_DATE, TERRITORY, INTEGRATION_TYPE,
-  MONTHLY_PLATFORM_FEE, TX_FEE_PAYMENT,
+  MONTHLY_PLATFORM_FEE,
   PRIMARY_CONTACT, TECHNICAL_CONTACT, BILLING_CONTACT
+
+Pricing (special — auto-table):
+  El placeholder {{TX_FEE_PAYMENT}} en el template se reemplaza automáticamente
+  por una tabla nativa Google Docs "Table 3: Transaction Pricing" (FEE TYPE |
+  MONTHLY VOLUME | TIER | FEE PER TRANSACTION) con una fila por tier del BC.
+  Source priority:
+    1. overrides.TX_FEE_PAYMENT string → modo legacy flat-text (no tabla)
+    2. BC.defaults.rateTiers[] con ≥2 entradas → tabla tiered
+    3. BC.defaults.rateTiers[1] o ratePerTx > 0 → tabla flat de 1 fila
+    4. Nada → returns missing: ["TX_FEE_PAYMENT"]
 
 Defaults de Yuno (sobreescribibles vía overrides):
   SIGNATURE_DATE = EFFECTIVE_DATE
