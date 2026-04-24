@@ -67,8 +67,24 @@ Para generar el deck de <ClientName> necesito estos datos del cliente.
    Ejemplos válidos:
      "BR 120M tx, MX 45M tx, CO 20M tx"                   (usa MDR y avgTicket globales)
      "BR 120M tx mdr=285 tkt=42, MX 45M tx"               (BR custom, MX global)
+     "global 1.32M tx"                                    (sin desglose — una sola fila "Global")
 
-2) VALORES GLOBALES (aplican donde no hay valor por país):
+   Si el cliente opera global y NO hay desglose por país, di "global <N> tx" y
+   construyo una fila única { code: "WW", name: "global", tx: N } para que slide 15
+   no quede vacía. En este caso SIEMPRE preguntar el countryCount real (pregunta 2).
+
+2) PRESENCIA DEL CLIENTE (slide 11 — evita que salga en 0):
+   countryCount     = ?      (int — en cuántos países opera hoy el cliente, aunque mandes una sola fila "global")
+   currentAPMs      = ?      (int — cuántos métodos de pago acepta hoy: cards, wallets, APMs locales, etc.)
+   currentProviders = ?      (int — cuántos PSPs/gateways tiene hoy)
+
+   Si NO sabes estos números, di "no sé" o "investígalos" y yo uso WebFetch/WebSearch
+   contra el sitio del cliente (footer de checkout, página "about", stack de pagos) y
+   propongo una estimación antes de mandar el curl. Firecrawl dentro del endpoint sólo
+   busca providers públicos y casi siempre cae a 0 — mejor si yo investigo en Phase B
+   y propongo números concretos para aprobación.
+
+3) VALORES GLOBALES (aplican donde no hay valor por país):
    avgTicket        = ?      (USD por transacción, global)
    currentApproval  = ?      (%, ej. 82.4)
    currentMDR       = ?      (%, ej. 2.45 — equivale a 245 bps)
@@ -76,19 +92,19 @@ Para generar el deck de <ClientName> necesito estos datos del cliente.
 
    Nota: el TPV global NO lo pregunto — se calcula como sum(tx × avgTicket) por país.
 
-3) PRICING YUNO (negociado por cliente — SIEMPRE confirmar):
+4) PRICING YUNO (negociado por cliente — SIEMPRE confirmar):
    pricingModel       = flat | tiered
    ratePerTx          = ?      (USD/tx, si flat)    [o rateTiers si tiered]
    minTxAnnual        = ?      (tx/año floor)
    monthlySaaS        = ?      (USD/mes)
    reconciliationFee  = ?      (USD/mes — OPCIONAL, déjalo en 0 si no aplica)
 
-4) OPERACIÓN (Lever 03 operational savings):
+5) OPERACIÓN (Lever 03 operational savings):
    numNewIntegrations = ?      (cuántos providers nuevos va a integrar el cliente vía Yuno)
                                Cada integración cuesta $10K/mes × 3 meses = $30K in-house
                                y Yuno la entrega bundled. También driver de time-to-market.
 
-5) VENDEDOR (aparece en la slide de cierre como contacto):
+6) VENDEDOR (aparece en la slide de cierre como contacto):
    salesName   = ?             (nombre completo, ej. "Rasheed Bayter")
    salesEmail  = ?             (email — OPCIONAL, default "carol@yuno.co" si no das)
    salesTitle  = ?             (cargo — OPCIONAL, default "Chief Business Officer")
@@ -112,11 +128,16 @@ Once the user has provided the inputs:
    - `name`: lowercase human label.
    - `tx`: integer transactions/year (parse "120M" → 120_000_000).
    - `mdrBps`, `avgTicket`: only include if the user gave per-country overrides. Omit the fields otherwise — the endpoint and deck fall back to the globals.
-2. Set `activeMarkets` = `countries.length` (unless user overrode it).
+   - **"Global" fallback:** if the user said "global" / "es global" / didn't give per-country breakdown, send ONE row: `{ "code": "WW", "name": "global", "tx": <totalAnnualTx> }`. Never send `countries: []` — slide 15 renders blank otherwise.
+2. **Set `activeMarkets` from the user's `countryCount` answer** (question 2 in Phase A). DO NOT use `countries.length` — that's 1 when user said "global", but the real market count can be higher. Only fall back to `countries.length` if the user explicitly didn't answer countryCount.
 3. **Do NOT send `tpv`** — the endpoint derives it from `sum(tx × avgTicket)` per country. If you send it anyway, the endpoint ignores it when `countries.length > 0`.
 4. Take the user-provided values for `avgTicket`, `currentApproval`, `currentMDR`, `grossMargin`, and the pricing block.
-5. For `currentAPMs` and `currentProviders` (counts) — if Firecrawl research returns data, use it; otherwise send `0`.
-6. For `todayProviders` (list) — leave empty; the endpoint runs Firecrawl.
+5. **For `currentAPMs` and `currentProviders` (counts) — use the user's answer from Phase A question 2 when given.** If the user said "no sé" / "investígalos":
+   - Run `WebFetch` against the client's homepage + `/checkout` / `/pagos` / `/payment` pages and count distinct payment methods shown (cards, wallets, local APMs).
+   - For providers (PSPs/gateways), check page source / footer for known markers (MercadoPago, Stripe, Adyen, dLocal, PayU, Ebanx, Transbank, etc.). If nothing public, estimate from market footprint (LATAM multi-country multi-PSP clients typically have 3-5).
+   - **Report the researched numbers back to the user and wait for approval** before sending the curl. Do NOT silently inject researched numbers.
+   - If even research returns nothing usable, fall back to `0` (slide 11 will show 0 — better than a wrong guess).
+6. For `todayProviders` (list of provider names) — leave empty; the endpoint runs Firecrawl. If Firecrawl finds nothing, the deck still renders with the count from `currentProviders`.
 7. Use Yuno default levers (`approvalLiftPp = 7.4`, `mdrReductionBps = 38`, `apmUpliftPct = 6`, `newAPMsAdded = 180`, `fteTarget = 0.5`, `opsSavings = 2_100_000`, `conservativeMult = 0.6`, `optimisticMult = 1.4`, `npvMultiplier = 2.6`) unless the user overrode them.
 8. Proceed to step 4.
 
@@ -136,6 +157,9 @@ curl -sX POST \
       { "code": "BR", "name": "brazil", "tx": 120000000, "mdrBps": 285, "avgTicket": 42 },
       { "code": "MX", "name": "mexico", "tx": 45000000 }
     ],
+    "activeMarkets": 2,
+    "currentAPMs": 12,
+    "currentProviders": 3,
     "avgTicket": 48,
     "currentApproval": 82.4,
     "currentMDR": 2.45,
@@ -211,8 +235,10 @@ The edge function re-validates; this skill-side check is for faster feedback.
 - ❌ Don't convert MDR to bps — keep as percent (2.45, not 245)
 - ❌ Don't lowercase the client name — casing is preserved end-to-end
 - ❌ Don't skip pricing questions — always confirm the Yuno commercial terms with the user
-- ❌ Don't manually fill `todayProviders` unless the user specifies — let Firecrawl find them
-- ❌ **Don't auto-default the client-specific inputs** (`activeMarkets`, `tpv`, `avgTicket`, `currentApproval`, `currentMDR`, `grossMargin`, and the pricing block). These are the whole point of the deck — every client is different. Using generic defaults (like Walmart's 2.4B TPV or 82.4% approval as a placeholder) produces a number-salad deck that doesn't match reality and is worse than no deck. **Always stop at Phase A of step 3 and wait for the user's reply.**
+- ❌ Don't manually fill `todayProviders` (list of provider names) — let Firecrawl find them
+- ❌ **Don't leave `countries` empty.** If the user said "es global" / no per-country breakdown, send ONE row `{ "code": "WW", "name": "global", "tx": <total> }`. An empty array makes slide 15 render blank ("no country breakdown provided"). Seen live: tur.com first pass showed $0 TPV across 0 markets on slide 15.
+- ❌ **Don't skip `activeMarkets` / `currentAPMs` / `currentProviders`.** These power slide 11 (client footprint today) and default to 0 when absent. Firecrawl rarely finds them (most clients hide their payment stack), so always ASK the user in Phase A question 2 and pass the user's numbers. Sending 0 makes the deck look like the client doesn't exist.
+- ❌ **Don't auto-default the client-specific inputs** (`tpv`, `avgTicket`, `currentApproval`, `currentMDR`, `grossMargin`, and the pricing block). These are the whole point of the deck — every client is different. Using generic defaults (like Walmart's 2.4B TPV or 82.4% approval as a placeholder) produces a number-salad deck that doesn't match reality and is worse than no deck. **Always stop at Phase A of step 3 and wait for the user's reply.**
 
 ## Local debug helper (optional)
 
