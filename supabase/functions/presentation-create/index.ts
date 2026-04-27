@@ -424,6 +424,7 @@ Deno.serve(async (req: Request) => {
   let integrationReductionPct: number, opsSavings: number
   let minTxAnnual: number, monthlySaaS: number, reconciliationFee: number, numNewIntegrations: number
   let salesName: string | undefined, salesTitle: string | undefined, salesEmail: string | undefined
+  let locale: 'en' | 'es'
   let conservativeMult: number, optimisticMult: number, npvMultiplier: number
   let ratePerTx: number
   let rateTiers: Array<{ upToTx: number | null; ratePerTx: number }> = []
@@ -480,6 +481,15 @@ Deno.serve(async (req: Request) => {
     if (salesEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(salesEmail)) {
       throw new Error('salesEmail must be a valid email')
     }
+    const localeRaw = pick('locale')
+    if (localeRaw === undefined || localeRaw === null || localeRaw === '') {
+      locale = 'en'
+    } else if (localeRaw === 'en' || localeRaw === 'es') {
+      locale = localeRaw
+    } else {
+      throw new Error('locale must be "en" or "es"')
+    }
+
     conservativeMult = n('conservativeMult', pick('conservativeMult') ?? 0.6, 0, 10)
     optimisticMult = n('optimisticMult', pick('optimisticMult') ?? 1.4, 0, 10)
     npvMultiplier = n('npvMultiplier', pick('npvMultiplier') ?? 2.6, 0, 100)
@@ -532,6 +542,7 @@ Deno.serve(async (req: Request) => {
   const prefix = slugify(clientName)
   const defaults = {
     clientName,
+    locale,
     date: typeof pick('date') === 'string' ? pick('date') : '',
     tpv, avgTicket,
     countries,

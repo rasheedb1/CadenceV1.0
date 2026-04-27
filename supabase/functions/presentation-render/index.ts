@@ -11,11 +11,12 @@ const PLACEHOLDER_CLOSE = '/*/BC_DEFAULTS_PLACEHOLDER*/'
 // Deck template (embedded at build time from public/bc-assets/template.html).
 // References /bc-assets/*.jsx, *.css served by the Railway frontend on chief.yuno.tools.
 const TEMPLATE = `<!DOCTYPE html>
-<html lang="en">
+<html lang="__HTML_LANG__">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=1920" />
 <title>__CLIENT_NAME__ · Yuno Business Case</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%233E4FE0'/><g fill='%23fff'><circle cx='3.2' cy='3.2' r='2'/><circle cx='9.6' cy='3.2' r='2'/><circle cx='22.4' cy='3.2' r='2'/><circle cx='28.8' cy='3.2' r='2'/><circle cx='9.6' cy='9.6' r='2'/><circle cx='22.4' cy='9.6' r='2'/><circle cx='16' cy='16' r='2'/><circle cx='16' cy='22.4' r='2'/><circle cx='16' cy='28.8' r='2'/></g></svg>" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@200;300;400;500;600;700;900&display=swap" rel="stylesheet" />
@@ -40,8 +41,8 @@ const TEMPLATE = `<!DOCTYPE html>
 
 <script type="text/babel" src="/bc-assets/components.jsx"></script>
 <script type="text/babel" src="/bc-assets/bc-components.jsx"></script>
-<script type="text/babel" src="/bc-assets/bc-slides-01.jsx"></script>
-<script type="text/babel" src="/bc-assets/bc-slides-02.jsx"></script>
+<script type="text/babel" src="/bc-assets/bc-slides__SLIDES_VARIANT__-01.jsx"></script>
+<script type="text/babel" src="/bc-assets/bc-slides__SLIDES_VARIANT__-02.jsx"></script>
 
 <script type="text/babel">
 const { useState, useEffect } = React;
@@ -267,13 +268,31 @@ function escapeHtml(s) {
     .replace(/'/g, '&#39;')
 }
 
-function expiredHtml(clientName) {
+const EXPIRED_COPY = {
+  en: {
+    title: 'Link expired · Yuno',
+    eyebrow: '· link expired',
+    heading: 'This deck is no longer available',
+    body: (name) => `The business case for ${name || 'this client'} has expired. Ask your Yuno contact to regenerate it.`,
+    cta: 'View active presentations →',
+  },
+  es: {
+    title: 'Enlace expirado · Yuno',
+    eyebrow: '· enlace expirado',
+    heading: 'Esta presentación ya no está disponible',
+    body: (name) => `El business case de ${name || 'este cliente'} ha expirado. Pídele a tu contacto en Yuno que lo regenere.`,
+    cta: 'Ver presentaciones activas →',
+  },
+}
+
+function expiredHtml(clientName, locale = 'en') {
   const safeName = escapeHtml(clientName || '')
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" /><title>Link expired · Yuno</title><link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@200;300;400;600&display=swap" rel="stylesheet" /><style>body{margin:0;font-family:'Titillium Web',sans-serif;background:radial-gradient(ellipse at 50% 0%,#1A1F35 0%,#06070B 60%);color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center}.card{max-width:520px;padding:48px 40px;text-align:center}.eyebrow{font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:rgba(140,153,255,0.9);font-weight:700;margin-bottom:24px}h1{font-size:48px;font-weight:200;letter-spacing:-0.02em;margin:0 0 20px}p{font-size:17px;line-height:1.55;color:rgba(255,255,255,0.68);margin:0 0 32px}a{color:#E0ED80;text-decoration:none;border-bottom:1px solid rgba(224,237,128,0.35);padding-bottom:2px;font-weight:600}</style></head><body><div class="card"><div class="eyebrow">· link expired</div><h1>This deck is no longer available</h1><p>The business case for ${safeName || 'this client'} has expired. Ask your Yuno contact to regenerate it.</p><a href="https://chief.yuno.tools/presentaciones">View active presentations →</a></div></body></html>`
+  const t = EXPIRED_COPY[locale === 'es' ? 'es' : 'en']
+  return `<!DOCTYPE html><html lang="${locale === 'es' ? 'es' : 'en'}"><head><meta charset="UTF-8" /><title>${t.title}</title><link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%233E4FE0'/><g fill='%23fff'><circle cx='3.2' cy='3.2' r='2'/><circle cx='9.6' cy='3.2' r='2'/><circle cx='22.4' cy='3.2' r='2'/><circle cx='28.8' cy='3.2' r='2'/><circle cx='9.6' cy='9.6' r='2'/><circle cx='22.4' cy='9.6' r='2'/><circle cx='16' cy='16' r='2'/><circle cx='16' cy='22.4' r='2'/><circle cx='16' cy='28.8' r='2'/></g></svg>" /><link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@200;300;400;600&display=swap" rel="stylesheet" /><style>body{margin:0;font-family:'Titillium Web',sans-serif;background:radial-gradient(ellipse at 50% 0%,#1A1F35 0%,#06070B 60%);color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center}.card{max-width:520px;padding:48px 40px;text-align:center}.eyebrow{font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:rgba(140,153,255,0.9);font-weight:700;margin-bottom:24px}h1{font-size:48px;font-weight:200;letter-spacing:-0.02em;margin:0 0 20px}p{font-size:17px;line-height:1.55;color:rgba(255,255,255,0.68);margin:0 0 32px}a{color:#E0ED80;text-decoration:none;border-bottom:1px solid rgba(224,237,128,0.35);padding-bottom:2px;font-weight:600}</style></head><body><div class="card"><div class="eyebrow">${t.eyebrow}</div><h1>${t.heading}</h1><p>${t.body(safeName)}</p><a href="https://chief.yuno.tools/presentaciones">${t.cta}</a></div></body></html>`
 }
 
 function notFoundHtml() {
-  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Not found</title><style>body{margin:0;font-family:system-ui,sans-serif;background:#06070B;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh}.c{text-align:center;padding:40px}h1{font-weight:200;font-size:64px;margin:0}p{color:rgba(255,255,255,0.5)}</style></head><body><div class="c"><h1>404</h1><p>No presentation found for this link.</p></div></body></html>'
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Not found</title><link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 32 32\'><rect width=\'32\' height=\'32\' rx=\'7\' fill=\'%233E4FE0\'/><g fill=\'%23fff\'><circle cx=\'3.2\' cy=\'3.2\' r=\'2\'/><circle cx=\'9.6\' cy=\'3.2\' r=\'2\'/><circle cx=\'22.4\' cy=\'3.2\' r=\'2\'/><circle cx=\'28.8\' cy=\'3.2\' r=\'2\'/><circle cx=\'9.6\' cy=\'9.6\' r=\'2\'/><circle cx=\'22.4\' cy=\'9.6\' r=\'2\'/><circle cx=\'16\' cy=\'16\' r=\'2\'/><circle cx=\'16\' cy=\'22.4\' r=\'2\'/><circle cx=\'16\' cy=\'28.8\' r=\'2\'/></g></svg>" /><style>body{margin:0;font-family:system-ui,sans-serif;background:#06070B;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh}.c{text-align:center;padding:40px}h1{font-weight:200;font-size:64px;margin:0}p{color:rgba(255,255,255,0.5)}</style></head><body><div class="c"><h1>404</h1><p>No presentation found for this link.</p></div></body></html>'
 }
 
 Deno.serve(async (req) => {
@@ -305,7 +324,12 @@ Deno.serve(async (req) => {
     return htmlResponse(notFoundHtml(), 500, { noStore: true })
   }
   if (!row) return htmlResponse(notFoundHtml(), 404, { noStore: true })
-  if (row.archived) return htmlResponse(expiredHtml(row.client_name), 410, { noStore: true })
+
+  // Locale lives inside `defaults` (no schema migration required).
+  // Older rows without it fall back to 'en' so they keep rendering identically.
+  const locale = (row.defaults && typeof row.defaults === 'object' && row.defaults.locale === 'es') ? 'es' : 'en'
+
+  if (row.archived) return htmlResponse(expiredHtml(row.client_name, locale), 410, { noStore: true })
 
   const now = new Date()
   const expiresAt = new Date(row.expires_at)
@@ -317,7 +341,7 @@ Deno.serve(async (req) => {
       .update({ archived: true })
       .eq('slug', slug)
       .eq('archived', false)
-    return htmlResponse(expiredHtml(row.client_name), 410, { noStore: true })
+    return htmlResponse(expiredHtml(row.client_name, locale), 410, { noStore: true })
   }
 
   // Belt-and-suspenders: the column is NOT NULL, but a malformed row shouldn't
@@ -351,8 +375,14 @@ Deno.serve(async (req) => {
   const injected = before + defaultsJson + after
 
   // __CLIENT_NAME__ is in <title>; HTML-escape properly (not strip-escape).
+  // __SLIDES_VARIANT__ picks the slide bundle: '' = English (untouched original),
+  // '-es' = Spanish fork. __HTML_LANG__ matches.
   const safeTitle = escapeHtml(row.client_name || 'Yuno')
-  const finalHtml = injected.replace('__CLIENT_NAME__', safeTitle)
+  const slidesVariant = locale === 'es' ? '-es' : ''
+  const finalHtml = injected
+    .replace('__CLIENT_NAME__', safeTitle)
+    .replaceAll('__SLIDES_VARIANT__', slidesVariant)
+    .replace('__HTML_LANG__', locale)
 
   return htmlResponse(finalHtml)
 })

@@ -11,8 +11,9 @@ Single source of truth: the edge function computes the slug, runs Firecrawl rese
 
 ## Trigger
 
-- `/yuno-bc` (no args — asks for the client name)
-- `/yuno-bc <Client Name>` (e.g., `/yuno-bc Rappi`)
+- `/yuno-bc` (no args — asks for the client name + language)
+- `/yuno-bc <Client Name>` (e.g., `/yuno-bc Rappi` — asks for language)
+- `/yuno-bc <Client Name> <es|en>` (e.g., `/yuno-bc Rappi es` — language pre-set)
 - "create a business case for X" / "genera BC para X"
 
 ## Flow
@@ -20,6 +21,18 @@ Single source of truth: the edge function computes the slug, runs Firecrawl rese
 ### 1. Get the client name
 Preserve casing (Rappi stays Rappi, ikea stays ikea). Ask if not provided:
 > ¿Para qué cliente?
+
+### 1b. ALWAYS ask for the language
+
+Never assume — always ask before generating, even when the user has worked on Spanish-only or English-only decks before. Different decks for different audiences.
+
+If the user already passed `es` or `en` as a second arg, skip the question and use it. Otherwise ask:
+
+> ¿En qué idioma generamos el deck — **español (es)** o **inglés (en)**?
+
+Wait for the user's reply. Save the answer as `locale ∈ {'en', 'es'}` for the curl payload.
+
+The deck and the public landing page both render in that language. Don't proceed to Phase A inputs until you have the locale answer.
 
 ### 2. Get the org_id
 The edge function requires `orgId` on the body. For an interactive Claude Code session, query Supabase once to get the user's first/primary org. Reads the Supabase Personal Access Token from `$SUPABASE_ACCESS_TOKEN` — never hardcode it in files or chat:
@@ -152,6 +165,7 @@ curl -sX POST \
   -d '{
     "orgId": "<ORG_ID_FROM_STEP_2>",
     "clientName": "<ClientName>",
+    "locale": "<es|en — from step 1b>",
     "date": "...",
     "countries": [
       { "code": "BR", "name": "brazil", "tx": 120000000, "mdrBps": 285, "avgTicket": 42 },
@@ -219,6 +233,7 @@ If the user says "regenera X" or "regenerate <slug>":
 - `0 < currentMDR ≤ 10` (MDR is in %)
 - `0 < grossMargin ≤ 100`
 - `pricingModel` ∈ {"flat", "tiered"}
+- `locale` ∈ {"en", "es"} (optional in payload — defaults to "en". Skill MUST always ask the user; never pass without confirming.)
 - `minTxAnnual ≥ 0`, `monthlySaaS ≥ 0`
 - `reconciliationFee` optional, 0 ≤ x ≤ 1e8 (USD/mes; 0 = card muestra "minimum commitment" genérico)
 - `numNewIntegrations` optional integer, 0 ≤ x ≤ 1000 (drives Lever 03 integration cost $30K/int and time-to-market 3mo/int)
@@ -231,6 +246,7 @@ The edge function re-validates; this skill-side check is for faster feedback.
 
 ## Common mistakes to avoid
 
+- ❌ **Don't skip the language question.** Always ask `idioma (es | en)` at step 1b, even with returning users. Different audiences (LATAM vs. global, etc.) — never assume.
 - ❌ Don't generate local HTML files — the endpoint persists to Supabase
 - ❌ Don't convert MDR to bps — keep as percent (2.45, not 245)
 - ❌ Don't lowercase the client name — casing is preserved end-to-end
