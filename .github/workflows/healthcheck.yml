@@ -1,0 +1,28 @@
+name: Chief healthcheck
+
+# Pings public endpoints every 5 minutes. Fails if any return non-2xx,
+# which surfaces as a failed scheduled run in Actions and emails the repo
+# admins (the GitHub default). No external paging service required.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bridge health
+        run: |
+          set -e
+          status=$(curl -fsS -o /tmp/health.json -w '%{http_code}' --max-time 15 https://bridge.yuno.tools/health)
+          echo "HTTP $status"
+          cat /tmp/health.json
+          grep -q '"gateway":"connected"' /tmp/health.json
+      - name: Frontend health
+        run: |
+          curl -fsSI --max-time 15 https://chief.yuno.tools | head -1

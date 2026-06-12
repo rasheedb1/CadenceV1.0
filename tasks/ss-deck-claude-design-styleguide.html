@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Yuno SS Deck — Claude Design Style Guide</title>
+
+<!--
+  =========================================================================
+  HOW TO USE THIS FILE WITH CLAUDE DESIGN (claude.ai/design)
+  =========================================================================
+  1. Open https://claude.ai/design and start a new design.
+  2. Upload this file (or paste its contents) as a reference attachment.
+  3. Prompt Claude with something like:
+       "Use the design tokens, typography, gradients, and animations
+        defined in this file as the visual system for the presentation.
+        Match the dark canvas + Geist + Yuno-blue accent treatment."
+  4. Claude Design will read the CSS variables, keyframes, sample slides
+     and component patterns below and reuse them on new slides.
+
+  This file is a *visual contract*, not a deck — it is one HTML page that
+  shows 3 representative slides (Cover / Diagnostic / Value Levers) plus
+  a tokens reference panel so Claude Design has everything in one shot:
+
+    - Color palette (Yuno-blue ramp + neutrals)
+    - Typography scale (Geist Variable)
+    - Surface / border / glow tokens
+    - Every keyframe animation used across the live deck
+    - Slide composition patterns (section pill, beam rule, stat blocks,
+      card grids, gradient titles, fabricated_proof guard markers)
+
+  Source of truth in the live codebase:
+    - src/ss-deck/index.css     (tokens + animations)
+    - src/ss-deck/lib/theme.jsx (dark/light theme bundles)
+    - src/ss-deck/components/slides/* (slide composition patterns)
+  =========================================================================
+-->
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<style>
+  /* =====================================================================
+     DESIGN TOKENS — Yuno SS Deck (dark canvas)
+     Brand source: yuno_color_cheatsheet
+     Live source:  src/ss-deck/index.css + src/ss-deck/lib/theme.jsx
+     ===================================================================== */
+  :root {
+    /* ---------- Primary brand palette ---------- */
+    --yuno-blue:           #3E4FE0;  /* Hero brand blue — primary accent */
+    --yuno-deep-blue:      #1726A6;  /* Deeper accent for gradients */
+    --yuno-mid-blue:       #5967E4;  /* Mid step in the blue ramp */
+    --yuno-soft-blue:      #7C89EF;
+    --yuno-pale-blue:      #BDC3F6;
+    --yuno-harmony-lilac:  #E8EAF5;  /* Near-white lilac */
+
+    --yuno-unity-black:    #282A30;  /* Official dark surface */
+    --yuno-security-gray:  #92959B;
+    --yuno-steel-gray:     #616366;
+    --yuno-accent-green:   #E0ED80;  /* ONLY non-blue accent — live/ok states */
+    --yuno-white:          #FFFFFF;
+
+    /* ---------- Canvas layers ---------- */
+    --bg-base:     #000000;            /* Deepest canvas */
+    --bg-navy:     #0B0E16;
+    --bg-elevated: var(--yuno-unity-black);
+
+    /* ---------- Semantic tokens (slides reference these) ---------- */
+    --accent:        var(--yuno-blue);
+    --accent-hover:  var(--yuno-mid-blue);
+    --accent-soft:   var(--yuno-soft-blue);
+    --accent-faint:  var(--yuno-pale-blue);
+    --success:       var(--yuno-accent-green);
+    --warning:       #EA580C;
+
+    /* ---------- Text opacity scale ---------- */
+    --text-primary:   rgba(255, 255, 255, 0.92);
+    --text-secondary: rgba(255, 255, 255, 0.72);
+    --text-muted:     rgba(255, 255, 255, 0.48);
+    --text-faint:     rgba(255, 255, 255, 0.24);
+
+    /* ---------- Surfaces (translucent over dark canvas) ---------- */
+    --surface-0: rgba(255, 255, 255, 0.03);
+    --surface-1: rgba(255, 255, 255, 0.06);
+    --surface-2: rgba(255, 255, 255, 0.10);
+    --surface-3: rgba(255, 255, 255, 0.14);
+
+    /* ---------- Borders ---------- */
+    --border-subtle:  rgba(255, 255, 255, 0.06);
+    --border-default: rgba(255, 255, 255, 0.10);
+    --border-strong:  rgba(255, 255, 255, 0.18);
+    --border-accent:  rgba(62, 79, 224, 0.45);
+
+    /* ---------- Decorative ---------- */
+    --card-gradient:        linear-gradient(160deg, rgba(255,255,255,0.03) 0%, rgba(0,0,0,0.55) 100%);
+    --card-gradient-accent: linear-gradient(160deg, rgba(62,79,224,0.10) 0%, rgba(0,0,0,0.55) 100%);
+    --glow-blue:  0 0 40px rgba(62, 79, 224, 0.35);
+    --glow-green: 0 0 30px rgba(224, 237, 128, 0.35);
+    --beam-base:  linear-gradient(90deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0) 100%);
+    --beam:       linear-gradient(90deg, transparent 0%, rgba(221,227,251,0.55) 50%, transparent 100%);
+
+    /* ---------- Typography ---------- */
+    --font:         'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-display: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono:    'Geist Mono', 'SF Mono', Menlo, monospace;
+
+    /* ---------- Spacing scale (1920x1080 stage) ---------- */
+    --pad-stage-y: clamp(28px, 3.6%, 64px);
+    --pad-stage-x: clamp(36px, 4.8%, 90px);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { background: var(--bg-base); color: var(--text-primary);
+    font-family: var(--font); -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'ss01','ss02','cv01','kern'; }
+
+  /* =====================================================================
+     KEYFRAME ANIMATION LIBRARY
+     Every animation used across the live SS Deck. Names are intentional —
+     reuse `fadeInUp`, `revealUp`, `.reveal`, `.stagger > *` for parity.
+     ===================================================================== */
+  @keyframes fadeInUp   { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes fadeIn     { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slideRight { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes pulse      { 0%,100% { opacity: .6; transform: scale(1);} 50% { opacity: 1; transform: scale(1.05);} }
+  @keyframes float      { 0%,100% { transform: translate(0,0) rotate(-20deg);} 50% { transform: translate(10px,-15px) rotate(-20deg);} }
+  @keyframes gradientShift { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+  @keyframes blink      { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
+  @keyframes shimmer    { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+  @keyframes glow       { 0%,100% { box-shadow: 0 0 20px rgba(62,79,224,0.2);} 50% { box-shadow: 0 0 40px rgba(62,79,224,0.5);} }
+  @keyframes revealUp   { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes scaleIn    { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+  @keyframes pulseStrong {
+    0%,100% { opacity: .7; transform: scale(1);   box-shadow: 0 0 6px rgba(251,146,60,.45); }
+    50%     { opacity:  1; transform: scale(1.18); box-shadow: 0 0 10px rgba(251,146,60,.8), 0 0 18px rgba(251,146,60,.35); }
+  }
+  /* Traveling 1-px beam under a section divider */
+  @keyframes beamSlide  { 0% { transform: translateX(-100%); } 40% { transform: translateX(400%); } 100% { transform: translateX(400%); } }
+  /* Border-tracing beam (chases around a card's rounded border) */
+  @property --border-beam-angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+  @keyframes borderBeam { to { --border-beam-angle: 360deg; } }
+  .border-beam { --beam-delay: 0s; --beam-duration: 18s; position: relative; }
+  .border-beam::after {
+    content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+    background: conic-gradient(from var(--border-beam-angle), transparent 0%, rgba(221,227,251,.7) 8%, transparent 22%, transparent 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    pointer-events: none; animation: borderBeam var(--beam-duration) linear infinite; animation-delay: var(--beam-delay);
+  }
+
+  /* Settle-in helpers — drop `.reveal` on any element, or `.stagger` on a parent */
+  .reveal { animation: revealUp .65s cubic-bezier(.16,1,.3,1) both; animation-delay: var(--reveal-delay, 0s); }
+  .stagger > * { animation: revealUp .6s cubic-bezier(.16,1,.3,1) both; }
+  .stagger > *:nth-child(1) { animation-delay: calc(var(--stagger-base, .08s) + 0 * var(--stagger-step, .07s)); }
+  .stagger > *:nth-child(2) { animation-delay: calc(var(--stagger-base, .08s) + 1 * var(--stagger-step, .07s)); }
+  .stagger > *:nth-child(3) { animation-delay: calc(var(--stagger-base, .08s) + 2 * var(--stagger-step, .07s)); }
+  .stagger > *:nth-child(4) { animation-delay: calc(var(--stagger-base, .08s) + 3 * var(--stagger-step, .07s)); }
+  .stagger > *:nth-child(5) { animation-delay: calc(var(--stagger-base, .08s) + 4 * var(--stagger-step, .07s)); }
+  .stagger > *:nth-child(6) { animation-delay: calc(var(--stagger-base, .08s) + 5 * var(--stagger-step, .07s)); }
+
+  /* Slide-level fade-in: applied on the container so children rise together */
+  .slide-enter > * { animation: fadeInUp .6s ease-out both; }
+  .slide-enter > *:nth-child(1) { animation-delay: 0ms; }
+  .slide-enter > *:nth-child(2) { animation-delay: 80ms; }
+  .slide-enter > *:nth-child(3) { animation-delay: 160ms; }
+  .slide-enter > *:nth-child(4) { animation-delay: 240ms; }
+  .slide-enter > *:nth-child(5) { animation-delay: 320ms; }
+
+  /* Subtle noise texture used as overlay on hero surfaces */
+  .noise-overlay { position: relative; }
+  .noise-overlay::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none; mix-blend-mode: overlay; opacity: .04;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
+  }
+
+  /* =====================================================================
+     SHARED COMPONENT PATTERNS
+     ===================================================================== */
+  .stage {
+    width: 1920px; height: 1080px; position: relative; overflow: hidden;
+    margin: 24px auto; border-radius: 12px;
+    transform: scale(var(--stage-scale, 0.5)); transform-origin: top center;
+    background: var(--bg-base);
+  }
+  .stage-wrapper { height: calc(1080px * var(--stage-scale, 0.5) + 48px); }
+
+  .slide-content {
+    position: relative; z-index: 1; width: 100%; height: 100%;
+    padding: var(--pad-stage-y) var(--pad-stage-x) calc(var(--pad-stage-y) * 1.5);
+    display: flex; flex-direction: column;
+  }
+
+  .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: clamp(20px, 2.4%, 44px); }
+
+  .section-pill {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 7px 16px; border-radius: 100px;
+    background: var(--surface-0); border: 1px solid var(--border-subtle);
+    font-size: 11px; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase;
+    color: var(--text-muted); backdrop-filter: blur(12px);
+  }
+  .section-pill::before {
+    content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+  }
+
+  .yuno-wordmark {
+    font-family: var(--font); font-weight: 800; letter-spacing: -.02em;
+    font-size: 22px; color: var(--text-primary); opacity: .85;
+  }
+
+  /* Gradient title — used for hero headlines */
+  .gradient-title {
+    background: linear-gradient(135deg, #FFFFFF 0%, var(--yuno-pale-blue) 50%, var(--yuno-soft-blue) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-size: 200% 200%; animation: gradientShift 12s ease-in-out infinite;
+  }
+
+  .beam-rule {
+    position: relative; height: 1px; width: 100%; overflow: hidden;
+    background: var(--beam-base);
+  }
+  .beam-rule::after {
+    content: ''; position: absolute; top: 0; left: 0; width: 40%; height: 100%;
+    background: var(--beam); animation: beamSlide 6s ease-in-out infinite;
+  }
+
+  /* Card patterns */
+  .card {
+    background: var(--card-gradient);
+    border: 1px solid var(--border-default);
+    border-radius: 16px; padding: 28px;
+    backdrop-filter: blur(12px);
+  }
+  .card-accent {
+    background: var(--card-gradient-accent);
+    border-color: var(--border-accent);
+  }
+
+  .stat-block .stat-value {
+    font-family: var(--font); font-weight: 800; font-size: 64px; line-height: 1;
+    letter-spacing: -.03em; color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-block .stat-label {
+    margin-top: 12px; font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--text-muted); font-weight: 600;
+  }
+
+  /* Diagnostic badge (orange pulse — "analyzing" state) */
+  .diag-badge {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 6px 12px; border-radius: 100px;
+    background: rgba(251,146,60,.10); border: 1px solid rgba(251,146,60,.30);
+    font-size: 12px; font-weight: 600; color: #FB923C;
+  }
+  .diag-badge::before {
+    content: ''; width: 6px; height: 6px; border-radius: 50%; background: #FB923C;
+    animation: pulseStrong 1.8s ease-in-out infinite;
+  }
+
+  /* =====================================================================
+     SLIDE 1 — COVER (Globe halo + co-brand lockup + gradient title)
+     ===================================================================== */
+  .cover-bg {
+    position: absolute; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(ellipse at 70% 50%, rgba(62,79,224,.28) 0%, transparent 55%),
+      radial-gradient(ellipse at 30% 80%, rgba(23,38,166,.18) 0%, transparent 50%);
+  }
+  .cover-globe {
+    position: absolute; right: -10%; top: 50%; transform: translateY(-50%);
+    width: 1000px; height: 1000px; border-radius: 50%;
+    border: 1px solid rgba(124,137,239,.18);
+    box-shadow: inset 0 0 120px rgba(62,79,224,.25), 0 0 200px rgba(62,79,224,.30);
+    animation: glow 8s ease-in-out infinite;
+  }
+  .cover-globe::before, .cover-globe::after {
+    content: ''; position: absolute; inset: 8%; border-radius: 50%;
+    border: 1px solid rgba(124,137,239,.10);
+    animation: pulse 6s ease-in-out infinite;
+  }
+  .cover-globe::after { inset: 18%; animation-delay: 2s; }
+
+  .cover-co-brand {
+    display: flex; align-items: center; gap: 18px;
+    font-size: 14px; font-weight: 600; color: var(--text-secondary);
+  }
+  .cover-sep { width: 1px; height: 28px; background: rgba(255,255,255,.32); }
+
+  .cover-headline {
+    font-family: var(--font-display); font-weight: 700;
+    font-size: 96px; line-height: 1.02; letter-spacing: -.035em;
+    max-width: 1100px;
+  }
+  .cover-sub {
+    margin-top: 28px; max-width: 720px;
+    font-size: 22px; line-height: 1.45; color: var(--text-secondary); font-weight: 400;
+  }
+  .cover-footer {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 1.5px;
+    color: var(--text-faint); text-transform: uppercase;
+  }
+
+  /* =====================================================================
+     SLIDE 2 — DIAGNOSTIC (Analyzing pattern: badge + scan rows + stat)
+     ===================================================================== */
+  .diag-grid {
+    display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px;
+    flex: 1; align-items: stretch;
+  }
+  .diag-rows { display: flex; flex-direction: column; gap: 14px; }
+  .diag-row {
+    display: flex; align-items: center; gap: 16px;
+    padding: 18px 22px; border-radius: 12px;
+    background: var(--surface-0); border: 1px solid var(--border-subtle);
+  }
+  .diag-row .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 10px rgba(62,79,224,.6);
+  }
+  .diag-row .label { font-size: 16px; color: var(--text-secondary); font-weight: 500; flex: 1; }
+  .diag-row .value { font-family: var(--font-mono); font-size: 14px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+  .diag-callout {
+    align-self: stretch;
+    background: var(--card-gradient-accent);
+    border: 1px solid var(--border-accent);
+    border-radius: 20px; padding: 36px;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+
+  /* =====================================================================
+     SLIDE 3 — VALUE LEVERS (4-up grid of metric cards with border-beam)
+     ===================================================================== */
+  .levers-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px;
+    flex: 1; align-items: stretch;
+  }
+  .lever-card {
+    background: var(--card-gradient);
+    border: 1px solid var(--border-default);
+    border-radius: 20px; padding: 32px;
+    display: flex; flex-direction: column; gap: 16px;
+    backdrop-filter: blur(12px);
+    overflow: hidden;
+  }
+  .lever-icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: rgba(62,79,224,.14); border: 1px solid var(--border-accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
+  .lever-metric {
+    font-family: var(--font); font-weight: 800; font-size: 56px; line-height: 1;
+    letter-spacing: -.035em;
+    background: linear-gradient(135deg, #FFF 0%, var(--yuno-soft-blue) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .lever-title { font-size: 18px; font-weight: 600; color: var(--text-primary); }
+  .lever-desc { font-size: 14px; line-height: 1.5; color: var(--text-muted); }
+
+  /* =====================================================================
+     TOKENS REFERENCE PANEL (at the bottom, for designer hand-off)
+     ===================================================================== */
+  .tokens-doc {
+    max-width: 1400px; margin: 64px auto; padding: 48px;
+    background: var(--bg-elevated); border-radius: 24px;
+    border: 1px solid var(--border-default);
+  }
+  .tokens-doc h2 { font-size: 28px; font-weight: 700; margin-bottom: 24px; letter-spacing: -.02em; }
+  .tokens-doc h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted); margin: 32px 0 12px; }
+  .swatch-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+  .swatch { padding: 16px; border-radius: 10px; border: 1px solid var(--border-subtle);
+    font-family: var(--font-mono); font-size: 11px; }
+  .swatch .chip { width: 100%; height: 56px; border-radius: 6px; margin-bottom: 10px; }
+  .swatch .name { font-weight: 600; color: var(--text-primary); }
+  .swatch .hex  { color: var(--text-muted); margin-top: 2px; }
+  .type-row { display: flex; align-items: baseline; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border-subtle); }
+  .type-row .role { width: 200px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+  .anim-row { padding: 10px 16px; background: var(--surface-0); border-radius: 8px; margin-bottom: 8px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
+  .anim-row b { color: var(--text-primary); }
+
+  /* Title above the stage block so Claude Design sees what each slide is */
+  .stage-title { max-width: 1400px; margin: 32px auto 0; padding: 0 16px;
+    color: var(--text-secondary); font-size: 14px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600; }
+</style>
+</head>
+
+<body>
+
+<!-- ===========================================================
+     SAMPLE SLIDE 1 — COVER
+     =========================================================== -->
+<div class="stage-title">Slide 01 — Cover (gradient title + globe halo + co-brand lockup)</div>
+<div class="stage-wrapper">
+  <div class="stage noise-overlay">
+    <div class="cover-bg"></div>
+    <div class="cover-globe"></div>
+
+    <div class="slide-content slide-enter">
+      <div class="cover-co-brand">
+        <span class="yuno-wordmark">Yuno</span>
+        <span class="cover-sep"></span>
+        <span style="font-weight:600;font-size:20px;color:var(--text-primary);opacity:.85">Acme Commerce</span>
+      </div>
+
+      <div style="margin-top:auto">
+        <h1 class="cover-headline">
+          One <span class="gradient-title">orchestration layer</span><br/>
+          across every payment partner.
+        </h1>
+        <p class="cover-sub">
+          A single integration unifies your acquirers, APMs, fraud and risk —
+          so the team ships in days, not quarters.
+        </p>
+      </div>
+
+      <div class="cover-footer" style="margin-top:64px">
+        <span>STRIPE SESSIONS · 2026</span>
+        <span>01 / 12</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===========================================================
+     SAMPLE SLIDE 2 — DIAGNOSTIC ("Analyzing" scan pattern)
+     =========================================================== -->
+<div class="stage-title">Slide 02 — Diagnostic (badge pulse + scan rows + callout stat)</div>
+<div class="stage-wrapper">
+  <div class="stage">
+    <div class="slide-content slide-enter">
+      <div class="top-bar">
+        <span class="section-pill">Diagnostic</span>
+        <span class="yuno-wordmark">Yuno</span>
+      </div>
+
+      <div style="margin-bottom:24px">
+        <span class="diag-badge">Analyzing payment stack · Acme Commerce</span>
+      </div>
+
+      <h2 style="font-size:64px;font-weight:700;letter-spacing:-.03em;line-height:1.05;max-width:1300px;margin-bottom:36px">
+        Your stack today: <span class="gradient-title">4 acquirers, 0 orchestration</span>
+      </h2>
+      <div class="beam-rule" style="margin-bottom:36px"></div>
+
+      <div class="diag-grid">
+        <div class="diag-rows stagger" style="--stagger-step:.10s">
+          <div class="diag-row"><span class="dot"></span><span class="label">Primary acquirer · Adyen</span><span class="value">68% TPV</span></div>
+          <div class="diag-row"><span class="dot"></span><span class="label">Secondary · Stripe</span><span class="value">19% TPV</span></div>
+          <div class="diag-row"><span class="dot"></span><span class="label">LATAM · Ebanx</span><span class="value">9% TPV</span></div>
+          <div class="diag-row"><span class="dot"></span><span class="label">India · Razorpay</span><span class="value">4% TPV</span></div>
+          <div class="diag-row"><span class="dot"></span><span class="label">3DS provider · in-house</span><span class="value">legacy</span></div>
+        </div>
+
+        <div class="diag-callout border-beam reveal" style="--reveal-delay:.4s">
+          <div>
+            <span style="font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:var(--accent-soft);font-weight:700">Δ Authorization Rate</span>
+            <div class="stat-block" style="margin-top:14px">
+              <div class="stat-value" style="font-size:120px"><span class="gradient-title">+3.4</span><span style="font-size:48px;color:var(--text-secondary)">pp</span></div>
+              <div class="stat-label">Estimated lift on consolidated stack</div>
+            </div>
+          </div>
+          <div style="font-size:14px;color:var(--text-muted);line-height:1.5">
+            Source: per-corridor Smart Routing benchmark on the top-5
+            acquirers in your active geographies (last 90 days).
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===========================================================
+     SAMPLE SLIDE 3 — VALUE LEVERS (4-up metric card grid)
+     =========================================================== -->
+<div class="stage-title">Slide 03 — Value Levers (4-up grid, gradient metric, border-beam on focus card)</div>
+<div class="stage-wrapper">
+  <div class="stage">
+    <div class="slide-content slide-enter">
+      <div class="top-bar">
+        <span class="section-pill">Value Levers</span>
+        <span class="yuno-wordmark">Yuno</span>
+      </div>
+
+      <h2 style="font-size:64px;font-weight:700;letter-spacing:-.03em;line-height:1.05;max-width:1300px;margin-bottom:18px">
+        Four levers, <span class="gradient-title">one platform.</span>
+      </h2>
+      <p style="font-size:20px;color:var(--text-secondary);max-width:900px;margin-bottom:48px">
+        Smart Routing, Time-to-Market, Negotiation leverage, and DevOps
+        cost — each independently measurable on day one.
+      </p>
+
+      <div class="levers-grid stagger" style="--stagger-step:.10s">
+        <div class="lever-card border-beam">
+          <div class="lever-icon">⚡</div>
+          <div class="lever-metric">+3.4pp</div>
+          <div class="lever-title">Smart Routing</div>
+          <div class="lever-desc">Auto-route per BIN / corridor / hour-of-day to the highest-auth acquirer.</div>
+        </div>
+        <div class="lever-card">
+          <div class="lever-icon">⏱</div>
+          <div class="lever-metric">6×</div>
+          <div class="lever-title">Time-to-Market</div>
+          <div class="lever-desc">New APM or country live in days vs. a 3-month integration sprint.</div>
+        </div>
+        <div class="lever-card">
+          <div class="lever-icon">⚖</div>
+          <div class="lever-metric">-15%</div>
+          <div class="lever-title">Negotiation</div>
+          <div class="lever-desc">Real-time A/B between PSPs gives you data-backed pricing leverage.</div>
+        </div>
+        <div class="lever-card">
+          <div class="lever-icon">{ }</div>
+          <div class="lever-metric">-40%</div>
+          <div class="lever-title">DevOps Cost</div>
+          <div class="lever-desc">One SDK and one ops console for every partner — fewer pages on call.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===========================================================
+     TOKENS REFERENCE PANEL
+     =========================================================== -->
+<section class="tokens-doc">
+  <h2>Design tokens — quick reference</h2>
+
+  <h3>Brand palette (Yuno-blue ramp)</h3>
+  <div class="swatch-grid">
+    <div class="swatch"><div class="chip" style="background:#3E4FE0"></div><div class="name">--yuno-blue</div><div class="hex">#3E4FE0 · primary accent</div></div>
+    <div class="swatch"><div class="chip" style="background:#1726A6"></div><div class="name">--yuno-deep-blue</div><div class="hex">#1726A6</div></div>
+    <div class="swatch"><div class="chip" style="background:#5967E4"></div><div class="name">--yuno-mid-blue</div><div class="hex">#5967E4</div></div>
+    <div class="swatch"><div class="chip" style="background:#7C89EF"></div><div class="name">--yuno-soft-blue</div><div class="hex">#7C89EF</div></div>
+    <div class="swatch"><div class="chip" style="background:#BDC3F6"></div><div class="name">--yuno-pale-blue</div><div class="hex">#BDC3F6</div></div>
+    <div class="swatch"><div class="chip" style="background:#E8EAF5"></div><div class="name">--yuno-harmony-lilac</div><div class="hex">#E8EAF5</div></div>
+  </div>
+
+  <h3>Neutrals + accent</h3>
+  <div class="swatch-grid">
+    <div class="swatch"><div class="chip" style="background:#000"></div><div class="name">--bg-base</div><div class="hex">#000000 · canvas</div></div>
+    <div class="swatch"><div class="chip" style="background:#0B0E16"></div><div class="name">--bg-navy</div><div class="hex">#0B0E16</div></div>
+    <div class="swatch"><div class="chip" style="background:#282A30"></div><div class="name">--yuno-unity-black</div><div class="hex">#282A30 · cards</div></div>
+    <div class="swatch"><div class="chip" style="background:#92959B"></div><div class="name">--yuno-security-gray</div><div class="hex">#92959B</div></div>
+    <div class="swatch"><div class="chip" style="background:#E0ED80"></div><div class="name">--yuno-accent-green</div><div class="hex">#E0ED80 · ONLY for live/ok</div></div>
+    <div class="swatch"><div class="chip" style="background:#FFFFFF"></div><div class="name">--yuno-white</div><div class="hex">#FFFFFF</div></div>
+  </div>
+
+  <h3>Typography — Geist Variable (sans + mono)</h3>
+  <div>
+    <div class="type-row"><div class="role">Display · 96/100 -.035em</div><div style="font-size:48px;font-weight:700;letter-spacing:-.035em">One orchestration layer</div></div>
+    <div class="type-row"><div class="role">Headline · 64/68 -.030em</div><div style="font-size:36px;font-weight:700;letter-spacing:-.030em">Four levers, one platform.</div></div>
+    <div class="type-row"><div class="role">Subhead · 22/30 normal</div><div style="font-size:18px;color:var(--text-secondary)">A single integration unifies your stack.</div></div>
+    <div class="type-row"><div class="role">Body · 16/24</div><div style="font-size:16px;color:var(--text-secondary)">Body copy uses --text-secondary opacity (.72).</div></div>
+    <div class="type-row"><div class="role">Stat · 64/64 -.030em</div><div style="font-size:48px;font-weight:800;letter-spacing:-.030em;font-variant-numeric:tabular-nums">+3.4pp</div></div>
+    <div class="type-row"><div class="role">Eyebrow · 11/16 700 1.8</div><div style="font-size:11px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:var(--text-muted)">Section Pill Label</div></div>
+    <div class="type-row"><div class="role">Mono · 12/16 1.5</div><div style="font-family:var(--font-mono);font-size:12px;letter-spacing:1.5px;color:var(--text-faint);text-transform:uppercase">01 / 12</div></div>
+  </div>
+
+  <h3>Animation library — keyframes available</h3>
+  <div class="anim-row"><b>fadeInUp</b> · 0.6s ease-out — slide-level entrance (used on .slide-enter children)</div>
+  <div class="anim-row"><b>revealUp</b> · 0.65s cubic-bezier(.16,1,.3,1) — element settle-in (use .reveal class)</div>
+  <div class="anim-row"><b>.stagger > *</b> · auto-stagger up to 16 children via --stagger-base + --stagger-step</div>
+  <div class="anim-row"><b>gradientShift</b> · 12s ease-in-out infinite — animates background-position on gradient titles</div>
+  <div class="anim-row"><b>pulse / pulseStrong</b> · 1.8–6s — status dots; pulseStrong adds an orange glow box-shadow</div>
+  <div class="anim-row"><b>borderBeam</b> · 18s linear infinite — conic gradient chasing around card border (use .border-beam)</div>
+  <div class="anim-row"><b>beamSlide</b> · 6s — bright wedge crosses a 1-px section rule then rests (use .beam-rule)</div>
+  <div class="anim-row"><b>glow</b> · 8s — box-shadow breathes blue (cover globe)</div>
+  <div class="anim-row"><b>shimmer / scaleIn / slideRight / fadeIn</b> · supporting primitives</div>
+
+  <h3>Composition rules (do these by default)</h3>
+  <div class="anim-row">Every slide is rendered at <b>1920 × 1080</b> and scaled to fit the viewport.</div>
+  <div class="anim-row">Top-bar pattern: <b>section pill (left)</b> + <b>Yuno wordmark (right)</b>. Don't skip the pill — it anchors the deck rhythm.</div>
+  <div class="anim-row">Headlines use the <b>gradient-title</b> treatment ONLY on the noun being emphasized (1 phrase per slide max).</div>
+  <div class="anim-row">Cards prefer <b>--card-gradient</b>; the "focus" card on a row gets <b>.border-beam + --card-gradient-accent</b>.</div>
+  <div class="anim-row">Glow uses <b>--glow-blue</b> (sparingly — at most one source of glow per slide).</div>
+  <div class="anim-row">Accent green <b>#E0ED80</b> is reserved for "live / ok / success" — never for emphasis.</div>
+  <div class="anim-row">Numerals always use <b>font-variant-numeric: tabular-nums</b> for stat blocks.</div>
+  <div class="anim-row">Padding scale (stage): <b>clamp(28px,3.6%,64px)</b> vertical / <b>clamp(36px,4.8%,90px)</b> horizontal.</div>
+  <div class="anim-row">Respect <b>@media (prefers-reduced-motion: reduce)</b> — ambient drifts and ring spins disable themselves.</div>
+</section>
+
+</body>
+</html>

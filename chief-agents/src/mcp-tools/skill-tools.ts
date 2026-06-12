@@ -9,10 +9,11 @@
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { AgentConfig } from '../types.js';
+import { pickUrl } from '../utils/env-url.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://arupeqczrxmfkcbjwyad.supabase.co';
+const SUPABASE_URL = pickUrl(process.env.SUPABASE_URL, 'https://arupeqczrxmfkcbjwyad.supabase.co');
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const BRIDGE_URL = process.env.BRIDGE_URL || process.env.BRIDGE_PUBLIC_URL || 'https://twilio-bridge-production-241b.up.railway.app';
+const BRIDGE_URL = pickUrl(process.env.BRIDGE_URL, process.env.BRIDGE_PUBLIC_URL, 'https://bridge.yuno.tools');
 
 // Skills whose backing function lives on the bridge, not Supabase edge functions
 const BRIDGE_SKILLS: Record<string, string> = {

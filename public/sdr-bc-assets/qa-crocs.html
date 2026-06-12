@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920" />
+<title>Crocs · Yuno SDR Business Case — QA Preview</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist@5.2.8/index.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist-mono@5.2.7/index.css" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<deck-stage width="1920" height="1080">
+  <section id="root-container" style="background:#0c0d10;"></section>
+</deck-stage>
+
+<script>
+  window.DECK_DEFAULTS = null;
+  window.SDR_BC_TRACKING = { slug: 'crocs-hx2dge', printMode: false };
+</script>
+
+<script>
+fetch('preview/crocs-data.json')
+  .then(function (r) { return r.json(); })
+  .then(function (j) { window.DECK_DEFAULTS = j.defaults; if (window.__bootstrapDeck) window.__bootstrapDeck(); })
+  .catch(function (e) {
+    var pre = document.createElement('pre');
+    pre.style.cssText = 'padding:40px;font-family:monospace;color:#c00;background:#fff';
+    pre.textContent = 'Failed to load Crocs data: ' + e.message;
+    document.body.appendChild(pre);
+  });
+</script>
+
+<script src="deck-stage.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="components.jsx"></script>
+<script type="text/babel" src="slides-01-context.jsx"></script>
+<script type="text/babel" src="slides-02-business-case.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+const DATA_EVENT = 'yuno-deck-data';
+
+function useDeckData() {
+  const data = window.DECK_DEFAULTS || {};
+  return {
+    clientName: data.clientName,
+    docType: data.docType,
+    date: data.date,
+    preparedBy: data.preparedBy,
+    contact: {
+      name: data.contactName,
+      title: data.contactTitle,
+      email: data.contactEmail,
+      phone: data.contactPhone,
+    },
+    markets_geo: data.markets_geo,
+    ...data,
+  };
+}
+
+function SlideShell({ render }) {
+  const [data, setData] = useState(window.__yunoDeckData || window.DECK_DEFAULTS || {});
+  useEffect(() => {
+    const onUpdate = (e) => setData(e.detail);
+    window.addEventListener(DATA_EVENT, onUpdate);
+    return () => window.removeEventListener(DATA_EVENT, onUpdate);
+  }, []);
+  return render(data);
+}
+
+function Controller() {
+  const data = useDeckData();
+  useEffect(() => {
+    window.__yunoDeckData = data;
+    window.dispatchEvent(new CustomEvent(DATA_EVENT, { detail: data }));
+  }, [data]);
+  return null;
+}
+
+window.__bootstrapDeck = function bootstrapDeck() {
+  if (window.__deckBuilt) return;
+  window.__deckBuilt = true;
+
+  const stage = document.querySelector('deck-stage');
+  const rc = document.getElementById('root-container');
+  if (rc) rc.remove();
+
+  const REGION_DEFS = [
+    { region: 'us',  label: 'North America' },
+    { region: 'lat', label: 'LATAM' },
+    { region: 'ema', label: 'EMEA' },
+    { region: 'apa', label: 'APAC' },
+  ];
+  const dd = window.DECK_DEFAULTS || {};
+  const renderedKeys = Array.isArray(dd.regions_rendered) && dd.regions_rendered.length > 0
+    ? dd.regions_rendered.map(r => r.region)
+    : REGION_DEFS.map(r => r.region);
+  const regionsToShow = REGION_DEFS.filter(r => renderedKeys.includes(r.region));
+
+  let pageNum = 10;
+  const slideBuilders = [
+    (d) => <Slide01Cover data={d} />,
+    (d) => <Slide02Agenda data={d} />,
+    (d) => <Slide03ContextSection />,
+    (d) => <Slide04ClientStack data={d} />,
+    (d) => <Slide05Geography data={d} />,
+    (d) => <Slide06WhyYunoSection />,
+    (d) => <Slide07YunoOverview />,
+    (d) => <Slide08Trust />,
+    (d) => <Slide09BCSection />,
+    (d) => <Slide10Levers data={d} />,
+  ];
+  for (const r of regionsToShow) {
+    const tabsPage  = ++pageNum;
+    const cardsPage = ++pageNum;
+    const apmsPage  = ++pageNum;
+    const devPage   = ++pageNum;
+    slideBuilders.push((d) => <RegionTabsSlide activeKey={r.region} pageNum={tabsPage} data={d} />);
+    slideBuilders.push((d) => <RegionCardsSlide region={r.region} regionLabel={r.label} pageNum={cardsPage} data={d} />);
+    slideBuilders.push((d) => <RegionApmsSlide  region={r.region} regionLabel={r.label} pageNum={apmsPage}  data={d} />);
+    slideBuilders.push((d) => <RegionDevSlide   region={r.region} regionLabel={r.label} pageNum={devPage}   data={d} />);
+  }
+  slideBuilders.push((d) => <Slide27Total data={d} />);
+
+  console.log('[qa] mounting', slideBuilders.length, 'slides for regions', regionsToShow.map(r => r.region));
+
+  slideBuilders.forEach((builder) => {
+    const node = document.createElement('section');
+    stage.appendChild(node);
+    ReactDOM.createRoot(node).render(<SlideShell render={builder} />);
+  });
+
+  const ctrlHost = document.createElement('div');
+  ctrlHost.style.display = 'none';
+  document.body.appendChild(ctrlHost);
+  ReactDOM.createRoot(ctrlHost).render(<Controller />);
+};
+
+if (window.DECK_DEFAULTS) window.__bootstrapDeck();
+</script>
+
+</body>
+</html>

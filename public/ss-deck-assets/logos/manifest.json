@@ -1,0 +1,30 @@
+{
+  "Discord": {
+    "slug": "discord",
+    "domain": "discord.com",
+    "path": "/logos/discord.png",
+    "source": "google",
+    "size": 9471
+  },
+  "Spotify": {
+    "slug": "spotify",
+    "domain": "spotify.com",
+    "path": "/logos/spotify.png",
+    "source": "google",
+    "size": 2417
+  },
+  "Netflix": {
+    "slug": "netflix",
+    "domain": "netflix.com",
+    "path": "/logos/netflix.png",
+    "source": "google",
+    "size": 1468
+  },
+  "Canva": {
+    "slug": "canva",
+    "domain": "canva.com",
+    "path": "/logos/canva.png",
+    "source": "google",
+    "size": 26675
+  }
+}

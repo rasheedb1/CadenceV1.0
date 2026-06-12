@@ -12,6 +12,48 @@ import { createFirecrawlClient } from '../_shared/firecrawl.ts'
 const PUBLIC_BASE_URL = 'https://chief.yuno.tools'
 const FIRECRAWL_TIMEOUT_MS = 15_000
 
+// Currencies offered in the BC form. Adding one here is enough — the deck
+// reads `defaults.currency` and bc-components.jsx maps the code to a symbol.
+const SUPPORTED_CURRENCIES = new Set(['USD', 'MXN', 'BRL', 'COP', 'ARS', 'CLP', 'PEN', 'EUR', 'GBP'])
+type Currency = 'USD' | 'MXN' | 'BRL' | 'COP' | 'ARS' | 'CLP' | 'PEN' | 'EUR' | 'GBP'
+
+// IDs of additional per-tx services the BC can list. Mirrors the canonical
+// list in public/bc-assets/bc-components.jsx (ADDITIONAL_SERVICES). The deck
+// reads `defaults.additionalServices` keyed by these ids.
+const ADDITIONAL_SERVICE_IDS = new Set([
+  'risk_conditions',
+  'external_3ds_api',
+  'monitoring_alerts',
+  'smart_routing',
+  'network_tokens',
+  'fraud_prevention_success',
+  '3ds_transaction',
+])
+
+function validateAdditionalServices(input: unknown): Record<string, { enabled: boolean; price: number }> | undefined {
+  if (input === undefined || input === null) return undefined
+  if (typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('additionalServices must be an object keyed by service id')
+  }
+  const out: Record<string, { enabled: boolean; price: number }> = {}
+  for (const [id, raw] of Object.entries(input as Record<string, unknown>)) {
+    if (!ADDITIONAL_SERVICE_IDS.has(id)) {
+      throw new Error('additionalServices: unknown service id ' + id)
+    }
+    if (!raw || typeof raw !== 'object') {
+      throw new Error('additionalServices.' + id + ' must be an object')
+    }
+    const entry = raw as Record<string, unknown>
+    const enabled = entry.enabled === false ? false : true
+    const priceNum = Number(entry.price)
+    if (!Number.isFinite(priceNum) || priceNum < 0 || priceNum > 10) {
+      throw new Error('additionalServices.' + id + '.price must be a finite number in [0, 10]')
+    }
+    out[id] = { enabled, price: priceNum }
+  }
+  return out
+}
+
 // Known PSPs/acquirers — kept in sync with .claude/skills/yuno-bc/research.py.
 const KNOWN_PSPS: Record<string, string[]> = {
   'stripe': ['stripe'],
@@ -366,12 +408,37 @@ Deno.serve(async (req: Request) => {
 
   if (req.method !== 'POST') return err('Method not allowed', 405, origin)
 
-  // Auth: shared secret with constant-time comparison
+  // Auth: 3 paths
+  //   (1) X-Agent-Token: shared secret used by the local /yuno-bc skill
+  //   (2) Authorization: Bearer <service_role>: chief-agents call_skill
+  //   (3) Authorization: Bearer <user_jwt>: authenticated Chief frontend user
+  // Path (3) requires the user to either own a Gmail integration matching createdByEmail,
+  // or for createdByEmail to equal their auth.users.email (so they can claim their own).
   const expectedToken = Deno.env.get('PRESENTATIONS_AGENT_TOKEN')
-  if (!expectedToken) return err('Server misconfigured: PRESENTATIONS_AGENT_TOKEN not set', 500, origin)
+  const serviceRoleFull = Deno.env.get('SERVICE_ROLE_KEY_FULL') || ''
+  const serviceRoleAuto = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
   const provided = req.headers.get('x-agent-token') || req.headers.get('X-Agent-Token') || ''
-  if (!timingSafeStrEqual(provided, expectedToken)) {
-    return err('Invalid X-Agent-Token', 401, origin)
+  const auth = req.headers.get('authorization') || req.headers.get('Authorization') || ''
+  const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7) : ''
+  const tokenOk = !!expectedToken && timingSafeStrEqual(provided, expectedToken)
+  const bearerOk = !!bearer && (
+    (!!serviceRoleFull && timingSafeStrEqual(bearer, serviceRoleFull)) ||
+    (!!serviceRoleAuto && timingSafeStrEqual(bearer, serviceRoleAuto))
+  )
+  // User JWT path — validate via supabase auth.getUser(jwt). Service-role client can
+  // validate any user JWT (the SDK decrypts and verifies signature).
+  let jwtUser: { id: string; email?: string } | null = null
+  if (!tokenOk && !bearerOk && bearer) {
+    try {
+      const adminClient = createSupabaseClient()
+      const { data: userData, error: userErr } = await adminClient.auth.getUser(bearer)
+      if (userData?.user && !userErr) {
+        jwtUser = { id: userData.user.id, email: userData.user.email || undefined }
+      }
+    } catch { /* invalid jwt — fall through to 401 */ }
+  }
+  if (!tokenOk && !bearerOk && !jwtUser) {
+    return err('Invalid auth: provide X-Agent-Token, service-role Bearer, or user JWT', 401, origin)
   }
 
   let body: Record<string, unknown>
@@ -404,8 +471,57 @@ Deno.serve(async (req: Request) => {
     base = (parent.defaults as Record<string, unknown>) || {}
   }
 
-  const orgId = (typeof body.orgId === 'string' && body.orgId) || baseOrgId
-  if (!orgId) return err('orgId is required', 400, origin)
+  // AE identification via their connected Gmail email.
+  // The skill passes `createdByEmail` (user's Gmail address) — we resolve user_id + org_id
+  // from `ae_integrations` so view-tracking notifications can self-note to that AE.
+  let aeUserId: string | null = null
+  let aeOrgId: string | null = null
+  const createdByEmailRaw = typeof body.createdByEmail === 'string' ? body.createdByEmail.trim() : ''
+
+  // Ownership guard for JWT path: a logged-in user can only claim createdByEmail if it
+  // matches their auth email OR they own a Gmail integration with that email. This prevents
+  // user A from impersonating user B's BC ownership via the form.
+  if (jwtUser && createdByEmailRaw) {
+    const claimedEmail = createdByEmailRaw.toLowerCase()
+    const authEmail = (jwtUser.email || '').toLowerCase()
+    if (claimedEmail !== authEmail) {
+      const { data: ownedIntegration } = await supabase
+        .from('ae_integrations')
+        .select('id')
+        .eq('user_id', jwtUser.id)
+        .eq('provider', 'gmail')
+        .ilike('config->>email', claimedEmail)
+        .maybeSingle()
+      if (!ownedIntegration) {
+        return err('createdByEmail must be your own connected Gmail or your auth email', 403, origin)
+      }
+    }
+  }
+
+  if (createdByEmailRaw) {
+    const { data: integration, error: intErr } = await supabase
+      .from('ae_integrations')
+      .select('user_id, org_id')
+      .eq('provider', 'gmail')
+      .ilike('config->>email', createdByEmailRaw)
+      .maybeSingle()
+    if (intErr) {
+      console.error('bc-create: ae_integrations lookup error', intErr)
+      return err('Lookup failed', 500, origin)
+    }
+    if (!integration) {
+      return err(
+        `No Gmail integration found for ${createdByEmailRaw}. Conecta tu Gmail desde Chief (Settings o WhatsApp) antes de crear el BC.`,
+        400,
+        origin,
+      )
+    }
+    aeUserId = integration.user_id
+    aeOrgId = integration.org_id
+  }
+
+  const orgId = aeOrgId || (typeof body.orgId === 'string' && body.orgId) || baseOrgId
+  if (!orgId) return err('orgId is required (or pass createdByEmail to resolve from Gmail integration)', 400, origin)
 
   // pick: prefer body override, fall back to parent defaults. No permissive spread.
   const pick = <T = unknown>(k: string): T | undefined => {
@@ -424,13 +540,15 @@ Deno.serve(async (req: Request) => {
   let integrationReductionPct: number, opsSavings: number
   let minTxAnnual: number, monthlySaaS: number, reconciliationFee: number, numNewIntegrations: number
   let salesName: string | undefined, salesTitle: string | undefined, salesEmail: string | undefined
-  let locale: 'en' | 'es'
+  let locale: 'en' | 'es' | 'pt'
+  let currency: Currency
   let conservativeMult: number, optimisticMult: number, npvMultiplier: number
   let ratePerTx: number
   let rateTiers: Array<{ upToTx: number | null; ratePerTx: number }> = []
   let costModelMerged: Record<string, number> | undefined
-  let pricingModel: 'flat' | 'tiered'
+  let pricingModel: 'flat' | 'tramos' | 'tiers'
   let countries: CountryRow[] = []
+  let additionalServicesValidated: Record<string, { enabled: boolean; price: number }> | undefined
 
   try {
     avgTicket = n('avgTicket', pick('avgTicket'), 1, 1e6)
@@ -484,19 +602,32 @@ Deno.serve(async (req: Request) => {
     const localeRaw = pick('locale')
     if (localeRaw === undefined || localeRaw === null || localeRaw === '') {
       locale = 'en'
-    } else if (localeRaw === 'en' || localeRaw === 'es') {
+    } else if (localeRaw === 'en' || localeRaw === 'es' || localeRaw === 'pt') {
       locale = localeRaw
     } else {
-      throw new Error('locale must be "en" or "es"')
+      throw new Error('locale must be "en", "es" or "pt"')
+    }
+
+    const currencyRaw = pick('currency')
+    if (currencyRaw === undefined || currencyRaw === null || currencyRaw === '') {
+      currency = 'USD'
+    } else if (typeof currencyRaw === 'string' && SUPPORTED_CURRENCIES.has(currencyRaw)) {
+      currency = currencyRaw as Currency
+    } else {
+      throw new Error('currency must be one of: ' + Array.from(SUPPORTED_CURRENCIES).join(', '))
     }
 
     conservativeMult = n('conservativeMult', pick('conservativeMult') ?? 0.6, 0, 10)
     optimisticMult = n('optimisticMult', pick('optimisticMult') ?? 1.4, 0, 10)
     npvMultiplier = n('npvMultiplier', pick('npvMultiplier') ?? 2.6, 0, 100)
 
-    const pm = pick('pricingModel')
-    if (pm !== 'flat' && pm !== 'tiered') {
-      throw new Error('pricingModel must be "flat" or "tiered"')
+    const pmRaw = pick('pricingModel')
+    // Accept legacy "tiered" as alias for "tramos" (stacked/progressive). Existing
+    // presentations stored before the tramos/tiers split keep working — the alias
+    // normalizes on insert so all downstream code reads the canonical value.
+    const pm = pmRaw === 'tiered' ? 'tramos' : pmRaw
+    if (pm !== 'flat' && pm !== 'tramos' && pm !== 'tiers') {
+      throw new Error('pricingModel must be "flat", "tramos" or "tiers"')
     }
     pricingModel = pm
 
@@ -510,6 +641,12 @@ Deno.serve(async (req: Request) => {
     const parentCost = validateCostModel(base.costModel)
     const bodyCost = validateCostModel(body.costModel)
     costModelMerged = mergeCostModels(parentCost, bodyCost)
+
+    // additionalServices: body wins over parent. undefined → omit from defaults
+    // (deck falls back to its built-in defaults — all services enabled).
+    const bodyServices = validateAdditionalServices(body.additionalServices)
+    const parentServices = validateAdditionalServices(base.additionalServices)
+    additionalServicesValidated = bodyServices !== undefined ? bodyServices : parentServices
   } catch (e) {
     return err((e as Error).message, 400, origin)
   }
@@ -543,6 +680,7 @@ Deno.serve(async (req: Request) => {
   const defaults = {
     clientName,
     locale,
+    currency,
     date: typeof pick('date') === 'string' ? pick('date') : '',
     tpv, avgTicket,
     countries,
@@ -572,6 +710,7 @@ Deno.serve(async (req: Request) => {
     optimisticMult,
     npvMultiplier,
     costModel: costModelMerged,
+    additionalServices: additionalServicesValidated,
   }
 
   let row: { id: string; slug: string; expires_at: string } | null = null
@@ -582,7 +721,8 @@ Deno.serve(async (req: Request) => {
       .from('presentations')
       .insert({
         org_id: orgId,
-        created_by: typeof body.createdBy === 'string' ? body.createdBy : null,
+        created_by: aeUserId || (typeof body.createdBy === 'string' ? body.createdBy : null),
+        created_by_email: createdByEmailRaw ? createdByEmailRaw.toLowerCase() : null,
         kind: 'yuno_bc',
         client_name: clientName,
         slug: candidate,

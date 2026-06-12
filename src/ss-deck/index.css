@@ -1,0 +1,496 @@
+:root {
+  /* ---- Yuno brand palette (source: yuno_color_cheatsheet.png) ---- */
+  /* Primary */
+  --yuno-blue: #3E4FE0;            /* Hero brand blue */
+  --yuno-unity-black: #282A30;     /* Official dark surface token */
+  --yuno-security-gray: #92959B;
+  --yuno-harmony-lilac: #E8EAF5;   /* Near-white lilac */
+
+  /* Secondary blues (the official cool-blue ramp) */
+  --yuno-deep-blue: #1726A6;
+  --yuno-mid-blue: #5967E4;
+  --yuno-soft-blue: #7C89EF;
+  --yuno-pale-blue: #BDC3F6;
+
+  /* Secondary neutrals + accent */
+  --yuno-steel-gray: #616366;
+  --yuno-accent-green: #E0ED80;    /* The only non-blue accent — live/ok states only */
+  --yuno-white: #FFFFFF;
+
+  /* ---- Presentation layers (match the CEO Final Deck: pure black canvas) ---- */
+  --bg-base: #000000;              /* Deepest canvas — matches Final Deck */
+  --bg-navy: #0B0E16;              /* Intermediate layer (rarely used) */
+  --bg-elevated: var(--yuno-unity-black); /* Card / surface — official Unity Black */
+
+  /* ---- Semantic tokens (what slide files should reference) ---- */
+  --accent: var(--yuno-blue);      /* Primary accent — replaces old indigo #6B72FF */
+  --accent-hover: var(--yuno-mid-blue);
+  --accent-soft: var(--yuno-soft-blue);
+  --accent-faint: var(--yuno-pale-blue);
+  --success: var(--yuno-accent-green);
+
+  /* Text (opacity scale per DESIGN.md rule 8) */
+  --text-primary: rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(255, 255, 255, 0.72);
+  --text-muted: rgba(255, 255, 255, 0.48);
+  --text-faint: rgba(255, 255, 255, 0.24);
+
+  /* Surfaces */
+  --surface-0: rgba(255, 255, 255, 0.03);
+  --surface-1: rgba(255, 255, 255, 0.06);
+  --surface-2: rgba(255, 255, 255, 0.10);
+
+  /* Borders */
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.10);
+  --border-accent:  rgba(62, 79, 224, 0.45);
+
+  /* Glow (used sparingly per DESIGN.md rule 18) */
+  --glow-blue:  0 0 40px rgba(62, 79, 224, 0.35);
+  --glow-green: 0 0 30px rgba(224, 237, 128, 0.35);
+
+  /* ---- Typography: Geist (Vercel). Body, display, mono all one family. ---- */
+  --font: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', 'SF Mono', Menlo, monospace;
+
+  /* ---- Legacy aliases (keep short-term so slides that reference old names */
+  /*      keep rendering during the rebrand sweep; remove after cleanup)     */
+  --yuno-deep:       var(--bg-base);
+  --yuno-navy:       var(--bg-navy);
+  --yuno-accent:     var(--yuno-blue);
+  --yuno-light-blue: var(--yuno-soft-blue);
+  --yuno-purple:     var(--yuno-mid-blue);
+  --yuno-electric:   var(--yuno-mid-blue);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Print mode unlocks the document so all stacked slides flow past the
+   viewport — without this, html/body's height:100% + overflow:hidden
+   clips everything after slide 1 and Chromium emits a single-page PDF. */
+html[data-print-mode],
+html[data-print-mode] body,
+html[data-print-mode] #root {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--yuno-deep);
+  color: #fff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'ss01', 'ss02', 'cv01', 'kern';
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideRight {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+/* Moderate pulse for the diagnostic "analyzing" badge dot — noticeably
+ * alive without being hyperactive. Used via `animation: pulseStrong 1.8s …`. */
+@keyframes pulseStrong {
+  0%, 100% {
+    opacity: 0.7;
+    transform: scale(1);
+    box-shadow: 0 0 6px rgba(251,146,60,0.45);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.18);
+    box-shadow:
+      0 0 10px rgba(251,146,60,0.8),
+      0 0 18px rgba(251,146,60,0.35);
+  }
+}
+/* Used by BeamRule — slides a bright band across a 1px rule from
+ * off-screen left to off-screen right (40 % of the cycle), then holds
+ * off-screen for the remaining 60 % so the beam appears + disappears
+ * with a breathing pause instead of a constant stream. */
+@keyframes beamSlide {
+  0%   { transform: translateX(-100%); }
+  40%  { transform: translateX(400%); }
+  100% { transform: translateX(400%); }
+}
+
+/* Border-tracing beam: a bright wedge that chases around a card's
+ * rounded border. Applied via the `.border-beam` class on any rounded
+ * container. Uses `@property` so the conic-gradient angle is
+ * animatable (needed; plain CSS transitions can't tween angles).
+ * Stagger with inline `animationDelay` if multiple cards share a row.
+ */
+@property --border-beam-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes borderBeam {
+  to { --border-beam-angle: 360deg; }
+}
+.border-beam {
+  --beam-delay: 0s;
+  --beam-duration: 18s;
+  position: relative;
+}
+.border-beam::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--border-beam-angle),
+    transparent 0%,
+    rgba(221, 227, 251, 0.7) 8%,
+    transparent 22%,
+    transparent 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+  animation: borderBeam var(--beam-duration) linear infinite;
+  animation-delay: var(--beam-delay);
+}
+@keyframes float {
+  0%, 100% { transform: translate(0, 0) rotate(-20deg); }
+  50% { transform: translate(10px, -15px) rotate(-20deg); }
+}
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(62,79,224, 0.2); }
+  50% { box-shadow: 0 0 40px rgba(62,79,224, 0.5); }
+}
+/* Slide change animations — gentle vertical fade instead of horizontal slide.
+   Direction is encoded in a small y-offset so users still feel which way they went. */
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateY(-14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Per-element settle-in: content inside the slide rises into place after
+ * the slide-level fade lands. Delay is controlled via --reveal-delay so
+ * individual elements can be tuned per slide. */
+@keyframes revealUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.reveal {
+  animation: revealUp 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--reveal-delay, 0s);
+}
+
+/* Container that auto-staggers its direct children. Useful for lists and
+ * grids (pain cards, capability cards, PSP tiles) — drop-in, no per-item
+ * editing. Starts at --stagger-base seconds and adds --stagger-step per
+ * child. Handles up to 10 children; beyond that add more rules. */
+.stagger > * {
+  animation: revealUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.stagger > *:nth-child(1)  { animation-delay: calc(var(--stagger-base, 0.08s) + 0 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(2)  { animation-delay: calc(var(--stagger-base, 0.08s) + 1 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(3)  { animation-delay: calc(var(--stagger-base, 0.08s) + 2 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(4)  { animation-delay: calc(var(--stagger-base, 0.08s) + 3 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(5)  { animation-delay: calc(var(--stagger-base, 0.08s) + 4 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(6)  { animation-delay: calc(var(--stagger-base, 0.08s) + 5 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(7)  { animation-delay: calc(var(--stagger-base, 0.08s) + 6 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(8)  { animation-delay: calc(var(--stagger-base, 0.08s) + 7 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(9)  { animation-delay: calc(var(--stagger-base, 0.08s) + 8 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(10) { animation-delay: calc(var(--stagger-base, 0.08s) + 9 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(11) { animation-delay: calc(var(--stagger-base, 0.08s) + 10 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(12) { animation-delay: calc(var(--stagger-base, 0.08s) + 11 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(13) { animation-delay: calc(var(--stagger-base, 0.08s) + 12 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(14) { animation-delay: calc(var(--stagger-base, 0.08s) + 13 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(15) { animation-delay: calc(var(--stagger-base, 0.08s) + 14 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(16) { animation-delay: calc(var(--stagger-base, 0.08s) + 15 * var(--stagger-step, 0.07s)); }
+@keyframes slowSpin {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+@keyframes pulseRing {
+  0%   { transform: translate(-50%, -50%) scale(0.4); opacity: 0.9; }
+  100% { transform: translate(-50%, -50%) scale(3.2); opacity: 0; }
+}
+@keyframes orbDrift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25%      { transform: translate(4vw, -3vw) scale(1.05); }
+  50%      { transform: translate(-2vw, 4vw) scale(0.95); }
+  75%      { transform: translate(-4vw, -2vw) scale(1.03); }
+}
+@keyframes orbDrift2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(-5vw, 3vw) scale(1.08); }
+  66%      { transform: translate(6vw, -4vw) scale(0.92); }
+}
+/* Ambient orb drift in absolute px so motion is identical in preview and
+   fullscreen (sits inside the scaled 1920x1080 stage). Three checkpoints
+   instead of two so the loop never looks like a bounce. */
+@keyframes ambientOrbDrift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33%      { transform: translate3d(120px, -80px, 0) scale(1.08); }
+  66%      { transform: translate3d(-90px, 60px, 0) scale(0.94); }
+}
+/* Rotate-your-phone hint icon — subtle wobble that gestures "turn me". */
+@keyframes rotateHint {
+  0%, 100% { transform: rotate(0deg); }
+  35%      { transform: rotate(-22deg); }
+  70%      { transform: rotate(0deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  @keyframes ambientOrbDrift {
+    0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  }
+}
+/* Orbital rings on the cover slide — three concentric rings counter-rotate
+   around the globe center at different periods so the motion never looks
+   mechanical or repeating. */
+@keyframes coverRingSpin1 { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes coverRingSpin2 { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes coverRingSpin3 { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  @keyframes coverRingSpin1 { from, to { transform: rotate(0deg); } }
+  @keyframes coverRingSpin2 { from, to { transform: rotate(0deg); } }
+  @keyframes coverRingSpin3 { from, to { transform: rotate(0deg); } }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes hubPulse {
+  0%, 100% { opacity: 0.55; transform: translate(-50%, -50%) scale(1); }
+  50%      { opacity: 1;    transform: translate(-50%, -50%) scale(1.15); }
+}
+@keyframes hubBreathe {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50%      { transform: translate(-50%, -50%) scale(1.028); }
+}
+@keyframes chipActivate {
+  0%, 70%, 100% {
+    opacity: 0.72;
+    border-color: rgba(255,255,255,0.08);
+    box-shadow: 0 10px 28px rgba(0,0,0,0.4);
+  }
+  88% {
+    opacity: 1;
+    border-color: rgba(89,103,228,0.55);
+    box-shadow: 0 10px 28px rgba(0,0,0,0.4), 0 0 26px rgba(89,103,228,0.45);
+  }
+}
+@keyframes chipActivateHighlight {
+  0%, 70%, 100% {
+    opacity: 0.92;
+    border-color: rgba(89,103,228,0.45);
+    box-shadow: 0 10px 28px rgba(0,0,0,0.45), 0 0 14px rgba(89,103,228,0.2);
+  }
+  88% {
+    opacity: 1;
+    border-color: rgba(124,137,239,0.75);
+    box-shadow: 0 10px 28px rgba(0,0,0,0.45), 0 0 38px rgba(124,137,239,0.5);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .intro-hub *, .intro-hub { animation: none !important; }
+}
+
+.slide-enter > * {
+  animation: fadeInUp 0.6s ease-out forwards;
+}
+.slide-enter > *:nth-child(1) { animation-delay: 0ms; }
+.slide-enter > *:nth-child(2) { animation-delay: 80ms; }
+.slide-enter > *:nth-child(3) { animation-delay: 160ms; }
+.slide-enter > *:nth-child(4) { animation-delay: 240ms; }
+.slide-enter > *:nth-child(5) { animation-delay: 320ms; }
+
+/* Pedigree logo strip — premium hover. Hovered logo brightens and lifts;
+   sibling logos in the row dim slightly so the focused mark reads as the
+   subject. Eased with the same bezier used elsewhere in the deck. */
+.pedigree-logo {
+  transform: translateY(0) scale(1);
+}
+.pedigree-logo:hover {
+  opacity: 1 !important;
+  transform: translateY(-3px) scale(1.06);
+  filter: brightness(0) invert(1) drop-shadow(0 6px 14px rgba(124,137,239,0.28));
+}
+/* When any sibling is hovered, dim the rest of the row so the focused
+   logo gets visual priority. */
+.pedigree-logos-row:hover .pedigree-logo:not(:hover) {
+  opacity: 0.42 !important;
+  filter: brightness(0) invert(1) blur(0.4px);
+}
+
+/* Payments Concierge mini-chat — cycles user question → typing → AI
+   answer 1 → AI follow-up on a 14s loop. Each element stays visible
+   during its window and fades at the end of the cycle. */
+@keyframes pcUserBubble {
+  0%, 4%   { opacity: 0; transform: translateY(6px); }
+  10%, 94% { opacity: 1; transform: translateY(0); }
+  100%     { opacity: 0; transform: translateY(0); }
+}
+@keyframes pcTyping {
+  0%, 14%  { opacity: 0; transform: translateY(4px); }
+  18%, 28% { opacity: 1; transform: translateY(0); }
+  32%, 100%{ opacity: 0; }
+}
+@keyframes pcAiBubble {
+  0%, 32%   { opacity: 0; transform: translateY(6px); }
+  38%, 52%  { opacity: 1; transform: translateY(0); }
+  56%, 100% { opacity: 0; transform: translateY(0); }
+}
+@keyframes pcTyping2 {
+  0%, 55%  { opacity: 0; transform: translateY(4px); }
+  59%, 66% { opacity: 1; transform: translateY(0); }
+  70%, 100%{ opacity: 0; }
+}
+@keyframes pcAiBubble2 {
+  0%, 70%  { opacity: 0; transform: translateY(6px); }
+  75%, 94% { opacity: 1; transform: translateY(0); }
+  100%     { opacity: 0; transform: translateY(0); }
+}
+@keyframes pcTypingDot {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+  30%           { transform: translateY(-3px); opacity: 1; }
+}
+
+/* ---------- PDF capture surface ---------- */
+/* PrintViewer stacks every slide vertically at 1920x1080. Chromium's
+   page.pdf() honors @page sizing and `break-after: page` to produce one
+   page per slide. We also disable animations + transitions so each slide
+   captures in its final/settled state instead of mid-fade-in. */
+[data-pdf-root] {
+  width: 1920px;
+}
+[data-pdf-root] .pdf-page {
+  break-after: page;
+  page-break-after: always;
+}
+[data-pdf-root] *,
+[data-pdf-root] *::before,
+[data-pdf-root] *::after {
+  animation: none !important;
+  transition: none !important;
+  /* Chromium's PDF rasterizer paints a 1px vertical caret-shaped sliver
+     at the line-break point of inline elements that mix
+     background-clip:text with text-fill-color:transparent (the gradient
+     accents on the cover and on Trusted By). Forcing caret-color
+     transparent on every node kills that artifact without affecting
+     the live deck. */
+  caret-color: transparent !important;
+}
+[data-pdf-root] [data-download-deck] {
+  display: none !important;
+}
+/* `.reveal` / `.stagger > *` start at opacity:0 and animate in. With
+   animations killed, they stay invisible — that's why customer and
+   investor logo strips render as empty boxes in the PDF. Force the
+   final/visible state instead so every element appears settled. */
+[data-pdf-root] .reveal,
+[data-pdf-root] .stagger > * {
+  opacity: 1 !important;
+  transform: none !important;
+}
+/* The border-beam and founder photo ring both rely on
+   `mask-composite: exclude` to clip a gradient down to a 1px outline.
+   Chromium's PDF rasterizer doesn't compose those masks, so the full
+   gradient leaks through as a giant diagonal smear (cards) or solid
+   blue disk (founder avatars). Hiding them in print cuts the artifacts
+   without affecting the live presentation. */
+[data-pdf-root] .border-beam::after,
+[data-pdf-root] [data-mask-ring] {
+  display: none !important;
+}
+/* The Yuno Solve capability cards are 3D flip cards. Chromium's PDF
+   pipeline flattens 3D and ignores backface-visibility, so the back
+   face (the description) shows up mirrored on top of the front face.
+   Hiding the back face leaves the clean front (icon + capability name),
+   which is the version Isabella wants in the export. */
+[data-pdf-root] [data-cap-back] {
+  display: none !important;
+}
+/* Payments Concierge chat is a 14s loop: user prompt → typing dots →
+   AI answer #1 → typing dots → AI answer #2. With animations frozen
+   for capture, every row stays at opacity:0 and the chat reads as
+   blank. Force the user prompt + the data-rich first AI answer to
+   stay visible, and hide the typing rows + second AI bubble so the
+   PDF shows one settled exchange instead of an empty card. */
+[data-pdf-root] [data-pc-row='user'],
+[data-pdf-root] [data-pc-row='ai-1'] {
+  opacity: 1 !important;
+}
+[data-pdf-root] [data-pc-row='typing-1'],
+[data-pdf-root] [data-pc-row='typing-2'],
+[data-pdf-root] [data-pc-row='ai-2'] {
+  display: none !important;
+}
+/* Office pulse rings on the Global Presence map are CSS-animated
+   expanding/fading circles. Frozen for capture, they sit at their
+   start size with full opacity — every pin gets a static halo that
+   reads as a stray ring. Kill the rings in print, keep the cores. */
+[data-pdf-root] [data-map-pulse] {
+  display: none !important;
+}
+/* Leadership slide is the densest layout in the deck (founders row +
+   leadership grid + pedigree strip). At a 1920px viewport every clamp()
+   in the slide hits its max value, and the pedigree strip overflows
+   the 1080px page. The live deck never showed it because users view on
+   smaller laptop viewports where the clamps resolve smaller. `zoom`
+   shrinks both the painted size and the layout box, so a 4% reduction
+   pulls everything back inside the page without nudging individual
+   measurements one by one. */
+[data-pdf-root] [data-slide='leadership'] {
+  zoom: 0.96;
+}
+
+@page {
+  size: 1920px 1080px;
+  margin: 0;
+}
+
+/* Noise overlay texture */
+.noise-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
+  opacity: 0.04;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+}

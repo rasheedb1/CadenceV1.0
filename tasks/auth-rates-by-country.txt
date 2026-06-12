@@ -1,0 +1,175 @@
+GLOBAL CARD AUTHORIZATION RATES BY COUNTRY
+Compiled: 2026-05-11 | Source: tasks/research-card-auth-rates-by-country.md
+
+================================================================
+LEGEND
+================================================================
+[REAL]    = Documented public data (regulator or processor disclosed)
+[AVG]     = Regional average applied (no public country-level data)
+Note: Europe figures are 3DS success rate (Ravelin 2026), not pure auth rate.
+
+================================================================
+REGIONAL AVERAGES (computed from documented countries only)
+================================================================
+North America + Caribbean/Central America: 82%
+LATAM:                                     75%
+Europe:                                    84%
+Middle East + Africa:                      79%
+APAC:                                      90%
+
+================================================================
+NORTH AMERICA + CARIBBEAN / CENTRAL AMERICA (avg 82%)
+================================================================
+USA              | 87.5% | [REAL]  | Worldpay benchmark 85-90% e-com
+Canada           | 87.5% | [REAL]  | Worldpay benchmark 85-90% e-com
+Mexico           | 69%   | [REAL]  | CONDUSEF/Banxico H1 2024 (e-commerce)
+Dominican Rep.   | 85%   | [REAL]  | EBANX (93% NT-subset; 85% full-market estimate)
+Puerto Rico      | 82%   | [AVG]   | Runs on US banking rails
+Costa Rica       | 82%   | [AVG]
+Panama           | 82%   | [AVG]
+Guatemala        | 82%   | [AVG]
+Jamaica          | 82%   | [AVG]
+Bahamas          | 82%   | [AVG]
+Trinidad & Tobago| 82%   | [AVG]
+Honduras         | 82%   | [AVG]
+El Salvador      | 82%   | [AVG]
+Nicaragua        | 82%   | [AVG]
+
+================================================================
+LATAM (avg 75%)
+================================================================
+Brazil           | 80%   | [REAL]  | Visa Performance Solutions (domestic e-com); cross-border drops to ~30%
+Colombia         | 72.5% | [REAL]  | EBANX baseline pre-NT; +10pp with Network Tokens
+Peru             | 73%   | [REAL]  | EBANX 2025 baseline; >80% tokenized
+Argentina        | 75%   | [AVG]   | Inferred 70-80% domestic; FX controls kill cross-border
+Chile            | 75%   | [AVG]   | CMF MFA mandate 2023 (NCG 514)
+Ecuador          | 75%   | [AVG]   | USD economy
+Uruguay          | 75%   | [AVG]
+Paraguay         | 75%   | [AVG]
+Bolivia          | 75%   | [AVG]
+Venezuela        | 75%   | [AVG]   | Cross-border card market effectively non-existent
+
+================================================================
+EUROPE (avg 84%) — 3DS success rate (Ravelin 2026)
+================================================================
+United Kingdom   | 95%   | [REAL]  | Ravelin 2026; also 92% 3DS-auth Forter
+Italy            | 93%   | [REAL]  | Ravelin 2026 (biggest post-SCA recovery)
+Netherlands      | 92%   | [REAL]  | Ravelin 2026 (iDEAL 70% of online)
+France           | 91%   | [REAL]  | Ravelin 2026; 94.4% CIT (Banque de France 2024)
+Ireland          | 91%   | [REAL]  | Ravelin 2026
+Czech Republic   | 91%   | [REAL]  | Ravelin 2026
+Austria          | 88%   | [REAL]  | Ravelin 2026
+Germany          | 87%   | [REAL]  | Ravelin 2026 (heaviest SCA impact 2021)
+Poland           | 87%   | [REAL]  | Ravelin 2026 (BLIK eats card share)
+Hungary          | 82%   | [REAL]  | Ravelin 2026
+Spain            | 81%   | [REAL]  | Ravelin 2026
+Belgium          | 80%   | [REAL]  | Ravelin 2026 (Bancontact 73%)
+Romania          | 80%   | [REAL]  | Ravelin 2026
+Norway           | 78%   | [REAL]  | Ravelin 2026
+Portugal         | 77%   | [REAL]  | Ravelin 2026 (MB WAY dominant)
+Sweden           | 76%   | [REAL]  | Ravelin 2026
+Denmark          | 75%   | [REAL]  | Ravelin 2026 (MitID friction)
+Greece           | 74%   | [REAL]  | Ravelin 2026 (worst eurozone; 28-31% txn loss)
+Finland          | 72%   | [REAL]  | Ravelin 2026 (lowest in Europe)
+Switzerland      | 84%   | [AVG]   | Not in EEA; TWINT dominant
+
+================================================================
+MIDDLE EAST + AFRICA (avg 79%)
+================================================================
+UAE              | 86%   | [REAL]  | Apaya range 78-94% (orchestration-dependent); Jaywan launched Q4 2024
+Algeria          | 84%   | [REAL]  | Yassir post-optimization (May 2024)
+Saudi Arabia     | 80%   | [REAL]  | Inferred via Mada local-routing uplift +8-12pp (Apaya)
+South Africa     | 75%   | [REAL]  | Ravelin global rank 31/37 on 3DS (mandatory 3DS, weak issuer infra)
+Egypt            | 70%   | [REAL]  | Apaya (12-20% legitimate-txn loss on cards)
+Israel           | 79%   | [AVG]   | Isracard/CAL/Max proprietary networks
+Turkey           | 79%   | [AVG]   | TROY 20% share; ₺2.21T card payments 2024
+Qatar            | 79%   | [AVG]
+Kuwait           | 79%   | [AVG]   | KNET >90% of domestic
+Bahrain          | 79%   | [AVG]
+Oman             | 79%   | [AVG]
+Jordan           | 79%   | [AVG]
+Lebanon          | 79%   | [AVG]   | Post-2019 banking crisis disrupted cards
+Nigeria          | 79%   | [AVG]   | Verve 70M+ cards; CBN failed-tx reporting starts H2 2026
+Kenya            | 79%   | [AVG]   | M-PESA displaces cards (mobile money 79% of payments)
+Morocco          | 79%   | [AVG]   | CMI processes 95% of local; 200M+ tx 2024
+Ghana            | 79%   | [AVG]   | Mobile money 98% of payments
+Cote d'Ivoire    | 79%   | [AVG]   | Orange Money / MTN MoMo dominate
+Tanzania         | 79%   | [AVG]   | Mobile money dominant
+Tunisia          | 79%   | [AVG]
+Ethiopia         | 79%   | [AVG]   | Card market nascent; Telebirr dominates
+
+================================================================
+APAC (avg 90%)
+================================================================
+Japan            | 92%   | [REAL]  | Forter post-mandate Apr-2025 (94% non-3DS / 75% 3DS-flagged)
+India            | 87.5% | [REAL]  | Razorpay 85-90% domestic; 70-80% international cards
+China            | 90%   | [AVG]   | WARNING: cards only ~14% of payments; Alipay+WeChat dominate
+Australia        | 90%   | [AVG]   | Adyen local acquiring
+New Zealand      | 90%   | [AVG]
+Singapore        | 90%   | [AVG]   | Card-heavy market (Checkout.com)
+Hong Kong        | 90%   | [AVG]   | 339M card tx Q4 2024
+South Korea      | 90%   | [AVG]   | Cards 58% of e-com; KRW 1,255T card value 2024
+Taiwan           | 90%   | [AVG]   | $168B card market 2024
+Indonesia        | 90%   | [AVG]   | WARNING: cards 5-8% penetration; GoPay/OVO/DANA dominate
+Thailand         | 90%   | [AVG]   | PromptPay dominant
+Vietnam          | 90%   | [AVG]   | NAPAS uptime 99.997% (NOT auth rate); VietQR rising
+Philippines      | 90%   | [AVG]   | GCash/Maya dominate
+Malaysia         | 90%   | [AVG]   | Debit + online-banking heavy (Checkout.com)
+Pakistan         | 90%   | [AVG]   | PayPak domestic; FX-constrained
+Bangladesh       | 90%   | [AVG]   | bKash dominates mobile money
+Sri Lanka        | 90%   | [AVG]   | LankaPay; LankaQR growing
+
+================================================================
+CRITICAL CAVEATS FOR USE IN BC DECKS / SALES PITCHES
+================================================================
+1. EUROPE numbers are 3DS success rate (Ravelin 2026), not pure issuer auth rate.
+   Pure auth rate pre-3DS typically runs 5-10pp higher (88-94%).
+
+2. MEXICO 69% is e-commerce. Card-present is ~97%. Always specify channel.
+
+3. BRAZIL 80% is DOMESTIC only. Cross-border international cards drop to ~30%
+   (biggest gap globally). Use this gap as a sales lever.
+
+4. APAC EMERGING (China, Indonesia, Philippines, Vietnam, Thailand): cards are
+   5-14% of total payments. The 90% regional average is misleading here — the
+   business-relevant metric is wallet success rate, not card auth rate.
+
+5. MEA average 79% blends Gulf (typically 80-90%) with sub-Saharan Africa
+   (typically 60-75%). If pitching specifically to GCC or SSA, segment.
+
+6. Documented Network Token uplift (cite freely):
+   - LATAM average:        +7pp (EBANX)
+   - Colombia specifically: +10pp (EBANX)
+   - Peru SaaS:             +8pp (EBANX)
+   - KSA Mada local-routing:+8-12pp (Apaya)
+   - MENA tokenized:        +3-6pp (Checkout x Mastercard May 2026)
+   - Fraud-related declines: -86% (EBANX)
+
+7. Smart Routing case study: inDrive achieved 90% auth rate via Yuno Smart
+   Routing across LATAM (case study cleared for citation).
+
+8. Local acquiring gap (cite freely):
+   - Brazil cross-border: 30% offshore -> 60%+ with local acquiring (Worldline)
+   - LATAM generally:     20-45% offshore -> 60-80% local (Worldline)
+   - MENA single-PSP:     loses 12-20% of legitimate transactions (Apaya)
+
+================================================================
+SOURCES (master)
+================================================================
+- CONDUSEF / Banxico (Mexico, regulator-grade)
+- Banque de France OSMP (France, regulator-grade)
+- EBA / ECB Joint Fraud Report Dec 2025 (Europe-wide)
+- Ravelin 3DS 2026 (Europe + global comparison)
+- Forter (Japan post-3DS-mandate; PSD2 retrospective)
+- Razorpay (India)
+- EBANX (LATAM Network Token data + Egypt Fawry)
+- Apaya (MENA approval-rate optimization)
+- Checkout.com x Mastercard MENA Tokenization Report (May 2026)
+- Yassir engineering (North Africa benchmark)
+- RankingsLATAM (Mexico monthly data)
+- Visa Performance Solutions (Brazil cohort)
+- Worldline (LATAM offshore vs local acquiring)
+- Nilson Report (Canada volumes)
+- Worldpay Global Payments Report (global benchmarks)
+
+Full per-country detail: tasks/research-card-auth-rates-by-country.md

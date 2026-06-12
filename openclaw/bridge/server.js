@@ -38,6 +38,40 @@ const app = express();
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
+// ---------------------------------------------------------------------------
+// CORS — needed for the chat web client (chief.yuno.tools / vercel domain).
+// Twilio webhooks don't care about CORS so this is additive.
+// ---------------------------------------------------------------------------
+const ALLOWED_CHAT_ORIGINS = (
+  process.env.ALLOWED_CHAT_ORIGINS ||
+  "https://chief.yuno.tools,https://laiky-cadence.vercel.app,http://localhost:5173"
+).split(",").map((s) => s.trim()).filter(Boolean);
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_CHAT_ORIGINS.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Authorization, Content-Type, Idempotency-Key, X-Idempotency-Key, Last-Event-ID"
+    );
+    res.setHeader("Access-Control-Max-Age", "600");
+  }
+  if (req.method === "OPTIONS") { res.status(204).end(); return; }
+  next();
+});
+
+// ---------------------------------------------------------------------------
+// Mount the chat router (web chat with Chief AI agents).
+// All /api/chat/* routes are JWT-authenticated and use the same Supabase
+// service role key the bridge already has.
+// ---------------------------------------------------------------------------
+const { router: chatRouter, listTurns: listChatTurns, snapshotCounters: chatCounters } = require("./chat/router");
+app.use("/api/chat", chatRouter);
+
 const WHATSAPP_MAX_LENGTH = 1600; // Twilio WhatsApp API hard limit — messages >1600 chars get silently truncated
 
 function splitMessage(text) {
@@ -83,6 +117,274 @@ async function notifyUserByOrg(orgId, message) {
   } catch (err) {
     console.error("[notify] Error:", err.message);
   }
+}
+
+// ---------------------------------------------------------------------------
+// WhatsApp routing helpers — fast path mention detection + task injection
+// ---------------------------------------------------------------------------
+
+function _normalizeText(s) {
+  return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
+function _escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Verbs (after normalization: no accents, lowercase) used to detect routing intent.
+// "Address verbs" = directing the user toward an agent: "dile a Paula", "pregúntale a Sofi"
+const _ADDRESS_VERBS = "(?:dile|preguntale|pidele|mandale|escribele|enviale|hazle|cuentale|avisale|consultale)";
+// "Imperative verbs" = action verbs the user issues directly: "Paula, tráeme..."
+const _IMPERATIVE_VERBS = "(?:haz|busca|traeme|trae|envia|crea|genera|manda|investiga|consigue|revisa|chequea|dame|pasame|encuentra|prepara|cuentame|verifica|escribe|necesito|quiero|extrae|reporta|resume|analiza|mira|corre|programa|agenda|escribeme|llama|lee|abre|cierra|listame|muestrame|dime)";
+
+/**
+ * Detect if a WhatsApp message explicitly names one of the org's agents.
+ * Tries 5 patterns in order of specificity. Returns null if no match.
+ * Match is case-insensitive and accent-insensitive (Paula ≡ paula ≡ Paúla).
+ *
+ * @param {string} body - The WhatsApp message body
+ * @param {Array<{id:string,name:string}>} orgAgents - Active agents in the user's org
+ * @returns {{agentId:string, agentName:string, pattern:string} | null}
+ */
+function detectAgentMention(body, orgAgents) {
+  if (!body || !Array.isArray(orgAgents) || orgAgents.length === 0) return null;
+  const normBody = _normalizeText(body);
+
+  // Sort agents by name length (longest first) so "Paola" matches before "Pao"
+  const sorted = [...orgAgents].sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0));
+
+  for (const agent of sorted) {
+    if (!agent.name || agent.name.length < 3) continue;
+    const nameNorm = _normalizeText(agent.name);
+    const nameRe = _escapeRegex(nameNorm);
+
+    // Pattern 1: ^@<name>  (e.g. "@Paula tráeme correos")
+    if (new RegExp(`^@${nameRe}(?=[\\s,.:;!?]|$)`).test(normBody))
+      return { agentId: agent.id, agentName: agent.name, pattern: "mention_at" };
+
+    // Pattern 2: ^<name>: or ^<name>,  (e.g. "Paula: tráeme..." or "Paula, tráeme...")
+    if (new RegExp(`^${nameRe}\\s*[:,]\\s*\\S`).test(normBody))
+      return { agentId: agent.id, agentName: agent.name, pattern: "name_colon" };
+
+    // Pattern 3: address verb + a + <name>  (e.g. "Dile a Paula que...", "Pregúntale a Sofi...")
+    if (new RegExp(`\\b${_ADDRESS_VERBS}\\s+a\\s+${nameRe}(?=[\\s,.:;!?]|$)`).test(normBody))
+      return { agentId: agent.id, agentName: agent.name, pattern: "address" };
+
+    // Pattern 4: "para <name>" — only at start, OR with explicit punctuation after the name.
+    // This avoids false positives like "esto es para Paula y Sofi" (no punctuation, mid-sentence).
+    const para1 = new RegExp(`^para\\s+${nameRe}(?=[\\s,.:;!?]|$)`);
+    const para2 = new RegExp(`\\bpara\\s+${nameRe}\\s*[:,]\\s*\\S`);
+    if (para1.test(normBody) || para2.test(normBody))
+      return { agentId: agent.id, agentName: agent.name, pattern: "para" };
+
+    // Pattern 5: ^<name> + imperative verb  (e.g. "Paula tráeme correos")
+    if (new RegExp(`^${nameRe}\\s*,?\\s+${_IMPERATIVE_VERBS}\\b`).test(normBody))
+      return { agentId: agent.id, agentName: agent.name, pattern: "name_verb" };
+  }
+  return null;
+}
+
+/**
+ * Fast path BRANCH 2: inject the user's WhatsApp message as a reply to the
+ * agent that has an active conversation_control row. Mirrors the legacy
+ * gateway behaviour but extracted into a reusable function.
+ *
+ * @returns {{success:boolean, agentName:string}}
+ */
+async function injectReplyToActiveThread({ targetAgentId, replyText, ctrl, From, WaId, sbUrl, sbKey }) {
+  // Resolve org_id: prefer ctrl row (now selected), fall back to agent record
+  let routeOrgId = (Array.isArray(ctrl) && ctrl[0]?.org_id) ? ctrl[0].org_id : null;
+  if (!routeOrgId) {
+    try {
+      const orgRows = await fetch(`${sbUrl}/rest/v1/agents?id=eq.${targetAgentId}&select=org_id`, {
+        headers: { Authorization: `Bearer ${sbKey}`, apikey: sbKey },
+      }).then(r => r.json());
+      if (Array.isArray(orgRows) && orgRows[0]) routeOrgId = orgRows[0].org_id;
+    } catch {}
+  }
+  if (!routeOrgId) {
+    console.error("[fastpath:reply] Cannot route: no org_id for agent", targetAgentId);
+    return { success: false, agentName: "Agent" };
+  }
+
+  // 1. Write user reply to agent_messages
+  await fetch(`${sbUrl}/rest/v1/agent_messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${sbKey}`, apikey: sbKey, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({
+      org_id: routeOrgId,
+      to_agent_id: targetAgentId,
+      role: "user",
+      content: replyText,
+      metadata: { source: "whatsapp_reply", from_human: true },
+    }),
+  }).catch(e => console.warn("[fastpath:reply] agent_messages write failed:", e.message));
+
+  // 2. Mark outbound message as replied (if any)
+  const activeMsgId = (Array.isArray(ctrl) && ctrl[0]?.active_message_id) || null;
+  if (activeMsgId) {
+    fetch(`${sbUrl}/rest/v1/outbound_human_messages?id=eq.${activeMsgId}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${sbKey}`, apikey: sbKey, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({ status: "replied", reply: replyText, replied_at: new Date().toISOString() }),
+    }).catch(() => {});
+  }
+
+  // 3. Inject into scratchpad: prefer active task; else reopen most recent done task
+  try {
+    const tasksActive = await fetch(`${sbUrl}/rest/v1/agent_tasks_v2?assigned_agent_id=eq.${targetAgentId}&status=in.(claimed,in_progress)&order=created_at.desc&limit=1&select=id,context_summary`, {
+      headers: { Authorization: `Bearer ${sbKey}`, apikey: sbKey },
+    }).then(r => r.json()).catch(() => []);
+
+    if (Array.isArray(tasksActive) && tasksActive[0]) {
+      let pad = {};
+      try { pad = JSON.parse(tasksActive[0].context_summary || "{}"); } catch {}
+      if (!pad.conversation) pad.conversation = [];
+      pad.conversation.push({ role: "user", ts: new Date().toISOString(), content: replyText.substring(0, 1000) });
+      pad.last_action = "user_replied";
+      pad.version = (pad.version || 0) + 1;
+      await fetch(`${sbUrl}/rest/v1/agent_tasks_v2?id=eq.${tasksActive[0].id}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${sbKey}`, apikey: sbKey, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ context_summary: JSON.stringify(pad) }),
+      });
+      console.log(`[fastpath:reply] Injected into active task ${tasksActive[0].id.substring(0, 8)} for agent ${targetAgentId.substring(0, 8)}`);
+    } else {
+      const recent = await fetch(`${sbUrl}/rest/v1/agent_tasks_v2?assigned_agent_id=eq.${targetAgentId}&status=eq.done&order=updated_at.desc&limit=1&select=id,context_summary,description`, {
+        headers: { Authorization: `Bearer ${sbKey}`, apikey: sbKey },
+      }).then(r => r.json()).catch(() => []);
+
+      if (Array.isArray(recent) && recent[0]) {
+        let pad = {};
+        try { pad = JSON.parse(recent[0].context_summary || "{}"); } catch {}
+        if (!pad.conversation) pad.conversation = [];
+        pad.conversation.push({ role: "user", ts: new Date().toISOString(), content: replyText.substring(0, 2000) });
+        pad.last_action = "user_replied";
+        pad.version = (pad.version || 0) + 1;
+        await fetch(`${sbUrl}/rest/v1/agent_tasks_v2?id=eq.${recent[0].id}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${sbKey}`, apikey: sbKey, "Content-Type": "application/json", Prefer: "return=minimal" },
+          body: JSON.stringify({
+            status: "in_progress",
+            completed_at: null,
+            context_summary: JSON.stringify(pad),
+            result: null,
+          }),
+        });
+        console.log(`[fastpath:reply] Reopened task ${recent[0].id.substring(0, 8)} with user reply`);
+      } else {
+        console.warn(`[fastpath:reply] No task found for agent ${targetAgentId.substring(0, 8)} — reply stored only in agent_messages`);
+      }
+    }
+  } catch (e) {
+    console.warn("[fastpath:reply] Scratchpad injection failed:", e.message);
+  }
+
+  // 4. Extend conversation_control expiry so quick follow-ups still route to same agent
+  fetch(`${sbUrl}/rest/v1/conversation_control?whatsapp_number=eq.${WaId || From.replace("whatsapp:+", "")}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${sbKey}`, apikey: sbKey, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({ expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(), updated_at: new Date().toISOString() }),
+  }).catch(() => {});
+
+  // 5. Resolve agent name for the user-facing confirmation
+  let agentName = "Agent";
+  try {
+    const ns = await fetch(`${sbUrl}/rest/v1/agents?id=eq.${targetAgentId}&select=name`, {
+      headers: { Authorization: `Bearer ${sbKey}`, apikey: sbKey },
+    }).then(r => r.json());
+    if (Array.isArray(ns) && ns[0]?.name) agentName = ns[0].name;
+  } catch {}
+
+  return { success: true, agentName };
+}
+
+/**
+ * Fast path BRANCH 1: create a NEW task assigned to the named agent and
+ * trigger /execute. Closes any active conversation_control for the user
+ * (so unnamed follow-ups don't go back to the previous agent).
+ *
+ * @returns {{success:boolean, taskId?:string, error?:string}}
+ */
+async function createDirectTask({ targetAgentId, instruction, orgId, From, WaId, sbUrl, sbKey }) {
+  // 1. Close any active conversation_control for this user — naming a new agent
+  //    is an explicit signal that the previous thread is no longer the default.
+  fetch(`${sbUrl}/rest/v1/conversation_control?whatsapp_number=eq.${WaId || From.replace("whatsapp:+", "")}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${sbKey}`, apikey: sbKey, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({ expires_at: new Date(Date.now() - 1000).toISOString(), updated_at: new Date().toISOString() }),
+  }).catch(() => {});
+
+  // 2. Resolve org_id and capabilities for task_type inference
+  let resolvedOrgId = orgId;
+  let caps = [];
+  try {
+    const rows = await fetch(`${sbUrl}/rest/v1/agents?id=eq.${targetAgentId}&select=org_id,capabilities`, {
+      headers: { Authorization: `Bearer ${sbKey}`, apikey: sbKey },
+    }).then(r => r.json());
+    if (Array.isArray(rows) && rows[0]) {
+      if (!resolvedOrgId) resolvedOrgId = rows[0].org_id;
+      caps = rows[0].capabilities || [];
+    }
+  } catch {}
+  if (!resolvedOrgId) return { success: false, error: "no_org_id" };
+
+  let taskType = "general";
+  if (caps.includes("code")) taskType = "code";
+  else if (caps.includes("research")) taskType = "research";
+  else if (caps.includes("inbox")) taskType = "inbox";
+
+  // 3. Create task — status=in_progress + assigned_agent_id so event loop won't claim it
+  let taskId = null;
+  try {
+    const taskRes = await fetch(`${sbUrl}/rest/v1/agent_tasks_v2`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${sbKey}`, apikey: sbKey, "Content-Type": "application/json", Prefer: "return=representation" },
+      body: JSON.stringify({
+        org_id: resolvedOrgId,
+        title: instruction.substring(0, 120),
+        description: instruction,
+        task_type: taskType,
+        required_capabilities: caps,
+        assigned_agent_id: targetAgentId,
+        assigned_at: new Date().toISOString(),
+        started_at: new Date().toISOString(),
+        status: "in_progress",
+        priority: 10,
+        created_by: "whatsapp_fastpath",
+      }),
+    });
+    const taskData = await taskRes.json();
+    taskId = Array.isArray(taskData) && taskData[0] ? taskData[0].id : (taskData?.id || null);
+  } catch (e) {
+    console.error("[fastpath:new_task] Task create failed:", e.message);
+    return { success: false, error: "task_create_failed" };
+  }
+  if (!taskId) return { success: false, error: "task_create_failed" };
+
+  // 4. Log message to agent_messages
+  fetch(`${sbUrl}/rest/v1/agent_messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${sbKey}`, apikey: sbKey, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({
+      org_id: resolvedOrgId,
+      to_agent_id: targetAgentId,
+      role: "user",
+      content: instruction,
+      message_type: "task",
+      metadata: { task_id: taskId, source: "whatsapp_fastpath" },
+    }),
+  }).catch(() => {});
+
+  // 5. Trigger /execute (fire and forget — agent runs async, callback delivers result via WhatsApp)
+  const CHIEF_AGENTS_URL = process.env.CHIEF_AGENTS_URL || "https://chief-agents-production.up.railway.app";
+  fetch(`${CHIEF_AGENTS_URL}/execute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agent_id: targetAgentId, task_id: taskId }),
+  }).catch(() => {});
+
+  return { success: true, taskId };
 }
 
 // ---------------------------------------------------------------------------
@@ -404,6 +706,7 @@ app.get("/health", (_req, res) => {
     status: "ok",
     timestamp: new Date().toISOString(),
     gateway: ocClient.isReady() ? "connected" : "disconnected",
+    chat: { live_turns: listChatTurns().length, counters: chatCounters() },
   });
 });
 
@@ -450,6 +753,183 @@ async function sbFetchGlobal(url, opts = {}) {
   const res = await fetch(url, opts);
   const txt = await res.text();
   try { return JSON.parse(txt); } catch { return { _raw: txt, _status: res.status }; }
+}
+
+// ── Self-service onboarding for unknown WhatsApp numbers ─────────────────
+// First message from an unknown number → ask for their @y.uno / @yuno.co
+// email. Reply with email → look up auth.users → organization_members and
+// create the chief_sessions row. Pending state lives in chief_pending_onboarding.
+const ALLOWED_EMAIL_DOMAINS = /@(y\.uno|yuno\.co)$/i;
+const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+
+function extractEmail(s) {
+  if (!s) return null;
+  const m = String(s).match(EMAIL_REGEX);
+  return m ? m[0].toLowerCase() : null;
+}
+
+async function getPendingOnboarding(whatsappNumber) {
+  try {
+    const rows = await sbFetchGlobal(
+      `${SB_URL_GLOBAL}/rest/v1/chief_pending_onboarding?whatsapp_number=eq.${encodeURIComponent(whatsappNumber)}&select=step,attempts,expires_at&limit=1`,
+      { headers: sbHeadersGlobal() },
+    );
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    const r = rows[0];
+    if (r.expires_at && new Date(r.expires_at) < new Date()) return null; // expired
+    return r;
+  } catch { return null; }
+}
+
+async function upsertPendingOnboarding(whatsappNumber, attempts = 0) {
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  try {
+    await fetch(
+      `${SB_URL_GLOBAL}/rest/v1/chief_pending_onboarding?on_conflict=whatsapp_number`,
+      {
+        method: "POST",
+        headers: { ...sbHeadersGlobal(), Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ whatsapp_number: whatsappNumber, step: "await_email", attempts, expires_at: expiresAt }),
+      },
+    );
+  } catch (e) { console.error("[onboarding] upsert pending error:", e.message); }
+}
+
+async function deletePendingOnboarding(whatsappNumber) {
+  try {
+    await fetch(
+      `${SB_URL_GLOBAL}/rest/v1/chief_pending_onboarding?whatsapp_number=eq.${encodeURIComponent(whatsappNumber)}`,
+      { method: "DELETE", headers: sbHeadersGlobal() },
+    );
+  } catch (e) { console.error("[onboarding] delete pending error:", e.message); }
+}
+
+// Look up user by email → first org membership (oldest by created_at). Returns
+// { orgId, userId, displayName } or null.
+async function resolveOrgFromEmail(email) {
+  try {
+    // GoTrue admin filter is a substring match, not a structured query.
+    // We use it to narrow down then verify exact email below.
+    const userRows = await sbFetchGlobal(
+      `${SB_URL_GLOBAL}/auth/v1/admin/users?filter=${encodeURIComponent(email)}`,
+      { headers: sbHeadersGlobal() },
+    );
+    const users = userRows?.users || (Array.isArray(userRows) ? userRows : []);
+    const user = users.find((u) => (u.email || "").toLowerCase() === email);
+    if (!user?.id) return null;
+    const memRows = await sbFetchGlobal(
+      `${SB_URL_GLOBAL}/rest/v1/organization_members?user_id=eq.${user.id}&select=org_id,role,created_at&order=created_at.asc&limit=1`,
+      { headers: sbHeadersGlobal() },
+    );
+    if (!Array.isArray(memRows) || memRows.length === 0) return null;
+    return {
+      orgId: memRows[0].org_id,
+      userId: user.id,
+      displayName: user.user_metadata?.full_name || user.email?.split("@")[0] || "",
+    };
+  } catch (e) {
+    console.error("[onboarding] resolveOrgFromEmail error:", e.message);
+    return null;
+  }
+}
+
+async function createChiefSessionRow({ whatsappNumber, orgId, userId, displayName }) {
+  try {
+    await fetch(
+      `${SB_URL_GLOBAL}/rest/v1/chief_sessions`,
+      {
+        method: "POST",
+        headers: { ...sbHeadersGlobal(), Prefer: "return=minimal" },
+        body: JSON.stringify({
+          whatsapp_number: whatsappNumber,
+          org_id: orgId,
+          user_id: userId,
+          display_name: displayName || null,
+        }),
+      },
+    );
+    return true;
+  } catch (e) {
+    console.error("[onboarding] createChiefSession error:", e.message);
+    return false;
+  }
+}
+
+// Returns:
+//   { handled: true, orgId } when a chief_sessions row was just created,
+//   { handled: true } when the step was processed (asked for email / rejected),
+//   null when nothing happened (caller should fall through).
+async function handleOnboarding({ sessionKey, From, Body, twilioClient, TWILIO_WHATSAPP_NUMBER }) {
+  const pending = await getPendingOnboarding(sessionKey);
+
+  // CASE A: pending row exists — user is mid-onboarding, expect an email.
+  if (pending) {
+    const email = extractEmail(Body);
+    const validDomain = email && ALLOWED_EMAIL_DOMAINS.test(email);
+
+    if (!email || !validDomain) {
+      const attempts = (pending.attempts || 0) + 1;
+      if (attempts >= 3) {
+        await deletePendingOnboarding(sessionKey);
+        await twilioClient.messages.create({
+          from: TWILIO_WHATSAPP_NUMBER, to: From,
+          body: "No reconozco el email. Pídele a un admin que te dé acceso a Chief y vuelve a escribir cuando esté listo.",
+        });
+      } else {
+        await upsertPendingOnboarding(sessionKey, attempts);
+        await twilioClient.messages.create({
+          from: TWILIO_WHATSAPP_NUMBER, to: From,
+          body: "No detecté un email válido de Yuno. Mándame tu email completo (formato: nombre@y.uno o nombre@yuno.co).",
+        });
+      }
+      return { handled: true };
+    }
+
+    const resolved = await resolveOrgFromEmail(email);
+    if (!resolved) {
+      const attempts = (pending.attempts || 0) + 1;
+      if (attempts >= 3) {
+        await deletePendingOnboarding(sessionKey);
+        await twilioClient.messages.create({
+          from: TWILIO_WHATSAPP_NUMBER, to: From,
+          body: "No encontré ese email en Yuno. Pídele a un admin que te invite y vuelve a escribir cuando estés dentro.",
+        });
+      } else {
+        await upsertPendingOnboarding(sessionKey, attempts);
+        await twilioClient.messages.create({
+          from: TWILIO_WHATSAPP_NUMBER, to: From,
+          body: `No encontré "${email}" en Yuno. Confirma que sea el correcto y reenvíalo.`,
+        });
+      }
+      return { handled: true };
+    }
+
+    const ok = await createChiefSessionRow({
+      whatsappNumber: sessionKey, orgId: resolved.orgId, userId: resolved.userId, displayName: resolved.displayName,
+    });
+    if (!ok) {
+      await twilioClient.messages.create({
+        from: TWILIO_WHATSAPP_NUMBER, to: From,
+        body: "Tuve un problema creando tu sesión. Inténtalo de nuevo en un momento.",
+      });
+      return { handled: true };
+    }
+    await deletePendingOnboarding(sessionKey);
+    const greet = resolved.displayName ? `Listo, ${resolved.displayName}.` : "Listo.";
+    await twilioClient.messages.create({
+      from: TWILIO_WHATSAPP_NUMBER, to: From,
+      body: `${greet} Soy Chief y ahora puedo ayudarte. ¿Qué necesitas?`,
+    });
+    return { handled: true, orgId: resolved.orgId };
+  }
+
+  // CASE B: no pending — first message from this number. Start onboarding.
+  await upsertPendingOnboarding(sessionKey, 0);
+  await twilioClient.messages.create({
+    from: TWILIO_WHATSAPP_NUMBER, to: From,
+    body: "¡Hola! Soy Chief, tu orquestador de agentes. Para empezar, mándame tu email de Yuno (nombre@y.uno o nombre@yuno.co).",
+  });
+  return { handled: true };
 }
 
 function requireGoogleEnv() {
@@ -983,6 +1463,19 @@ app.get("/integrations/status", async (req, res) => {
       const accs = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/unipile_accounts?user_id=eq.${members[0].user_id}&provider=eq.LINKEDIN&status=eq.active&select=account_id&limit=1`, { headers: sbHeadersGlobal() });
       integrations["linkedin"] = { connected: Array.isArray(accs) && accs.length > 0, provider: "unipile" };
     }
+    // Salesforce: also check salesforce_connections (Settings page writes there)
+    if (!integrations["salesforce"]?.connected) {
+      const sfRows = await sbFetchGlobal(`${SB_URL_GLOBAL}/rest/v1/salesforce_connections?org_id=eq.${orgId}&is_active=eq.true&select=sf_username,instance_url,last_sync_at&limit=1`, { headers: sbHeadersGlobal() });
+      if (Array.isArray(sfRows) && sfRows.length > 0) {
+        integrations["salesforce"] = {
+          connected: true,
+          email: sfRows[0].sf_username || null,
+          instance_url: sfRows[0].instance_url || null,
+          connected_at: sfRows[0].last_sync_at || null,
+          connected_via: "salesforce_connections",
+        };
+      }
+    }
     // API-key integrations (always "available" if env vars set)
     integrations["firecrawl"] = { available: !!process.env.FIRECRAWL_API_KEY };
     integrations["apollo"] = { available: !!process.env.APOLLO_API_KEY };
@@ -1130,8 +1623,768 @@ app.get("/api/download/:filename", (req, res) => {
   res.sendFile(filePath);
 });
 
+// ─── Business case PDF (server-side Chromium render) ────────────────────────
+// Replaces the client-side window.print() flow which was unreliable: Chrome
+// rescaled 1920px to Letter, captured React mid-mount, dropped backgrounds
+// without "Background graphics" toggled on. We launch headless Chromium,
+// load chief.yuno.tools/bc/<slug>?print=<HMAC>, wait for window.__bcReady,
+// and emit a clean 1920×1080 PDF. The HMAC bypass key tells the edge
+// function to skip the email gate + view tracking for this capture.
+const BC_PRINT_SECRET = process.env.BC_PRINT_SECRET || "";
+const BC_PUBLIC_URL = process.env.BC_PUBLIC_URL || "https://chief.yuno.tools";
+let _bcBrowserPromise = null;
+
+async function getBcBrowser() {
+  if (_bcBrowserPromise) {
+    try {
+      const b = await _bcBrowserPromise;
+      if (b.connected) return b;
+    } catch { /* fall through to relaunch */ }
+    _bcBrowserPromise = null;
+  }
+  _bcBrowserPromise = (async () => {
+    const puppeteer = require("puppeteer-core");
+    const chromium = require("@sparticuz/chromium");
+    return puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: { width: 1920, height: 1080 },
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
+    });
+  })();
+  return _bcBrowserPromise;
+}
+
+function bcPrintToken(slug) {
+  return crypto.createHmac("sha256", BC_PRINT_SECRET).update(slug).digest("hex").slice(0, 16);
+}
+
+function safeFilename(s) {
+  return String(s || "business-case")
+    .normalize("NFKD")
+    .replace(/[^\w\s.-]/g, "")
+    .replace(/\s+/g, "-")
+    .slice(0, 80) || "business-case";
+}
+
+// ─── PDF compression via Ghostscript (V17b — email attachment friendly) ─────
+// Puppeteer renders PDFs at 8-20 MB which exceed Supabase edge function
+// memory limits when base64-encoded for SMTP attachment. Ghostscript's
+// /ebook preset recompresses embedded images to 150 DPI JPEG quality 80
+// while keeping text vectorial (always sharp). Typical 75-85% size
+// reduction with no perceptible quality loss on screen.
+//
+// Falls back to the original PDF on any error so attachment delivery
+// degrades gracefully if gs is missing.
+async function compressPdfWithGhostscript(inputBuffer, label = "pdf") {
+  const fs = require("fs");
+  const os = require("os");
+  const path = require("path");
+  const { spawn } = require("child_process");
+
+  const tmpDir = os.tmpdir();
+  const id = crypto.randomBytes(8).toString("hex");
+  const inputPath = path.join(tmpDir, `gs-in-${id}.pdf`);
+  const outputPath = path.join(tmpDir, `gs-out-${id}.pdf`);
+
+  try {
+    fs.writeFileSync(inputPath, inputBuffer);
+    const t0 = Date.now();
+    await new Promise((resolve, reject) => {
+      // V19: /screen como base (vectores comprimidos agresivo) PERO con
+      // override de image settings — antes /screen bajaba TODA imagen a
+      // 72 DPI JPEG q40, que machacaba las fotos de personas en círculo
+      // y los logos chicos de Mastercard/Worldline.
+      // Nuevo: 200 DPI bicubic + JPEG q85 para color/gray, 600 DPI mono.
+      // Tradeoff: PDF puede crecer 30-50% vs /screen puro pero imágenes
+      // quedan crisp en pantalla retina y en print.
+      const args = [
+        "-sDEVICE=pdfwrite",
+        "-dCompatibilityLevel=1.5",
+        "-dPDFSETTINGS=/screen",
+        "-dNOPAUSE",
+        "-dQUIET",
+        "-dBATCH",
+        "-dDetectDuplicateImages=true",
+        "-dCompressFonts=true",
+        // Image quality override — preserva fotos + logos.
+        "-dDownsampleColorImages=true",
+        "-dColorImageDownsampleType=/Bicubic",
+        "-dColorImageResolution=200",
+        "-dDownsampleGrayImages=true",
+        "-dGrayImageDownsampleType=/Bicubic",
+        "-dGrayImageResolution=200",
+        "-dDownsampleMonoImages=true",
+        "-dMonoImageDownsampleType=/Subsample",
+        "-dMonoImageResolution=600",
+        "-dAutoFilterColorImages=false",
+        "-dAutoFilterGrayImages=false",
+        "-dColorImageFilter=/DCTEncode",
+        "-dGrayImageFilter=/DCTEncode",
+        "-dJPEGQ=85",
+        `-sOutputFile=${outputPath}`,
+        inputPath,
+      ];
+      const gs = spawn("gs", args);
+      let stderr = "";
+      gs.stderr.on("data", (d) => { stderr += d.toString(); });
+      gs.on("error", (err) => reject(new Error(`gs spawn failed: ${err.message}`)));
+      gs.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`gs exit ${code}: ${stderr.slice(0, 300)}`));
+      });
+    });
+
+    const compressed = fs.readFileSync(outputPath);
+    const dt = Date.now() - t0;
+    const ratio = ((1 - compressed.length / inputBuffer.length) * 100).toFixed(1);
+    console.log(`[pdf-compress ${label}] ${inputBuffer.length} → ${compressed.length} bytes (${ratio}% smaller, ${dt}ms)`);
+    return compressed;
+  } catch (err) {
+    console.warn(`[pdf-compress ${label}] failed — returning uncompressed: ${err.message}`);
+    return inputBuffer;
+  } finally {
+    try { require("fs").unlinkSync(inputPath); } catch { /* ignore */ }
+    try { require("fs").unlinkSync(outputPath); } catch { /* ignore */ }
+  }
+}
+
+// Allow the BC viewer page on chief.yuno.tools to fetch this endpoint via
+// XHR/fetch (used when the button shows a loading state). A plain navigation
+// download still works without these headers.
+function bcPdfCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", "https://chief.yuno.tools");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Vary", "Origin");
+}
+
+app.options("/api/bc/:slug/pdf", (req, res) => {
+  bcPdfCors(res);
+  res.sendStatus(204);
+});
+
+app.get("/api/bc/:slug/pdf", async (req, res) => {
+  bcPdfCors(res);
+  const t0 = Date.now();
+  const slug = String(req.params.slug || "").trim();
+  if (!slug || !/^[a-z0-9-]+$/i.test(slug)) {
+    return res.status(404).type("text/plain").send("Not found");
+  }
+  if (!BC_PRINT_SECRET) {
+    console.error("[bc-pdf] BC_PRINT_SECRET not set");
+    return res.status(500).type("text/plain").send("Server misconfigured");
+  }
+
+  // Validate slug exists, not archived, not expired (mirrors edge function checks).
+  let row;
+  try {
+    const url = `${SB_URL_GLOBAL}/rest/v1/presentations?slug=eq.${encodeURIComponent(slug)}&select=slug,client_name,expires_at,archived&limit=1`;
+    const rows = await sbFetchGlobal(url, { headers: sbHeadersGlobal() });
+    row = Array.isArray(rows) ? rows[0] : null;
+  } catch (e) {
+    console.error("[bc-pdf] db lookup failed", e);
+    return res.status(500).type("text/plain").send("Lookup error");
+  }
+  if (!row) return res.status(404).type("text/plain").send("Not found");
+  if (row.archived) return res.status(410).type("text/plain").send("Expired");
+  if (row.expires_at && new Date(row.expires_at) <= new Date()) {
+    return res.status(410).type("text/plain").send("Expired");
+  }
+
+  const token = bcPrintToken(slug);
+  const deckUrl = `${BC_PUBLIC_URL}/bc/${encodeURIComponent(slug)}?print=${token}`;
+  const filename = `${safeFilename(row.client_name)}-business-case.pdf`;
+
+  let page;
+  try {
+    const browser = await getBcBrowser();
+    page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 1 });
+    page.on("pageerror", (err) => console.warn(`[bc-pdf] pageerror slug=${slug} msg=${err.message}`));
+    await page.goto(deckUrl, { waitUntil: "networkidle0", timeout: 30000 });
+    await page.waitForFunction("window.__bcReady === true", { timeout: 30000 });
+    const pdfRaw = await page.pdf({
+      width: "1920px",
+      height: "1080px",
+      printBackground: true,
+      preferCSSPageSize: true,
+      margin: { top: 0, right: 0, bottom: 0, left: 0 },
+    });
+    // puppeteer-core v23 returns a Uint8Array; res.send() must get a real Buffer
+    // or it JSON-stringifies the typed array (which produced "ASCII text" PDFs).
+    const pdfRaw2 = Buffer.isBuffer(pdfRaw) ? pdfRaw : Buffer.from(pdfRaw);
+    const pdf = await compressPdfWithGhostscript(pdfRaw2, `bc:${slug}`);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "private, max-age=0, no-store");
+    res.end(pdf);
+    console.log(`[bc-pdf] ok slug=${slug} ms=${Date.now() - t0} bytes=${pdf.length}`);
+  } catch (e) {
+    console.error(`[bc-pdf] fail slug=${slug} ms=${Date.now() - t0} err=${e.message}`);
+    if (!res.headersSent) res.status(500).type("text/plain").send("PDF generation failed");
+  } finally {
+    if (page) { try { await page.close(); } catch { /* ignore */ } }
+  }
+});
+
+// ─── SDR BC PDF (parallel to /api/bc/:slug/pdf) ─────────────────────────────
+// Same Chromium-based render, different deck path. Loads
+// chief.yuno.tools/sdr-bc/<slug>?print=<HMAC> via the sdr-bc-render edge
+// function (which honours the same BC_PRINT_SECRET HMAC bypass), waits for
+// window.__bcReady, emits 1920×1080 PDF. Validates the row exists with
+// kind='sdr_bc' so this endpoint can't be used to render a non-SDR deck.
+function sdrBcPdfCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", "https://chief.yuno.tools");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Vary", "Origin");
+}
+
+app.options("/api/sdr-bc/:slug/pdf", (req, res) => {
+  sdrBcPdfCors(res);
+  res.sendStatus(204);
+});
+
+app.get("/api/sdr-bc/:slug/pdf", async (req, res) => {
+  sdrBcPdfCors(res);
+  const t0 = Date.now();
+  const slug = String(req.params.slug || "").trim();
+  if (!slug || !/^[a-z0-9-]+$/i.test(slug)) {
+    return res.status(404).type("text/plain").send("Not found");
+  }
+  if (!BC_PRINT_SECRET) {
+    console.error("[sdr-bc-pdf] BC_PRINT_SECRET not set");
+    return res.status(500).type("text/plain").send("Server misconfigured");
+  }
+
+  // Validate slug exists, kind is sdr_bc, not archived, not expired.
+  let row;
+  try {
+    const url = `${SB_URL_GLOBAL}/rest/v1/presentations?slug=eq.${encodeURIComponent(slug)}&kind=eq.sdr_bc&select=slug,client_name,expires_at,archived&limit=1`;
+    const rows = await sbFetchGlobal(url, { headers: sbHeadersGlobal() });
+    row = Array.isArray(rows) ? rows[0] : null;
+  } catch (e) {
+    console.error("[sdr-bc-pdf] db lookup failed", e);
+    return res.status(500).type("text/plain").send("Lookup error");
+  }
+  if (!row) return res.status(404).type("text/plain").send("Not found");
+  if (row.archived) return res.status(410).type("text/plain").send("Expired");
+  if (row.expires_at && new Date(row.expires_at) <= new Date()) {
+    return res.status(410).type("text/plain").send("Expired");
+  }
+
+  const token = bcPrintToken(slug);
+  const deckUrl = `${BC_PUBLIC_URL}/sdr-bc/${encodeURIComponent(slug)}?print=${token}`;
+  const filename = `${safeFilename(row.client_name)}-sdr-business-case.pdf`;
+
+  let page;
+  try {
+    const browser = await getBcBrowser();
+    page = await browser.newPage();
+    // V17b: smaller viewport so the PDF binary is small enough to fit in
+    // edge-function attachment payloads (~3-4MB target). 1280×720 keeps the
+    // 16:9 layout intact, just at lower pixel density.
+    await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
+    page.on("pageerror", (err) => console.warn(`[sdr-bc-pdf] pageerror slug=${slug} msg=${err.message}`));
+    await page.goto(deckUrl, { waitUntil: "networkidle0", timeout: 30000 });
+    await page.waitForFunction("window.__bcReady === true", { timeout: 30000 });
+    const pdfRaw = await page.pdf({
+      width: "1280px",
+      height: "720px",
+      printBackground: true,
+      preferCSSPageSize: true,
+      margin: { top: 0, right: 0, bottom: 0, left: 0 },
+    });
+    // puppeteer-core v23 returns a Uint8Array; res.send() must get a real Buffer
+    // or it JSON-stringifies the typed array (97MB ASCII garbage, broken PDF).
+    const pdfRaw2 = Buffer.isBuffer(pdfRaw) ? pdfRaw : Buffer.from(pdfRaw);
+    const pdf = await compressPdfWithGhostscript(pdfRaw2, `sdr-bc:${slug}`);
+
+    // V18: ?format=base64 returns JSON with pre-encoded body, used by
+    // chief-prepare-decks-for-company to cache on amc. Avoids the
+    // Supabase edge function having to fetch + encode at send time.
+    if (req.query.format === "base64") {
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "private, max-age=0, no-store");
+      res.end(JSON.stringify({
+        slug, kind: "sdr_bc", filename,
+        size_bytes: pdf.length,
+        pdf_b64: pdf.toString("base64"),
+      }));
+      console.log(`[sdr-bc-pdf b64] ok slug=${slug} ms=${Date.now() - t0} bytes=${pdf.length}`);
+      return;
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "private, max-age=0, no-store");
+    res.end(pdf);
+    console.log(`[sdr-bc-pdf] ok slug=${slug} ms=${Date.now() - t0} bytes=${pdf.length}`);
+  } catch (e) {
+    console.error(`[sdr-bc-pdf] fail slug=${slug} ms=${Date.now() - t0} err=${e.message}`);
+    if (!res.headersSent) res.status(500).type("text/plain").send("PDF generation failed");
+  } finally {
+    if (page) { try { await page.close(); } catch { /* ignore */ } }
+  }
+});
+
+// ─── Yuno One-Click PDF (parallel to /api/sdr-bc/:slug/pdf) ─────────────────
+// One-Click + Conciliación dual-product deck at /one-click/<slug>. Loads
+// chief.yuno.tools/one-click/<slug>?print=<HMAC> via the yuno-one-click-render
+// edge function (mismo BC_PRINT_SECRET HMAC bypass), espera window.__bcReady,
+// genera PDF 1280×720. Valida kind='yuno_one_click' para que no se use para
+// renderear otros tipos de deck.
+function yunoOcPdfCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", "https://chief.yuno.tools");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Vary", "Origin");
+}
+
+app.options("/api/one-click/:slug/pdf", (req, res) => {
+  yunoOcPdfCors(res);
+  res.sendStatus(204);
+});
+
+app.get("/api/one-click/:slug/pdf", async (req, res) => {
+  yunoOcPdfCors(res);
+  const t0 = Date.now();
+  const slug = String(req.params.slug || "").trim();
+  if (!slug || !/^[a-z0-9-]+$/i.test(slug)) {
+    return res.status(404).type("text/plain").send("Not found");
+  }
+  if (!BC_PRINT_SECRET) {
+    console.error("[one-click-pdf] BC_PRINT_SECRET not set");
+    return res.status(500).type("text/plain").send("Server misconfigured");
+  }
+
+  // Validate slug exists, kind is yuno_one_click, not archived, not expired.
+  let row;
+  try {
+    const url = `${SB_URL_GLOBAL}/rest/v1/presentations?slug=eq.${encodeURIComponent(slug)}&kind=eq.yuno_one_click&select=slug,client_name,expires_at,archived&limit=1`;
+    const rows = await sbFetchGlobal(url, { headers: sbHeadersGlobal() });
+    row = Array.isArray(rows) ? rows[0] : null;
+  } catch (e) {
+    console.error("[one-click-pdf] db lookup failed", e);
+    return res.status(500).type("text/plain").send("Lookup error");
+  }
+  if (!row) return res.status(404).type("text/plain").send("Not found");
+  if (row.archived) return res.status(410).type("text/plain").send("Expired");
+  if (row.expires_at && new Date(row.expires_at) <= new Date()) {
+    return res.status(410).type("text/plain").send("Expired");
+  }
+
+  const token = bcPrintToken(slug);
+  const deckUrl = `${BC_PUBLIC_URL}/one-click/${encodeURIComponent(slug)}?print=${token}`;
+  const filename = `Yuno-${safeFilename(row.client_name)}-OneClick.pdf`;
+
+  let page;
+  try {
+    const browser = await getBcBrowser();
+    page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
+    page.on("pageerror", (err) => console.warn(`[one-click-pdf] pageerror slug=${slug} msg=${err.message}`));
+    await page.goto(deckUrl, { waitUntil: "networkidle0", timeout: 30000 });
+    await page.waitForFunction("window.__bcReady === true", { timeout: 30000 });
+    const pdfRaw = await page.pdf({
+      width: "1280px",
+      height: "720px",
+      printBackground: true,
+      preferCSSPageSize: true,
+      margin: { top: 0, right: 0, bottom: 0, left: 0 },
+    });
+    const pdfRaw2 = Buffer.isBuffer(pdfRaw) ? pdfRaw : Buffer.from(pdfRaw);
+    const pdf = await compressPdfWithGhostscript(pdfRaw2, `one-click:${slug}`);
+
+    if (req.query.format === "base64") {
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "private, max-age=0, no-store");
+      res.end(JSON.stringify({
+        slug, kind: "yuno_one_click", filename,
+        size_bytes: pdf.length,
+        pdf_b64: pdf.toString("base64"),
+      }));
+      console.log(`[one-click-pdf b64] ok slug=${slug} ms=${Date.now() - t0} bytes=${pdf.length}`);
+      return;
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "private, max-age=0, no-store");
+    res.end(pdf);
+    console.log(`[one-click-pdf] ok slug=${slug} ms=${Date.now() - t0} bytes=${pdf.length}`);
+  } catch (e) {
+    console.error(`[one-click-pdf] fail slug=${slug} ms=${Date.now() - t0} err=${e.message}`);
+    if (!res.headersSent) res.status(500).type("text/plain").send("PDF generation failed");
+  } finally {
+    if (page) { try { await page.close(); } catch { /* ignore */ } }
+  }
+});
+
+// ─── SS Deck PDF (parallel to /api/bc/:slug/pdf) ────────────────────────────
+// Stripe Sessions style decks at /m/<slug>. Loads chief.yuno.tools/m/<slug>/pdf
+// (a separate React route that stacks 21 slides at native 1920×1080), waits
+// for window.__PDF_READY__, emits 1920×1080 PDF. No HMAC token needed —
+// the SS deck route is fully public (no email gate, unlike BC).
+function ssDeckPdfCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", "https://chief.yuno.tools");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Vary", "Origin");
+}
+
+app.options("/api/m/:slug/pdf", (req, res) => {
+  ssDeckPdfCors(res);
+  res.sendStatus(204);
+});
+
+app.get("/api/m/:slug/pdf", async (req, res) => {
+  ssDeckPdfCors(res);
+  const t0 = Date.now();
+  const slug = String(req.params.slug || "").trim();
+  if (!slug || !/^[a-z0-9-]+$/i.test(slug)) {
+    return res.status(404).type("text/plain").send("Not found");
+  }
+
+  // Validate slug exists in merchants_ss. No archived/expires_at checks —
+  // SS decks don't expire (yet) and aren't archived.
+  let row;
+  try {
+    const url = `${SB_URL_GLOBAL}/rest/v1/merchants_ss?slug=eq.${encodeURIComponent(slug)}&select=slug,name&limit=1`;
+    const rows = await sbFetchGlobal(url, { headers: sbHeadersGlobal() });
+    row = Array.isArray(rows) ? rows[0] : null;
+  } catch (e) {
+    console.error("[ss-deck-pdf] db lookup failed", e);
+    return res.status(500).type("text/plain").send("Lookup error");
+  }
+  if (!row) return res.status(404).type("text/plain").send("Not found");
+
+  const deckUrl = `${BC_PUBLIC_URL}/m/${encodeURIComponent(slug)}/pdf`;
+  // Filename branding: "Yuno-<Client>-deck.pdf" so it reads as a co-branded
+  // Yuno + Cliente asset when the merchant opens the download.
+  const filename = `Yuno-${safeFilename(row.name)}-deck.pdf`;
+
+  let page;
+  try {
+    const browser = await getBcBrowser();
+    page = await browser.newPage();
+    // V17b: smaller viewport for email-attachment-friendly PDF size
+    await page.setViewport({ width: 1280, height: 720, deviceScaleFactor: 1 });
+    page.on("pageerror", (err) => console.warn(`[ss-deck-pdf] pageerror slug=${slug} msg=${err.message}`));
+    await page.goto(deckUrl, { waitUntil: "networkidle0", timeout: 45000 });
+    await page.waitForFunction("window.__PDF_READY__ === true", { timeout: 30000 });
+    const pdfRaw = await page.pdf({
+      width: "1280px",
+      height: "720px",
+      printBackground: true,
+      preferCSSPageSize: true,
+      margin: { top: 0, right: 0, bottom: 0, left: 0 },
+    });
+    const pdfRaw2 = Buffer.isBuffer(pdfRaw) ? pdfRaw : Buffer.from(pdfRaw);
+    const pdf = await compressPdfWithGhostscript(pdfRaw2, `ss-deck:${slug}`);
+
+    // V18: ?format=base64 → JSON with pre-encoded PDF
+    if (req.query.format === "base64") {
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "private, max-age=0, no-store");
+      res.end(JSON.stringify({
+        slug, kind: "ss_deck", filename,
+        size_bytes: pdf.length,
+        pdf_b64: pdf.toString("base64"),
+      }));
+      console.log(`[ss-deck-pdf b64] ok slug=${slug} ms=${Date.now() - t0} bytes=${pdf.length}`);
+      return;
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "private, max-age=0, no-store");
+    res.end(pdf);
+    console.log(`[ss-deck-pdf] ok slug=${slug} ms=${Date.now() - t0} bytes=${pdf.length}`);
+  } catch (e) {
+    console.error(`[ss-deck-pdf] fail slug=${slug} ms=${Date.now() - t0} err=${e.message}`);
+    if (!res.headersSent) res.status(500).type("text/plain").send("PDF generation failed");
+  } finally {
+    if (page) { try { await page.close(); } catch { /* ignore */ } }
+  }
+});
+
+// ─── Yape Deck PDF (one-shot static deck) ───────────────────────────────────
+// Static deck served at chief.yuno.tools/yape (no slug, no DB row, no email
+// gate). Loads the deck URL in Puppeteer, waits for window.__bcReady,
+// emits a 1920×1080 PDF compressed via Ghostscript. Same render pipeline as
+// /api/bc/:slug/pdf, just stripped of slug + HMAC since the deck is public.
+function yapePdfCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", "https://chief.yuno.tools");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Vary", "Origin");
+}
+
+app.options("/api/yape/pdf", (req, res) => {
+  yapePdfCors(res);
+  res.sendStatus(204);
+});
+
+app.get("/api/yape/pdf", async (req, res) => {
+  yapePdfCors(res);
+  const t0 = Date.now();
+  const deckUrl = `${BC_PUBLIC_URL}/yape?print=1`;
+  const filename = "Yuno-Yape-business-case.pdf";
+
+  let page;
+  try {
+    const browser = await getBcBrowser();
+    page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 1 });
+    page.on("pageerror", (err) => console.warn(`[yape-pdf] pageerror msg=${err.message}`));
+    await page.goto(deckUrl, { waitUntil: "networkidle0", timeout: 45000 });
+    await page.waitForFunction("window.__bcReady === true", { timeout: 30000 });
+    const pdfRaw = await page.pdf({
+      width: "1920px",
+      height: "1080px",
+      printBackground: true,
+      preferCSSPageSize: true,
+      margin: { top: 0, right: 0, bottom: 0, left: 0 },
+    });
+    const pdfRaw2 = Buffer.isBuffer(pdfRaw) ? pdfRaw : Buffer.from(pdfRaw);
+    const pdf = await compressPdfWithGhostscript(pdfRaw2, "yape");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "private, max-age=0, no-store");
+    res.end(pdf);
+    console.log(`[yape-pdf] ok ms=${Date.now() - t0} bytes=${pdf.length}`);
+  } catch (e) {
+    console.error(`[yape-pdf] fail ms=${Date.now() - t0} err=${e.message}`);
+    if (!res.headersSent) res.status(500).type("text/plain").send("PDF generation failed");
+  } finally {
+    if (page) { try { await page.close(); } catch { /* ignore */ } }
+  }
+});
+
+// ──────────────────────────────────────────────────────────
+// Workshop BC PDF endpoint — same pattern as /api/m/:slug/pdf
+// but reads from workshops_bc. Public deck (no email gate),
+// renders /workshop/<slug>/pdf, captures via Puppeteer.
+// ──────────────────────────────────────────────────────────
+function workshopPdfCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", "https://chief.yuno.tools");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Vary", "Origin");
+}
+
+app.options("/api/workshop/:slug/pdf", (req, res) => {
+  workshopPdfCors(res);
+  res.sendStatus(204);
+});
+
+app.get("/api/workshop/:slug/pdf", async (req, res) => {
+  workshopPdfCors(res);
+  const t0 = Date.now();
+  const slug = String(req.params.slug || "").trim();
+  if (!slug || !/^[a-z0-9-]+$/i.test(slug)) {
+    return res.status(404).type("text/plain").send("Not found");
+  }
+
+  let row;
+  try {
+    const url = `${SB_URL_GLOBAL}/rest/v1/workshops_bc?slug=eq.${encodeURIComponent(slug)}&select=slug,client_name&limit=1`;
+    const rows = await sbFetchGlobal(url, { headers: sbHeadersGlobal() });
+    row = Array.isArray(rows) ? rows[0] : null;
+  } catch (e) {
+    console.error("[workshop-pdf] db lookup failed", e);
+    return res.status(500).type("text/plain").send("Lookup error");
+  }
+  if (!row) return res.status(404).type("text/plain").send("Not found");
+
+  const deckUrl = `${BC_PUBLIC_URL}/workshop/${encodeURIComponent(slug)}/pdf`;
+  const filename = `Yuno-${safeFilename(row.client_name)}-workshop.pdf`;
+
+  let page;
+  try {
+    const browser = await getBcBrowser();
+    page = await browser.newPage();
+    // Slides son nativas 1920×1080 — viewport debe matchear para que el
+    // PDF capture full-res (renderizar a 1280×720 y luego dejar que el
+    // PDF re-scale destruye logos + texto pequeño). deviceScaleFactor 2
+    // duplica el DPI para que assets bitmap salgan crisp en pantallas
+    // retina sin inflar demasiado el tamaño del PDF (ghostscript después
+    // comprime). Mismo patrón que /api/bc/:slug/pdf.
+    await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 2 });
+    page.on("pageerror", (err) => console.warn(`[workshop-pdf] pageerror slug=${slug} msg=${err.message}`));
+    await page.goto(deckUrl, { waitUntil: "networkidle0", timeout: 45000 });
+    await page.waitForFunction("window.__PDF_READY__ === true", { timeout: 30000 });
+    const pdfRaw = await page.pdf({
+      width: "1920px",
+      height: "1080px",
+      printBackground: true,
+      preferCSSPageSize: true,
+      margin: { top: 0, right: 0, bottom: 0, left: 0 },
+    });
+    const pdfRaw2 = Buffer.isBuffer(pdfRaw) ? pdfRaw : Buffer.from(pdfRaw);
+    const pdf = await compressPdfWithGhostscript(pdfRaw2, `workshop:${slug}`);
+
+    if (req.query.format === "base64") {
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "private, max-age=0, no-store");
+      res.end(JSON.stringify({
+        slug, kind: "workshop_bc", filename,
+        size_bytes: pdf.length,
+        pdf_b64: pdf.toString("base64"),
+      }));
+      console.log(`[workshop-pdf b64] ok slug=${slug} ms=${Date.now() - t0} bytes=${pdf.length}`);
+      return;
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "private, max-age=0, no-store");
+    res.end(pdf);
+    console.log(`[workshop-pdf] ok slug=${slug} ms=${Date.now() - t0} bytes=${pdf.length}`);
+  } catch (e) {
+    console.error(`[workshop-pdf] fail slug=${slug} ms=${Date.now() - t0} err=${e.message}`);
+    if (!res.headersSent) res.status(500).type("text/plain").send("PDF generation failed");
+  } finally {
+    if (page) { try { await page.close(); } catch { /* ignore */ } }
+  }
+});
+
+// ─── Pricing mini-deck PDF — same pattern as workshop PDF ───────────────────
+// Renders the 7-slide pricing deck from /pricing/<slug>/pdf via Puppeteer.
+// Public deck (no email gate), reads from workshops_bc (same row as workshop).
+function pricingPdfCors(res) {
+  res.setHeader("Access-Control-Allow-Origin", "https://chief.yuno.tools");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Vary", "Origin");
+}
+
+app.options("/api/pricing/:slug/pdf", (req, res) => {
+  pricingPdfCors(res);
+  res.sendStatus(204);
+});
+
+app.get("/api/pricing/:slug/pdf", async (req, res) => {
+  pricingPdfCors(res);
+  const t0 = Date.now();
+  const slug = String(req.params.slug || "").trim();
+  if (!slug || !/^[a-z0-9-]+$/i.test(slug)) {
+    return res.status(404).type("text/plain").send("Not found");
+  }
+
+  let row;
+  try {
+    const url = `${SB_URL_GLOBAL}/rest/v1/workshops_bc?slug=eq.${encodeURIComponent(slug)}&select=slug,client_name&limit=1`;
+    const rows = await sbFetchGlobal(url, { headers: sbHeadersGlobal() });
+    row = Array.isArray(rows) ? rows[0] : null;
+  } catch (e) {
+    console.error("[pricing-pdf] db lookup failed", e);
+    return res.status(500).type("text/plain").send("Lookup error");
+  }
+  if (!row) return res.status(404).type("text/plain").send("Not found");
+
+  const deckUrl = `${BC_PUBLIC_URL}/pricing/${encodeURIComponent(slug)}/pdf`;
+  const filename = `Yuno-${safeFilename(row.client_name)}-pricing.pdf`;
+
+  let page;
+  try {
+    const browser = await getBcBrowser();
+    page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 2 });
+    page.on("pageerror", (err) => console.warn(`[pricing-pdf] pageerror slug=${slug} msg=${err.message}`));
+    await page.goto(deckUrl, { waitUntil: "networkidle0", timeout: 45000 });
+    await page.waitForFunction("window.__PDF_READY__ === true", { timeout: 30000 });
+    const pdfRaw = await page.pdf({
+      width: "1920px",
+      height: "1080px",
+      printBackground: true,
+      preferCSSPageSize: true,
+      margin: { top: 0, right: 0, bottom: 0, left: 0 },
+    });
+    const pdfRaw2 = Buffer.isBuffer(pdfRaw) ? pdfRaw : Buffer.from(pdfRaw);
+    const pdf = await compressPdfWithGhostscript(pdfRaw2, `pricing:${slug}`);
+
+    if (req.query.format === "base64") {
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Cache-Control", "private, max-age=0, no-store");
+      res.end(JSON.stringify({
+        slug, kind: "pricing", filename,
+        size_bytes: pdf.length,
+        pdf_b64: pdf.toString("base64"),
+      }));
+      console.log(`[pricing-pdf b64] ok slug=${slug} ms=${Date.now() - t0} bytes=${pdf.length}`);
+      return;
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "private, max-age=0, no-store");
+    res.end(pdf);
+    console.log(`[pricing-pdf] ok slug=${slug} ms=${Date.now() - t0} bytes=${pdf.length}`);
+  } catch (e) {
+    console.error(`[pricing-pdf] fail slug=${slug} ms=${Date.now() - t0} err=${e.message}`);
+    if (!res.headersSent) res.status(500).type("text/plain").send("PDF generation failed");
+  } finally {
+    if (page) { try { await page.close(); } catch { /* ignore */ } }
+  }
+});
+
 app.get("/api/whatsapp/incoming", (_req, res) => {
   res.json({ status: "ok", message: "Twilio WhatsApp webhook. Expects POST." });
+});
+
+// ──────────────────────────────────────────────────────────
+// QA notification endpoint — used by process-queue to send
+// "hold_for_review" prompts to the cadence owner via WhatsApp.
+// ──────────────────────────────────────────────────────────
+app.post("/api/whatsapp/notify", express.json({ limit: "100kb" }), async (req, res) => {
+  try {
+    const { to, body, org_id } = req.body || {};
+    if (!to || !body) {
+      return res.status(400).json({ error: "to and body are required" });
+    }
+
+    // Normalize destination to whatsapp:+E.164
+    const dest = to.startsWith("whatsapp:") ? to : `whatsapp:${to.startsWith("+") ? to : "+" + to}`;
+    const truncated = body.length > 1500 ? body.substring(0, 1497) + "..." : body;
+
+    // Try freeform first (cheaper, works within 24h customer-service window)
+    try {
+      const result = await twilioClient.messages.create({
+        from: TWILIO_WHATSAPP_NUMBER,
+        to: dest,
+        body: truncated,
+      });
+      console.log(`[notify] freeform sent to ${dest} (sid=${result.sid}, org=${org_id || "unknown"})`);
+      return res.json({ success: true, sid: result.sid, to: dest, delivery_mode: "freeform" });
+    } catch (freeformErr) {
+      // Code 63016 = "Failed to send freeform message because you are outside
+      // the allowed window." This is Meta's 24h customer-service rule. Fall back
+      // to an approved template send if one is configured.
+      const isWindowError = freeformErr?.code === 63016 || /63016/.test(freeformErr?.message || "");
+      const templateSid = process.env.TWILIO_FALLBACK_TEMPLATE_SID;
+      if (!isWindowError || !templateSid) {
+        throw freeformErr;
+      }
+
+      // Template body uses {{1}} for the message. Meta limits body variables to
+      // ~1024 chars; truncate further if needed.
+      const templateBody = truncated.length > 900 ? truncated.substring(0, 897) + "..." : truncated;
+      const templateResult = await twilioClient.messages.create({
+        from: TWILIO_WHATSAPP_NUMBER,
+        to: dest,
+        contentSid: templateSid,
+        contentVariables: JSON.stringify({ "1": templateBody }),
+      });
+      console.log(`[notify] fallback template ${templateSid} sent to ${dest} (sid=${templateResult.sid}, org=${org_id || "unknown"}) — freeform window was closed`);
+      return res.json({
+        success: true,
+        sid: templateResult.sid,
+        to: dest,
+        delivery_mode: "template",
+        template_sid: templateSid,
+        freeform_error_code: freeformErr.code,
+      });
+    }
+  } catch (err) {
+    console.error("[notify] Failed:", err.message);
+    return res.status(500).json({ error: err.message, code: err.code || null });
+  }
 });
 
 app.post("/api/whatsapp/status", (req, res) => {
@@ -1249,160 +2502,147 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
   res.type("text/xml").send(twiml.toString());
 
   try {
-    // --- GATEWAY: Check if human is replying to an agent (no LLM needed) ---
+    // ============================================================
+    // GATEWAY: 3-branch fast-path routing (no LLM)
+    //
+    //   1. Mensaje nombra a un agente del org    →  CREATE NEW TASK on that agent
+    //   2. No nombra agente + hay hilo activo    →  INJECT REPLY into scratchpad
+    //   3. No nombra agente + no hay hilo activo →  fall through to Chief (SDK)
+    //
+    // Rule: nombrar a un agente == directiva nueva. Replies son sin nombre.
+    // ============================================================
     if (SB_KEY) {
       try {
-        // Check conversation_control: is an agent waiting for a reply?
-        const ctrlRes = await fetch(`${SB_URL}/rest/v1/conversation_control?whatsapp_number=eq.${WaId || From.replace('whatsapp:+', '')}&select=active_agent_id,active_message_id`, {
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
-        });
-        const ctrl = await ctrlRes.json();
-        const activeCtrl = Array.isArray(ctrl) && ctrl[0] ? ctrl[0] : null;
+        const sessionKey = WaId || From.replace("whatsapp:+", "");
 
-        // Also check @agent mentions for explicit routing
-        const mentionMatch = Body.match(/^@(\w+)\s/);
+        // Resolve org_id once — needed for the agent list AND most downstream lookups.
+        let gwOrgId = null;
+        try {
+          const sessRows = await fetch(`${SB_URL}/rest/v1/chief_sessions?whatsapp_number=eq.${sessionKey}&select=org_id&limit=1`, {
+            headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+          }).then(r => r.json());
+          if (Array.isArray(sessRows) && sessRows[0]) gwOrgId = sessRows[0].org_id;
+        } catch {}
 
-        if (activeCtrl?.active_agent_id || mentionMatch) {
-          let targetAgentId = activeCtrl?.active_agent_id;
-          let targetName = null;
-
-          // @mention overrides conversation_control
-          if (mentionMatch) {
-            const agRes = await fetch(`${SB_URL}/rest/v1/agents?name=ilike.*${mentionMatch[1]}*&status=neq.destroyed&select=id,name&limit=1`, {
-              headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
-            });
-            const ags = await agRes.json();
-            if (Array.isArray(ags) && ags[0]) {
-              targetAgentId = ags[0].id;
-              targetName = ags[0].name;
-            }
-          }
-
-          if (targetAgentId) {
-            // Route reply directly to agent's inbox (no LLM!)
-            const replyText = mentionMatch ? Body.replace(mentionMatch[0], '').trim() : Body;
-
-            // Resolve org_id: from conversation_control, or from the agent record
-            let routeOrgId = (Array.isArray(ctrl) && ctrl[0]) ? ctrl[0].org_id : null;
-            if (!routeOrgId) {
-              const orgRes = await fetch(`${SB_URL}/rest/v1/agents?id=eq.${targetAgentId}&select=org_id`, {
-                headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
-              });
-              const orgData = await orgRes.json();
-              routeOrgId = Array.isArray(orgData) && orgData[0] ? orgData[0].org_id : null;
-            }
-
-            if (!routeOrgId) {
-              console.error("[gateway] Cannot route: no org_id found for agent", targetAgentId);
-            }
-
-            // Write to agent_messages as human reply
-            await fetch(`${SB_URL}/rest/v1/agent_messages`, {
+        // ══════════════════════════════════════════════════════════
+        // BRANCH 0: QA review reply (1/2/3 against pending_whatsapp_actions)
+        // Highest priority — runs before agent mention or active thread
+        // ══════════════════════════════════════════════════════════
+        const trimmedBody = (Body || "").trim();
+        if (/^[123]$/.test(trimmedBody) && SB_URL && SB_KEY) {
+          try {
+            const pendingRes = await fetch(`${SB_URL}/rest/v1/rpc/get_latest_pending_qa_action`, {
               method: "POST",
-              headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
-              body: JSON.stringify({
-                org_id: routeOrgId,
-                to_agent_id: targetAgentId,
-                role: "user",
-                content: replyText,
-                metadata: { source: "whatsapp_reply", from_human: true },
-              }),
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${SB_KEY}`,
+                apikey: SB_KEY,
+              },
+              body: JSON.stringify({ p_user_phone: sessionKey }),
             });
+            const pendingRows = await pendingRes.json();
+            const pending = Array.isArray(pendingRows) && pendingRows.length > 0 ? pendingRows[0] : null;
 
-            // Update outbound message as replied
-            if (activeCtrl?.active_message_id) {
-              await fetch(`${SB_URL}/rest/v1/outbound_human_messages?id=eq.${activeCtrl.active_message_id}`, {
-                method: "PATCH",
-                headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
-                body: JSON.stringify({ status: "replied", reply: replyText, replied_at: new Date().toISOString() }),
+            if (pending && pending.action_type === "qa_review") {
+              const decisionMap = { "1": "approve", "2": "reject", "3": "regenerate" };
+              const decision = decisionMap[trimmedBody];
+              console.log(`[fastpath:qa_review] Resolving ${decision} for review ${pending.target_id.substring(0, 8)} from phone ${sessionKey}`);
+
+              const approveRes = await fetch(`${SB_URL}/functions/v1/chief-approve-message`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${SB_KEY}`,
+                },
+                body: JSON.stringify({
+                  review_id: pending.target_id,
+                  decision,
+                  ownerId: "76403628-d906-45e1-b673-c4231264da5c",
+                  orgId: pending.org_id,
+                }),
               });
+
+              const approveJson = await approveRes.json().catch(() => ({}));
+              const emoji = decision === "approve" ? "✅" : decision === "reject" ? "❌" : "🔄";
+              const respMsg = approveJson.success
+                ? `${emoji} ${approveJson.message || "Decision processed"}`
+                : `⚠️ ${approveJson.error || approveJson.message || "Failed to process"}`;
+
+              await twilioClient.messages.create({
+                from: TWILIO_WHATSAPP_NUMBER,
+                to: From,
+                body: respMsg,
+              });
+              return;
             }
-
-            // Inject reply into the agent's active task scratchpad (conversation continuity)
-            try {
-              const taskRes = await fetch(`${SB_URL}/rest/v1/agent_tasks_v2?assigned_agent_id=eq.${targetAgentId}&status=in.(claimed,in_progress)&order=created_at.desc&limit=1&select=id,context_summary`, {
-                headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
-              });
-              const tasks = await taskRes.json();
-              if (Array.isArray(tasks) && tasks[0]) {
-                // Active task exists → inject reply into scratchpad
-                let pad;
-                try { pad = JSON.parse(tasks[0].context_summary || '{}'); } catch { pad = {}; }
-                if (!pad.conversation) pad.conversation = [];
-                pad.conversation.push({ role: 'user', ts: new Date().toISOString(), content: replyText.substring(0, 1000) });
-                pad.last_action = 'user_replied';
-                pad.version = pad.version || 1;
-                await fetch(`${SB_URL}/rest/v1/agent_tasks_v2?id=eq.${tasks[0].id}`, {
-                  method: "PATCH",
-                  headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
-                  body: JSON.stringify({ context_summary: JSON.stringify(pad) }),
-                });
-                console.log(`[scratchpad] Injected user reply into task ${tasks[0].id} for agent ${targetAgentId.substring(0, 8)}`);
-              } else {
-                // NO active task → REOPEN the most recent done task (preserves full conversation)
-                // This is the key fix: instead of creating a new task (losing all context),
-                // we reopen the previous task so the agent sees the full conversation history.
-                const recentRes = await fetch(`${SB_URL}/rest/v1/agent_tasks_v2?assigned_agent_id=eq.${targetAgentId}&status=eq.done&order=updated_at.desc&limit=1&select=id,context_summary,description`, {
-                  headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
-                });
-                const recentTasks = await recentRes.json();
-
-                if (Array.isArray(recentTasks) && recentTasks[0]) {
-                  // Reopen the last task — inject reply into its existing scratchpad
-                  const lastTask = recentTasks[0];
-                  let pad;
-                  try { pad = JSON.parse(lastTask.context_summary || '{}'); } catch { pad = {}; }
-                  if (!pad.conversation) pad.conversation = [];
-                  pad.conversation.push({ role: 'user', ts: new Date().toISOString(), content: replyText.substring(0, 2000) });
-                  pad.last_action = 'user_replied';
-                  pad.version = (pad.version || 0) + 1;
-
-                  await fetch(`${SB_URL}/rest/v1/agent_tasks_v2?id=eq.${lastTask.id}`, {
-                    method: "PATCH",
-                    headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
-                    body: JSON.stringify({
-                      status: "in_progress",
-                      completed_at: null,
-                      context_summary: JSON.stringify(pad),
-                      result: null,
-                    }),
-                  });
-                  console.log(`[conversation_control] REOPENED task ${lastTask.id.substring(0, 8)} with user reply — full conversation preserved`);
-                } else {
-                  // No recent task at all — log warning (this shouldn't happen with conversation_control active)
-                  console.warn(`[conversation_control] No recent task found for agent ${targetAgentId.substring(0, 8)} — reply stored in agent_messages only`);
-                }
-              }
-            } catch (e) { console.warn("[scratchpad] Failed to inject reply:", e.message); }
-
-            // DON'T clear conversation_control — extend timeout so follow-ups route to same agent
-            await fetch(`${SB_URL}/rest/v1/conversation_control?whatsapp_number=eq.${WaId || From.replace('whatsapp:+', '')}`, {
-              method: "PATCH",
-              headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
-              body: JSON.stringify({ expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(), updated_at: new Date().toISOString() }),
-            });
-
-            // Get agent name for confirmation
-            if (!targetName) {
-              const nRes = await fetch(`${SB_URL}/rest/v1/agents?id=eq.${targetAgentId}&select=name`, {
-                headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
-              });
-              const ns = await nRes.json();
-              targetName = Array.isArray(ns) && ns[0] ? ns[0].name : "Agent";
-            }
-
-            // Confirm to human (no LLM)
-            await twilioClient.messages.create({
-              from: TWILIO_WHATSAPP_NUMBER, to: From,
-              body: `✅ Reply sent to ${targetName}.`,
-            });
-            console.log(`[gateway] Routed human reply to ${targetName} (${targetAgentId.substring(0, 8)}) — no LLM`);
-            return;
+          } catch (err) {
+            console.error(`[fastpath:qa_review] Error resolving QA reply: ${err.message}`);
+            // Fall through to other branches
           }
         }
+
+        if (gwOrgId) {
+          // ── BRANCH 1: explicit agent mention → new task ─────────────────
+          let orgAgents = [];
+          try {
+            orgAgents = await fetch(`${SB_URL}/rest/v1/agents?org_id=eq.${gwOrgId}&status=neq.destroyed&select=id,name`, {
+              headers: { Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+            }).then(r => r.json());
+            if (!Array.isArray(orgAgents)) orgAgents = [];
+          } catch {}
+          const mention = detectAgentMention(Body, orgAgents);
+
+          if (mention) {
+            console.log(`[fastpath:new_task] Detected mention of "${mention.agentName}" (pattern=${mention.pattern})`);
+            const result = await createDirectTask({
+              targetAgentId: mention.agentId,
+              instruction: Body,
+              orgId: gwOrgId,
+              From, WaId,
+              sbUrl: SB_URL, sbKey: SB_KEY,
+            });
+            if (result.success) {
+              await twilioClient.messages.create({
+                from: TWILIO_WHATSAPP_NUMBER, to: From,
+                body: `✅ Tarea enviada a ${mention.agentName}.`,
+              });
+              console.log(`[fastpath:new_task] Created task ${result.taskId.substring(0, 8)} for ${mention.agentName}`);
+              return;
+            }
+            console.error(`[fastpath:new_task] Failed: ${result.error} — falling through to Chief`);
+            // fall through to Chief on failure
+          } else {
+            // ── BRANCH 2: no mention + active conversation_control → reply ──
+            const ctrlRes = await fetch(`${SB_URL}/rest/v1/conversation_control?whatsapp_number=eq.${sessionKey}&expires_at=gt.${new Date().toISOString()}&select=active_agent_id,active_message_id,org_id`, {
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${SB_KEY}`, apikey: SB_KEY },
+            });
+            const ctrl = await ctrlRes.json();
+            const activeCtrl = Array.isArray(ctrl) && ctrl[0] ? ctrl[0] : null;
+
+            if (activeCtrl?.active_agent_id) {
+              console.log(`[fastpath:reply] Routing reply to agent ${activeCtrl.active_agent_id.substring(0, 8)}`);
+              const result = await injectReplyToActiveThread({
+                targetAgentId: activeCtrl.active_agent_id,
+                replyText: Body,
+                ctrl,
+                From, WaId,
+                sbUrl: SB_URL, sbKey: SB_KEY,
+              });
+              if (result.success) {
+                await twilioClient.messages.create({
+                  from: TWILIO_WHATSAPP_NUMBER, to: From,
+                  body: `✅ Reply sent to ${result.agentName}.`,
+                });
+                return;
+              }
+              // fall through to Chief on failure
+            }
+          }
+        }
+        // BRANCH 3: no org / no mention / no active thread → fall through to Chief below
       } catch (gwErr) {
-        console.error("[gateway] Conversation routing error:", gwErr.message);
-        // Fall through to Chief if routing fails
+        console.error("[gateway] Routing error:", gwErr.message);
+        // Fall through to Chief
       }
     }
 
@@ -1437,8 +2677,21 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
       } catch {}
 
       if (!sdkOrgId) {
-        // No session — ONLY case where we fall through to legacy (onboarding)
-        console.log(`[whatsapp] No org_id for ${sessionKey}, falling to legacy for onboarding`);
+        // ── Self-service onboarding: any unknown number can claim a chief_sessions
+        // row by replying with their @y.uno / @yuno.co email. The pending state
+        // (waiting for email) lives in chief_pending_onboarding with a 30-min TTL.
+        const onboarded = await handleOnboarding({ sessionKey, From, Body, twilioClient, TWILIO_WHATSAPP_NUMBER });
+        if (onboarded?.orgId) {
+          // Email validated → chief_sessions row created. Don't continue routing
+          // for THIS message (it was the email itself). The user's next message
+          // will route normally to /execute-chief.
+          return;
+        }
+        if (onboarded?.handled) {
+          // Onboarding step handled (asked for email or rejected) — no further routing.
+          return;
+        }
+        console.log(`[whatsapp] No org_id for ${sessionKey} and onboarding skipped (likely error)`);
       } else {
         // Send thinking message after 5s
         const thinkingTimer = setTimeout(async () => {
@@ -1585,13 +2838,60 @@ app.post("/api/whatsapp/incoming", validateTwilioSignature, async (req, res) => 
 // Start HTTP server
 // ---------------------------------------------------------------------------
 const PORT = parseInt(BRIDGE_PORT, 10);
-app.listen(PORT, () => {
+const httpServer = app.listen(PORT, () => {
   console.log(`Twilio <-> OpenClaw bridge v2 on port ${PORT}`);
   console.log(`  Webhook: POST /api/whatsapp/incoming`);
+  console.log(`  Chat:    /api/chat/* (allowed origins: ${ALLOWED_CHAT_ORIGINS.join(", ") || "<none>"})`);
   console.log(`  Gateway: ${OPENCLAW_GATEWAY_URL}`);
   console.log(`  Session: ${OPENCLAW_SESSION_KEY}`);
   console.log(`  Gateway Worker: polling outbound_human_messages every 10s`);
 });
+
+// ---------------------------------------------------------------------------
+// Graceful shutdown — Railway sends SIGTERM with grace controlled by
+// RAILWAY_DEPLOYMENT_DRAINING_SECONDS. Without this, every redeploy cuts
+// in-flight chat SSE streams (and PDF/contract long-runs) mid-flight. We
+// flush a `turn_paused` event so chat clients reconnect via Last-Event-ID.
+// ---------------------------------------------------------------------------
+const DRAIN_DEADLINE_MS = Number(process.env.DRAIN_DEADLINE_MS || 12_000);
+let _draining = false;
+async function gracefulShutdown(sig) {
+  if (_draining) return;
+  _draining = true;
+  const turns = listChatTurns();
+  console.log(`[bridge] ${sig} received — draining (live chat turns: ${turns.length})`);
+
+  httpServer.close(() => console.log("[bridge] http server closed"));
+
+  // Notify subscribers of in-flight turns so the browser can resume cleanly.
+  const drains = turns.map(async (t) => {
+    try {
+      const evtId = require("node:crypto").randomUUID();
+      t.emitter.emit("event", {
+        id: evtId,
+        type: "turn_paused",
+        data: { type: "turn_paused", turnId: t.ctx.turnId, reason: "sigterm", ts: new Date().toISOString() },
+        createdAt: new Date().toISOString(),
+      });
+      t.abort("sigterm");
+    } catch (err) {
+      console.error("[bridge] turn drain failed", t.ctx && t.ctx.turnId, err && err.message);
+    }
+  });
+  const deadline = new Promise((resolve) => setTimeout(() => {
+    console.warn(`[bridge] drain deadline reached (remaining=${listChatTurns().length})`);
+    resolve();
+  }, DRAIN_DEADLINE_MS));
+
+  await Promise.race([Promise.all(drains), deadline]);
+  console.log("[bridge] drain complete, exiting");
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+process.on("unhandledRejection", (reason) => console.error("[bridge] unhandledRejection", reason));
+process.on("uncaughtException", (err) => { console.error("[bridge] uncaughtException", err); process.exit(1); });
 
 // =============================================================================
 // MESSAGE FORMATTER — Translates + formats agent messages via Haiku (~$0.001/msg)

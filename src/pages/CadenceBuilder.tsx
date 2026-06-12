@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useCadence } from '@/contexts/CadenceContext'
@@ -87,6 +87,7 @@ import { CreateLeadDialog } from '@/components/CreateLeadDialog'
 import { ImportLeadsDialog } from '@/components/ImportLeadsDialog'
 import { StartAutomationDialog } from '@/components/StartAutomationDialog'
 import { FeatureGate } from '@/components/FeatureGate'
+import { CadenceFlowTimeline } from '@/components/cadences/CadenceFlowTimeline'
 
 // Variable buttons for message templates
 const VARIABLES = [
@@ -119,6 +120,16 @@ const STEP_ICONS: Record<StepType, React.ComponentType<{ className?: string }>> 
 export function CadenceBuilder() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = searchParams.get('tab') ?? 'steps'
+  const setActiveTab = (next: string) => {
+    setSearchParams((prev) => {
+      const params = new URLSearchParams(prev)
+      if (next === 'steps') params.delete('tab')
+      else params.set('tab', next)
+      return params
+    })
+  }
   const { user } = useAuth()
   const { orgId } = useOrg()
   const {
@@ -975,7 +986,7 @@ export function CadenceBuilder() {
         </div>
       </div>
 
-      <Tabs defaultValue="steps" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList>
           <TabsTrigger value="steps">Steps</TabsTrigger>
           <TabsTrigger value="leads">
@@ -988,6 +999,10 @@ export function CadenceBuilder() {
           <TabsTrigger value="queue">
             <Clock className="h-4 w-4 mr-1" />
             Queue ({schedules.length})
+          </TabsTrigger>
+          <TabsTrigger value="flow">
+            <Zap className="h-4 w-4 mr-1" />
+            Flow
           </TabsTrigger>
         </TabsList>
 
@@ -1786,6 +1801,11 @@ export function CadenceBuilder() {
         {/* Companies tab */}
         <TabsContent value="companies">
           <CompaniesTab leads={cadenceLeads} />
+        </TabsContent>
+
+        {/* Flow tab — read-only timeline view */}
+        <TabsContent value="flow">
+          {id && <CadenceFlowTimeline cadenceId={id} />}
         </TabsContent>
       </Tabs>
 

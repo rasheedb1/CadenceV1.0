@@ -1,179 +1,102 @@
-# Plan: Migración de Chief al Claude Agent SDK
+# BCI Seguros workshop — slide 17 (MDR débito), slide 21 (min flat 100K), quitar slide 22
 
-## Contexto
-Chief (el orquestador) hoy corre en el bridge como un loop manual de `anthropic.messages.create()`. Esto causa:
-- Tareas fantasma (re-procesa contexto viejo)
-- Sin memoria de sesión entre mensajes
-- Historia manual con hacks de limpieza
-- 25+ tools inline en server.js (~4000 LOC)
+**Fecha:** 2026-06-10 · **Slug:** `bci-seguros-249fwn` (update in-place, URL no cambia)
 
-Los otros agentes (Paula, Nando) ya usan Claude Agent SDK con sessions, y no tienen estos problemas.
+## Round 4 (mismo día) — logo BCI Seguros en cover · COMPLETADO
 
-## Arquitectura Objetivo
+- [x] SVG oficial de bciseguros.cl (fondo ya transparente, mariposa 4 colores + wordmark) → `public/workshop-assets/bci-seguros-logo.svg`
+- [x] Variante texto blanco para fondos oscuros (cover gradient + section dividers): `bci-seguros-logo-white.svg` (9 fills black→#FFFFFF, mariposa intacta)
+- [x] Deploy del asset ANTES del update de DB (patrón map-pins) · `client_logo: /workshop-assets/bci-seguros-logo-white.svg` vía workshops-bc-update
+- [x] Verificado visualmente: PDF pág 1 rasterizada (sips + PIL crop) — co-brand "yuno × Bci Seguros" limpio, BC intacto (ROI 4.8)
 
-```
-WhatsApp → Bridge (webhook + pre-routing) → /execute en chief-agents → Chief Agent (SDK) → Bridge → WhatsApp
-```
+## Round 3 (mismo día) — approval +1.5pp, recon $5K/mes, sin slide 20, slide 14 mono-vertical
+### COMPLETADO (commits `912bb0a` + `7e9824d`) — verificado en PDF live (28 slides + blank)
 
-El bridge se queda como:
-1. Webhook handler de Twilio/WhatsApp
-2. Pre-processing (buffer 8s, detectar @agente)
-3. Session resolver (chief_sessions → org_id, user context)
-4. Router al SDK (POST /execute con session_id)
-5. Respuesta a WhatsApp
+1. [x] **Approval 86% → 87.5%** (+1.5pp): slide 16 "De 86.0% a 87.5%", overview "+1.5pp", recap "+$408K · +27,209 tx" ✓
+2. [x] **Slide 18: conciliación $5K/mes** — card "$60K · $5,000/mes", total año 1 **$293K**, fórmula `6 × $38,880 + $5,000 × 12` ✓; el recap volvió a mostrar el término recon automáticamente (condicional del round 2) ✓
+3. [x] **Slide 20 (por vertical) eliminada** — filtro `verticals.length > 1` en viewer + PDF; pág 21 ahora es Sección AI ✓
+4. [x] **Slide 14 mono-vertical** — sin card duplicada; strip: 130K tx/mes · $60 ticket · $93.6M TPV · $1.5M MDR; banner costo total $1.5M ✓
+5. [x] **Fixes de paso:** key rota `leverRouting.titleConnector` (slide 16 imprimía el path literal) + **AF fantasma en slide 14**: `|| 0.80` con af=0 explícito fabricaba ~$1.5M/año de antifraude y el banner decía $3M en vez de $1.5M (bug preexistente, mismo patrón explicit-0 del recon)
 
-Chief se convierte en un agente más en la tabla `agents`, con sus tools en MCP format.
+**Math verificado (response del update = cálculo manual exacto):**
+- Routing: +27,209.30 tx → **$408,139.53** · MDR: $194,274.42 crédito + $85,709.30 débito = **$279,983.72**
+- Ops: dev $233,280 + recon $60,000 = **$293,280**
+- Total Y1 **$981,403.25** · Yuno cost $204,600 · Net **$776,803.25** · ROI **4.8x**
 
----
+## Diagnóstico
 
-## Fase 1: Crear Chief como agente SDK (sin tocar el bridge)
+Engine math ✓ verificado a mano — todos los números del BC en DB son correctos:
 
-### 1.1 — Registrar Chief en la tabla agents
-- [ ] INSERT Chief en `agents` con `role='orchestrator'`, capabilities, org_id especial (system-level)
-- [ ] Definir `soul_md` de Chief (migrar el SYSTEM_PROMPT del bridge)
-- [ ] Model: `claude-opus-4-6` (mismo que usa hoy)
+| Concepto | Valor | Check |
+|---|---|---|
+| Aprobación 86% → 86.86% · +15,600 tx | +$936K TPV × 25% take | **$234,000** ✓ |
+| MDR crédito 1.70% → 1.46% (TPV crédito nuevo $80.36M) | × 0.24pp | **$192,853.44** ✓ |
+| MDR débito 1.36% → 0.76% (TPV débito nuevo $14.18M) | × 0.60pp | **$85,082.40** ✓ |
+| **MDR total (suma crédito + débito)** | | **$277,935.84** ✓ |
+| Ops: dev 6 integraciones × $38,880 (recon $0) | | **$233,280** ✓ |
+| Total Year 1 | | **$745,215.84** ✓ |
+| Costo Yuno: SaaS $60K + per-tx $144.6K ($12,050/mes) | | **$204,600** ✓ |
+| Net benefit / ROI | | **$540,615.84 / 3.64x** ✓ |
 
-### 1.2 — Crear chief-orchestrator-tools.ts (MCP tools)
-Migrar los ~20 tools de orquestación que Chief necesita. Agrupados:
+Los problemas son de **capa de presentación**:
 
-**Routing (3 tools):**
-- [ ] `resolver_skill` — buscar skill en registry + encontrar agente
-- [ ] `delegar_tarea` — crear task en agent_tasks_v2 + llamar /execute + skill enrichment
-- [ ] `consultar_agente` — pregunta rápida a agente sin tarea formal
+1. **Slide 17 (LeverMDR):** solo detecta débito vía `current_debit_mdr_per_tx` (modo Coppel $/tx). BCI usa `current_debit_mdr_pct` (1.36% → 0.76%) → la card de débito NO se renderiza y el título solo menciona crédito. El total card sí muestra la suma ($277.9K) pero sin el desglose visible.
+2. **Slide 19 (Recap):** la fórmula de palanca 02 cae al branch "blended" → muestra `TPV × (1.70% − 1.46%)` que da $224.6K, inconsistente con el value $277.9K mostrado arriba.
+3. **Slide 21 (YunoCost):** los flags `yuno_min_tx_ramp_enabled` / `yuno_tier_discount_pct` / `yuno_credit_promo_enabled` **se descartan en `validateInputs`** (no están en `BCInputs`) → el slug los perdió al generarse. Resultado actual: ramp escalonado Coppel 150K→1.1M, badge/strikethrough −10% que **infla el ROI en la slide** (muestra ~$555K net / 3.9x con rates descontados vs $540.6K / 3.64x reales), y banner promo "crédito 100%" de Coppel.
+4. **Slide 22 (YunoExtras 3DS + concil.):** quitar del deck BCI.
+5. **PDF (PrintViewer):** no replica el filtro de antifraude (bug existente) → el PDF muestra la slide de antifraude que el viewer oculta.
 
-**Team Management (3 tools):**
-- [ ] `gestionar_agentes` — CRUD agentes + inferir capabilities por rol
-- [ ] `desplegar_agente` — deploy en Railway (GraphQL API)
-- [ ] `cambiar_config_agente` — update model/capabilities/team
+## Tareas
 
-**Monitoring (3 tools):**
-- [ ] `ver_equipo` — dashboard de estado del equipo
-- [ ] `standup_equipo` — resumen ejecutivo
-- [ ] `ver_tarea_agente` — estado/resultado de una tarea
+### A. Engine — `supabase/functions/_shared/workshops-bc-math.ts` (root cause)
+- [ ] `BCInputs` + `validateInputs`: pass-through de flags de presentación: `yuno_tier_discount_pct` (num), `yuno_min_tx_ramp_enabled` (bool), `yuno_credit_promo_enabled` (bool), `yuno_credit_offer_title`/`yuno_credit_offer_body` (str), `yuno_extras_enabled` (bool). No afectan el cálculo — solo deben sobrevivir el persist.
 
-**Projects & Workflows (5 tools):**
-- [ ] `crear_proyecto` — proyecto multi-fase con agentes
-- [ ] `proponer_proyecto` — borrador para aprobación humana
-- [ ] `aprobar_proyecto` / `rechazar_proyecto` — decisiones
-- [ ] `crear_workflow_agente` — workflow recurrente (genera grafo con LLM)
-- [ ] `listar_workflows_agente` — listar workflows del org
+### B. Slide 17 — `SlideLeverMDR.jsx` (pedido 1)
+- [ ] Detectar pct-mode: `current_debit_mdr_pct > 0` (mismo patrón que SlideLeversOverview)
+- [ ] Título: línea crédito `1.70% → 1.46%` + línea débito `1.36% → 0.76%` (en %, no $/tx)
+- [ ] MethodCard débito: rates en %, fórmula `TPVdébito × (1.36% − 0.76%)`, savings $85.1K
+- [ ] Total card: ya muestra la suma $277.9K ✓ (queda como cierre crédito + débito)
 
-**Work Management (2 tools):**
-- [ ] `asignar_objetivo` — crear tareas para auto-claim
-- [ ] `aprobar_checkin` — aprobar/rechazar check-in de agente
+### C. Slide 19 — `SlideBusinessCaseRecap.jsx` (pedido 1: "todos los lugares")
+- [ ] Palanca 02 en pct-mode: delta `1.70% · 1.36%` → `1.46% · 0.76%` y fórmula con breakdown crédito + débito (= $192.9K + $85.1K), no el blended incorrecto
+- [ ] Revisar caption MDR de `SlideVolumes.jsx` (template `{debit}` usa per-tx $0.00 para BCI — mostrar % o adaptar)
+- [ ] LeversOverview ✓ ya soporta pct (fa2bb19) · PerVertical ✓ usa mdr_savings suma — solo verificar render
 
-**Backlog (2 tools):**
-- [ ] `ver_backlog` — ver blockers, decisiones pendientes
-- [ ] `resolver_backlog` — marcar como resuelto
+### D. Slide 21 — `SlideYunoCost.jsx` (pedido 3)
+- [ ] Badge "−10% en todos los tiers" condicional a `tierDiscountPct > 0` (hoy se muestra siempre)
+- [ ] Con flags en data: mínimo único **100,000 tx/mes** (UI flat ya existe), tabla con rates BCI tal cual ($12,050/mes — igual al engine), sin banner promo Coppel
 
-**Knowledge & Skills (4 tools):**
-- [ ] `guardar_memoria` — guardar en chief_memory
-- [ ] `ensenar_agente` — enseñar hecho/lección
-- [ ] `crear_skill` — crear skill en registry + asignar
-- [ ] `listar_skills` — listar skills del org
+### E. Slide 22 — quitar (pedido 2)
+- [ ] `WorkshopViewer.jsx`: filtrar `SlideYunoExtras` cuando `inputs.yuno_extras_enabled === false`
+- [ ] `PrintViewer.jsx`: replicar AMBOS filtros (antifraude + extras) para que el PDF coincida con el viewer
 
-**User Config (2 tools):**
-- [ ] `configurar_standup` — timing + timezone
-- [ ] `configurar_idioma` — idioma preferido
+### F. Data — slug `bci-seguros-249fwn`
+- [ ] POST `workshops-bc-update` con: `yuno_min_tx_ramp_enabled: false`, `yuno_tier_discount_pct: 0`, `yuno_credit_promo_enabled: false`, `yuno_extras_enabled: false`
+- [ ] Verificar BC recomputado idéntico (total $745,215.84 / ROI 3.64)
 
-**Session (4 tools):**
-- [ ] `guardar_sesion` — mapear WhatsApp → org
-- [ ] `identificar_usuario` — buscar por email
-- [ ] `enviar_otp` — enviar código verificación
-- [ ] `verificar_otp` — verificar + guardar sesión
+### G. Deploy + verify
+- [ ] Deploy edge fns `workshops-bc-update` + `workshops-bc-generate` (comparten _shared)
+- [ ] `git push origin main` (Railway auto)
+- [ ] Browser: slide 17 con débito + suma, slide 21 flat 100K sin descuento, slide 22 ausente, conteo de slides correcto, PDF consistente
 
-**Integrations (3 tools):**
-- [ ] `conectar_gmail` — generar link OAuth
-- [ ] `conectar_salesforce` — generar link OAuth
-- [ ] `conectar_linkedin` — generar link OAuth/Unipile
+## Review — COMPLETADO 2026-06-10 (commits `949c56b` + `07d5290`)
 
-**Notificación (1 tool):**
-- [ ] `notificar_usuario_whatsapp` — enviar mensaje directo al usuario (via bridge callback)
+Todo deployado y verificado end-to-end contra el PDF live (`bridge.yuno.tools/api/workshop/bci-seguros-249fwn/pdf`, 29 slides + 1 blank de Puppeteer):
 
-### 1.3 — Agregar endpoint /execute-chief en chief-agents
-- [ ] Endpoint dedicado que carga Chief agent + sus tools MCP
-- [ ] Acepta `session_id` para resumption (clave de la migración)
-- [ ] Acepta `whatsapp_number` para contexto de sesión
-- [ ] Retorna `{ text, session_id, cost_usd, turns }` igual que /execute normal
-- [ ] Chief usa su propio MCP server (chief-orchestrator-tools) en vez de chief-tools
+**Pedido 1 — slide 17 MDR crédito + débito + suma:**
+- Título: "Crédito 1.70% → 1.46% · débito 1.36% → 0.76%" ✓
+- Card crédito $193K + card débito $85K (con fórmulas TPV × Δ%) + total **$278K** ✓
+- Recap (slide 19): "TPVcrédito × ΔMDR% + TPVdébito × ΔMDR% = $193K crédito + $85K débito" ✓
+- PerVertical, LeversOverview, Volumes: todos pct-aware, suma consistente en todos lados ✓
 
-### 1.4 — Testear Chief SDK en paralelo
-- [ ] Crear script de test que simule mensajes de WhatsApp
-- [ ] Verificar: una instrucción → una tarea (no duplicados)
-- [ ] Verificar: session resumption funciona entre mensajes
-- [ ] Verificar: "todos los días" → crear_workflow_agente (no delegar_tarea)
-- [ ] Verificar: skill routing correcto
-- [ ] Verificar: no se re-ejecutan tareas completadas
-- [ ] Comparar costo por mensaje vs bridge actual
+**Pedido 2 — slide 22 (3DS + conciliación) eliminada:** viewer y PDF (29 slides; pág 22 ahora es Sección AI) ✓. De paso el PDF ahora también filtra la slide de antifraude (bug preexistente).
 
----
+**Pedido 3 — slide 21 mínimo flat 100K:** "mínimo único: 100,000 tx aprobadas / mes", label "compromiso mensual" (sin ramp sep→feb), tabla con rates BCI sin −10% fantasma ($12,050/mes = engine), sin banner promo Coppel ✓
 
-## Fase 2: Conectar bridge → Chief SDK
+**Pedido 4 — cálculos verificados:** engine ✓ a mano (tabla arriba). Los bugs eran de presentación: −10% inflaba el ROI de la slide (3.9x → ahora 3.64x real), recon fantasma $120K en fórmula del recap (bcLocal `|| default` con 0 explícito), card/fila AF "+$0".
 
-### 2.1 — Modificar el bridge gateway
-- [ ] Reemplazar el loop `anthropic.messages.create()` por `POST /execute-chief`
-- [ ] Pasar `session_id` del `chief_sessions` al endpoint
-- [ ] Guardar `session_id` retornado en `chief_sessions` para próximo mensaje
-- [ ] Mantener pre-processing (buffer 8s, agent mention detection) en bridge
-- [ ] Mantener conversation_control (agent reply routing) en bridge
-- [ ] Mantener large result → WhatsApp direct send en bridge
+**Extra aprobado:** PSP arena con roster chileno (Getnet 1.42 winning · Kushki 1.46 · Klap 1.48 · Transbank 1.50 · Mercado Pago 1.54; weighted ≈ 1.47% ≈ target 1.46%).
 
-### 2.2 — Manejar session lifecycle
-- [ ] Nuevo campo `session_id` en `chief_sessions` table
-- [ ] Migración para agregar la columna
-- [ ] Session se crea en primer mensaje, se resume en siguientes
-- [ ] Session expira después de 24h inactivo (evitar acumular contexto infinito)
-- [ ] Al expirar: nueva sesión, pero chief_memory persiste (long-term)
+**Root cause fix (engine):** `validateInputs` ahora pass-through de flags de presentación (`yuno_tier_discount_pct`, `yuno_min_tx_ramp_enabled`, `yuno_credit_promo_enabled`, `yuno_credit_offer_title/body`, `yuno_extras_enabled`, `psp_arena_roster`) — antes se descartaban silenciosamente al persistir, por eso el deck BCI renderizaba los defaults Coppel. Edge fns `workshops-bc-update` + `workshops-bc-generate` redeployadas.
 
-### 2.3 — Eliminar código legacy del bridge
-- [ ] Remover `loadConversationHistory()` — SDK maneja esto
-- [ ] Remover `saveMessage()` — SDK maneja esto
-- [ ] Remover `gwSessions` map — reemplazado por session_id en DB
-- [ ] Remover `currentRequestReminder` hack — SDK no lo necesita
-- [ ] Remover history cleaning hack — SDK no lo necesita
-- [ ] Remover `GW_MAX_HISTORY` trimming — SDK maneja contexto
-- [ ] Mantener `gwExecuteTool()` como fallback para tools que el bridge maneja directamente
-
-### 2.4 — Feature flag para rollback
-- [ ] Variable de entorno `CHIEF_USE_SDK=true/false`
-- [ ] Si `true`: rutear via /execute-chief
-- [ ] Si `false`: usar loop legacy (fallback)
-- [ ] Permite rollback instantáneo si algo falla
-
----
-
-## Tools que NO se migran (se eliminan)
-
-Estos tools son del sistema de outreach legacy, reemplazados por Agent Workflows + Skills:
-- `crear_cadencia`, `gestionar_leads`, `buscar_prospectos`, `enriquecer_prospectos`
-- `ver_metricas`, `ver_cadencia_detalle`, `ver_programacion`
-- `gestionar_prompts`, `gestionar_templates`, `gestionar_personas`, `gestionar_perfiles_icp`
-- `enviar_mensaje`, `leer_correos`, `enviar_email` (agents have inbox/linkedin tools)
-- `capturar_pantalla` (agents have screenshot_page)
-- `business_case` (agents have business-case-tools)
-
----
-
-## Validación final
-
-- [ ] Test E2E: mensaje WhatsApp → Chief SDK → delegar a Paula → resultado → WhatsApp
-- [ ] Test: sesión persiste entre 3+ mensajes sin duplicar tareas
-- [ ] Test: "todos los días" → workflow (no task)
-- [ ] Test: "dile a Nando que..." → pre-route bypassa Chief (sigue en bridge)
-- [ ] Test: OTP flow completo funciona
-- [ ] Test: agent reply routing (conversation_control) sigue funcionando
-- [ ] Monitorear costos 24h: comparar SDK vs bridge legacy
-- [ ] Si OK → `CHIEF_USE_SDK=true` permanente, eliminar código legacy
-
----
-
-## Riesgos y mitigaciones
-
-| Riesgo | Mitigación |
-|--------|-----------|
-| Chief SDK falla en prod | Feature flag CHIEF_USE_SDK para rollback instantáneo |
-| Tools migrados con bugs | Fase 1 testea en paralelo sin tocar producción |
-| Session acumula contexto infinito | Expiración 24h + chief_memory para largo plazo |
-| Costo aumenta por SDK overhead | Prompt caching del SDK compensa (90% savings en system prompt) |
-| Pre-processing se rompe | Se queda en bridge, no se toca |
-| Large results no llegan a WhatsApp | Bridge sigue manejando chunking post-respuesta |
+URL sin cambio: https://chief.yuno.tools/workshop/bci-seguros-249fwn

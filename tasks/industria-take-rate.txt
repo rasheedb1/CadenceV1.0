@@ -1,0 +1,38 @@
+industria,take_rate_porcentaje
+Neobanks,2
+Remittance,5
+Social/Advertising,70
+Streaming,40
+SuperApps/Delivery Apps,15
+Cinema,25
+Ticketing,22
+Payroll,2
+PSP,0.5
+Telecom,55
+Adult Content,18
+Crypto,1
+Dating,65
+Gambling/Sports Betting,8
+Gaming,55
+Investing,0.3
+Airlines,22
+Train/bus/cruise Tickets,18
+Car Rental,25
+Hospitality/Hotels,40
+Ridesharing/Mobility,11
+Travel/OTAs,13
+Cosmetics,60
+Direct Selling,30
+Food and drinks,25
+Luxury goods/Apparel,60
+Marketplace,11
+Retail (Pets, Electronics),30
+AI,50
+Digital Goods,65
+Hosting,30
+SaaS,70
+Cybersecurity,70
+e-learning,45
+Fitness,45
+Healthcare,40
+Insurance,15

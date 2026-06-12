@@ -11,6 +11,7 @@ import { sbGet, sbPatch, sbPost, sbPostReturn, sbRpc, getSupabaseUrl, getSupabas
 import { getTokenCost } from '../utils/budget.js';
 import { executeWithSDK } from '../sdk-runner.js';
 import type { Logger } from '../utils/logger.js';
+import { pickUrl } from '../utils/env-url.js';
 
 const safe = <T>(arr: unknown): T[] => (Array.isArray(arr) ? arr : []);
 
@@ -365,7 +366,30 @@ ${isCodeAgent ? `- Repo cloned, npm installed, ready to edit code.
 ${artifactsIndex}${skillsContext}
 ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
 
-      const result = await executeWithSDK(agent, sdkPrompt, log, resumeSessionId);
+      // Read optional execution overrides from a JSON header in the task description.
+      // Description must START with a single-line JSON object like:
+      //   {"maxTurns":25,"maxThinkingTokens":3000}
+      // followed by a blank line and the rest of the prompt. Missing/invalid → defaults.
+      let execOpts: { maxTurns?: number; maxThinkingTokens?: number } | undefined;
+      try {
+        const firstLine = (instruction as string).split('\n', 1)[0];
+        if (firstLine.startsWith('{') && firstLine.endsWith('}')) {
+          const parsed = JSON.parse(firstLine);
+          if (typeof parsed.maxTurns === 'number' && parsed.maxTurns > 0 && parsed.maxTurns <= 50) {
+            execOpts = execOpts || {};
+            execOpts.maxTurns = parsed.maxTurns;
+          }
+          if (typeof parsed.maxThinkingTokens === 'number' && parsed.maxThinkingTokens > 0) {
+            execOpts = execOpts || {};
+            execOpts.maxThinkingTokens = parsed.maxThinkingTokens;
+          }
+          if (execOpts) log.info(`[exec-opts] Override: ${JSON.stringify(execOpts)}`);
+        }
+      } catch {
+        // Invalid JSON header — silently fall through to defaults
+      }
+
+      const result = await executeWithSDK(agent, sdkPrompt, log, resumeSessionId, execOpts);
       state.budget.tokens += result.tokensUsed;
       log.info(`Task ${(params.task_id as string).substring(0, 8)} (${result.numTurns} turns, $${result.costUsd.toFixed(4)}, session: ${result.sessionId?.substring(0, 12) || 'none'})`);
 
@@ -514,8 +538,7 @@ ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
 
         // Notify user via WhatsApp that task is done — send FULL result, not summary
         // The bridge will split into multiple WhatsApp messages if needed
-        const CALLBACK_URL_DONE = process.env.CALLBACK_URL ||
-          'https://twilio-bridge-production-241b.up.railway.app/api/agent-callback';
+        const CALLBACK_URL_DONE = pickUrl(process.env.CALLBACK_URL, 'https://bridge.yuno.tools/api/agent-callback');
         fetch(CALLBACK_URL_DONE, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -531,8 +554,7 @@ ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
 
       // If task ran but had errors or blockers, notify user
       if (result.numTurns > 0 && result.text && result.text.length > 10) {
-        const CALLBACK_URL_ERR = process.env.CALLBACK_URL ||
-          'https://twilio-bridge-production-241b.up.railway.app/api/agent-callback';
+        const CALLBACK_URL_ERR = pickUrl(process.env.CALLBACK_URL, 'https://bridge.yuno.tools/api/agent-callback');
         const errSummary = result.text.substring(0, 500);
         fetch(CALLBACK_URL_ERR, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -741,7 +763,7 @@ ${preExecContext ? `SETUP:\n${preExecContext}` : ''}`;
       }
 
       const CALLBACK_URL = process.env.CALLBACK_URL ||
-        'https://twilio-bridge-production-241b.up.railway.app/api/agent-callback';
+        'https://bridge.yuno.tools/api/agent-callback';
 
       if (passed) {
         await sbPatch(`agent_tasks_v2?id=eq.${originalTaskId}`, {

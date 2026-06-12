@@ -20,7 +20,7 @@ import {
 import { toast } from 'sonner'
 import { supabase } from '@/integrations/supabase/client'
 
-const BRIDGE_URL = import.meta.env.VITE_BRIDGE_URL || 'https://twilio-bridge-production-241b.up.railway.app'
+const BRIDGE_URL = import.meta.env.VITE_BRIDGE_URL || 'https://bridge.yuno.tools'
 
 // ── Capability definitions ──────────────────────────────────────────────
 interface CapDef {

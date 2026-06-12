@@ -42,8 +42,9 @@ serve(async (req: Request) => {
     const codeChallenge = btoa(String.fromCharCode(...new Uint8Array(challengeBuffer)))
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 
-    // Encode org_id, user_id, and code_verifier in state to validate on callback
+    // Encode org_id, user_id, and code_verifier in state (base64url, so SF redirect doesn't mangle `+` → space)
     const state = btoa(JSON.stringify({ orgId: ctx.orgId, userId: ctx.userId, codeVerifier }))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 
     const authUrl = new URL(`${`https://login.salesforce.com`}/services/oauth2/authorize`)
     authUrl.searchParams.set('response_type', 'code')

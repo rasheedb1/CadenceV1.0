@@ -73,10 +73,15 @@ function SectionLabel({ children, color = 'currentColor' }) {
 }
 
 function Counter({ value, duration = 1200, format = (v) => v, prefix = '', suffix = '', start = 0, delay = 0 }) {
-  const [display, setDisplay] = useState(start);
+  // In print mode (Puppeteer PDF capture) only one slide is data-deck-active, so
+  // counters on the other 17 slides would stay frozen at `start`. Skip the
+  // animation entirely and render the final value on first mount.
+  const isPrint = typeof document !== 'undefined' && document.body && document.body.classList.contains('bc-print');
+  const [display, setDisplay] = useState(isPrint ? value : start);
   const slideRef = useRef(null);
   const hasAnimated = useRef(false);
   useEffect(() => {
+    if (isPrint) { setDisplay(value); return; }
     const tick = () => {
       if (!slideRef.current) return;
       const slide = slideRef.current.closest('[data-deck-slide]');
@@ -102,7 +107,7 @@ function Counter({ value, duration = 1200, format = (v) => v, prefix = '', suffi
     const slide = slideRef.current?.closest('[data-deck-slide]');
     if (slide) obs.observe(slide, { attributes: true, attributeFilter: ['data-deck-active'] });
     return () => obs.disconnect();
-  }, [value, duration, start, delay]);
+  }, [value, duration, start, delay, isPrint]);
   return <span ref={slideRef}>{prefix}{format(display)}{suffix}</span>;
 }
 

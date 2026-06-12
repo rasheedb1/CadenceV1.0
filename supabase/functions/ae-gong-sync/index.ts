@@ -12,6 +12,17 @@ interface GongCall {
   parties?: Array<{ name: string; emailAddress?: string; affiliation: string }>
 }
 
+interface GongExtensiveCall {
+  metaData: {
+    id: string
+    title?: string
+    started?: string
+    duration?: number
+    primaryUserId?: string
+  }
+  parties?: Array<{ name: string; emailAddress?: string; affiliation: string }>
+}
+
 interface GongTranscriptEntry {
   speakerId: string
   sentences: Array<{ start: number; end: number; text: string }>
@@ -23,7 +34,7 @@ function makeGongAuth(accessKey: string, secretKey: string): string {
 }
 
 async function fetchGongCalls(auth: string, fromDate: string): Promise<GongCall[]> {
-  const resp = await fetch('https://api.gong.io/v2/calls', {
+  const resp = await fetch('https://api.gong.io/v2/calls/extensive', {
     method: 'POST',
     headers: {
       'Authorization': auth,
@@ -31,14 +42,26 @@ async function fetchGongCalls(auth: string, fromDate: string): Promise<GongCall[
     },
     body: JSON.stringify({
       filter: { fromDateTime: fromDate },
+      contentSelector: {
+        context: 'Extended',
+        exposedFields: { parties: true },
+      },
     }),
   })
   if (!resp.ok) {
     const text = await resp.text()
-    throw new Error(`Gong /v2/calls failed (${resp.status}): ${text}`)
+    throw new Error(`Gong /v2/calls/extensive failed (${resp.status}): ${text}`)
   }
   const data = await resp.json()
-  return (data.calls || []) as GongCall[]
+  const raw = (data.calls || []) as GongExtensiveCall[]
+  return raw.map(c => ({
+    id: c.metaData.id,
+    title: c.metaData.title || 'Gong Call',
+    started: c.metaData.started || new Date().toISOString(),
+    duration: c.metaData.duration || 0,
+    primaryUserId: c.metaData.primaryUserId,
+    parties: c.parties,
+  }))
 }
 
 async function fetchGongTranscript(auth: string, callId: string): Promise<string> {

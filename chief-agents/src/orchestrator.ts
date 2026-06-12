@@ -6,13 +6,16 @@
 
 import * as fs from 'node:fs/promises';
 import * as http from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { sbGet, sbPatch } from './supabase-client.js';
 import { loadAgentConfig } from './agent-config.js';
 import { runEventLoop } from './event-loop.js';
 import { executeWithSDK } from './sdk-runner.js';
+import { streamWithSDK, type SDKEvent } from './sdk-stream-runner.js';
 import { buildExecutePrompt } from './router.js';
 import type { AgentRow, AgentConfig } from './types.js';
 import { createLogger } from './utils/logger.js';
+import { stripLoneSurrogates } from './utils/text.js';
 import { buildChiefOrchestratorServer } from './mcp-tools/chief-orchestrator-tools.js';
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
@@ -30,6 +33,17 @@ interface AgentLoopHandle {
 
 const activeLoops = new Map<string, AgentLoopHandle>();
 let shuttingDown = false;
+
+// Live web-chat SSE turns. Keyed by turn_id. gracefulShutdown aborts all of them
+// so each emits a `turn_paused` (handled inside handleChatStream) before exit.
+interface LiveStreamHandle {
+  turnId: string;
+  threadId: string;
+  agentName: string;
+  abort: AbortController;
+  res: http.ServerResponse;
+}
+const liveStreams = new Map<string, LiveStreamHandle>();
 
 async function main(): Promise<void> {
   console.log('[Orchestrator] Starting chief-agents runtime');
@@ -311,7 +325,8 @@ async function handleExecute(req: http.IncomingMessage, res: http.ServerResponse
     // CRITICAL: Send result to WhatsApp via bridge callback
     // The SDK may return text directly without calling ask_human_via_whatsapp,
     // so we ALWAYS send the result through the callback pipeline.
-    const CALLBACK_URL = process.env.CALLBACK_URL || 'https://twilio-bridge-production-241b.up.railway.app/api/agent-callback';
+    const { pickUrl } = await import('./utils/env-url.js');
+    const CALLBACK_URL = pickUrl(process.env.CALLBACK_URL, 'https://bridge.yuno.tools/api/agent-callback');
     if (result.text && result.text.length > 10) {
       fetch(CALLBACK_URL, {
         method: 'POST',
@@ -410,6 +425,141 @@ async function handleWake(req: http.IncomingMessage, res: http.ServerResponse): 
   res.end(JSON.stringify({ status: 'acknowledged', agent_id }));
 }
 
+/**
+ * POST /chat/stream — Web-chat SSE endpoint (private network only).
+ *
+ * The chat-bridge calls this with a JSON body and reads back an
+ * `text/event-stream` response. Each event is one SDKEvent (see
+ * sdk-stream-runner.ts). The bridge persists events as it forwards them.
+ *
+ * Body shape (validated below):
+ *   {
+ *     agent_id: uuid,
+ *     thread_id: uuid,
+ *     turn_id: uuid,
+ *     user_id: uuid,
+ *     org_id: uuid,
+ *     user_full_name?: string,
+ *     message: string,
+ *     resume_session_id?: string
+ *   }
+ *
+ * The bridge is responsible for auth + org-pin check + cost guards + idempotency.
+ * This handler trusts the bridge (private network, no public domain).
+ */
+async function handleChatStream(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  let body: any;
+  try { body = await parseBody(req); } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Invalid JSON' }));
+    return;
+  }
+
+  const { agent_id, thread_id, turn_id, user_id, org_id, user_full_name, message, resume_session_id } = body || {};
+  if (!agent_id || !thread_id || !turn_id || !user_id || !org_id || !message) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'agent_id, thread_id, turn_id, user_id, org_id and message are required',
+    }));
+    return;
+  }
+
+  // Locate the agent in this container (all agents run here today).
+  let agent: AgentConfig | undefined;
+  for (const [, config] of agentConfigs) {
+    if (config.id === agent_id) { agent = config; break; }
+  }
+  if (!agent) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `Agent ${agent_id} not loaded in this container` }));
+    return;
+  }
+  if (agent.orgId !== org_id) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Agent org mismatch' }));
+    return;
+  }
+
+  const log = createLogger(`CHAT:${agent.name}`);
+  log.info(`/chat/stream turn=${turn_id.slice(0, 8)} thread=${thread_id.slice(0, 8)} user=${user_id.slice(0, 8)}`);
+
+  // SSE headers — see Spike S2 for rationale.
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  // Flush headers immediately so the bridge starts forwarding right away.
+  if (typeof (res as any).flushHeaders === 'function') (res as any).flushHeaders();
+
+  const abortController = new AbortController();
+  const handle: LiveStreamHandle = {
+    turnId: turn_id,
+    threadId: thread_id,
+    agentName: agent.name,
+    abort: abortController,
+    res,
+  };
+  liveStreams.set(turn_id, handle);
+
+  // Bridge disconnect or upstream cancel → abort SDK.
+  const onClose = (): void => {
+    if (!abortController.signal.aborted) abortController.abort('client-disconnect');
+  };
+  req.on('close', onClose);
+  req.on('error', onClose);
+
+  // 15s SSE keep-alive comments to keep proxies/idle-timeouts happy.
+  const keepAlive = setInterval(() => {
+    if (!res.writableEnded) res.write(': keepalive\n\n');
+  }, 15_000);
+
+  const writeEvent = (event: SDKEvent): void => {
+    if (res.writableEnded) return;
+    const id = randomUUID();
+    res.write(`id: ${id}\n`);
+    res.write(`event: ${event.type}\n`);
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+
+  try {
+    for await (const ev of streamWithSDK({
+      agent,
+      taskPrompt: message,
+      thread: {
+        threadId: thread_id,
+        turnId: turn_id,
+        userId: user_id,
+        userFullName: user_full_name,
+        orgId: org_id,
+      },
+      log,
+      resumeSessionId: resume_session_id,
+      signal: abortController.signal,
+    })) {
+      writeEvent(ev);
+      if (
+        ev.type === 'turn_completed' ||
+        ev.type === 'turn_aborted' ||
+        ev.type === 'error'
+      ) break;
+    }
+  } catch (err: any) {
+    log.error(`/chat/stream crashed: ${err?.stack || err?.message}`);
+    writeEvent({
+      type: 'error',
+      turnId: turn_id,
+      message: (err?.message || String(err)).slice(0, 500),
+      ts: new Date().toISOString(),
+    });
+  } finally {
+    clearInterval(keepAlive);
+    liveStreams.delete(turn_id);
+    if (!res.writableEnded) res.end();
+  }
+}
+
 /** POST /execute-chief — Chief orchestrator via Claude Agent SDK with session resumption */
 async function handleExecuteChief(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   let body: any;
@@ -468,10 +618,10 @@ BEHAVIOR:
     let lastAssistantText = '';
 
     for await (const msg of query({
-      prompt: message,
+      prompt: stripLoneSurrogates(message),
       options: {
         model: 'claude-sonnet-4-6',
-        systemPrompt: chiefSystemPrompt,
+        systemPrompt: stripLoneSurrogates(chiefSystemPrompt),
         // NO session resumption — Chief is stateless. Context comes via last_exchange in the prompt.
         allowedTools: ['mcp__chief-orchestrator__*'],
         permissionMode: 'bypassPermissions' as any,
@@ -543,6 +693,12 @@ function startHealthServer(): void {
       return;
     }
 
+    // Web-chat SSE stream (private network only — chat-bridge calls this)
+    if (url === '/chat/stream' && req.method === 'POST') {
+      await handleChatStream(req, res);
+      return;
+    }
+
     // Health check (GET /)
     const status = {
       status: 'ok',
@@ -567,7 +723,27 @@ function startHealthServer(): void {
 async function gracefulShutdown(): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log('[Orchestrator] Graceful shutdown initiated...');
+  console.log(`[Orchestrator] Graceful shutdown initiated (live_streams=${liveStreams.size})...`);
+
+  // Drain in-flight web-chat SSE turns first: abort SDK + emit turn_paused so
+  // the bridge can flush and the client can resume with Last-Event-ID.
+  for (const [, handle] of liveStreams) {
+    try {
+      handle.abort.abort('sigterm');
+      if (!handle.res.writableEnded) {
+        handle.res.write(`event: turn_paused\n`);
+        handle.res.write(`data: ${JSON.stringify({
+          type: 'turn_paused',
+          turnId: handle.turnId,
+          reason: 'sigterm',
+          ts: new Date().toISOString(),
+        })}\n\n`);
+        handle.res.end();
+      }
+    } catch (err: any) {
+      console.error(`[Orchestrator] failed to drain stream ${handle.turnId.slice(0, 8)}: ${err?.message}`);
+    }
+  }
 
   // Give loops a chance to finish their current tick
   await sleep(2000);

@@ -1,6 +1,7 @@
 /* Business Case Deck — Slides 01-12 (ES) */
 
 function BCSlide01({ data }) {
+  setBCCurrency(data.currency);
   return (
     <div className="slide theme-ink-hero" data-screen-label="01 Hero">
       <div className="ink-grid" />
@@ -48,12 +49,13 @@ function BCSlide01({ data }) {
 }
 
 function BCSlide02({ data }) {
+  setBCCurrency(data.currency);
   const total = data.netAnnualGain;
   const fee = data.yunoAnnualFee;
   const cards = [
     { icon: '↑', label: 'tasa de aprobación', value: '+' + data.approvalLiftPp + 'pp', color: '#E0ED80' },
-    { icon: '↓', label: 'ahorro de MDR', value: '−' + data.mdrReductionBps + ' bps', color: '#8C99FF' },
-    { icon: '+', label: 'nuevos APMs', value: '+' + data.newAPMsAdded, color: '#E0ED80' },
+    { icon: '↓', label: 'MDR · tasa de descuento', value: '−' + data.mdrReductionBps + ' bps', color: '#8C99FF' },
+    { icon: '+', label: 'cobertura APMs', value: '+' + data.newAPMsAdded + ' países', color: '#E0ED80' },
     { icon: '×', label: 'esfuerzo de integración', value: '−' + data.integrationReductionPct + '%', color: '#FF6A6A' },
   ];
   return (
@@ -102,6 +104,7 @@ function BCSlide02({ data }) {
 }
 
 function BCSlide03({ data }) {
+  setBCCurrency(data.currency);
   const items = [
     { num: '01', title: 'el problema', sub: 'costos de fragmentación', time: '3 min' },
     { num: '02', title: 'la plataforma', sub: 'yuno en un vistazo', time: '6 min' },
@@ -148,6 +151,7 @@ function BCSlide04() {
 }
 
 function BCSlide05({ data }) {
+  setBCCurrency(data.currency);
   const onePointValue = data.valuePerPp;
   const cards = [
     { value: '−15%', label: 'fuga de ingresos', sub: 'por enrutamiento subóptimo y rechazos falsos en providers fragmentados', color: '#FF6A6A' },
@@ -183,6 +187,7 @@ function BCSlide05({ data }) {
 }
 
 function BCSlide06({ data }) {
+  setBCCurrency(data.currency);
   const todayProviders = (data.todayProviders && data.todayProviders.length) ? data.todayProviders : ['stripe', 'adyen', 'dlocal', 'checkout.com', 'worldpay', 'paypal', 'mercado pago', 'payu', 'rapyd', 'cybersource', 'braintree', 'fiserv'];
   const providerCount = todayProviders.length;
   return (
@@ -244,32 +249,107 @@ function BCSlide07() {
 
 function BCSlide08() {
   const stats = [
-    { value: '1.000+', label: 'métodos de pago', color: '#E0ED80' },
-    { value: '200+', label: 'países y territorios', color: '#8C99FF' },
-    { value: '90%', label: 'tasa de aprobación promedio', color: '#E0ED80' },
-    { value: '+7–10%', label: 'lift de aprobación vs. PSP único', color: '#8C99FF' },
+    { value: '460+', label: 'integraciones' },
+    { value: '190+', label: 'países' },
+    { value: '1.000+', label: 'métodos' },
+    { value: '180+', label: 'monedas' },
   ];
-  const logos = ["mcdonald's", 'uber', 'rappi', 'inDrive', 'cabify', 'betterfly', 'nuvei', 'kushki', 'yape', 'bold'];
+  const pillars = [
+    { num: '01', name: 'orquestación', tag: 'enrutar y recuperar', items: [
+      { name: 'motor de orquestación', sub: 'cada proveedor, un solo plano de control.' },
+      { name: 'enrutamiento inteligente', sub: 'decisión por transacción.' },
+      { name: 'monitores y respaldo automático', sub: 'el checkout siempre en vivo.' },
+    ]},
+    { num: '02', name: 'checkout & sdks', tag: 'convierte donde sea', items: [
+      { name: 'checkout personalizable', sub: 'métodos locales con experiencia nativa.' },
+      { name: 'gestión de suscripciones', sub: 'recurrencia con menos ingeniería.' },
+      { name: 'sdks móvil', sub: 'una interfaz, iOS + Android.' },
+    ]},
+    { num: '03', name: 'seguridad y riesgo', tag: 'protege cada tarjeta', items: [
+      { name: 'tokenización PCI', sub: 'tokens válidos en todas las redes.' },
+      { name: 'autenticación 3DS', sub: 'menos fraude, más aprobación.' },
+      { name: 'actualizador de cuentas', sub: 'credenciales siempre frescas.' },
+    ]},
+    { num: '04', name: 'ia e inteligencia', tag: 'el cerebro', items: [
+      { name: 'analítica', sub: 'comisiones, FX, aprobaciones. listo para decidir.' },
+      { name: 'conciliación', sub: 'un registro sobre cada PSP.' },
+    ]},
+  ];
   return (
-    <div className="slide theme-ink" data-screen-label="08 Yuno en un Vistazo">
+    <div className="slide theme-ink-2" data-screen-label="08 La Plataforma">
       <div className="ink-grid" />
-      <SectionLabel color="rgba(255,255,255,0.6)">02 / la plataforma</SectionLabel>
-      <div style={{ position: 'absolute', top: 160, left: 80, right: 80 }}>
-        <h2 className="t-title anim-in" style={{ fontSize: 64, fontWeight: 300, color: '#fff', marginBottom: 48 }}>Yuno en un vistazo</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, marginBottom: 56 }}>
+      <div style={{ position: 'absolute', top: 56, left: 80 }}>
+        <span className="glow-chip"><span className="dot" />sobre yuno {'·'} plataforma</span>
+      </div>
+      <div style={{ position: 'absolute', top: 60, right: 80, maxWidth: 360, textAlign: 'right', fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.55 }}>
+        Diseñado para crecer con tu volumen, con IA que entrega decisiones — no solo paneles.
+      </div>
+      <div style={{ position: 'absolute', top: 130, left: 80, right: 80 }}>
+        <h2 className="t-title anim-in" style={{ fontSize: 56, fontWeight: 300, color: '#fff', letterSpacing: '-0.02em', marginBottom: 28, lineHeight: 1.05 }}>
+          Una solución completa {'·'} cuatro pilares {'·'}{' '}
+          <span style={{ background: 'linear-gradient(120deg, #E0ED80 0%, #8C99FF 60%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>un cerebro.</span>
+        </h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 28 }}>
           {stats.map((s, i) => (
-            <div key={i} className={'anim-in anim-in-' + (i + 1)} style={{ textAlign: 'center' }}>
-              <div className="num-hero-sm shimmer" style={{ color: s.color, fontSize: 52, fontWeight: 300, letterSpacing: '-0.02em' }}>{s.value}</div>
-              <div className="t-label" style={{ color: 'rgba(255,255,255,0.55)', marginTop: 8 }}>{s.label}</div>
+            <div key={i} className={'anim-in anim-in-' + (i + 1)} style={{ padding: '20px 24px', borderRadius: 14, background: 'rgba(140,153,255,0.05)', border: '1px solid rgba(140,153,255,0.15)' }}>
+              <div style={{ fontSize: 56, fontWeight: 200, color: '#fff', letterSpacing: '-0.03em', lineHeight: 1 }}>{s.value}</div>
+              <div className="t-label" style={{ color: 'rgba(255,255,255,0.55)', marginTop: 10 }}>{s.label}</div>
             </div>
           ))}
         </div>
-        <div className="anim-in anim-in-5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 36 }}>
-          <div className="t-label" style={{ color: 'rgba(255,255,255,0.35)', marginBottom: 20, textAlign: 'center' }}>confían en nosotros</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center' }}>
-            {logos.map((l, i) => (
-              <div key={i} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '10px 22px', fontSize: 15, fontWeight: 600, color: 'rgba(255,255,255,0.6)', letterSpacing: '-0.01em' }}>{l}</div>
-            ))}
+        <div className="anim-in anim-in-3" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <span style={{ fontSize: 11, color: 'rgba(140,153,255,0.85)', fontFamily: "'JetBrains Mono', ui-monospace, Menlo, monospace", letterSpacing: '0.04em' }}>{'>'} ciclo_de_pago</span>
+          <span style={{ flex: 1, height: 1, background: 'linear-gradient(90deg, rgba(140,153,255,0.25), rgba(255,255,255,0.04))' }} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 28 }}>
+          {pillars.map((p, i) => (
+            <div key={i} className={'anim-in anim-in-' + (i + 4)}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingBottom: 10, borderBottom: '1px solid rgba(255,255,255,0.08)', marginBottom: 12 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#8C99FF', letterSpacing: '0.1em' }}>{p.num}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{p.name}</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>{p.tag}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {p.items.map((it, j) => (
+                  <div key={j} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                    <div style={{ width: 22, height: 22, borderRadius: 6, background: 'rgba(140,153,255,0.12)', border: '1px solid rgba(140,153,255,0.2)', flexShrink: 0, marginTop: 1 }} />
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 2 }}>{it.name}</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{it.sub}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="anim-in anim-in-8" style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 28, padding: 24, borderRadius: 14, border: '1px solid rgba(224,237,128,0.2)', background: 'linear-gradient(180deg, rgba(224,237,128,0.05), rgba(224,237,128,0.01))' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#E0ED80', boxShadow: '0 0 12px #E0ED80', animation: 'pulseDot 2.2s ease-in-out infinite' }} />
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#E0ED80', letterSpacing: '0.18em' }}>IA {'·'} EN VIVO</span>
+            </div>
+            <div style={{ fontSize: 26, fontWeight: 400, color: '#fff', marginBottom: 8, letterSpacing: '-0.01em' }}>Concierge de Pagos</div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', lineHeight: 1.55, maxWidth: 320 }}>
+              Copiloto en lenguaje natural para operaciones de pagos. Pregunta cualquier cosa y recibe decisiones — no solo paneles.
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, justifyContent: 'flex-end', minHeight: 130, paddingLeft: 16, borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#FF8A5B' }} />
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#E0ED80' }} />
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#8C99FF' }} />
+              <span style={{ marginLeft: 6, letterSpacing: '0.04em' }}>{'✨'} Concierge de Pagos</span>
+            </div>
+            <div className="chat-msg-user" style={{ alignSelf: 'flex-end', maxWidth: '78%', padding: '10px 14px', borderRadius: '14px 14px 4px 14px', background: 'rgba(140,153,255,0.18)', border: '1px solid rgba(140,153,255,0.32)', fontSize: 13, color: '#fff', lineHeight: 1.45 }}>
+              ¿Por qué bajó la tasa de aprobación en EU ayer?
+            </div>
+            <div className="chat-typing" style={{ alignSelf: 'flex-start', padding: '10px 14px', borderRadius: '14px 14px 14px 4px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <span className="chat-dot" /><span className="chat-dot" /><span className="chat-dot" />
+            </div>
+            <div className="chat-msg-agent" style={{ alignSelf: 'flex-start', maxWidth: '88%', padding: '10px 14px', borderRadius: '14px 14px 14px 4px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', fontSize: 12, color: 'rgba(255,255,255,0.85)', lineHeight: 1.5 }}>
+              El emisor ABC declinó 12% más entre 14:00–18:00 en DE/FR. Reruteo al emisor XYZ por 24h — proyección: +2.8pp en aprobación.
+            </div>
           </div>
         </div>
       </div>
@@ -279,33 +359,75 @@ function BCSlide08() {
 }
 
 function BCSlide09() {
-  const pins = [
-    { lat: 40.7, lng: -74, size: 'lg' }, { lat: 19.4, lng: -99.1, size: 'lg' }, { lat: -23.5, lng: -46.6, size: 'lg' },
-    { lat: -34.6, lng: -58.4 }, { lat: 4.7, lng: -74.1 }, { lat: -12, lng: -77 }, { lat: 10.5, lng: -66.9 },
-    { lat: 51.5, lng: -0.1, size: 'lg' }, { lat: 48.9, lng: 2.35 }, { lat: 52.5, lng: 13.4 }, { lat: 40.4, lng: -3.7 },
-    { lat: 55.8, lng: 37.6 }, { lat: 25.2, lng: 55.3 }, { lat: 24.5, lng: 54.7 },
-    { lat: 19, lng: 73, size: 'lg' }, { lat: 1.35, lng: 103.8 }, { lat: 35.7, lng: 139.7 },
-    { lat: -33.9, lng: 151.2 }, { lat: 37.6, lng: 127 }, { lat: 13.8, lng: 100.5 },
+  const customers = [
+    [
+      { name: 'TESLA', logo: '/bc-assets/logos/tesla.svg', logoH: 70 },
+      { name: "McDonald’s", logo: '/bc-assets/logos/mcdonalds.svg', logoH: 80 },
+      { name: 'Uber', logo: '/bc-assets/logos/uber.svg', logoH: 60 },
+      { name: 'SpaceX', logo: '/bc-assets/logos/spacex.svg', logoH: 56 },
+      { name: 'SAMSUNG', logo: '/bc-assets/logos/samsung.svg', logoH: 60 },
+    ],
+    [
+      { name: 'Qatar Airways', logo: '/bc-assets/logos/qatarairways.svg', logoH: 80 },
+      { name: 'betterfly', style: { fontFamily: "'Titillium Web', sans-serif", fontWeight: 500, fontSize: 32, letterSpacing: '-0.01em', fontStyle: 'italic' } },
+      { name: 'Rappi', logo: '/bc-assets/logos/rappi.svg', logoH: 64 },
+      { name: 'gofundme', logo: '/bc-assets/logos/gofundme.svg', logoH: 64 },
+      { name: 'NetEase Games', style: { fontFamily: "'Titillium Web', sans-serif", fontWeight: 700, fontSize: 24, letterSpacing: '0.02em' } },
+    ],
   ];
-  const regions = [
-    { name: 'LATAM', apms: 'PIX, OXXO, PSE, Nequi, Mercado Pago' },
-    { name: 'EMEA', apms: 'iDEAL, Bancontact, MB WAY, Klarna, SEPA' },
-    { name: 'APAC', apms: 'UPI, GCash, GrabPay, LINE Pay, Alipay+' },
+  const investors = [
+    { name: 'KASZEK', size: 22 },
+    { name: 'DST Global', logo: '/bc-assets/logos/dst-global.svg', logoH: 44 },
+    { name: 'TIGER GLOBAL', size: 22 },
+    { name: 'a16z', logo: '/bc-assets/logos/a16z.svg', logoH: 36 },
+    { name: 'monashees', size: 22 },
+    { name: 'globalpay tech', size: 18 },
   ];
   return (
-    <div className="slide theme-ink" data-screen-label="09 Presencia Global">
+    <div className="slide theme-ink" data-screen-label="09 Clientes e Inversionistas">
       <div className="ink-grid" />
-      <SectionLabel color="rgba(255,255,255,0.6)">02 / la plataforma</SectionLabel>
-      <div style={{ position: 'absolute', top: 140, left: 80, right: 80 }}>
-        <h2 className="t-title anim-in" style={{ fontSize: 56, fontWeight: 300, color: '#fff', marginBottom: 24 }}>Una plataforma. cada mercado.</h2>
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
-          <WorldMap pins={pins} style={{ transform: 'scale(0.82)', transformOrigin: 'top center' }} />
+      <div style={{ position: 'absolute', top: 56, left: 80 }}>
+        <span className="glow-chip"><span className="dot" />sobre yuno</span>
+      </div>
+      <div style={{ position: 'absolute', top: 60, right: 80, maxWidth: 360, textAlign: 'right', fontSize: 12, color: 'rgba(255,255,255,0.55)', lineHeight: 1.55 }}>
+        Desde merchants globales hasta las firmas de venture más respetadas, <span style={{ color: '#fff', fontWeight: 600 }}>Yuno es la plataforma que los builders eligen.</span>
+      </div>
+      <div style={{ position: 'absolute', top: 130, left: 80, right: 80 }}>
+        <h2 className="t-title anim-in" style={{ fontSize: 52, fontWeight: 300, color: '#fff', letterSpacing: '-0.02em', marginBottom: 32, lineHeight: 1.05, maxWidth: 1300 }}>
+          Líderes globales nos eligen,{' '}
+          <span style={{ background: 'linear-gradient(120deg, #8C99FF 0%, #6B7BFF 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>respaldados por inversionistas</span> world-class
+        </h2>
+        <div className="anim-in anim-in-1" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <span style={{ fontSize: 11, color: 'rgba(140,153,255,0.85)', letterSpacing: '0.16em', fontWeight: 700 }}>{'·'} NUESTROS CLIENTES</span>
+          <span style={{ flex: 1, height: 1, background: 'linear-gradient(90deg, rgba(140,153,255,0.25), rgba(255,255,255,0.04))' }} />
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24, marginTop: 16 }}>
-          {regions.map((r, i) => (
-            <div key={i} className={'anim-in anim-in-' + (i + 5)} style={{ textAlign: 'center' }}>
-              <div className="t-label" style={{ color: '#8C99FF', marginBottom: 6 }}>{r.name}</div>
-              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>{r.apms}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 36 }}>
+          {customers.map((row, ri) => (
+            <div key={ri} style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
+              {row.map((c, ci) => (
+                <div key={ci} className={'anim-in anim-in-' + Math.min(8, ri * 5 + ci + 1)} style={{ height: 130, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 14, background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  {c.logo ? (
+                    <img src={c.logo} alt={c.name} style={{ height: c.logoH || 60, maxWidth: '88%', filter: 'brightness(0) invert(1)', opacity: 0.92, objectFit: 'contain' }} />
+                  ) : (
+                    <span style={{ color: 'rgba(255,255,255,0.95)', ...c.style }}>{c.name}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="anim-in anim-in-7" style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <span style={{ fontSize: 11, color: 'rgba(140,153,255,0.85)', letterSpacing: '0.16em', fontWeight: 700 }}>{'·'} RESPALDADOS POR INVERSIONISTAS WORLD-CLASS</span>
+          <span style={{ flex: 1, height: 1, background: 'linear-gradient(90deg, rgba(140,153,255,0.25), rgba(255,255,255,0.04))' }} />
+        </div>
+        <div className="anim-in anim-in-8" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14, padding: '24px 32px', borderRadius: 14, background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)' }}>
+          {investors.map((inv, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {inv.logo ? (
+                <img src={inv.logo} alt={inv.name} style={{ height: inv.logoH || 36, maxWidth: '90%', filter: 'brightness(0) invert(1)', opacity: 0.88, objectFit: 'contain' }} />
+              ) : (
+                <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: inv.size, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>{inv.name}</span>
+              )}
             </div>
           ))}
         </div>
@@ -348,6 +470,7 @@ function BCSlide10() {
 }
 
 function BCSlide11({ data }) {
+  setBCCurrency(data.currency);
   const steps = [
     { num: '01', name: 'checkout', desc: 'el cliente inicia el pago' },
     { num: '02', name: 'risk engine', desc: 'scoring de fraude y decisión de 3DS' },

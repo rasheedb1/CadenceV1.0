@@ -1,0 +1,326 @@
+name,country,type,domain,acquiring_capability,source,notes
+NDD,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Conpay,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+VoxCred,Brazil,payment_institution,voxcred.com.br,unknown,BCB IP registry + manual,
+A27 IP,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+MW Bank,Brazil,payment_institution,mwbank.com.br,unknown,BCB IP registry + manual,
+Pagme,Brazil,payment_institution,pagme.app,unknown,BCB IP registry + manual,
+WOH,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Pinpag,Brazil,payment_institution,pinpag.com.br,likely,BCB IP registry + manual,Recurring payments
+Efí (ex-Gerencianet),Brazil,sub_acquirer,sejaefi.com.br,confirmed,BCB IP registry + manual,Boleto + cards + PIX sub-acquirer
+Payface,Brazil,payment_institution,payface.com.br,confirmed,BCB IP registry + manual,Biometric face-pay acquirer
+Verdecard (Quero-Quero),Brazil,payment_institution,verdecard.com.br,likely,BCB IP registry + manual,Retail card + acquiring
+Zoop (iFood),Brazil,sub_acquirer,zoop.com.br,confirmed,BCB IP registry + manual,"White-label PayFac, owned by iFood"
+Wasu Wallet,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Calcard,Brazil,payment_institution,calcard.com.br,likely,BCB IP registry + manual,Private label cards + acquiring
+AvanCard,Brazil,payment_institution,,likely,BCB IP registry + manual,Private label cards
+Appmax,Brazil,sub_acquirer,appmax.com.br,confirmed,BCB IP registry + manual,Digital business sub-acquirer
+Uzzipay,Brazil,payment_institution,uzzipay.com,unknown,BCB IP registry + manual,
+Edenred Mobilidade,Brazil,payment_institution,edenredmobilidade.com.br,confirmed,BCB IP registry + manual,Fleet/mobility cards
+Mulvi,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Bolt Card,Brazil,payment_institution,boltcard.com.br,unknown,BCB IP registry + manual,
+F & F,Brazil,payment_institution,ffcred.com,likely,BCB IP registry,Licensed Instituição de Pagamento; acquiring inferred
+Belluno,Brazil,payment_institution,belluno.digital,unknown,BCB IP registry + manual,
+Bitz,Brazil,wallet,bancobitz.com.br,likely,BCB IP registry + manual,Bradesco wallet
+WX Pay,Brazil,payment_institution,wxpay.com.br,unknown,BCB IP registry + manual,
+IP4Y,Brazil,payment_institution,ip4y.com.br,unknown,BCB IP registry + manual,
+Qesh,Brazil,payment_institution,,likely,BCB IP registry + manual,BaaS infra
+Kiwify,Brazil,sub_acquirer,kiwify.com.br,confirmed,BCB IP registry + manual,Creator/checkout sub-acquirer
+DMCard,Brazil,payment_institution,vocedm.com.br,likely,BCB IP registry + manual,Private label cards / acquirer
+PagueVeloz,Brazil,payment_institution,pagueveloz.com.br,unknown,BCB IP registry + manual,
+Iupi,Brazil,wallet,,likely,BCB IP registry + manual,Teen wallet
+Brasilcard,Brazil,payment_institution,,likely,BCB IP registry + manual,Private label cards / acquirer
+Gowd,Brazil,payment_institution,gowd.com,unknown,BCB IP registry + manual,
+Credi-Shop,Brazil,payment_institution,credishop.com.br,likely,BCB IP registry + manual,Retail private label / acquirer
+ZRO Bank,Brazil,payment_institution,zrobank.com,unknown,BCB IP registry + manual,
+Beeteller,Brazil,payment_institution,beeteller.com,confirmed,BCB IP registry + manual,Cross-border LATAM payments
+Attrus,Brazil,payment_institution,attrus.com,unknown,BCB IP registry + manual,
+PagPrime,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Asaas,Brazil,sub_acquirer,asaas.com,confirmed,BCB IP registry + manual,SMB sub-acquirer + digital bank
+ContaPronta,Brazil,payment_institution,contapronta.com.br,unknown,BCB IP registry + manual,
+Cooper Benefícios,Brazil,payment_institution,coopercard.com.br,likely,BCB IP registry + manual,Benefits cards
+Google Pay Brasil,Brazil,wallet,pay.google.com,confirmed,BCB IP registry + manual,Wallet
+Max IP,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Valecard,Brazil,payment_institution,valecard.com.br,confirmed,BCB IP registry + manual,Fleet/benefits cards
+LocalPayment,Brazil,payment_institution,localpayment.com,confirmed,BCB IP registry + manual,Cross-border LATAM acquirer
+3xPay,Brazil,payment_institution,3xpay.co,unknown,BCB IP registry + manual,
+Vero (Banrisul),Brazil,acquirer,verocartoes.com.br,confirmed,BCB IP registry + manual,Banrisul-owned multi-network acquirer
+ContaAzul Pay,Brazil,sub_acquirer,contaazul.com,confirmed,BCB IP registry + manual,SaaS-bundled SMB payments
+Mag IP,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Monery,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Onnibank (V3),Brazil,payment_institution,onnibank.com.br,unknown,BCB IP registry + manual,
+Reag IP,Brazil,payment_institution,reagip.com.br,unknown,BCB IP registry + manual,
+Edenred Brasil (Ticket),Brazil,payment_institution,edenredpay.com.br,confirmed,BCB IP registry + manual,Benefits + acquiring
+Brasil Cash,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+MentoreBank,Brazil,payment_institution,mentorebank.com.br,unknown,BCB IP registry + manual,
+Mercado Pago Brasil,Brazil,acquirer,mercadopago.com.br,confirmed,BCB IP registry + manual,MercadoLibre payments arm
+Stripe Brasil,Brazil,acquirer,stripe.com,confirmed,BCB IP registry + manual,Global acquirer + IP licensed in BR
+PagBrasil,Brazil,acquirer,pagbrasil.com,confirmed,BCB IP registry + manual,PIX + boleto + cards acquirer
+Lend,Brazil,payment_institution,lend.tech,unknown,BCB IP registry + manual,
+Afinz,Brazil,payment_institution,afinz.com.br,likely,BCB IP registry + manual,Private label cards / acquirer
+Pay.com.br,Brazil,payment_institution,pay.com.br,unknown,BCB IP registry + manual,
+Cielo,Brazil,acquirer,cielo.com.br,confirmed,BCB IP registry + manual,"Largest Brazilian acquirer, Bradesco-controlled"
+Galax Pay,Brazil,sub_acquirer,galaxpay.com.br,confirmed,BCB IP registry + manual,Recurring billing sub-acquirer
+Pagbrasil Tecnologia,Brazil,payment_institution,,likely,BCB IP registry,Licensed Instituição de Pagamento; acquiring inferred
+Celcoin,Brazil,payment_institution,celcoin.com.br,confirmed,BCB IP registry + manual,BaaS + acquiring infrastructure
+Crystal BMC,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Blu Pagamentos,Brazil,sub_acquirer,useblu.com.br,confirmed,BCB IP registry + manual,B2B sub-acquirer
+ShopeePay (Maree),Brazil,wallet,shopee.com.br,confirmed,BCB IP registry + manual,Shopee wallet
+SafetyPay Brasil,Brazil,payment_institution,safetypay.com,confirmed,BCB IP registry + manual,Online bank-transfer acquirer
+MagaluPay,Brazil,wallet,magalupay.com.br,confirmed,BCB IP registry + manual,Magazine Luiza wallet/acquirer
+Dock,Brazil,payment_institution,dock.tech,confirmed,BCB IP registry + manual,BaaS + card processor + acquiring infra
+Vue IP,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Solver IP,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Grupo Eagle,Brazil,payment_institution,grupo-eagle.com,unknown,BCB IP registry + manual,
+MrPay,Brazil,payment_institution,mrpay.com.br,unknown,BCB IP registry + manual,
+Pinbank Brasil,Brazil,payment_institution,pinbank.com.br,confirmed,BCB IP registry + manual,White-label acquirer / BaaS
+BK IP,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+SSG Bank,Brazil,payment_institution,ssgbank.com.br,unknown,BCB IP registry + manual,
+Quanto,Brazil,payment_institution,quan.to,confirmed,BCB IP registry + manual,Open finance infra
+Issuer IP,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+OneKey Payments,Brazil,payment_institution,onekeypayments.com,unknown,BCB IP registry + manual,
+Inter Pag,Brazil,payment_institution,bancointer.com.br,likely,BCB IP registry + manual,Banco Inter payments arm
+Credsystem,Brazil,payment_institution,credsystem.com.br,likely,BCB IP registry + manual,Private label cards / acquirer
+PagCerto,Brazil,sub_acquirer,pagcerto.com.br,confirmed,BCB IP registry + manual,SMB POS + e-com sub-acquirer
+CooperCard,Brazil,payment_institution,coopercard.com.br,likely,BCB IP registry + manual,Cooperative card / acquirer
+Repom (Edenred),Brazil,payment_institution,edenredmobilidade.com.br,confirmed,BCB IP registry + manual,Trucker/freight payments
+CloudWalk / InfinitePay,Brazil,acquirer,cloudwalk.io,confirmed,BCB IP registry + manual,"AI-driven SMB acquirer, brand: InfinitePay"
+Friday IP,Brazil,payment_institution,friday-ip.com.br,unknown,BCB IP registry + manual,
+Efex,Brazil,payment_institution,efex.finance,unknown,BCB IP registry + manual,
+Muevy,Brazil,payment_institution,muevy.com,unknown,BCB IP registry + manual,
+NSTech (eFrete),Brazil,payment_institution,efrete.com.br,likely,BCB IP registry + manual,Logistics payments
+MT IP,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Sem Parar,Brazil,payment_institution,semparar.com.br,confirmed,BCB IP registry + manual,Toll/fuel cards
+Transfero,Brazil,payment_institution,transfero.com,likely,BCB IP registry + manual,Crypto-fiat payments
+BS2 Payments,Brazil,payment_institution,bs2.com,likely,BCB IP registry + manual,Banco BS2 payments arm
+NAIP,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Omie Pay,Brazil,sub_acquirer,omie.com.br,confirmed,BCB IP registry + manual,ERP-embedded sub-acquirer
+Pagaré,Brazil,payment_institution,pagare.app,unknown,BCB IP registry + manual,
+PagHiper,Brazil,sub_acquirer,paghiper.com,confirmed,BCB IP registry + manual,Boleto + PIX sub-acquirer
+Inovanti,Brazil,payment_institution,inovanti.com.br,unknown,BCB IP registry + manual,
+Claro Pay,Brazil,wallet,claropay.com.br,likely,BCB IP registry + manual,América Móvil wallet
+Crypto.com Brasil,Brazil,payment_institution,crypto.com,likely,BCB IP registry + manual,Crypto wallet/payments
+Adyen Brasil,Brazil,acquirer,adyen.com,confirmed,BCB IP registry + manual,Dutch global acquirer with BR license
+SumUp Brasil,Brazil,acquirer,sumup.com.br,confirmed,BCB IP registry + manual,European SMB POS acquirer
+SouListo,Brazil,payment_institution,soulisto.com.br,unknown,BCB IP registry + manual,
+Tbanks,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+PagSeguro / PagBank,Brazil,acquirer,pagseguro.com.br,confirmed,BCB IP registry + manual,NYSE-listed acquirer + digital bank
+Swap,Brazil,payment_institution,swap.financial,confirmed,BCB IP registry + manual,Card issuing + PIX infra
+Pay4Fun,Brazil,payment_institution,p4f.com,confirmed,BCB IP registry + manual,Gaming/iGaming acquirer
+Iugu,Brazil,sub_acquirer,iugu.com,confirmed,BCB IP registry + manual,Online sub-acquirer for SMB/SaaS
+Getnet,Brazil,acquirer,getnet.com.br,confirmed,BCB IP registry + manual,Santander-owned acquirer
+RecargaPay,Brazil,wallet,recargapay.com.br,confirmed,BCB IP registry + manual,Mobile wallet + acquiring
+Paymee,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+PayPal Brasil,Brazil,acquirer,paypal.com.br,confirmed,BCB IP registry + manual,Online acquirer / wallet
+TrustHub,Brazil,payment_institution,trusthub.com.br,unknown,BCB IP registry + manual,
+RendimentoPay,Brazil,payment_institution,rendimentopay.com.br,unknown,BCB IP registry + manual,
+Brinks Pay,Brazil,payment_institution,brinks.com.br,likely,BCB IP registry + manual,Cash + digital payments
+Sispay,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Neon,Brazil,digital_bank,neon.com.br,confirmed,BCB IP registry + manual,Digital bank w/ acquiring
+Z1,Brazil,wallet,,likely,BCB IP registry + manual,Teen wallet
+Idea Maker IP,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Stone,Brazil,acquirer,stone.com.br,confirmed,BCB IP registry + manual,Public NASDAQ acquirer SMB focus
+Cappta,Brazil,sub_acquirer,cappta.com.br,confirmed,BCB IP registry + manual,White-label POS / sub-acquirer
+Lina OpenX,Brazil,payment_institution,linaopenx.com.br,confirmed,BCB IP registry + manual,Open finance / PIX initiation
+Wise Brasil,Brazil,payment_institution,wise.com,confirmed,BCB IP registry + manual,Cross-border remittance
+Roadcard,Brazil,payment_institution,roadcard.com.br,confirmed,BCB IP registry + manual,Fleet/logistics payments
+Klavi,Brazil,payment_institution,klavi.ai,confirmed,BCB IP registry + manual,Open finance + payments
+Acesso / Bankly,Brazil,payment_institution,bankly.com.br,confirmed,BCB IP registry + manual,BaaS + acquiring
+Worldpay Brasil,Brazil,acquirer,worldpay.com,confirmed,BCB IP registry + manual,Global Payments-owned post-2026 acquisition
+Mercado Bitcoin Pay,Brazil,payment_institution,mercadobitcoin.com.br,likely,BCB IP registry + manual,Crypto acquirer
+Swile Brasil (ex-VR),Brazil,payment_institution,swile.co,confirmed,BCB IP registry + manual,Benefits + acquiring
+Cumbuca,Brazil,wallet,,likely,BCB IP registry + manual,P2P wallet
+Pagsmile,Brazil,payment_institution,pagsmile.com,confirmed,BCB IP registry + manual,Cross-border LATAM acquirer
+Nubank,Brazil,digital_bank,nubank.com.br,confirmed,BCB IP registry + manual,"Largest LATAM neobank, NuPagamentos IP"
+Boku Brasil,Brazil,payment_institution,boku.com,confirmed,BCB IP registry + manual,Carrier billing + PIX acquirer
+Protege Cash,Brazil,payment_institution,paycashprotege.com.br,likely,BCB IP registry + manual,Cash + digital payments
+SuperBidPay,Brazil,payment_institution,superbidpay.com.br,unknown,BCB IP registry + manual,
+Finnet,Brazil,payment_institution,finnet.com.br,confirmed,BCB IP registry + manual,B2B payments / cobrança
+Apus Digital,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Ewally,Brazil,wallet,ewally.com.br,confirmed,BCB IP registry + manual,Wallet + payments
+Cactvs,Brazil,payment_institution,cactvs.com.br,confirmed,BCB IP registry + manual,White-label payments processor
+Zimpler Brasil,Brazil,payment_institution,zimpler.com,confirmed,BCB IP registry + manual,Bank-transfer acquirer
+Pomelo Brasil,Brazil,payment_institution,pomelo.la,confirmed,BCB IP registry + manual,Card issuing infra LATAM
+Pluxee Brasil (ex-Sodexo),Brazil,payment_institution,pluxee.com.br,confirmed,BCB IP registry + manual,Benefits/voucher acquirer
+Infinia,Brazil,payment_institution,infiniaweb.com,unknown,BCB IP registry + manual,
+PicPay,Brazil,wallet,picpay.com,confirmed,BCB IP registry + manual,"Top-7 BCB financial institution, P2P + merchant pay"
+Unlimit Brasil,Brazil,payment_institution,unlimit.com,confirmed,BCB IP registry + manual,Global acquirer
+B3 IP,Brazil,payment_institution,b3.com.br,unknown,BCB IP registry + manual,Exchange-owned IP
+Bitso (NVIO),Brazil,payment_institution,bitso.com,confirmed,BCB IP registry + manual,Crypto + fiat payments
+Biz Pagamentos,Brazil,sub_acquirer,biz.com.br,confirmed,BCB IP registry + manual,SMB sub-acquirer
+Aarin,Brazil,payment_institution,aarin.com.br,likely,BCB IP registry + manual,B2B payments infra
+Nuvei Brasil,Brazil,payment_institution,nuvei.com,confirmed,BCB IP registry + manual,Global acquirer via Pay2All license
+Rede (Itaú),Brazil,acquirer,userede.com.br,confirmed,BCB IP registry + manual,"Itaú-owned acquirer, #2 market share"
+FeatBank (Festor),Brazil,payment_institution,featbank.com.br,unknown,BCB IP registry + manual,
+Clara,Brazil,payment_institution,clara.com,confirmed,BCB IP registry + manual,"Corporate cards (Mexico HQ, BR ops)"
+dLocal Brasil,Brazil,acquirer,dlocal.com,confirmed,BCB IP registry + manual,Cross-border LATAM acquirer
+99Pay,Brazil,wallet,99app.com,confirmed,BCB IP registry + manual,"99/DiDi mobility wallet, acquirer license"
+Bullla,Brazil,payment_institution,bullla.com.br,likely,BCB IP registry + manual,Private-label cards
+Fiserv Brasil,Brazil,payment_institution,fiserv.com,confirmed,BCB IP registry + manual,Bin acquirer (legacy First Data)
+Strada Pay,Brazil,payment_institution,strada.log.br,unknown,BCB IP registry + manual,
+Woovi,Brazil,payment_institution,woovi.com,confirmed,BCB IP registry + manual,PIX checkout / acquiring
+Flash,Brazil,payment_institution,flashapp.com.br,confirmed,BCB IP registry + manual,Benefits + corporate cards
+Belvo,Brazil,payment_institution,belvo.com,confirmed,BCB IP registry + manual,Open finance + PIX initiation
+Partner IP,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+LB Pay,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+PR do Brasil,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Stark Bank,Brazil,payment_institution,starkbank.com,confirmed,BCB IP registry + manual,B2B PIX + payments API
+Liquido (LP do Brasil),Brazil,payment_institution,liquido.com,confirmed,BCB IP registry + manual,LATAM acquirer
+NG Cash,Brazil,wallet,ng.cash,likely,BCB IP registry + manual,Teen wallet
+GreenPass,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Meta Pagamentos Brasil,Brazil,payment_institution,meta.com,likely,BCB IP registry + manual,WhatsApp Pay infrastructure
+Pluggy,Brazil,payment_institution,pluggy.ai,confirmed,BCB IP registry + manual,Open finance + payments
+ACG IP,Brazil,payment_institution,acgsa.com.br,unknown,BCB IP registry + manual,
+Maps IP,Brazil,payment_institution,mapsip.com.br,unknown,BCB IP registry + manual,
+Treeal (Prototype),Brazil,payment_institution,treeal.com,unknown,BCB IP registry + manual,
+Empresa Brasileira De Beneficios E Pagamentos,Brazil,payment_institution,caju.com.br,likely,BCB IP registry,Licensed Instituição de Pagamento; acquiring inferred
+AstroPay Brasil,Brazil,wallet,astropay.com,confirmed,BCB IP registry + manual,LATAM wallet/acquirer
+BEES Bank (AB InBev),Brazil,payment_institution,beesbank.com.br,likely,BCB IP registry + manual,Ambev B2B payments
+Airwallex Brasil,Brazil,payment_institution,airwallex.com,confirmed,BCB IP registry + manual,Global cross-border acquirer
+Casas Bahia Pay / banQi,Brazil,wallet,banqi.com.br,confirmed,BCB IP registry + manual,Via Varejo retail wallet/acquirer
+FitBank,Brazil,payment_institution,fitbank.com.br,confirmed,BCB IP registry + manual,BaaS + PIX infra
+NuPay for Business,Brazil,payment_institution,nubank.com.br,likely,BCB IP registry + manual,Nubank B2B acquiring arm
+Flagship,Brazil,payment_institution,ipflagship.com.br,unknown,BCB IP registry + manual,
+Datanomik Brasil,Brazil,payment_institution,datanomik.com,likely,BCB IP registry + manual,Open finance / payments
+Iniciador,Brazil,payment_institution,iniciador.com.br,confirmed,BCB IP registry + manual,PIX payment initiator (ITP)
+Okto Pay,Brazil,payment_institution,oktopay.com.br,confirmed,BCB IP registry + manual,Gaming/cash payments
+Villela IP,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+WePayments,Brazil,payment_institution,wepayments.com.br,likely,BCB IP registry + manual,Payouts acquirer
+Senff,Brazil,payment_institution,senff.com.br,likely,BCB IP registry + manual,Cards + acquiring
+Trio,Brazil,payment_institution,trio.com.br,unknown,BCB IP registry + manual,
+Transfeera,Brazil,payment_institution,transfeera.com,confirmed,BCB IP registry + manual,PIX + TED payouts infra
+Pay Brokers,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+EBANX,Brazil,acquirer,ebanx.com,confirmed,BCB IP registry + manual,Cross-border LATAM acquirer
+Tycoon Technology,Brazil,payment_institution,,unknown,BCB IP registry + manual,
+Banco Afinz,Brazil,bank,afinz.com.br,likely,BCB banks registry + manual,Private-label cards bank
+Banestes,Brazil,bank,banestes.com.br,likely,BCB banks registry + manual,Espírito Santo state bank
+Banco Moneo,Brazil,bank,bancomoneo.com.br,unknown,BCB banks registry + manual,
+Banco Topázio,Brazil,bank,bancotopazio.com.br,unknown,BCB banks registry + manual,
+Banco Triângulo (Tribanco),Brazil,bank,tribanco.com.br,confirmed,BCB banks registry + manual,"Martins group bank, Tricard acquirer"
+Banco Do Estado De Sergipe,Brazil,bank,banese.com.br,unknown,BCB banks registry,BR multiple/commercial bank
+Digio,Brazil,digital_bank,digio.com.br,likely,BCB banks registry + manual,Bradesco-owned digital bank
+Banco Arbi,Brazil,bank,bancoarbi.com.br,unknown,BCB banks registry + manual,
+Banco do Brasil,Brazil,bank,bb.com.br,confirmed,BCB banks registry + manual,Cielo co-owner; merchant acquiring via Cielo
+Banco do Nordeste,Brazil,bank,bnb.gov.br,unknown,BCB banks registry + manual,Regional development bank
+Agibank,Brazil,digital_bank,agibank.com.br,likely,BCB banks registry + manual,Digital bank w/ POS partnership
+Banpará,Brazil,bank,banpara.b.br,likely,BCB banks registry + manual,Pará state bank
+Social Bank,Brazil,bank,socialbank.com.br,likely,BCB banks registry + manual,Digital bank
+Banco Ribeirão Preto,Brazil,bank,brp.com.br,unknown,BCB banks registry + manual,
+Banco Semear,Brazil,bank,bancosemear.com.br,unknown,BCB banks registry + manual,
+Banco DigiMais,Brazil,digital_bank,bancodigimais.com.br,unknown,BCB banks registry + manual,
+Banco Randon,Brazil,bank,bancorandon.com,unknown,BCB banks registry + manual,
+Banco Genial,Brazil,bank,genial.com.vc,unknown,BCB banks registry + manual,Investment bank
+Sicoob (Banco Cooperativo),Brazil,bank,sicoob.com.br,confirmed,BCB banks registry + manual,"Largest BR credit-coop, Sicoob Pagamentos acquirer"
+Banco da Amazônia,Brazil,bank,bancoamazonia.com.br,unknown,BCB banks registry + manual,Regional development bank
+Bradesco BBI,Brazil,bank,bradescobbi.com.br,unknown,BCB banks registry + manual,Investment banking arm
+Scania Banco,Brazil,bank,scaniabanco.com.br,unknown,BCB banks registry,BR multiple/commercial bank
+Banco BS2,Brazil,digital_bank,bs2.com,likely,BCB banks registry + manual,Digital bank + payments
+HSBC Brasil,Brazil,bank,hsbc.com.br,unknown,BCB banks registry + manual,
+Novo Banco Continental (NBC Bank),Brazil,bank,nbcbank.com.br,unknown,BCB banks registry + manual,Wholesale bank
+BTG Pactual,Brazil,bank,btgpactual.com,confirmed,BCB banks registry + manual,"Investment bank, co-founded Stone"
+BRB - Banco de Brasília,Brazil,bank,brb.com.br,confirmed,BCB banks registry + manual,"DF state bank, BRB Card acquirer"
+Bradesco Financiamentos,Brazil,bank,bradesco.com.br,unknown,BCB banks registry + manual,Bradesco financing arm
+Banco Inter,Brazil,digital_bank,bancointer.com.br,confirmed,BCB banks registry + manual,Digital bank + Inter Pag acquirer
+Banco Do Estado Do Rio Grande Do Sul,Brazil,bank,banrisul.com.br,unknown,BCB banks registry,BR multiple/commercial bank
+Caixa Econômica Federal,Brazil,bank,caixa.gov.br,confirmed,BCB banks registry + manual,"Public bank, POS via Elo/Caixa"
+Kirton Bank (ex-HSBC),Brazil,bank,,unknown,BCB banks registry + manual,
+Banco Mercantil do Brasil,Brazil,bank,mercantil.com.br,likely,BCB banks registry + manual,Recently partnered with Cielo
+Sicredi (Banco Cooperativo),Brazil,bank,sicredi.com.br,confirmed,BCB banks registry + manual,Credit-coop with merchant acquiring
+Banco XP,Brazil,bank,xp.com.br,likely,BCB banks registry + manual,Investment/digital bank
+Bradesco,Brazil,bank,bradesco.com.br,confirmed,BCB banks registry + manual,Cielo controlling shareholder
+Banco Brasileiro De Crédito,Brazil,bank,bancobbcdigital.com.br,unknown,BCB banks registry,BR multiple/commercial bank
+Banco Guanabara,Brazil,bank,bancoguanabara.com.br,unknown,BCB banks registry + manual,
+Banco Rodobens,Brazil,bank,rodobensbanco.com.br,unknown,BCB banks registry + manual,Auto financing
+Crefisa,Brazil,bank,crefisa.com.br,likely,BCB banks registry + manual,Consumer finance / cards
+Banco Bandepe,Brazil,bank,santander.com.br,unknown,BCB banks registry + manual,Santander group
+Omni Banco,Brazil,bank,omni.com.br,likely,BCB banks registry + manual,Consumer finance / cards
+Losango,Brazil,bank,losango.com.br,likely,BCB banks registry + manual,Consumer finance / cards
+Banco Sofisa,Brazil,bank,sofisa.com.br,unknown,BCB banks registry + manual,SMB bank
+Banco Tricury,Brazil,bank,bancotricury.com.br,unknown,BCB banks registry + manual,
+Banco Fator,Brazil,bank,fator.com.br,unknown,BCB banks registry + manual,
+Citibank Brasil,Brazil,bank,citibank.com.br,likely,BCB banks registry + manual,"Cards + corporate, sold retail in 2017"
+Banco Paulista,Brazil,bank,bancopaulista.com.br,unknown,BCB banks registry + manual,
+Banco Pine,Brazil,bank,pine.com,unknown,BCB banks registry + manual,Wholesale bank
+Banco Original,Brazil,digital_bank,original.com.br,confirmed,BCB banks registry + manual,Digital bank with merchant pay
+Banco Industrial do Brasil,Brazil,bank,bib.com.br,unknown,BCB banks registry + manual,SMB bank
+Itaubank,Brazil,bank,itau.com.br,unknown,BCB banks registry + manual,
+Banco BV,Brazil,bank,bv.com.br,likely,BCB banks registry + manual,Multi-segment bank
+Banco ABC Brasil,Brazil,bank,abcbrasil.com.br,unknown,BCB banks registry + manual,Wholesale bank
+Banco J. Safra,Brazil,bank,safra.com.br,unknown,BCB banks registry,BR multiple/commercial bank
+Daycoval Leasing,Brazil,bank,daycoval.com.br,unknown,BCB banks registry,BR multiple/commercial bank
+Itaú Unibanco,Brazil,bank,itau.com.br,confirmed,BCB banks registry + manual,Owns Rede (Redecard) — top-2 acquirer
+Banco Luso Brasileiro,Brazil,bank,lusobrasileiro.com.br,unknown,BCB banks registry + manual,
+PicPay Bank,Brazil,digital_bank,picpay.com,confirmed,BCB banks registry + manual,PicPay full bank license
+Santander Brasil,Brazil,bank,santander.com.br,confirmed,BCB banks registry + manual,Owns Getnet acquirer
+Banco Fibra,Brazil,bank,bancofibra.com.br,unknown,BCB banks registry + manual,Middle-market bank
+BancoSeguro (PagSeguro),Brazil,digital_bank,pagseguro.com.br,confirmed,BCB banks registry + manual,PagBank banking arm
+Banco BMG,Brazil,bank,bancobmg.com.br,likely,BCB banks registry + manual,"Bank, partnership w/ C6, payroll loans + cards"
+Banco Alfa,Brazil,bank,bancoalfa.com.br,unknown,BCB banks registry + manual,Private/middle market bank
+C6 Bank,Brazil,digital_bank,c6bank.com.br,confirmed,BCB banks registry + manual,Digital bank with POS/PJ acquiring
+Banco Safra,Brazil,bank,safra.com.br,likely,BCB banks registry + manual,"Private bank, corporate cards"
+Itaú Unibanco Holding,Brazil,bank,itau.com.br,confirmed,BCB banks registry + manual,Holding co. of Itaú Unibanco / Rede
+Banco VR,Brazil,bank,bancovr.com.br,unknown,BCB banks registry + manual,
+Banco Pan,Brazil,digital_bank,bancopan.com.br,likely,BCB banks registry + manual,"Digital bank, BTG-owned"
+Banco Daycoval,Brazil,bank,daycoval.com.br,likely,BCB banks registry + manual,Wholesale bank; potential acquirer add-on
+Andbank Brasil,Brazil,bank,andbank.com.br,unknown,BCB banks registry + manual,Private banking
+Investcred Unibanco,Brazil,bank,itau.com.br,unknown,BCB banks registry + manual,
+Banco De La Nacion Argentina,Brazil,bank,bnabr.com.br,unknown,BCB banks registry,BR multiple/commercial bank
+BMG Soluções Financeiras,Brazil,bank,bancobmg.com.br,unknown,BCB banks registry + manual,BMG payments arm
+Itaucard,Brazil,bank,itau.com.br,confirmed,BCB banks registry + manual,Itaú cards subsidiary
+Ouribank,Brazil,bank,ourinvest.com.br,unknown,BCB banks registry + manual,Wholesale bank
+Banco CSF (Carrefour),Brazil,bank,carrefoursolucoes.com.br,confirmed,BCB banks registry + manual,"Carrefour Soluções, retail bank + cards"
+Banco BMG Consignado,Brazil,bank,bancobmg.com.br,unknown,BCB banks registry + manual,Payroll loans arm
+Banco Rendimento,Brazil,bank,rendimento.com.br,unknown,BCB banks registry + manual,FX/private bank
+Paraná Banco,Brazil,bank,paranabanco.com.br,unknown,BCB banks registry + manual,Payroll loans bank
+Banco Bari,Brazil,bank,bancobari.com.br,unknown,BCB banks registry + manual,Middle-market bank
+Banco RNX,Brazil,bank,bancornx.com.br,unknown,BCB banks registry + manual,
+Banco Senff,Brazil,bank,senff.com.br,confirmed,BCB banks registry + manual,Cards + acquiring
+Banco Sistema,Brazil,bank,btgpactual.com,unknown,BCB banks registry,BR multiple/commercial bank
+Pagar.me,Brazil,sub_acquirer,pagar.me,confirmed,manual,Stone-owned PSP / sub-acquirer
+Mundipagg,Brazil,sub_acquirer,mundipagg.com,confirmed,manual,Stone-owned enterprise gateway
+Braspag,Brazil,sub_acquirer,braspag.com.br,confirmed,manual,Cielo-owned PSP / gateway
+Yapay,Brazil,sub_acquirer,yapay.com.br,confirmed,manual,Locaweb-owned sub-acquirer
+Vindi,Brazil,sub_acquirer,vindi.com.br,confirmed,manual,Locaweb-owned recurring sub-acquirer
+Hotmart,Brazil,sub_acquirer,hotmart.com,confirmed,manual,Creator economy sub-acquirer
+Eduzz,Brazil,sub_acquirer,eduzz.com,confirmed,manual,Creator economy sub-acquirer
+Monetizze,Brazil,sub_acquirer,monetizze.com.br,confirmed,manual,Creator economy sub-acquirer
+Pepper / Conductor,Brazil,payment_institution,conductor.com.br,confirmed,manual,Card processor (now Pepper) BaaS
+Tribanco / Tricard,Brazil,acquirer,tribanco.com.br,confirmed,manual,Martins group acquirer for varejo
+Banese Mobi,Brazil,wallet,banese.com.br,likely,manual,Banese mobile wallet
+Bib Card,Brazil,payment_institution,,unknown,manual,Private-label card processor
+Will Bank,Brazil,digital_bank,willbank.com.br,likely,manual,"Digital bank, ex-Acesso"
+Banco Maxima,Brazil,bank,bancomaxima.com.br,unknown,manual,Wholesale bank
+Méliuz,Brazil,fintech,meliuz.com.br,likely,manual,Cashback + Bankly partnership
+Bemobi,Brazil,fintech,bemobi.com,likely,manual,Mobile payments / carrier billing
+Hub Fintech,Brazil,payment_institution,hubfintech.com.br,confirmed,manual,"BaaS, owned by Magalu"
+NEY Tecnologia,Brazil,fintech,neytecnologia.com.br,unknown,manual,Payments tech
+Trinus Pay,Brazil,sub_acquirer,trinuspay.com.br,likely,manual,Real estate sub-acquirer
+GoBots Pay,Brazil,sub_acquirer,gobots.ai,unknown,manual,
+LinkSale,Brazil,sub_acquirer,linksale.com.br,likely,manual,SMB sub-acquirer
+Nox Pay,Brazil,sub_acquirer,,unknown,manual,
+Safe2Pay,Brazil,sub_acquirer,safe2pay.com.br,likely,manual,PIX + cards sub-acquirer
+PagueComCripto,Brazil,fintech,,unknown,manual,
+Pagoo,Brazil,sub_acquirer,pagoo.com.br,unknown,manual,
+Linio Pay,Brazil,sub_acquirer,,unknown,manual,
+Spendesk Brasil,Brazil,fintech,spendesk.com,likely,manual,Corporate cards / expense
+Conta Simples,Brazil,fintech,contasimples.com,confirmed,manual,Corporate cards + payments for SMB
+Cora,Brazil,digital_bank,cora.com.br,confirmed,manual,PJ digital bank + payments
+Linker,Brazil,digital_bank,linkerbank.com.br,unknown,manual,PJ digital bank
+Z1 Bank,Brazil,digital_bank,z1.com.vc,likely,manual,Teen bank
+Olé Consignado,Brazil,bank,oleconsignado.com.br,unknown,manual,Payroll loan bank
+Mais Bank,Brazil,digital_bank,maisbank.com.br,unknown,manual,
+CSU CardSystem,Brazil,payment_institution,csu.com.br,confirmed,manual,Card processor + BPO
+Valid,Brazil,payment_institution,valid.com,confirmed,manual,Card manufacturer + processor
+Thales Brasil,Brazil,payment_institution,thalesgroup.com,likely,manual,Card / SIM manufacturer
+Idemia Brasil,Brazil,payment_institution,idemia.com,likely,manual,Card / biometrics
+Linx Pay,Brazil,sub_acquirer,linx.com.br,confirmed,manual,Stone-owned retail POS/sub-acquirer
+Tcs / Sinqia (Evertec),Brazil,payment_institution,sinqia.com.br,likely,manual,Card processor / acquired by Evertec
+GoCash,Brazil,wallet,,unknown,manual,
+Bin Card,Brazil,payment_institution,,unknown,manual,Private label cards
+Cartão Riachuelo,Brazil,payment_institution,cartaoriachuelo.com.br,confirmed,manual,Riachuelo private label / acquiring
+Cartão Marisa,Brazil,payment_institution,marisa.com.br,likely,manual,Marisa private-label cards
+Cartão Renner,Brazil,payment_institution,lojasrenner.com.br,confirmed,manual,Renner private-label + Realize CFI
+Realize CFI (Renner),Brazil,payment_institution,realizecfi.com.br,confirmed,manual,Renner financial arm
+Pernambucanas Financial,Brazil,payment_institution,pernambucanas.com.br,likely,manual,Retail finance + cards
+Banco Bradesco BERJ,Brazil,bank,bradesco.com.br,unknown,manual,Bradesco group
+Banco Yamaha Servicos Financeiros,Brazil,bank,yamahaservicosfinanceiros.com.br,unknown,manual,

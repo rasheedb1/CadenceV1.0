@@ -7,10 +7,11 @@
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { AgentConfig } from '../types.js';
+import { pickUrl } from '../utils/env-url.js';
 
-const SB_URL = process.env.SUPABASE_URL || 'https://arupeqczrxmfkcbjwyad.supabase.co';
+const SB_URL = pickUrl(process.env.SUPABASE_URL, 'https://arupeqczrxmfkcbjwyad.supabase.co');
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.AUTH_TOKEN || '';
-const BRIDGE_URL = process.env.BRIDGE_URL || process.env.BRIDGE_PUBLIC_URL || 'https://twilio-bridge-production-241b.up.railway.app';
+const BRIDGE_URL = pickUrl(process.env.BRIDGE_URL, process.env.BRIDGE_PUBLIC_URL, 'https://bridge.yuno.tools');
 
 async function getFreshSfToken(orgId: string): Promise<{ token: string; instanceUrl: string } | { error: string }> {
   try {
@@ -189,22 +190,28 @@ Custom fields use __c suffix (e.g. Blockers__c, MRR__c, TAR__c, AnnualRevenue__c
     {
       opportunity_id: z.string().describe('Salesforce Opportunity ID (18-char, e.g. "006Hu00000XxYyZz")'),
       fields: z.record(z.any()).describe('Fields to update as key-value pairs. Examples: {"StageName":"Closed Won","Amount":50000,"NextStep":"Sign contract","Description":"Updated notes"}'),
+      if_unmodified_since: z.string().optional().describe('Optional RFC1123 date (e.g. "Mon, 12 May 2026 14:55:00 GMT") from a recent LastModifiedDate read. SF returns 412 Precondition Failed if the record was modified after this timestamp — use to prevent overwriting concurrent edits.'),
     },
-    async ({ opportunity_id, fields }) => {
+    async ({ opportunity_id, fields, if_unmodified_since }: { opportunity_id: string; fields: Record<string, any>; if_unmodified_since?: string }) => {
       const t = await getFreshSfToken(agent.orgId);
       if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
       try {
+        const headers: Record<string, string> = {};
+        if (if_unmodified_since) headers['If-Unmodified-Since'] = if_unmodified_since;
         await sfApiFetch(`/sobjects/Opportunity/${opportunity_id}`, t.token, t.instanceUrl, {
           method: 'PATCH',
+          headers,
           body: JSON.stringify(fields),
         });
         const fieldList = Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join(', ');
         return { content: [{ type: 'text' as const, text: `✅ Opportunity updated: ${fieldList}` }] };
       } catch (e: any) {
         const msg = e.message || '';
-        // Detect required field errors and return helpful message
         if (msg.includes('REQUIRED_FIELD_MISSING') || msg.includes('FIELD_CUSTOM_VALIDATION_EXCEPTION')) {
           return { content: [{ type: 'text' as const, text: `❌ Update blocked — required fields missing:\n${msg}\n\nAsk the user which values to set for the missing fields, then retry with those fields included.` }] };
+        }
+        if (msg.includes('412') || /precondition/i.test(msg)) {
+          return { content: [{ type: 'text' as const, text: `❌ Concurrent edit detected (412 Precondition Failed). Opportunity was modified after your read. Re-fetch and retry.` }] };
         }
         return { content: [{ type: 'text' as const, text: `Salesforce update error: ${msg}` }] };
       }
@@ -341,5 +348,59 @@ Custom fields use __c suffix (e.g. Blockers__c, MRR__c, TAR__c, AnnualRevenue__c
     },
   );
 
-  return [searchAccounts, pushLead, syncAccount, searchOpportunities, sfQuery, updateOpportunity, createOpportunity, getContacts, logActivity];
+  // === Phase 0 schema introspection (Paula SF Pipeline) ===
+  const describeObject = tool(
+    'sf_describe_object',
+    'Introspect a Salesforce sObject schema. Returns all fields with name, label, type, length, updateable, custom, extraTypeInfo, htmlFormatted. Use to discover API names + lengths before writing to custom fields.',
+    {
+      object: z.string().describe('sObject API name (e.g. "Opportunity", "Account", "Contact")'),
+    },
+    async ({ object }) => {
+      const t = await getFreshSfToken(agent.orgId);
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        const data = await sfApiFetch(`/sobjects/${encodeURIComponent(object)}/describe`, t.token, t.instanceUrl);
+        const fields = (data.fields || []).map((f: any) => ({
+          name: f.name,
+          label: f.label,
+          type: f.type,
+          length: f.length,
+          updateable: f.updateable,
+          custom: f.custom,
+          extraTypeInfo: f.extraTypeInfo,
+          htmlFormatted: f.htmlFormatted,
+        }));
+        return { content: [{ type: 'text' as const, text: `Object ${object}: ${fields.length} fields\n\n${JSON.stringify(fields, null, 2).substring(0, 30000)}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Describe error: ${e.message}` }] };
+      }
+    },
+  );
+
+  const toolingQuery = tool(
+    'sf_tooling_query',
+    'Run a SOQL query against the Salesforce Tooling API (separate endpoint from sf_query). Use for FieldDefinition, FlowDefinition, FlowDefinitionView, EntityDefinition, ApexClass, etc — metadata objects not available via standard SOQL.',
+    {
+      soql: z.string().describe('Tooling-API SOQL (e.g. "SELECT QualifiedApiName, IsHistoryTracked FROM FieldDefinition WHERE EntityDefinition.QualifiedApiName=\'Opportunity\'")'),
+    },
+    async ({ soql }) => {
+      const t = await getFreshSfToken(agent.orgId);
+      if ('error' in t) return { content: [{ type: 'text' as const, text: t.error }] };
+      try {
+        // Tooling API endpoint differs only in path: /tooling/query vs /query
+        const res = await fetch(`${t.instanceUrl}/services/data/v59.0/tooling/query?q=${encodeURIComponent(soql)}`, {
+          headers: { Authorization: `Bearer ${t.token}` },
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.[0]?.message || JSON.stringify(data).substring(0, 300));
+        const records = data.records || [];
+        if (records.length === 0) return { content: [{ type: 'text' as const, text: 'No records found.' }] };
+        return { content: [{ type: 'text' as const, text: `${records.length} records (Tooling API):\n\n${JSON.stringify(records.slice(0, 30), null, 2).substring(0, 8000)}` }] };
+      } catch (e: any) {
+        return { content: [{ type: 'text' as const, text: `Tooling SOQL error: ${e.message}` }] };
+      }
+    },
+  );
+
+  return [searchAccounts, pushLead, syncAccount, searchOpportunities, sfQuery, updateOpportunity, createOpportunity, getContacts, logActivity, describeObject, toolingQuery];
 }

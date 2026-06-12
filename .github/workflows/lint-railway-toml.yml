@@ -1,0 +1,37 @@
+name: Lint railway.toml
+
+# Catches the regression that broke bridge + Chief_Agents builds for a week:
+# a "Dockerfile" added at repo root made `dockerfilePath = "Dockerfile"` in
+# subdir railway.toml files resolve to the wrong file. Each service's
+# railway.toml must spell its Dockerfile path absolute from repo root.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/railway.toml'
+      - '.github/workflows/lint-railway-toml.yml'
+  pull_request:
+    paths:
+      - '**/railway.toml'
+
+jobs:
+  validate-dockerfile-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate dockerfilePath in subdir railway.toml files
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r f; do
+            if [ "$f" = "./railway.toml" ]; then continue; fi
+            line=$(grep -E '^[[:space:]]*dockerfilePath[[:space:]]*=' "$f" || true)
+            if [ -z "$line" ]; then continue; fi
+            path=$(echo "$line" | sed -E 's/^[^=]*=[[:space:]]*"([^"]+)".*$/\1/')
+            if [[ "$path" != */* ]]; then
+              echo "::error file=$f::dockerfilePath=\"$path\" must be absolute from repo root (e.g. \"openclaw/bridge/Dockerfile\"). Bare \"Dockerfile\" collides with the repo-root Dockerfile and breaks Railway builds."
+              fail=1
+            fi
+          done < <(find . -name 'railway.toml' -not -path '*/node_modules/*')
+          exit "$fail"

@@ -21,11 +21,14 @@ serve(async (req: Request) => {
     const { code, state } = await req.json()
     if (!code) return errorResponse('Missing authorization code', 400)
 
-    // Validate state parameter and extract code_verifier for PKCE
+    // Validate state parameter and extract code_verifier for PKCE.
+    // State is base64url-encoded; convert back to standard base64 before atob.
     let codeVerifier = ''
     if (state) {
       try {
-        const decoded = JSON.parse(atob(state))
+        const b64 = state.replace(/-/g, '+').replace(/_/g, '/')
+        const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4)
+        const decoded = JSON.parse(atob(padded))
         if (decoded.orgId !== ctx.orgId || decoded.userId !== ctx.userId) {
           return errorResponse('State mismatch — possible CSRF', 400)
         }
@@ -58,6 +61,31 @@ serve(async (req: Request) => {
     if (!tokenResponse.ok) {
       const err = await tokenResponse.text()
       console.error('Salesforce token exchange failed:', err)
+
+      // Idempotency fallback: if a sibling call (StrictMode remount, retry, etc.)
+      // already exchanged this same authorization code and saved the connection,
+      // SF will reject our call with invalid_grant. Treat that as success if we
+      // can see a fresh connection for this org.
+      const supabase = createSupabaseClient()
+      const sixtySecondsAgo = new Date(Date.now() - 60_000).toISOString()
+      const { data: recent } = await supabase
+        .from('salesforce_connections')
+        .select('sf_username, instance_url, connected_at')
+        .eq('org_id', ctx.orgId)
+        .eq('is_active', true)
+        .gte('connected_at', sixtySecondsAgo)
+        .maybeSingle()
+
+      if (recent) {
+        console.log('Token exchange failed but a fresh connection exists — returning success (idempotent)')
+        return jsonResponse({
+          success: true,
+          sfUsername: recent.sf_username,
+          instanceUrl: recent.instance_url,
+          duplicate: true,
+        })
+      }
+
       return errorResponse(`Token exchange failed: ${err}`, 400)
     }
 

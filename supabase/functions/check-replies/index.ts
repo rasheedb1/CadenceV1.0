@@ -9,6 +9,53 @@ import { createSupabaseClient, logActivity } from '../_shared/supabase.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
+// Opt-out detector. Matches common English + Spanish opt-out phrases.
+// Conservative on false positives — "stop sending me deals" or quoted older
+// content shouldn't trigger, but explicit "please unsubscribe me" / "do not
+// contact me" / "remove me from your list" / "no me contactes mas" should.
+const UNSUBSCRIBE_PATTERNS: RegExp[] = [
+  /\bunsubscribe\b/i,
+  /\bopt[\s-]?out\b/i,
+  /\bremove me (from|of)\b/i,
+  /\btake me off\b/i,
+  /\bdo not (contact|email|message) me\b/i,
+  /\bdo not reach out\b/i,
+  /\bstop (emailing|contacting|messaging) me\b/i,
+  /\bno more emails\b/i,
+  /\bplease (stop|don'?t) (contact|email|message)\b/i,
+  /\b(eliminame|borrame|sacame) (de|del)\b/i,
+  /\bno me contact(e|en|es)\b/i,
+  /\bno me escrib(as|an)\b/i,
+  /\bno me mand(es|en) (mas|nada)\b/i,
+  /\bdejen? de (contactarme|escribirme|enviarme)\b/i,
+]
+
+function isUnsubscribeRequest(text: string | null | undefined): boolean {
+  if (!text) return false
+  const sample = text.slice(0, 1500)
+  return UNSUBSCRIBE_PATTERNS.some(rx => rx.test(sample))
+}
+
+async function markLeadDoNotContact(
+  supabase: ReturnType<typeof createSupabaseClient>,
+  leadId: string,
+  source: 'linkedin' | 'email',
+  preview: string,
+) {
+  try {
+    await supabase
+      .from('leads')
+      .update({
+        do_not_contact: true,
+        do_not_contact_reason: `opt-out detected via ${source}: ${preview.slice(0, 200)}`,
+        do_not_contact_at: new Date().toISOString(),
+      })
+      .eq('id', leadId)
+  } catch (err) {
+    console.warn(`[check-replies] markLeadDoNotContact failed for lead ${leadId}: ${(err as Error).message}`)
+  }
+}
+
 serve(async (req: Request) => {
   const corsResponse = handleCors(req)
   if (corsResponse) return corsResponse
@@ -134,19 +181,31 @@ serve(async (req: Request) => {
 
           // 4. Create notification
           const replyPreview = (latestReply.text || '').substring(0, 200)
+
+          // 4a. Opt-out detection — if the message contains unsubscribe-style
+          // language, flag the lead do_not_contact so future cadences skip them
+          // entirely (cadence is already paused above; this prevents re-add).
+          const optedOut = isUnsubscribeRequest(latestReply.text)
+          if (optedOut) {
+            await markLeadDoNotContact(supabase, conv.lead_id, 'linkedin', latestReply.text || '')
+            console.log(`[check-replies] LinkedIn opt-out detected for lead ${conv.lead_id}`)
+          }
           await supabase.from('notifications').insert({
             owner_id: conv.owner_id,
             org_id: conv.org_id,
             lead_id: conv.lead_id,
             cadence_id: cadenceIds[0] || null,
-            type: 'reply_detected',
-            title: `${leadName} respondio!`,
-            body: `${leadName}${lead?.company ? ` de ${lead.company}` : ''} respondio a tu mensaje por LinkedIn. La cadencia fue pausada automaticamente.`,
+            type: optedOut ? 'opt_out_detected' : 'reply_detected',
+            title: optedOut ? `${leadName} pidio NO contactar` : `${leadName} respondio!`,
+            body: optedOut
+              ? `${leadName}${lead?.company ? ` de ${lead.company}` : ''} pidio ser removido (LinkedIn). Marcado do_not_contact + cadencia pausada.`
+              : `${leadName}${lead?.company ? ` de ${lead.company}` : ''} respondio a tu mensaje por LinkedIn. La cadencia fue pausada automaticamente.`,
             channel: 'linkedin',
             metadata: {
               reply_preview: replyPreview,
               linkedin_thread_id: conv.linkedin_thread_id,
               cadence_ids: cadenceIds,
+              opt_out: optedOut,
             },
           })
 
@@ -156,12 +215,13 @@ serve(async (req: Request) => {
             orgId: conv.org_id,
             cadenceId: cadenceIds[0],
             leadId: conv.lead_id,
-            action: 'reply_detected',
+            action: optedOut ? 'opt_out_detected' : 'reply_detected',
             status: 'ok',
             details: {
               reply_preview: replyPreview,
               linkedin_thread_id: conv.linkedin_thread_id,
               channel: 'linkedin',
+              opt_out: optedOut,
             },
           })
 
@@ -376,9 +436,16 @@ serve(async (req: Request) => {
                 if (inboundReplies.length > 0) {
                   emailRepliesFound++
                   const latestReply = inboundReplies[0]
-                  const replyPreview = (latestReply.body || latestReply.subject || '').substring(0, 200)
+                  const replyText: string = (latestReply.body || latestReply.subject || '')
+                  const replyPreview = replyText.substring(0, 200)
 
                   console.log(`Email reply detected from ${email.to_email} for lead ${email.lead_id}`)
+
+                  const emailOptedOut = isUnsubscribeRequest(replyText)
+                  if (emailOptedOut && email.lead_id) {
+                    await markLeadDoNotContact(supabase, email.lead_id, 'email', replyText)
+                    console.log(`[check-replies] email opt-out detected for lead ${email.lead_id}`)
+                  }
 
                   // Update email status to indicate replied
                   await supabase
@@ -426,15 +493,18 @@ serve(async (req: Request) => {
                     org_id: email.org_id,
                     lead_id: email.lead_id,
                     cadence_id: email.cadence_id,
-                    type: 'reply_detected',
-                    title: `${leadName} respondio a tu correo!`,
-                    body: `${leadName}${lead?.company ? ` de ${lead.company}` : ''} respondio a tu correo "${email.subject}". La cadencia fue pausada automaticamente.`,
+                    type: emailOptedOut ? 'opt_out_detected' : 'reply_detected',
+                    title: emailOptedOut ? `${leadName} pidio NO contactar` : `${leadName} respondio a tu correo!`,
+                    body: emailOptedOut
+                      ? `${leadName}${lead?.company ? ` de ${lead.company}` : ''} pidio ser removido (email "${email.subject}"). Marcado do_not_contact + cadencia pausada.`
+                      : `${leadName}${lead?.company ? ` de ${lead.company}` : ''} respondio a tu correo "${email.subject}". La cadencia fue pausada automaticamente.`,
                     channel: 'email',
                     metadata: {
                       reply_preview: replyPreview,
                       email_subject: email.subject,
                       to_email: email.to_email,
                       cadence_ids: email.cadence_id ? [email.cadence_id] : [],
+                      opt_out: emailOptedOut,
                     },
                   })
 
@@ -444,12 +514,13 @@ serve(async (req: Request) => {
                     orgId: email.org_id,
                     cadenceId: email.cadence_id || undefined,
                     leadId: email.lead_id || undefined,
-                    action: 'reply_detected',
+                    action: emailOptedOut ? 'opt_out_detected' : 'reply_detected',
                     status: 'ok',
                     details: {
                       reply_preview: replyPreview,
                       channel: 'email',
                       subject: email.subject,
+                      opt_out: emailOptedOut,
                     },
                   })
                 }

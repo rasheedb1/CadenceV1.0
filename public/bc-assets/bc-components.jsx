@@ -1,14 +1,129 @@
 /* Business Case Deck — Additional components */
 
-function fmtMoney(v, { compact = true, decimals = 1 } = {}) {
-  if (v >= 1e9) return '$' + (v / 1e9).toFixed(decimals).replace(/\.0$/, '') + 'B';
-  if (v >= 1e6) return '$' + (v / 1e6).toFixed(decimals).replace(/\.0$/, '') + 'M';
-  if (v >= 1e3) return '$' + (v / 1e3).toFixed(0) + 'K';
-  return '$' + Math.round(v).toLocaleString();
+// Currency support. Each slide that receives `data` calls setBCCurrency(data.currency)
+// at its top so fmtMoney picks up the right symbol/suffix without threading currency
+// through ~135 callsites. No FX conversion — the AE enters all amounts in the chosen
+// currency, and that's the unit displayed everywhere.
+const CURRENCY_META = {
+  USD: { symbol: '$',  showCode: false },
+  MXN: { symbol: '$',  showCode: true  },
+  BRL: { symbol: 'R$', showCode: true  },
+  COP: { symbol: '$',  showCode: true  },
+  ARS: { symbol: '$',  showCode: true  },
+  CLP: { symbol: '$',  showCode: true  },
+  PEN: { symbol: 'S/', showCode: true  },
+  EUR: { symbol: '€',  showCode: false },
+  GBP: { symbol: '£',  showCode: false },
+};
+let __bcCurrency = 'USD';
+function setBCCurrency(c) { __bcCurrency = (c && CURRENCY_META[c]) ? c : 'USD'; }
+
+// Drop trailing zeros after the decimal point, e.g. "7.50" -> "7.5", "8.00" -> "8".
+// Integer strings like "100" are left alone.
+function trimZeros(s) {
+  if (!s.includes('.')) return s;
+  return s.replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function fmtMoney(v, { compact = true, decimals = 1, currency } = {}) {
+  const code = currency && CURRENCY_META[currency] ? currency : __bcCurrency;
+  const meta = CURRENCY_META[code] || CURRENCY_META.USD;
+  const sym = meta.symbol;
+  const suffix = meta.showCode ? ' ' + code : '';
+  let body;
+  if (v >= 1e9) body = trimZeros((v / 1e9).toFixed(decimals)) + 'B';
+  else if (v >= 1e6) body = trimZeros((v / 1e6).toFixed(decimals)) + 'M';
+  else if (v >= 1e3) body = trimZeros((v / 1e3).toFixed(decimals)) + 'K';
+  else body = Math.round(v).toLocaleString();
+  return sym + body + suffix;
 }
 function fmtNum(v) { return Math.round(v).toLocaleString(); }
 function fmtPct(v, decimals = 1) { return v.toFixed(decimals) + '%'; }
 function fmtBps(v) { return v.toFixed(0) + ' bps'; }
+// Per-tx rate. 3 decimals so adjacent tramos like 0.085 / 0.090 don't both
+// display as 0.09. Trim a single trailing zero so 0.10 stays as 0.10 (not 0.100).
+function fmtRate(v) {
+  let s = Number(v).toFixed(3);
+  if (s.endsWith('0')) s = s.slice(0, -1);
+  return s;
+}
+// Sub-cent rate display for additional-services slide. Always 4 decimals
+// (e.g. 0.0305) with currency symbol + ISO code suffix when ambiguous.
+function fmtPriceRate(v) {
+  const code = __bcCurrency;
+  const meta = CURRENCY_META[code] || CURRENCY_META.USD;
+  return meta.symbol + Number(v).toFixed(4) + (meta.showCode ? ' ' + code : '');
+}
+
+// Canonical list of additional services. Default prices from the published
+// rate card (USD per approved tx). The form lets the AE toggle each one and
+// override prices; the slide renders enabled ones with the price and disabled
+// ones as "incluido en el pricing".
+const ADDITIONAL_SERVICES = [
+  { id: 'risk_conditions',          defaultPrice: 0.0305 },
+  { id: 'external_3ds_api',         defaultPrice: 0.0207 },
+  { id: 'monitoring_alerts',        defaultPrice: 0.0103 },
+  { id: 'smart_routing',            defaultPrice: 0.0101 },
+  { id: 'network_tokens',           defaultPrice: 0.0150 },
+  { id: 'fraud_prevention_success', defaultPrice: 0.0202 },
+  { id: '3ds_transaction',          defaultPrice: 0.0353 },
+];
+
+// i18n strings for the additional-services slide. Accessed via getServiceI18n(locale).
+const SERVICE_I18N = {
+  es: {
+    title: 'Servicios adicionales',
+    valuesIn: 'valores en',
+    included: 'incluido en el pricing',
+    colService: 'servicio',
+    colDefinition: 'descripción',
+    colPrice: 'precio unitario',
+    items: {
+      risk_conditions:          { name: 'Condiciones de riesgo',                    desc: 'Condiciones específicas bajo las cuales Yuno aplica un fee adicional por riesgo de fraude o comportamiento anómalo.' },
+      external_3ds_api:         { name: 'Llamada API 3DS externo',                  desc: 'Solicitud a un servidor 3DS externo para autenticación, versionado o verificación, sin importar el resultado.' },
+      monitoring_alerts:        { name: 'Monitoreo y alertas',                      desc: 'Monitoreo de transacciones con envío de alertas ante patrones sospechosos o anómalos.' },
+      smart_routing:            { name: 'Smart Routing',                            desc: 'Tecnología Yuno que dirige las transacciones a la red más eficiente y rentable según parámetros operativos.' },
+      network_tokens:           { name: 'Network Tokens',                           desc: 'Solicitudes de tokens generadas por Yuno para pagos a través de redes. Cada solicitud se cobra como una transacción independiente.' },
+      fraud_prevention_success: { name: 'Transacción exitosa (Prevención de fraude)', desc: 'Llamada API exitosa a la plataforma antifraude de partners, sin importar si el motor de fraude acepta o rechaza la transacción.' },
+      '3ds_transaction':        { name: 'Transacción 3DS',                          desc: 'Transacción de pago autenticada con protocolo 3-D Secure.' },
+    },
+  },
+  en: {
+    title: 'Additional services',
+    valuesIn: 'values in',
+    included: 'included in the pricing',
+    colService: 'service',
+    colDefinition: 'definition',
+    colPrice: 'unit price',
+    items: {
+      risk_conditions:          { name: 'Risk conditions',                  desc: 'Specific conditions under which Yuno applies an additional fee due to fraud risk or anomalous behavior.' },
+      external_3ds_api:         { name: 'External 3DS API call',            desc: 'Request made to an external 3DS server for authentication, versioning, or verification, regardless of result.' },
+      monitoring_alerts:        { name: 'Monitoring and alerts',            desc: 'Transaction monitoring with alert sending upon suspicious or anomalous patterns.' },
+      smart_routing:            { name: 'Smart Routing',                    desc: 'Yuno technology that directs transactions to the most efficient and cost-effective network based on operational parameters.' },
+      network_tokens:           { name: 'Network Tokens',                   desc: 'Token requests generated by Yuno for payments through payment networks. Each request is charged as an independent transaction.' },
+      fraud_prevention_success: { name: 'Successful transaction (fraud prevention)', desc: 'Successful API call to partners’ antifraud platform, regardless of whether the fraud engine accepts or rejects the transaction.' },
+      '3ds_transaction':        { name: '3DS transaction',                  desc: 'Payment transaction authenticated with the 3-D Secure protocol.' },
+    },
+  },
+  pt: {
+    title: 'Serviços adicionais',
+    valuesIn: 'valores em',
+    included: 'incluído no pricing',
+    colService: 'serviço',
+    colDefinition: 'descrição',
+    colPrice: 'preço unitário',
+    items: {
+      risk_conditions:          { name: 'Condições de risco',                  desc: 'Condições específicas sob as quais a Yuno aplica uma taxa adicional por risco de fraude ou comportamento anômalo.' },
+      external_3ds_api:         { name: 'Chamada API 3DS externo',             desc: 'Solicitação a um servidor 3DS externo para autenticação, versionamento ou verificação, independentemente do resultado.' },
+      monitoring_alerts:        { name: 'Monitoramento e alertas',             desc: 'Monitoramento de transações com envio de alertas sobre padrões suspeitos ou anômalos.' },
+      smart_routing:            { name: 'Smart Routing',                       desc: 'Tecnologia Yuno que direciona transações à rede mais eficiente e econômica com base em parâmetros operacionais.' },
+      network_tokens:           { name: 'Network Tokens',                      desc: 'Solicitações de token geradas pela Yuno para pagamentos através de redes. Cada solicitação é cobrada como uma transação independente.' },
+      fraud_prevention_success: { name: 'Transação bem-sucedida (Prevenção de fraude)', desc: 'Chamada API bem-sucedida à plataforma antifraude de parceiros, independentemente de o motor de fraude aceitar ou rejeitar a transação.' },
+      '3ds_transaction':        { name: 'Transação 3DS',                       desc: 'Transação de pagamento autenticada com protocolo 3-D Secure.' },
+    },
+  },
+};
+function getServiceI18n(locale) { return SERVICE_I18N[locale] || SERVICE_I18N.en; }
 
 function KPI({ label, value, sub, style = {} }) {
   return (

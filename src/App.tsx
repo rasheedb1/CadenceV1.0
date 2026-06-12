@@ -1,4 +1,5 @@
 // Pipeline test - auto build and deploy
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
@@ -23,7 +24,9 @@ import {
   AdminLogs,
   AdminMetrics,
 } from '@/pages'
+import { AuthCallback } from '@/pages/AuthCallback'
 import { LeadStepExecution } from '@/pages/LeadStepExecution'
+import { CadenceFlow } from '@/pages/CadenceFlow'
 import { AIPrompts } from '@/pages/AIPrompts'
 import { Onboarding } from '@/pages/Onboarding'
 import { Workflows } from '@/pages/Workflows'
@@ -65,6 +68,23 @@ import { LeadSearch } from '@/pages/LeadSearch'
 import { AgentDetail } from '@/pages/AgentDetail'
 import { AppLauncher } from '@/pages/AppLauncher'
 import { MissionControl } from '@/pages/MissionControl'
+import Chat from '@/pages/Chat'
+
+// SS deck (Stripe Sessions style decks at /m/:slug). Lazy-loaded so the
+// 21 slide components + 40MB of assets don't inflate the main bundle.
+const SSDeckRoute = lazy(() => import('@/ss-deck/SSDeckRoute'))
+const SSDeckPrintRoute = lazy(() => import('@/ss-deck/SSDeckPrintRoute'))
+
+// Workshop BC deck (/workshop/:slug). Lazy-loaded — reuses ss-deck tokens
+// and primitives but has its own 17-slide deck for workshop-grade BCs.
+const WorkshopRoute = lazy(() => import('@/workshops-bc/WorkshopRoute'))
+const WorkshopPrintRoute = lazy(() => import('@/workshops-bc/WorkshopPrintRoute'))
+
+// Pricing-only mini-deck (/pricing/:slug). Reads the same workshops_bc
+// row but renders just the 7 commercial-proposal slides (cover · CNP ·
+// CP/POS · included features · add-ons · NOVA+concierge · closing).
+const PricingRoute = lazy(() => import('@/workshops-bc/PricingRoute'))
+const PricingPrintRoute = lazy(() => import('@/workshops-bc/PricingPrintRoute'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -93,6 +113,7 @@ function App() {
             <AccountExecutiveProvider>
               <Routes>
                 <Route path="/auth" element={<Auth />} />
+                <Route path="/auth/callback" element={<AuthCallback />} />
                 <Route path="/onboarding" element={<Onboarding />} />
                 <Route path="/org-select" element={<OrgSelect />} />
                 <Route path="/invite/:token" element={<AcceptInvite />} />
@@ -104,11 +125,31 @@ function App() {
                 <Route path="/agents/workflows" element={<Workflows />} />
                 <Route path="/agents/workflows/:id" element={<WorkflowBuilder />} />
                 <Route path="/agents/workflows/:id/runs" element={<WorkflowRuns />} />
+
+                {/* Chat with agents */}
+                <Route path="/chat" element={<Chat />} />
+                <Route path="/chat/:id" element={<Chat />} />
+                {/* Presentaciones — standalone app (own dashboard for BCs, separate from Outreach) */}
+                <Route path="/presentaciones" element={<Presentaciones />} />
+
+                {/* Stripe Sessions style decks — fully public, no auth/layout */}
+                <Route path="/m/:slug" element={<Suspense fallback={null}><SSDeckRoute /></Suspense>} />
+                <Route path="/m/:slug/pdf" element={<Suspense fallback={null}><SSDeckPrintRoute /></Suspense>} />
+
+                {/* Workshop BC decks — fully public, no auth/layout */}
+                <Route path="/workshop/:slug" element={<Suspense fallback={null}><WorkshopRoute /></Suspense>} />
+                <Route path="/workshop/:slug/pdf" element={<Suspense fallback={null}><WorkshopPrintRoute /></Suspense>} />
+
+                {/* Pricing-only mini-deck — public, no auth/layout */}
+                <Route path="/pricing/:slug" element={<Suspense fallback={null}><PricingRoute /></Suspense>} />
+                <Route path="/pricing/:slug/pdf" element={<Suspense fallback={null}><PricingPrintRoute /></Suspense>} />
                 <Route element={<MainLayout />}>
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/cadences" element={<FeatureRoute flag="section_cadences"><Cadences /></FeatureRoute>} />
                   <Route path="/cadences/:id" element={<FeatureRoute flag="section_cadences"><CadenceBuilder /></FeatureRoute>} />
                   <Route path="/cadences/:cadenceId/step/:stepId" element={<FeatureRoute flag="section_cadences"><LeadStepExecution /></FeatureRoute>} />
+                  <Route path="/cadence-flow" element={<FeatureRoute flag="section_cadences"><CadenceFlow /></FeatureRoute>} />
+                  <Route path="/cadence-flow/:id" element={<FeatureRoute flag="section_cadences"><CadenceFlow /></FeatureRoute>} />
                   <Route path="/workflows" element={<FeatureRoute flag="section_workflows"><Workflows /></FeatureRoute>} />
                   <Route path="/workflows/:id" element={<FeatureRoute flag="section_workflows"><WorkflowBuilder /></FeatureRoute>} />
                   <Route path="/workflows/:id/runs" element={<FeatureRoute flag="section_workflows"><WorkflowRuns /></FeatureRoute>} />
@@ -123,11 +164,11 @@ function App() {
                   <Route path="/business-cases/new" element={<FeatureRoute flag="section_business_cases"><BusinessCaseNew /></FeatureRoute>} />
                   <Route path="/business-cases/templates/:id" element={<FeatureRoute flag="section_business_cases"><BusinessCaseTemplateEditor /></FeatureRoute>} />
                   <Route path="/business-cases/generate" element={<FeatureRoute flag="section_business_cases"><BusinessCaseGenerate /></FeatureRoute>} />
-                  <Route path="/presentaciones" element={<FeatureRoute flag="section_presentaciones"><Presentaciones /></FeatureRoute>} />
                   <Route path="/account-executive" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><AccountExecutive /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/account-executive/crm" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><CRMPipeline /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/account-executive/:id" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><AccountExecutiveDetail /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/account-executive/calendar" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><AccountExecutiveCalendar /></PageErrorBoundary></FeatureRoute>} />
+                  <Route path="/account-executive/presentations" element={<FeatureRoute flag="section_account_executive"><PageErrorBoundary><Presentaciones embedded /></PageErrorBoundary></FeatureRoute>} />
                   <Route path="/lead-search" element={<FeatureRoute flag="section_lead_search"><LeadSearch /></FeatureRoute>} />
                   <Route path="/leads" element={<FeatureRoute flag="section_leads"><Leads /></FeatureRoute>} />
                   <Route path="/inbox" element={<FeatureRoute flag="section_linkedin_inbox"><LinkedInInbox /></FeatureRoute>} />

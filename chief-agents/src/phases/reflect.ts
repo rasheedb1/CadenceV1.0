@@ -13,9 +13,9 @@ import { sbGet, sbPatch, sbPost, sbUpsert } from '../supabase-client.js';
 import { updateHeartbeat } from '../utils/heartbeat.js';
 import { syncBudget, checkBudgetAlert } from '../utils/budget.js';
 import type { Logger } from '../utils/logger.js';
+import { pickUrl } from '../utils/env-url.js';
 
-const CALLBACK_URL = process.env.CALLBACK_URL ||
-  'https://twilio-bridge-production-241b.up.railway.app/api/agent-callback';
+const CALLBACK_URL = pickUrl(process.env.CALLBACK_URL, 'https://bridge.yuno.tools/api/agent-callback');
 
 const safe = <T>(arr: unknown): T[] => (Array.isArray(arr) ? arr : []);
 

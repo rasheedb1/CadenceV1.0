@@ -12,8 +12,13 @@
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 import { createSupabaseClient } from '../_shared/supabase.ts'
 
-const CLAIMED_TIMEOUT_MS = 10 * 60 * 1000     // 10 min — agent claimed but never started
-const AGENT_OFFLINE_MS = 10 * 60 * 1000        // 10 min — agent heartbeat stale = offline
+// AGENT_OFFLINE_MS must exceed the longest possible idle event-loop interval
+// to avoid declaring live-but-quiet agents offline. The chief-agents loop runs
+// at DEFAULT_INTERVAL=1800s (30 min) in safety-net mode, so 35 min is the floor.
+// CLAIMED_TIMEOUT_MS bumped to match (otherwise a task pre-claimed by tooling
+// would be released before the agent's next tick can pick it up).
+const CLAIMED_TIMEOUT_MS = 35 * 60 * 1000     // 35 min — covers 30-min event loop + 5min buffer
+const AGENT_OFFLINE_MS = 35 * 60 * 1000        // 35 min — agent heartbeat stale = offline
 const REVIEW_ORPHAN_MS = 60 * 60 * 1000        // 60 min — review task with no one working on it
 
 Deno.serve(async (req: Request) => {

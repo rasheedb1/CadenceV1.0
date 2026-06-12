@@ -10,6 +10,7 @@ import { sbGet, sbPost, sbPostReturn, sbPatch } from '../supabase-client.js';
 import { TYPE_CAPS } from '../types.js';
 import { buildIntegrationTools } from './integration-registry.js';
 import { buildSkillTools } from './skill-tools.js';
+import { buildPaulaTools } from './paula-tools.js';
 
 async function resolveAgentId(orgId: string, name: string): Promise<string | null> {
   const rows = await sbGet<Array<{ id: string }>>(
@@ -40,7 +41,8 @@ export function buildChiefToolsServer(agent: AgentConfig) {
 
       // Wake the target agent so it processes the message immediately (~10s instead of 3min)
       if (toAgentId) {
-        const CHIEF_AGENTS_URL = process.env.CHIEF_AGENTS_URL || 'https://chief-agents-production.up.railway.app';
+        const { pickUrl } = await import('../utils/env-url.js');
+        const CHIEF_AGENTS_URL = pickUrl(process.env.CHIEF_AGENTS_URL, 'http://chief.railway.internal:8080');
         fetch(`${CHIEF_AGENTS_URL}/wake`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -376,9 +378,12 @@ export function buildChiefToolsServer(agent: AgentConfig) {
   // ---------- Skill execution tools (always available) ----------
   const skillTools = buildSkillTools(agent);
 
+  // ---------- Paula SF Pipeline tools (always available; org-scoped) ----------
+  const paulaTools = buildPaulaTools(agent);
+
   return createSdkMcpServer({
     name: 'chief-tools',
     version: '1.0.0',
-    tools: [sendMessage, saveArtifact, createSubtask, queryKnowledge, askHuman, reportToChief, screenshotPage, scrapeUrl, firecrawlSearch, deployFrontend, deployEdgeFunction, pushMigration, ...integrationTools, ...skillTools],
+    tools: [sendMessage, saveArtifact, createSubtask, queryKnowledge, askHuman, reportToChief, screenshotPage, scrapeUrl, firecrawlSearch, deployFrontend, deployEdgeFunction, pushMigration, ...integrationTools, ...skillTools, ...paulaTools],
   });
 }

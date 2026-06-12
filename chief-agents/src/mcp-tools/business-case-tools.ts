@@ -6,8 +6,9 @@
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { AgentConfig } from '../types.js';
+import { pickUrl } from '../utils/env-url.js';
 
-const BRIDGE_URL = process.env.BRIDGE_URL || process.env.BRIDGE_PUBLIC_URL || 'https://twilio-bridge-production-241b.up.railway.app';
+const BRIDGE_URL = pickUrl(process.env.BRIDGE_URL, process.env.BRIDGE_PUBLIC_URL, 'https://bridge.yuno.tools');
 
 export function buildBusinessCaseTools(_agent: AgentConfig): any[] {
   const generateBC = tool(

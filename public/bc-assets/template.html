@@ -36,7 +36,7 @@ const { useState, useEffect } = React;
 
 const DATA_EVENT = 'yuno-bc-data';
 
-function computeTieredFee(tx, tiers) {
+function computeTramosFee(tx, tiers) {
   if (!tiers || !tiers.length) return 0;
   let fee = 0, remaining = tx, prev = 0;
   for (const t of tiers) {
@@ -48,6 +48,16 @@ function computeTieredFee(tx, tiers) {
     prev = t.upToTx;
   }
   return fee;
+}
+
+function computeTiersFee(tx, tiers) {
+  if (!tiers || !tiers.length) return 0;
+  for (const t of tiers) {
+    if (t.upToTx === Infinity || t.upToTx == null || tx <= t.upToTx) {
+      return tx * Number(t.ratePerTx);
+    }
+  }
+  return tx * Number(tiers[tiers.length - 1].ratePerTx);
 }
 
 function computeData(raw) {
@@ -91,10 +101,14 @@ function computeData(raw) {
 
   const L4 = opsSavings;
 
+  const pricingModel = d.pricingModel === 'tiered' ? 'tramos' : d.pricingModel;
   let actualTxFee, minCommitFee;
-  if (d.pricingModel === 'tiered') {
-    actualTxFee = computeTieredFee(numActualTx, d.rateTiers);
-    minCommitFee = computeTieredFee(Number(d.minTxAnnual), d.rateTiers);
+  if (pricingModel === 'tramos') {
+    actualTxFee = computeTramosFee(numActualTx, d.rateTiers);
+    minCommitFee = computeTramosFee(Number(d.minTxAnnual), d.rateTiers);
+  } else if (pricingModel === 'tiers') {
+    actualTxFee = computeTiersFee(numActualTx, d.rateTiers);
+    minCommitFee = computeTiersFee(Number(d.minTxAnnual), d.rateTiers);
   } else {
     const rate = Number(d.ratePerTx);
     actualTxFee = numActualTx * rate;
@@ -150,7 +164,7 @@ function computeData(raw) {
     todayProviders: Array.isArray(d.todayProviders) ? d.todayProviders : [],
     approvalLiftPp, mdrReductionBps, apmUpliftPct,
     newAPMsAdded, integrationReductionPct, opsSavings,
-    pricingModel: d.pricingModel, ratePerTx: d.ratePerTx,
+    pricingModel, ratePerTx: d.ratePerTx,
     rateTiers: d.rateTiers, minTxAnnual: d.minTxAnnual, monthlySaaS: d.monthlySaaS,
     conservativeMult: d.conservativeMult, optimisticMult: d.optimisticMult, npvMultiplier: d.npvMultiplier,
     costModel: d.costModel,

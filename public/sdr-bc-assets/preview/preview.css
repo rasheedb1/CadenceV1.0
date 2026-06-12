@@ -1,0 +1,395 @@
+/* ============================================================
+   Yuno SDR · Nova-light preview · Phase 0
+   New design system adopted from yuno-sales-pitch-maker
+   ============================================================ */
+
+/* ---- Geist Variable via @fontsource CDN ---- */
+@import url('https://cdn.jsdelivr.net/npm/@fontsource-variable/geist@5.2.8/index.css');
+@import url('https://cdn.jsdelivr.net/npm/@fontsource-variable/geist-mono@5.2.7/index.css');
+
+:root {
+  /* Surfaces (off-white canvas + white cards) */
+  --bg-canvas: #F8F9FC;
+  --bg-elevated: #FFFFFF;
+  --bg-section: #0F1020;             /* dark section dividers per pitch-maker */
+
+  /* Ink — opacity scale, not separate greys */
+  --ink-strong: #0F1020;
+  --ink: #1E2030;
+  --ink-secondary: rgba(30, 32, 48, 0.74);
+  --ink-muted: rgba(30, 32, 48, 0.56);
+  --ink-faint: rgba(30, 32, 48, 0.36);
+
+  /* Yuno accent ramp — unchanged between dark + light */
+  --accent: #3E4FE0;
+  --accent-deep: #1726A6;
+  --accent-mid: #5967E4;
+  --accent-soft: #7C89EF;
+  --accent-pale: #BDC3F6;
+  --success: #16A34A;
+  --warning: #EA580C;
+
+  /* Card chrome */
+  --card-shadow: 0 1px 3px rgba(30, 32, 48, 0.04), 0 8px 24px rgba(30, 32, 48, 0.04);
+  --card-shadow-hover: 0 1px 3px rgba(30, 32, 48, 0.06), 0 16px 48px rgba(30, 32, 48, 0.08);
+  --border-subtle: rgba(30, 32, 48, 0.08);
+  --border-default: rgba(30, 32, 48, 0.12);
+  --border-strong: rgba(30, 32, 48, 0.20);
+  --border-accent: rgba(62, 79, 224, 0.40);
+
+  /* Gradients */
+  --title-gradient: linear-gradient(135deg, #1726A6 0%, #3E4FE0 100%);
+  --beam-base: linear-gradient(90deg, rgba(30,32,48,0.18) 0%, rgba(30,32,48,0) 100%);
+  --beam-bright: linear-gradient(90deg, transparent 0%, rgba(62,79,224,0.55) 50%, transparent 100%);
+
+  /* Typography */
+  --font: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', 'SF Mono', Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font);
+  font-weight: 400;
+  color: var(--ink);
+  background: #1a1c24;          /* viewer chrome — dark so slides pop */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'ss01', 'ss02', 'cv01', 'kern';
+}
+
+/* ---- Preview viewer chrome ---- */
+.viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding: 40px;
+  min-height: 100vh;
+}
+.viewer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  color: rgba(255,255,255,0.8);
+  font-family: var(--font);
+}
+.viewer-header h1 {
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.viewer-header .meta {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: rgba(255,255,255,0.4);
+}
+.slide-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 12px;
+}
+.slide-frame {
+  width: 1920px;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--bg-canvas);
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.4);
+  transform-origin: top left;
+}
+
+/* For the viewer we scale slides down to fit the page */
+@media (max-width: 2000px) {
+  .slide-frame {
+    transform: scale(calc((100vw - 80px) / 1920));
+    width: 1920px;
+    height: 1080px;
+    margin-bottom: calc(((100vw - 80px) / 1920 - 1) * 1080px);
+  }
+}
+
+/* ============================================================
+   Slide base
+   ============================================================ */
+
+.slide {
+  position: relative;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  font-size: 20px;
+  line-height: 1.35;
+  color: var(--ink);
+  background: var(--bg-canvas);
+  padding: 64px 96px 80px;
+  display: flex;
+  flex-direction: column;
+}
+.slide.theme-section {
+  background: var(--bg-section);
+  color: rgba(255,255,255,0.92);
+}
+.slide.theme-cover {
+  background: var(--bg-canvas);
+  color: var(--ink);
+}
+
+/* Slide chrome */
+.slide-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 36px;
+  flex-shrink: 0;
+}
+.section-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px;
+  background: rgba(30,32,48,0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 100px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  backdrop-filter: blur(12px);
+  font-family: var(--font);
+}
+.section-pill .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.theme-section .section-pill {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.6);
+}
+.yuno-wordmark {
+  height: 28px;
+  font-family: var(--font);
+  font-weight: 800;
+  font-size: 26px;
+  letter-spacing: -0.04em;
+  color: var(--ink-strong);
+}
+.theme-section .yuno-wordmark { color: #fff; }
+
+.slide-pagenum {
+  position: absolute;
+  bottom: 32px;
+  left: 96px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1.5px;
+  color: var(--ink-faint);
+}
+.theme-section .slide-pagenum { color: rgba(255,255,255,0.36); }
+
+.slide-footer {
+  position: absolute;
+  bottom: 32px;
+  right: 96px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  font-family: var(--font);
+}
+.theme-section .slide-footer { color: rgba(255,255,255,0.4); }
+
+/* ============================================================
+   Typography utilities
+   ============================================================ */
+
+.title-display {
+  font-family: var(--font-display);
+  font-size: clamp(48px, 4vw, 72px);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  margin: 0;
+  color: var(--ink-strong);
+}
+.title-display .accent {
+  background: var(--title-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  font-weight: 700;
+}
+.theme-section .title-display { color: #fff; }
+.theme-section .title-display .accent {
+  background: linear-gradient(135deg, #BDC3F6 0%, #5967E4 50%, #3E4FE0 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.subtitle {
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--ink-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+.theme-section .subtitle { color: rgba(255,255,255,0.7); }
+
+.mono-kicker {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-transform: lowercase;
+}
+.mono-kicker .caret { color: var(--accent-soft); }
+.theme-section .mono-kicker { color: rgba(255,255,255,0.5); }
+
+/* ============================================================
+   Card recipe
+   ============================================================ */
+
+.card-nova {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  box-shadow: var(--card-shadow);
+  padding: clamp(22px, 1.8vw, 36px) clamp(22px, 1.8vw, 34px);
+  position: relative;
+  overflow: hidden;
+}
+
+.card-hero {
+  background: linear-gradient(160deg, #1726A6 0%, #3E4FE0 100%);
+  color: #fff;
+  border: none;
+  box-shadow: 0 1px 3px rgba(23,38,166,0.10), 0 24px 64px rgba(23,38,166,0.18);
+}
+
+/* ============================================================
+   Motion primitives
+   ============================================================ */
+
+@keyframes revealUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.reveal { animation: revealUp 0.65s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: var(--reveal-delay, 0s); }
+
+.stagger > * { animation: revealUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.stagger > *:nth-child(1)  { animation-delay: calc(var(--stagger-base, 0.08s) + 0  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(2)  { animation-delay: calc(var(--stagger-base, 0.08s) + 1  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(3)  { animation-delay: calc(var(--stagger-base, 0.08s) + 2  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(4)  { animation-delay: calc(var(--stagger-base, 0.08s) + 3  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(5)  { animation-delay: calc(var(--stagger-base, 0.08s) + 4  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(6)  { animation-delay: calc(var(--stagger-base, 0.08s) + 5  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(7)  { animation-delay: calc(var(--stagger-base, 0.08s) + 6  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(8)  { animation-delay: calc(var(--stagger-base, 0.08s) + 7  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(9)  { animation-delay: calc(var(--stagger-base, 0.08s) + 8  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(10) { animation-delay: calc(var(--stagger-base, 0.08s) + 9  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(11) { animation-delay: calc(var(--stagger-base, 0.08s) + 10 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(12) { animation-delay: calc(var(--stagger-base, 0.08s) + 11 * var(--stagger-step, 0.07s)); }
+
+@keyframes beamSlide {
+  0%   { transform: translateX(-100%); }
+  40%  { transform: translateX(400%); }
+  100% { transform: translateX(400%); }
+}
+
+@property --border-beam-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes borderBeam {
+  to { --border-beam-angle: 360deg; }
+}
+.border-beam {
+  --beam-duration: 14s;
+  --beam-delay: 0s;
+  position: relative;
+}
+.border-beam::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--border-beam-angle),
+    transparent 0%,
+    rgba(255, 255, 255, 0.85) 8%,
+    transparent 22%,
+    transparent 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+  animation: borderBeam var(--beam-duration) linear infinite;
+  animation-delay: var(--beam-delay);
+}
+
+@keyframes pulseRing {
+  0%   { transform: translate(-50%, -50%) scale(0.5); opacity: 0.9; }
+  100% { transform: translate(-50%, -50%) scale(3.2); opacity: 0; }
+}
+
+@keyframes orbDrift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33%      { transform: translate3d(40px, -30px, 0) scale(1.05); }
+  66%      { transform: translate3d(-30px, 20px, 0) scale(0.97); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================
+   Print / PDF capture state
+   ============================================================ */
+@page { size: 1920px 1080px; margin: 0; }
+@media print {
+  html, body { background: var(--bg-canvas) !important; }
+  .viewer-header, .slide-label { display: none !important; }
+  .slide-frame {
+    transform: none !important;
+    width: 1920px !important;
+    height: 1080px !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+  }
+  .stagger > *, .reveal { opacity: 1 !important; transform: none !important; animation: none !important; }
+  .border-beam::after { display: none !important; }
+}

@@ -17,6 +17,7 @@ interface AuthContextType {
   isRecoveryMode: boolean
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
   signUp: (email: string, password: string, fullName?: string) => Promise<{ error: Error | null }>
+  signInWithGoogle: () => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
   completeOnboarding: () => Promise<void>
   resetPassword: (email: string) => Promise<{ error: Error | null }>
@@ -92,6 +93,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error as Error | null }
   }
 
+  const signInWithGoogle = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+        queryParams: {
+          hd: '*',
+          prompt: 'select_account',
+        },
+        scopes: 'openid email profile',
+      },
+    })
+    return { error: error as Error | null }
+  }
+
   const signOut = async () => {
     await supabase.auth.signOut()
   }
@@ -127,7 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isSuperAdmin = profile?.is_super_admin ?? false
 
   return (
-    <AuthContext.Provider value={{ user, session, profile, loading, isSuperAdmin, isRecoveryMode, signIn, signUp, signOut, completeOnboarding, resetPassword, updatePassword }}>
+    <AuthContext.Provider value={{ user, session, profile, loading, isSuperAdmin, isRecoveryMode, signIn, signUp, signInWithGoogle, signOut, completeOnboarding, resetPassword, updatePassword }}>
       {children}
     </AuthContext.Provider>
   )

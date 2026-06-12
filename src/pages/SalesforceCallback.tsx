@@ -4,6 +4,15 @@ import { useAuth } from '@/contexts/AuthContext'
 import { callEdgeFunction } from '@/lib/edge-functions'
 import { toast } from 'sonner'
 
+// Persists across StrictMode remounts and re-renders. Keyed by the OAuth code
+// so each fresh OAuth flow gets its own slot; SF codes are single-use.
+function markCodeExchanged(code: string): boolean {
+  const key = `sf-oauth-exchanged:${code}`
+  if (sessionStorage.getItem(key)) return false
+  sessionStorage.setItem(key, '1')
+  return true
+}
+
 export function SalesforceCallback() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -26,11 +35,11 @@ export function SalesforceCallback() {
     }
 
     if (!code || !session?.access_token) {
-      setStatus('error')
-      setErrorMsg('Missing authorization code')
-      setTimeout(() => navigate('/settings'), 3000)
+      // Wait for session to load — don't error out yet.
       return
     }
+
+    if (!markCodeExchanged(code)) return
 
     const exchangeCode = async () => {
       try {

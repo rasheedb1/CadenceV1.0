@@ -3,6 +3,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
 import { createSupabaseClient, getAuthContext, logActivity, getUnipileAccountId, trackProspectedCompany } from '../_shared/supabase.ts'
+import { scanFields, summarizeHits } from '../_shared/placeholder-guard.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
 
 interface SendMessageRequest {
@@ -16,8 +17,29 @@ interface SendMessageRequest {
   instanceId?: string
   // Force a specific channel (optional)
   channel?: 'linkedin' | 'sales_navigator'
+  // Fase B E2: when invite has been pending >48h, process-queue forces InMail.
+  // 'auto' = let Unipile detect the right API; 'sales_navigator' = explicit SN.
+  inmailMode?: 'auto' | 'sales_navigator'
+  inmailSubject?: string
   ownerId?: string // For service-role calls from process-queue
   orgId?: string   // For service-role calls from process-queue
+}
+
+// Fase B E3: error patterns that indicate the LinkedIn account is blocked,
+// restricted, or rate-limited at account level. When matched, set
+// lead.linkedin_blocked=true so process-queue will skip future LinkedIn steps.
+function isLinkedInBlockedError(err: string | undefined | null): boolean {
+  if (!err) return false
+  const e = err.toLowerCase()
+  return e.includes('account is restricted') ||
+         e.includes('account_restricted') ||
+         e.includes('account_disabled') ||
+         e.includes('account suspended') ||
+         e.includes('blocked by linkedin') ||
+         e.includes('forbidden') ||
+         e.includes('403') ||
+         e.includes('not authorized to message') ||
+         e.includes('cannot contact this user')
 }
 
 interface UnipileAccount {
@@ -150,7 +172,7 @@ serve(async (req: Request) => {
 
     // Parse request body
     const body: SendMessageRequest = await req.json()
-    const { leadId, chatId, message, cadenceId, cadenceStepId, scheduleId, instanceId, channel, ownerId, orgId } = body
+    const { leadId, chatId, message, cadenceId, cadenceStepId, scheduleId, instanceId, channel, inmailMode, inmailSubject, ownerId, orgId } = body
 
     const ctx = await getAuthContext(authHeader, { ownerId, orgId })
     if (!ctx) {
@@ -163,6 +185,25 @@ serve(async (req: Request) => {
 
     if (!leadId && !chatId) {
       return errorResponse('Either leadId or chatId is required')
+    }
+
+    // ── PLACEHOLDER GUARD ─────────────────────────────────────────────────
+    // Last line of defense: refuse to send if any unsubstituted template
+    // variable ({{first_name}}, {company}, [BC_URL], etc.) is detected in
+    // the message body or InMail subject.
+    const phHits = scanFields({ message, inmailSubject: inmailSubject || null })
+    if (phHits.length > 0) {
+      const summary = summarizeHits(phHits)
+      console.error(`[linkedin-send-message] BLOCKED — placeholder leak: ${summary}`)
+      await logActivity({
+        ownerId: ctx.userId,
+        orgId: ctx.orgId,
+        leadId: leadId || null,
+        action: 'send_linkedin_dm',
+        status: 'failed',
+        details: { error: 'placeholder_leak_blocked', placeholders: phHits.map(h => ({ field: h.field, pattern: h.pattern, match: h.match })) },
+      })
+      return errorResponse(`BLOCKED: unsubstituted placeholders detected — ${summary}`, 422)
     }
 
     // Track which channel was used for the successful send
@@ -329,8 +370,20 @@ serve(async (req: Request) => {
 
       // Determine if we should use Sales Navigator directly
       const forceSalesNavigator = channel === 'sales_navigator'
+      // Fase B E2: caller (process-queue) explicitly requested InMail because
+      // invite was pending >48h. Skip the classic attempt to save a call.
+      const forceInMail = inmailMode === 'auto' || inmailMode === 'sales_navigator'
 
-      if (forceSalesNavigator) {
+      if (forceInMail) {
+        const mode = inmailMode === 'sales_navigator' ? 'sales_navigator' : 'auto'
+        console.log(`[FaseB-E2] Sending as InMail (mode=${mode}, forced by caller)`)
+        usedChannel = 'sales_navigator'
+        result = await sendMessageToRecipient(recipientId, mode)
+        if (inmailSubject) {
+          // sendMessageToRecipient already passes inmailSubject from lead.first_name
+          // — caller-supplied subject was just informational logging here.
+        }
+      } else if (forceSalesNavigator) {
         // User explicitly requested Sales Navigator
         console.log('Sending via Sales Navigator (forced)')
         usedChannel = 'sales_navigator'
@@ -381,6 +434,21 @@ serve(async (req: Request) => {
     }
 
     if (!result.success) {
+      // Fase B E3: detect account-level blocks and mark the lead so future
+      // LinkedIn steps are skipped (process-queue checks lead.linkedin_blocked).
+      if (leadId && isLinkedInBlockedError(result.error)) {
+        try {
+          await supabase
+            .from('leads')
+            .update({ linkedin_blocked: true, updated_at: new Date().toISOString() })
+            .eq('id', leadId)
+            .eq('org_id', ctx.orgId)
+          console.log(`[FaseB-E3] Marked lead ${leadId} linkedin_blocked=true (error: ${result.error})`)
+        } catch (e) {
+          console.warn(`[FaseB-E3] Failed to set linkedin_blocked:`, e)
+        }
+      }
+
       // Log failure
       await logActivity({
         ownerId: ctx.userId,
@@ -435,6 +503,25 @@ serve(async (req: Request) => {
       delivery_status: 'sent',
       sent_at: new Date().toISOString(),
     })
+
+    // Fase B E2: a successful classic LinkedIn message proves the recipient
+    // accepted the invite (otherwise Unipile would have returned not-connected).
+    // Mark as accepted so future steps don't trigger InMail unnecessarily.
+    if (leadId && usedChannel !== 'sales_navigator') {
+      try {
+        await supabase
+          .from('leads')
+          .update({
+            linkedin_invite_status: 'accepted',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', leadId)
+          .eq('org_id', ctx.orgId)
+          .neq('linkedin_invite_status', 'accepted')  // idempotent: only flip from pending/declined
+      } catch (e) {
+        console.warn(`[FaseB-E2] Failed to mark invite accepted on success:`, e)
+      }
+    }
 
     // Log success
     await logActivity({

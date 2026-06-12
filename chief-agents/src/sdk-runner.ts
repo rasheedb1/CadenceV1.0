@@ -6,45 +6,36 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentConfig, SDKResult } from './types.js';
 import { ROLE_TOOLS } from './types.js';
-import { buildChiefToolsServer } from './mcp-tools/chief-tools.js';
 import type { Logger } from './utils/logger.js';
+import { stripLoneSurrogates } from './utils/text.js';
+import { getChiefToolsServer, clearMcpCache, MODEL_MAP } from './sdk-shared.js';
 
-// Model mapping from agents table values
-const MODEL_MAP: Record<string, string> = {
-  'claude-opus-4-6': 'claude-opus-4-6',
-  'claude-sonnet-4-6': 'claude-sonnet-4-6',
-  'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
-  'claude-haiku-4-5-20251001': 'claude-haiku-4-5-20251001',
-};
-
-// Cache MCP servers per agent (instantiated once per loop start, not per call)
-const mcpServerCache = new Map<string, ReturnType<typeof buildChiefToolsServer>>();
-
-function getChiefToolsServer(agent: AgentConfig): ReturnType<typeof buildChiefToolsServer> {
-  if (!mcpServerCache.has(agent.id)) {
-    mcpServerCache.set(agent.id, buildChiefToolsServer(agent));
-  }
-  return mcpServerCache.get(agent.id)!;
-}
-
-/** Clear cached MCP server (e.g. when agent config changes) */
-export function clearMcpCache(agentId: string): void {
-  mcpServerCache.delete(agentId);
-}
+// Re-export so existing imports `from './sdk-runner.js'` keep working.
+export { clearMcpCache };
 
 /**
  * Execute a task using Claude Agent SDK query().
  * This is THE key change from OpenClaw — bypassPermissions means no /approve prompts.
  */
+export interface ExecuteOpts {
+  /** Override default maxTurns (15). Per-call ceiling for cost containment. */
+  maxTurns?: number;
+  /** Override SDK maxThinkingTokens. */
+  maxThinkingTokens?: number;
+  /** Override model id (otherwise uses agent.model via MODEL_MAP). */
+  model?: string;
+}
+
 export async function executeWithSDK(
   agent: AgentConfig,
   taskPrompt: string,
   log: Logger,
   resumeSessionId?: string, // Pass existing session_id to resume instead of starting fresh
+  opts?: ExecuteOpts,
 ): Promise<SDKResult> {
   const chiefTools = getChiefToolsServer(agent);
   const roleTools = ROLE_TOOLS[agent.roleKey] || ROLE_TOOLS.sales;
-  const model = MODEL_MAP[agent.model] || 'claude-sonnet-4-6';
+  const model = opts?.model || MODEL_MAP[agent.model] || 'claude-sonnet-4-6';
 
   const allowedTools = [
     ...roleTools,
@@ -141,18 +132,19 @@ You do NOT need to run git, npm, or deploy commands yourself. Just edit code and
 When done, provide a clear summary: what files you changed, what you implemented, any issues found. Be concise but specific.`;
 
     for await (const message of query({
-      prompt: enhancedPrompt,
+      prompt: stripLoneSurrogates(enhancedPrompt),
       options: {
         model,
         // When resuming, don't pass systemPrompt — the session already has it
         ...(resumeSessionId
           ? { resume: resumeSessionId }
-          : { systemPrompt: stableSystemPrompt }),
+          : { systemPrompt: stripLoneSurrogates(stableSystemPrompt) }),
         allowedTools,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         cwd: `/workspace/${safeName}`,
-        maxTurns: 15,
+        maxTurns: opts?.maxTurns ?? 15,
+        ...(opts?.maxThinkingTokens !== undefined ? { maxThinkingTokens: opts.maxThinkingTokens } : {}),
         mcpServers,
         // Auto-approve ALL tool calls — this is the belt-and-suspenders fix
         // for bypassPermissions not fully bypassing Bash in Docker

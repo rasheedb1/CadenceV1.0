@@ -1,6 +1,8 @@
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+# Absolute from repo root: with a Dockerfile at repo root (FrontEnd) Railway
+# would otherwise resolve "Dockerfile" to the wrong file and break the build.
+dockerfilePath = "chief-agents/Dockerfile"
 
 [deploy]
 startCommand = "node dist/orchestrator.js"

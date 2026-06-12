@@ -215,7 +215,8 @@ function OrgChartView({ agents, onNavigate }: { agents: Agent[]; onNavigate: (id
 
 // ── Grid View (improved) ─────────────────────────────────────────────
 
-function GridView({ agents, onNavigate, onDelete, deleting }: {
+function GridView({ agents, onNavigate, onChat, onDelete, deleting }: {
+  onChat?: (id: string) => void
   agents: Agent[]
   onNavigate: (id: string) => void
   onDelete: (id: string, e: React.MouseEvent) => void
@@ -303,6 +304,16 @@ function GridView({ agents, onNavigate, onDelete, deleting }: {
                         <span className="text-[10px] text-muted-foreground">+{agent.capabilities.length - 3}</span>
                       )}
                     </div>
+                  )}
+                  {onChat && agent.status === 'active' && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="mt-3 w-full"
+                      onClick={(e) => { e.stopPropagation(); onChat(agent.id); }}
+                    >
+                      <MessageSquare className="mr-2 h-3.5 w-3.5" /> Chatear
+                    </Button>
                   )}
                 </CardContent>
               </Card>
@@ -1107,6 +1118,7 @@ export function Agents() {
         <GridView
           agents={agents}
           onNavigate={id => navigate(`/agents/${id}`)}
+          onChat={id => navigate(`/chat?new=${id}`)}
           onDelete={handleDelete}
           deleting={deleting}
         />

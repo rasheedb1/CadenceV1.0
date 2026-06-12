@@ -255,9 +255,9 @@ export interface ModelPricing {
 
 // --- Constants ---
 
-export const MIN_INTERVAL = 10_000;       // 10s when busy
-export const MAX_INTERVAL = 300_000;      // 5min when idle (was 3min — /execute handles direct tasks now)
-export const DEFAULT_INTERVAL = 120_000;  // 2min default (was 60s — event loop is safety net, /execute is primary)
+export const MIN_INTERVAL = 10_000;        // 10s when busy
+export const MAX_INTERVAL = 3_600_000;     // 1h when idle (loop is pure safety net, /execute handles real traffic)
+export const DEFAULT_INTERVAL = 1_800_000; // 30min default (loop is safety net, /execute is primary)
 export const STALL_WINDOW = 3;
 export const IDLE_PAUSE_THRESHOLD = 5;
 export const IDLE_RATIO_WINDOW = 20;
@@ -266,7 +266,7 @@ export const STALL_CLAIM_LIMIT = 5;
 export const CHECKIN_EVERY_N_TASKS = 3;
 export const MSG_CIRCUIT_LIMIT = 10;
 export const MSG_CIRCUIT_WINDOW = 5 * 60 * 1000;
-export const DEEP_SLEEP_INTERVAL = 300_000; // 5min
+export const DEEP_SLEEP_INTERVAL = 3_600_000; // 1h (budget exceeded → probe hourly)
 
 export const MODEL_PRICING: Record<string, ModelPricing> = {
   'claude-opus-4-6':           { input: 15.00, output: 75.00, blended: 45.00 },

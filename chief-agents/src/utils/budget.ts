@@ -7,9 +7,9 @@ import { MODEL_PRICING, DEFAULT_BLENDED_PRICE } from '../types.js';
 import type { BudgetRow, LoopState } from '../types.js';
 import { sbGet, sbUpsert } from '../supabase-client.js';
 import type { Logger } from './logger.js';
+import { pickUrl } from './env-url.js';
 
-const CALLBACK_URL = process.env.CALLBACK_URL ||
-  'https://twilio-bridge-production-241b.up.railway.app/api/agent-callback';
+const CALLBACK_URL = pickUrl(process.env.CALLBACK_URL, 'https://bridge.yuno.tools/api/agent-callback');
 
 export function getTokenCost(tokens: number, model: string): number {
   const pricing = MODEL_PRICING[model] || null;

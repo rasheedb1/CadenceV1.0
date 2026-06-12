@@ -8,7 +8,23 @@ interface DiscoverRequest {
   icpDescription: string
   minCompanies?: number
   maxCompanies?: number
+  /**
+   * Backwards-compat: if provided alone, used for BOTH the LLM prompt (top 50)
+   * and the post-filter (full list).
+   */
   excludedCompanies?: string[]
+  /**
+   * Bounded list shown to the LLM in the prompt (typically top-50 most critical:
+   * SF customers + active opps). Keeps prompt size predictable.
+   * Falls back to excludedCompanies.slice(0, 50) if not provided.
+   */
+  excludedCompaniesForLlm?: string[]
+  /**
+   * Full exclusion list applied as SQL-style post-filter (normalized name match).
+   * Can be hundreds of names — never goes to the LLM.
+   * Falls back to excludedCompanies if not provided.
+   */
+  excludedCompaniesForFilter?: string[]
 }
 
 interface DiscoveredCompany {
@@ -149,7 +165,17 @@ serve(async (req: Request) => {
       minCompanies = 5,
       maxCompanies = 15,
       excludedCompanies = [],
+      excludedCompaniesForLlm,
+      excludedCompaniesForFilter,
     } = body
+
+    const excludedForLlm: string[] =
+      excludedCompaniesForLlm ?? excludedCompanies.slice(0, 50)
+    const excludedForFilter: string[] =
+      excludedCompaniesForFilter ?? excludedCompanies
+    console.log(
+      `Exclusion lists — LLM: ${excludedForLlm.length}, post-filter: ${excludedForFilter.length}`
+    )
 
     if (!icpDescription?.trim()) {
       return errorResponse('icpDescription is required')
@@ -265,8 +291,8 @@ Rules:
    - exclusion_check: 10 = passes all exclusion criteria, 0 = clearly excluded
 7. Extract as many matching companies as you can find from the provided search results
 8. Do NOT pad with irrelevant companies — only include genuine matches
-${excludedCompanies.length > 0 ? `9. EXCLUDED COMPANIES — Do NOT include any of these companies in your results (they are existing customers, competitors, or on the Do Not Contact list):
-${excludedCompanies.slice(0, 100).map(name => `   - ${name}`).join('\n')}
+${excludedForLlm.length > 0 ? `9. EXCLUDED COMPANIES — Do NOT include any of these companies in your results (they are existing Yuno customers, active Salesforce opportunities, or on the Do Not Contact list). This is a TOP-${excludedForLlm.length} subset; many more are filtered server-side after your output:
+${excludedForLlm.map(name => `   - ${name}`).join('\n')}
    If you find any of these companies in the search results, skip them entirely.` : ''}
 
 You MUST respond with a JSON object with this exact structure:
@@ -329,7 +355,10 @@ Extract and rank companies from these results that match the ICP. Return up to $
     }
 
     // ── Post-filter: remove excluded companies via normalized name matching ──
-    const excludedNormalized = new Set(excludedCompanies.map(normalizeForComparison))
+    // Uses the FULL list (excludedForFilter) — can be 700+ names indexed in
+    // outreach_excluded_companies. This is the safety net for anything the LLM
+    // might have missed despite the bounded list in the prompt.
+    const excludedNormalized = new Set(excludedForFilter.map(normalizeForComparison))
     const excludedFromResults: Array<{ company_name: string; reason: string }> = []
     const afterExclusion: DiscoveredCompany[] = []
 

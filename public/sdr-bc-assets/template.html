@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Yuno SDR · Business Case Template</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist@5.2.8/index.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist-mono@5.2.7/index.css" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<deck-stage width="1920" height="1080">
+  <section id="root-container" style="background:#0c0d10;"></section>
+</deck-stage>
+
+<!-- Tweak panel -->
+<div class="tweak-panel" id="tweak-panel">
+  <h3>Tweaks</h3>
+  <div class="tweak-row">
+    <label>Client name</label>
+    <input type="text" id="tw-client" />
+  </div>
+  <div class="tweak-row">
+    <label>Document type</label>
+    <input type="text" id="tw-doctype" />
+  </div>
+  <div class="tweak-row">
+    <label>Date</label>
+    <input type="text" id="tw-date" />
+  </div>
+  <div class="tweak-row">
+    <label>Prepared by</label>
+    <input type="text" id="tw-prepared" />
+  </div>
+  <div class="tweak-row">
+    <label>Contact name</label>
+    <input type="text" id="tw-contact-name" />
+  </div>
+  <div class="tweak-row">
+    <label>Contact email</label>
+    <input type="text" id="tw-contact-email" />
+  </div>
+</div>
+
+<script>
+  // Default deck data — acts as a template with {{TOKENS}} that a skill will fill in.
+  window.DECK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "clientName": "{{client}}",
+    "docType": "Business Case",
+    "date": "2026",
+    "preparedBy": "Yuno Sales Strategy",
+    "contactName": "German Tatis",
+    "contactTitle": "Sr. Sales Strategy Associate",
+    "contactEmail": "german.tatis@y.uno",
+    "contactPhone": "+57 317 645 7074"
+  }/*EDITMODE-END*/;
+</script>
+
+<script src="deck-stage.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="components.jsx"></script>
+<script type="text/babel" src="slides-01-context.jsx"></script>
+<script type="text/babel" src="slides-02-business-case.jsx"></script>
+
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+function useDeckData() {
+  const [data, setData] = useState(window.DECK_DEFAULTS);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (!e.data || typeof e.data !== 'object') return;
+      if (e.data.type === '__activate_edit_mode') {
+        document.getElementById('tweak-panel').setAttribute('data-open','');
+      } else if (e.data.type === '__deactivate_edit_mode') {
+        document.getElementById('tweak-panel').removeAttribute('data-open');
+      }
+    };
+    window.addEventListener('message', handler);
+    window.parent.postMessage({type:'__edit_mode_available'}, '*');
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
+  useEffect(() => {
+    const fields = [
+      ['tw-client', 'clientName'],
+      ['tw-doctype', 'docType'],
+      ['tw-date', 'date'],
+      ['tw-prepared', 'preparedBy'],
+      ['tw-contact-name', 'contactName'],
+      ['tw-contact-email', 'contactEmail'],
+    ];
+    fields.forEach(([id, key]) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.value = data[key] || '';
+      el.oninput = () => {
+        const v = el.value;
+        setData(prev => ({ ...prev, [key]: v }));
+        window.parent.postMessage({type:'__edit_mode_set_keys', edits:{ [key]: v }}, '*');
+      };
+    });
+  }, [data]);
+
+  return {
+    clientName: data.clientName,
+    docType: data.docType,
+    date: data.date,
+    preparedBy: data.preparedBy,
+    contact: {
+      name: data.contactName,
+      title: data.contactTitle,
+      email: data.contactEmail,
+      phone: data.contactPhone,
+    },
+  };
+}
+
+const DATA_EVENT = 'yuno-deck-data';
+
+function SlideShell({ render }) {
+  const [data, setData] = useState(window.__yunoDeckData || window.DECK_DEFAULTS);
+  useEffect(() => {
+    const onUpdate = (e) => setData(e.detail);
+    window.addEventListener(DATA_EVENT, onUpdate);
+    return () => window.removeEventListener(DATA_EVENT, onUpdate);
+  }, []);
+  return render(data);
+}
+
+function Controller() {
+  const data = useDeckData();
+  useEffect(() => {
+    window.__yunoDeckData = data;
+    window.dispatchEvent(new CustomEvent(DATA_EVENT, { detail: data }));
+  }, [data]);
+  return null;
+}
+
+const stage = document.querySelector('deck-stage');
+document.getElementById('root-container').remove();
+
+// 27-slide structure:
+// 01 Cover · 02 Agenda
+// 03 Section: Context · 04 Stack · 05 Geography
+// 06 Section: Why Yuno · 07 Overview · 08 Trust
+// 09 Section: Business Case · 10 Levers
+// 11-14 NA · 15-18 LATAM · 19-22 EMEA · 23-26 APAC
+// 27 Total + CTA
+const slideBuilders = [
+  (d) => <Slide01Cover data={d} />,
+  (d) => <Slide02Agenda data={d} />,
+
+  (d) => <Slide03ContextSection />,
+  (d) => <Slide04ClientStack data={d} />,
+  (d) => <Slide05Geography data={d} />,
+
+  (d) => <Slide06WhyYunoSection />,
+  (d) => <Slide07YunoOverview />,
+  (d) => <Slide08Trust />,
+
+  (d) => <Slide09BCSection />,
+  (d) => <Slide10Levers data={d} />,
+
+  (d) => <RegionTabsSlide active={0} pageNum={11} />,
+  (d) => <RegionCardsSlide region="us" regionLabel="North America" pageNum={12} data={d} />,
+  (d) => <RegionApmsSlide  region="us" regionLabel="North America" pageNum={13} data={d} />,
+  (d) => <RegionDevSlide   region="us" regionLabel="North America" pageNum={14} data={d} />,
+
+  (d) => <RegionTabsSlide active={1} pageNum={15} />,
+  (d) => <RegionCardsSlide region="lat" regionLabel="LATAM" pageNum={16} data={d} />,
+  (d) => <RegionApmsSlide  region="lat" regionLabel="LATAM" pageNum={17} data={d} />,
+  (d) => <RegionDevSlide   region="lat" regionLabel="LATAM" pageNum={18} data={d} />,
+
+  (d) => <RegionTabsSlide active={2} pageNum={19} />,
+  (d) => <RegionCardsSlide region="ema" regionLabel="EMEA" pageNum={20} data={d} />,
+  (d) => <RegionApmsSlide  region="ema" regionLabel="EMEA" pageNum={21} data={d} />,
+  (d) => <RegionDevSlide   region="ema" regionLabel="EMEA" pageNum={22} data={d} />,
+
+  (d) => <RegionTabsSlide active={3} pageNum={23} />,
+  (d) => <RegionCardsSlide region="apa" regionLabel="APAC" pageNum={24} data={d} />,
+  (d) => <RegionApmsSlide  region="apa" regionLabel="APAC" pageNum={25} data={d} />,
+  (d) => <RegionDevSlide   region="apa" regionLabel="APAC" pageNum={26} data={d} />,
+
+  (d) => <Slide27Total data={d} />,
+];
+
+slideBuilders.forEach((builder) => {
+  const node = document.createElement('section');
+  stage.appendChild(node);
+  ReactDOM.createRoot(node).render(<SlideShell render={builder} />);
+});
+
+const ctrlHost = document.createElement('div');
+ctrlHost.style.display = 'none';
+document.body.appendChild(ctrlHost);
+ReactDOM.createRoot(ctrlHost).render(<Controller />);
+</script>
+
+</body>
+</html>

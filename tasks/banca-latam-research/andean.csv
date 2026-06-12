@@ -1,0 +1,179 @@
+name,country,type,domain,acquiring_capability,source,notes
+Bancolombia,Colombia,bank,bancolombia.com,confirmed,Wikipedia/Bancolombia adquirencia,Largest bank; owns Wompi gateway and Nequi wallet; merchant acquiring via Redeban
+Banco de Bogota,Colombia,bank,bancodebogota.com,confirmed,Wikipedia/Credibanco,Grupo Aval flagship; merchant acquiring via Credibanco
+Davivienda,Colombia,bank,davivienda.com,confirmed,Wikipedia,Owns Daviplata wallet; absorbed Scotiabank Colpatria 2025; merchant acquiring
+BBVA Colombia,Colombia,bank,bbva.com.co,confirmed,Wikipedia,Top-5 bank; full merchant acquiring suite
+Banco de Occidente,Colombia,bank,bancodeoccidente.com.co,confirmed,Wikipedia,Grupo Aval; merchant acquiring via Credibanco
+Banco Popular,Colombia,bank,bancopopular.com.co,likely,Wikipedia,Grupo Aval; standard merchant services
+Banco AV Villas,Colombia,bank,avvillas.com.co,likely,Wikipedia,Grupo Aval; standard merchant services
+Banco Agrario,Colombia,bank,bancoagrario.gov.co,likely,Wikipedia,State-owned rural bank
+GNB Sudameris,Colombia,bank,gnbsudameris.com.co,likely,Wikipedia,Mid-size universal bank
+Banco Itau Colombia,Colombia,bank,itau.co,likely,Wikipedia,Acquired CorpBanca 2014
+Banco Caja Social,Colombia,bank,bancocajasocial.com,likely,Wikipedia,Fundacion Social-owned; SME segment
+Banco Falabella,Colombia,bank,bancofalabella.com.co,likely,Wikipedia,Retail bank; CMR card issuer
+Bancoomeva,Colombia,bank,bancoomeva.com.co,likely,Wikipedia,Cooperative-origin bank
+Banco Finandina,Colombia,bank,bancofinandina.com,likely,Wikipedia,Consumer/auto finance
+Banco Pichincha Colombia,Colombia,bank,bancopichincha.com.co,likely,Wikipedia,Ecuadorian group; SME focus
+Banco Mundo Mujer,Colombia,bank,bmm.com.co,likely,Wikipedia,Microfinance bank
+Mibanco Colombia,Colombia,bank,mibanco.com.co,likely,Wikipedia,Bancolombia microfinance unit
+Serfinanza,Colombia,bank,serfinanza.com.co,likely,Wikipedia,Promigas/Olimpica-linked bank
+Ban100,Colombia,bank,ban100.com,likely,Wikipedia,Digital-first bank
+Bancamia,Colombia,bank,bancamia.com.co,likely,Wikipedia,Microfinance bank
+Banco W,Colombia,bank,bancow.com.co,likely,Wikipedia,Microfinance bank
+Banco Union Colombia,Colombia,bank,bancounion.com.co,likely,Wikipedia,Coopcentral group
+Banco Coopcentral,Colombia,bank,coopcentral.com.co,likely,Wikipedia,Cooperative-origin bank
+Banco Credifinanciera,Colombia,bank,credifinanciera.com.co,likely,LexLatin,Acquired Banco ProCredit Colombia 2025
+Lulo Bank,Colombia,digital_bank,lulobank.com,likely,colombiafintech.co,100% digital bank; Gilinski group
+Nu Colombia,Colombia,digital_bank,nu.com.co,likely,coinscrapfinance,Nubank Colombia subsidiary
+Nequi,Colombia,wallet,nequi.com.co,confirmed,Wikipedia,Bancolombia wallet; 16M users; merchant QR
+Daviplata,Colombia,wallet,daviplata.com,confirmed,Wikipedia,Davivienda wallet; 16M users; merchant payments
+Movii,Colombia,wallet,movii.com.co,confirmed,larepublica.co,SEDPE; 2M users; merchant acquiring
+Dale!,Colombia,wallet,dale.com.co,likely,larepublica.co,SEDPE Aval Soluciones Digitales (Grupo Aval)
+Coink,Colombia,wallet,coink.com,likely,larepublica.co,SEDPE
+Powwi,Colombia,wallet,powwi.com,likely,larepublica.co,SEDPE Pagos GDE
+Ding,Colombia,wallet,ding.com.co,likely,larepublica.co,SEDPE Tecnipagos
+Global66 Colombia,Colombia,wallet,global66.com,likely,larepublica.co,SEDPE
+Oh Pay,Colombia,wallet,ohpay.com.co,likely,larepublica.co,SEDPE
+PayCash Colombia,Colombia,wallet,paycash.com.co,likely,larepublica.co,SEDPE
+RappiPay,Colombia,wallet,rappi.com.co,confirmed,Wikipedia,Rappi+Davivienda JV; merchant acceptance via Rappi
+Tpaga,Colombia,wallet,tpaga.co,confirmed,larepublica.co,Digital wallet 2M+ users
+Tuya Pay,Colombia,wallet,tuya.com.co,likely,Wikipedia,Exito+Bancolombia JV
+Credibanco,Colombia,acquirer,credibanco.com,confirmed,enviame.io,Major card acquirer; bank consortium
+Redeban,Colombia,acquirer,redeban.com,confirmed,enviame.io,Major card acquirer; 2.99% rate
+PayU Colombia,Colombia,payment_institution,payu.com.co,confirmed,corporate.payu.com,Major PSP and acquirer
+ePayco,Colombia,payment_institution,epayco.com,confirmed,enviame.io,Local payment gateway/acquirer
+Wompi,Colombia,payment_institution,wompi.co,confirmed,enviame.io,Bancolombia-owned PSP
+Bold,Colombia,sub_acquirer,bold.co,confirmed,streetinsider,Independent SMB acquirer; POS terminals
+Mercado Pago Colombia,Colombia,payment_institution,mercadopago.com.co,confirmed,latamfintech.co,SEDPE resolution 1050/2020
+Iris Neofinanciera,Colombia,digital_bank,irisneofinanciera.com,likely,Wikipedia,Digital bank
+Sistecredito,Colombia,fintech,sistecredito.com,likely,sistecredito.com,BNPL/merchant credit network
+Addi,Colombia,fintech,addi.com,likely,addi.com,BNPL/merchant lending
+Treinta,Colombia,fintech,treinta.io,likely,rebill.com,SMB payments/POS app
+Banco de Credito del Peru,Peru,bank,viabcp.com,confirmed,Wikipedia,Largest bank; Niubiz shareholder; owns Yape and Mibanco
+BBVA Peru,Peru,bank,bbva.pe,confirmed,Wikipedia,Top-4 bank; Plin participant; Niubiz shareholder
+Interbank,Peru,bank,interbank.pe,confirmed,Wikipedia,Top-4 bank; owns Tunki/IzipayYA; Izipay+Niubiz shareholder
+Scotiabank Peru,Peru,bank,scotiabank.com.pe,confirmed,Wikipedia,Top-4 bank; PMP/Izipay co-owner; Plin participant
+Banco de la Nacion,Peru,bank,bn.com.pe,likely,Wikipedia,State bank
+BanBif,Peru,bank,banbif.com.pe,confirmed,Wikipedia,Plin participant; merchant services
+Mibanco,Peru,bank,mibanco.com.pe,likely,Wikipedia,Microfinance; BCP subsidiary
+COFIDE,Peru,bank,cofide.com.pe,unknown,Wikipedia,Development bank
+Banco Santander Peru,Peru,bank,santander.com.pe,likely,Wikipedia,Corporate banking
+Banco Pichincha Peru,Peru,bank,pichincha.pe,likely,Wikipedia,Ecuadorian group
+Citibank Peru,Peru,bank,citibank.com.pe,likely,Wikipedia,Corporate banking
+Banco GNB Peru,Peru,bank,gnb.com.pe,likely,Wikipedia,Mid-size bank
+Banco Falabella Peru,Peru,bank,bancofalabella.com.pe,likely,Wikipedia,Retail bank; CMR card
+BCI Peru,Peru,bank,bci.com.pe,likely,Wikipedia,Chilean group
+ICBC Peru,Peru,bank,icbc.com.pe,unknown,Wikipedia,Chinese corporate bank
+Bank of China Peru,Peru,bank,bankofchina.com,unknown,Wikipedia,Chinese corporate bank
+Bancom,Peru,bank,bancom.pe,likely,Wikipedia,Mid-size bank
+Banco Ripley,Peru,bank,bancoripley.com.pe,likely,Wikipedia,Retail bank
+Alfin Banco,Peru,bank,alfin.pe,likely,Wikipedia,Consumer bank (formerly Banco Azteca Peru)
+Agrobanco,Peru,bank,agrobanco.com.pe,unknown,Wikipedia,Agricultural development bank
+Yape,Peru,wallet,yape.com.pe,confirmed,Wikipedia,BCP wallet; 15M+ users; merchant QR acceptance
+Plin,Peru,wallet,plinapp.pe,confirmed,peru-retail.com,Multi-bank wallet (BBVA/Interbank/Scotiabank/BanBif)
+Tunki / IzipayYA,Peru,wallet,izipayya.pe,confirmed,peru-retail.com,Interbank wallet merged with Izipay
+Bim,Peru,wallet,bim.com.pe,confirmed,peru-retail.com,Multi-bank wallet; 25 financial entities
+Agora Pay,Peru,wallet,agorapay.pe,confirmed,iccsi.com.ar,1.5M users; Visa-backed
+BBVA Wallet Peru,Peru,wallet,bbva.pe,likely,bbva.com,Contactless mobile wallet
+Lukita,Peru,wallet,lukita.pe,likely,user_input,Digital wallet
+GMoney,Peru,wallet,gmoney.pe,likely,infobae,BCR-authorized wallet
+Kasnet,Peru,wallet,kasnet.com.pe,likely,infobae,BCR-authorized payment network
+Ligo,Peru,wallet,ligo.pe,likely,infobae,BCR retail payments pilot
+Bitel Pay,Peru,wallet,bitel.com.pe,likely,infobae,Telco-led wallet
+Niubiz,Peru,acquirer,niubiz.com.pe,confirmed,nuvei.com,Top acquirer; owned by BCP/BBVA/Interbank/Scotiabank/Visa; owns Vende Mas
+Izipay,Peru,acquirer,izipay.pe,confirmed,nuvei.com,Top acquirer; PMP-owned by Interbank+Scotiabank
+PMP (Procesos MC Peru),Peru,acquirer,pmp.com.pe,confirmed,nuvei.com,Mastercard acquirer; 50/50 Interbank+Scotiabank
+Vende Mas,Peru,sub_acquirer,vendemas.com.pe,confirmed,nuvei.com,Niubiz payment facilitator
+Culqi,Peru,payment_institution,culqi.com,confirmed,bilixe.com,PSP; Credicorp-owned; cards+Yape+Plin
+Kushki Peru,Peru,payment_institution,kushkipagos.com,confirmed,kushkipagos.com,Regional non-bank acquirer (Visa/MC primary member)
+PagoEfectivo,Peru,payment_institution,pagoefectivo.pe,confirmed,nowpayments.io,Cash voucher payment method
+SafetyPay Peru,Peru,payment_institution,safetypay.com,likely,yavendio.com,Cash+bank transfer PSP
+PayU Peru,Peru,payment_institution,payu.com,confirmed,yavendio.com,Regional PSP/acquirer
+Mercado Pago Peru,Peru,payment_institution,mercadopago.com.pe,confirmed,yavendio.com,Local PSP and wallet
+OpenPay Peru,Peru,payment_institution,openpay.pe,likely,rebill.com,BBVA-owned PSP
+Banco Pichincha,Ecuador,bank,pichincha.com,confirmed,Wikipedia,Largest bank; Datafast co-owner; owns DeUna wallet
+Banco Guayaquil,Ecuador,bank,bancoguayaquil.com,confirmed,Wikipedia,Major acquirer; Datafast co-owner; merchant services
+Banco del Pacifico,Ecuador,bank,bancodelpacifico.com,confirmed,Wikipedia,Owns PacifiCard; Datafast co-owner; merchant acquirer
+Produbanco,Ecuador,bank,produbanco.com.ec,confirmed,medianet.com.ec,Promerica Group; Medianet affiliate
+Banco Internacional,Ecuador,bank,bancointernacional.com.ec,confirmed,medianet.com.ec,Medianet affiliate; corporate banking
+Banco Bolivariano,Ecuador,bank,bolivariano.com,confirmed,medianet.com.ec,Medianet affiliate
+Banco del Austro,Ecuador,bank,bancodelaustro.com,likely,Wikipedia,Mid-size private bank
+BanEcuador,Ecuador,bank,banecuador.fin.ec,likely,Wikipedia,State-owned development bank
+Banco General Rumiñahui,Ecuador,bank,bgr.com.ec,likely,Wikipedia,Mid-size bank
+Banco de Machala,Ecuador,bank,bancomachala.com,likely,Wikipedia,Regional bank
+Banco de Loja,Ecuador,bank,bancodeloja.fin.ec,likely,Wikipedia,Regional bank
+Banco Solidario,Ecuador,bank,banco-solidario.com,likely,Wikipedia,Microfinance; Datafast affiliate
+Citibank Ecuador,Ecuador,bank,citibank.com.ec,likely,Wikipedia,Corporate banking
+Banco ProCredit Ecuador,Ecuador,bank,procredit.com.ec,likely,Wikipedia,SME-focused
+Banco Amazonas,Ecuador,bank,bancoamazonas.com,likely,Wikipedia,Mid-size bank
+Banco Coopnacional,Ecuador,bank,coopnacional.com,likely,Wikipedia,Cooperative-origin
+Banco VisionFund Ecuador,Ecuador,bank,visionfund.org,unknown,Wikipedia,Microfinance
+Banco Comercial de Manabi,Ecuador,bank,bcmanabi.com,likely,Wikipedia,Regional bank
+Banco Atlantida Ecuador,Ecuador,bank,bancoatlantida.com.ec,likely,Wikipedia,Honduran group subsidiary
+Banco Capital,Ecuador,bank,bancocapital.com,likely,Wikipedia,Small bank
+Banco Delbank,Ecuador,bank,delbank.fin.ec,likely,Wikipedia,Small bank
+Diners Club Ecuador,Ecuador,bank,dinersclub.com.ec,confirmed,Wikipedia/datafast,Card issuer+acquirer; Datafast partner; 80% acquiring share consortium
+DeUna,Ecuador,wallet,deuna.com,confirmed,primicias.ec,Banco Pichincha wallet; 1M+ users; 420K merchants
+BIMO,Ecuador,wallet,bimo.ec,confirmed,transfi.com,BANRED-operated mobile wallet
+Vita Wallet Ecuador,Ecuador,wallet,vitawallet.io,likely,vitawallet.io,Cross-border wallet
+PayClub Wallet,Ecuador,wallet,dinersclub.com.ec,likely,transfi.com,Diners Club Pay wallet
+Datafast,Ecuador,acquirer,datafast.com.ec,confirmed,datafast.com.ec,POS processor; owned by Pichincha+Guayaquil+Pacifico
+Medianet,Ecuador,acquirer,medianet.com.ec,confirmed,medianet.com.ec,POS processor; Bolivariano+Internacional+Produbanco
+PacifiCard,Ecuador,sub_acquirer,pacificard.com.ec,confirmed,bancodelpacifico.com,Card issuer/acquirer arm of Banco del Pacifico
+Kushki Ecuador,Ecuador,payment_institution,kushkipagos.com,confirmed,kushkipagos.com,Regional non-bank PSP
+PlacetoPay,Ecuador,payment_institution,placetopay.com,confirmed,placetopay.dev,Regional payment gateway
+PayPhone,Ecuador,payment_institution,payphone.com,likely,serendipia.ec,Local payment button/wallet
+Banesco,Venezuela,bank,banesco.com,confirmed,Wikipedia,Largest private bank; 132K POS; Biopago; Suiche 7B member
+Mercantil Banco,Venezuela,bank,mercantilbanco.com,confirmed,Wikipedia,Top-3 bank; Conexus founder; merchant acquiring
+BBVA Provincial,Venezuela,bank,provincial.com,confirmed,Wikipedia,Top-3 bank; Suiche 7B member
+Banco de Venezuela,Venezuela,bank,bancodevenezuela.com,confirmed,Wikipedia,Largest bank; PagomovilBDV Comercio; Suiche 7B member
+Banco Nacional de Credito (BNC),Venezuela,bank,bncenlinea.com,confirmed,Wikipedia,Top-5 bank; Suiche 7B member
+Bancaribe,Venezuela,bank,bancaribe.com.ve,confirmed,Wikipedia,Suiche 7B member
+Banco Exterior,Venezuela,bank,bancoexterior.com,confirmed,Wikipedia,Suiche 7B member
+Banco del Tesoro,Venezuela,bank,bt.gob.ve,confirmed,Wikipedia,State bank; Suiche 7B member
+Banco Activo,Venezuela,bank,bancoactivo.com,confirmed,Wikipedia,Biopago participant; Suiche 7B member
+Bancamiga,Venezuela,bank,bancamiga.com,confirmed,Wikipedia,Biopago participant; Suiche 7B member
+Mi Banco Venezuela,Venezuela,bank,mibanco.com.ve,confirmed,Wikipedia,Microfinance; Biopago participant
+Banco Plaza,Venezuela,bank,bancoplaza.com,confirmed,Wikipedia,Suiche 7B member
+Banco Caroni,Venezuela,bank,bancocaroni.com.ve,confirmed,Wikipedia,Suiche 7B member
+Banco Sofitasa,Venezuela,bank,sofitasa.com,confirmed,Wikipedia,Suiche 7B member
+Banco Venezolano de Credito,Venezuela,bank,venezolano.com,confirmed,Wikipedia,Suiche 7B member
+100% Banco,Venezuela,bank,100x100banco.com,likely,Wikipedia,Mid-size bank
+Banco Fondo Comun,Venezuela,bank,bfc.com.ve,likely,Wikipedia,Mid-size bank
+Banplus,Venezuela,bank,banplus.com,likely,Wikipedia,Universal bank
+Bancrecer,Venezuela,bank,bancrecer.com.ve,confirmed,Wikipedia,Suiche 7B member; microfinance
+Bangente,Venezuela,bank,bangente.com.ve,likely,Wikipedia,Microfinance
+Banco Agricola de Venezuela,Venezuela,bank,bav.com.ve,confirmed,Wikipedia,State bank; Suiche 7B member
+Banco Digital de los Trabajadores,Venezuela,digital_bank,bdt.gob.ve,likely,Wikipedia,State digital bank
+N58 Banco Digital,Venezuela,digital_bank,n58.com,likely,Wikipedia,Private digital bank
+Conexus,Venezuela,acquirer,redconexus.com.ve,confirmed,redconexus.com.ve,Interbank switch; Pago Movil Interbancario processor
+Suiche 7B,Venezuela,acquirer,suiche7b.com.ve,confirmed,suiche7b.com.ve,Interbank network; 19+ bank QR pago movil
+Credicard,Venezuela,acquirer,credicard.com.ve,confirmed,credicard.com.ve,Credit card processor consortium
+Vepay,Venezuela,payment_institution,vepay.io,likely,user_input,E-commerce payment gateway
+Sitef de Venezuela,Venezuela,payment_institution,sitefdevenezuela.com,likely,sitefdevenezuela.com,Local payment gateway
+PayTech,Venezuela,payment_institution,paytechcorp.com,likely,paytechcorp.com,Payment tech company
+Banco Union,Bolivia,bank,bancounion.com.bo,confirmed,abi.bo,Largest bank by assets; owns Yasta wallet
+Banco Mercantil Santa Cruz,Bolivia,bank,bmsc.com.bo,confirmed,abi.bo,Top-3 bank; full merchant acquiring
+Banco Nacional de Bolivia (BNB),Bolivia,bank,bnb.com.bo,confirmed,abi.bo,Top-3 bank; owns Bille wallet
+Banco BISA,Bolivia,bank,bisa.com,confirmed,Wikipedia,Top-5 bank; merchant services
+Banco de Credito de Bolivia,Bolivia,bank,bcp.com.bo,confirmed,Wikipedia,BCP Peru subsidiary; Yape Bolivia
+Banco FIE,Bolivia,bank,bancofie.com.bo,likely,Wikipedia,Microfinance leader
+BancoSol,Bolivia,bank,bancosol.com.bo,confirmed,Wikipedia,Microfinance leader; owns Altoke ecosystem
+Banco Ganadero,Bolivia,bank,bg.com.bo,confirmed,economy.com.bo,Owns Yolo Pago wallet
+Banco Economico,Bolivia,bank,baneco.com.bo,likely,Wikipedia,Mid-size bank
+Banco Prodem,Bolivia,bank,prodemffp.com,likely,Wikipedia,Microfinance bank
+Banco Fortaleza,Bolivia,bank,bancofortaleza.com.bo,likely,Wikipedia,Mid-size bank
+Banco PYME Ecofuturo,Bolivia,bank,bancoecofuturo.com.bo,likely,bnamericas,SME microfinance; Fintech Americas 2024 winner
+Banco PYME de la Comunidad,Bolivia,bank,comunidad.com.bo,unknown,asfi.gob.bo,SME microfinance
+Banco de Desarrollo Productivo,Bolivia,bank,bdp.com.bo,unknown,asfi.gob.bo,State development bank
+Cooperativa Jesus Nazareno,Bolivia,bank,jesus-nazareno.coop,likely,jesus-nazareno.coop,Largest cooperative in Bolivia
+Tigo Money Bolivia,Bolivia,wallet,tigo.com.bo,confirmed,economy.com.bo,Telco-led wallet; 10+ years; market leader
+Yolo Pago,Bolivia,wallet,yolopago.com,confirmed,economy.com.bo,Banco Ganadero wallet; no commissions
+Bille,Bolivia,wallet,billebnb.com,confirmed,economy.com.bo,Banco Nacional de Bolivia wallet
+Altoke,Bolivia,wallet,bancosol.com.bo,confirmed,economy.com.bo,BancoSol digital ecosystem
+Yasta,Bolivia,wallet,bancounion.com.bo,confirmed,economy.com.bo,Banco Union wallet
+Yape Bolivia,Bolivia,wallet,yape.com.bo,confirmed,economy.com.bo,BCP Bolivia wallet
+Linkser,Bolivia,acquirer,linkser.com.bo,confirmed,economy.com.bo,Top acquirer; 13K+ merchants; MarketLink gateway
+ATC Red Enlace,Bolivia,acquirer,atc-bolivia.com,confirmed,lostiempos.com,Top acquirer; card processor with Linkser
+Sintesis,Bolivia,payment_institution,sintesis.com.bo,likely,user_input,Payment processor
+Circle Bolivia,Bolivia,payment_institution,circle.bo,likely,circle.bo,Online payment gateway for SMBs

@@ -1,0 +1,365 @@
+{
+  "meta": {
+    "id": "73ab6034-004e-4f57-b5b9-82153897d61b",
+    "slug": "crocs-hx2dge",
+    "client_name": "Crocs",
+    "created_at": "2026-05-13T21:10:44.148097+00:00"
+  },
+  "defaults": {
+    "date": "2026",
+    "domain": "crocs.com",
+    "locale": "en",
+    "docType": "Business Case",
+    "methods": [
+      "Visa",
+      "Mastercard",
+      "Apple Pay",
+      "Google Pay",
+      "Amazon Pay"
+    ],
+    "TPV_BASE": "817",
+    "US_TOTAL": "41",
+    "gateways": [
+      "Salesforce Commerce Cloud (payment platform)",
+      "Stripe",
+      "Braintree",
+      "Adyen",
+      "Authorize.net",
+      "Square"
+    ],
+    "industry": "Retail (Pets, Electronics)",
+    "warnings": {
+      "ticket_industry_default": "Retail (Pets, Electronics)",
+      "stack_assumed_from_region": "us"
+    },
+    "APA_TOTAL": "4.3",
+    "EMA_TOTAL": "3.1",
+    "US_APMUPT": "22",
+    "US_TPVUPT": "17",
+    "acquirers": [
+      "Chase Paymentech",
+      "Worldpay (FIS)",
+      "Fiserv",
+      "Global Payments"
+    ],
+    "APA_APMUPT": "1.5",
+    "APA_TPVUPT": "2.1",
+    "EMA_APMUPT": "1.1",
+    "EMA_TPVUPT": "1.6",
+    "US_TPV_TOT": "732",
+    "clientName": "Crocs",
+    "preparedBy": "German Tatis",
+    "APA_TPV_TOT": "49",
+    "EMA_TPV_TOT": "37",
+    "GRAND_TOTAL": "49",
+    "US_DEV_TIME": "18 mo",
+    "contactName": "German Tatis",
+    "markets_geo": [
+      {
+        "name": "United States",
+        "share": 78
+      },
+      {
+        "name": "Canada",
+        "share": 6
+      },
+      {
+        "name": "France",
+        "share": 4
+      },
+      {
+        "name": "Australia",
+        "share": 4
+      },
+      {
+        "name": "Japan",
+        "share": 2
+      }
+    ],
+    "us_dev_rows": [
+      {
+        "i": 6750,
+        "m": 2250,
+        "all": 40500,
+        "team": "Product"
+      },
+      {
+        "i": 31500,
+        "m": 10500,
+        "all": 189000,
+        "team": "Engineering"
+      },
+      {
+        "i": 6750,
+        "m": 2250,
+        "all": 40500,
+        "team": "Fraud/Risk"
+      },
+      {
+        "i": 4050,
+        "m": 1350,
+        "all": 24300,
+        "team": "Treasury"
+      },
+      {
+        "i": 4500,
+        "m": 1500,
+        "all": 27000,
+        "team": "Compliance"
+      },
+      {
+        "i": 3375,
+        "m": 1125,
+        "all": 20250,
+        "team": "Finance"
+      },
+      {
+        "i": 7875,
+        "m": 2625,
+        "all": 47250,
+        "team": "Banking & Payments"
+      }
+    ],
+    "vendor_name": "German Tatis",
+    "APA_DEV_TIME": "18 mo",
+    "EMA_DEV_TIME": "9 mo",
+    "TOTAL_APMUPT": "25",
+    "US_REVENUEUP": "5",
+    "apa_dev_rows": [
+      {
+        "i": 4725,
+        "m": 1575,
+        "all": 28350,
+        "team": "Product"
+      },
+      {
+        "i": 22050,
+        "m": 7350,
+        "all": 132300,
+        "team": "Engineering"
+      },
+      {
+        "i": 4725,
+        "m": 1575,
+        "all": 28350,
+        "team": "Fraud/Risk"
+      },
+      {
+        "i": 2835,
+        "m": 945,
+        "all": 17010,
+        "team": "Treasury"
+      },
+      {
+        "i": 3150,
+        "m": 1050,
+        "all": 18900,
+        "team": "Compliance"
+      },
+      {
+        "i": 2364,
+        "m": 788,
+        "all": 14184,
+        "team": "Finance"
+      },
+      {
+        "i": 5511,
+        "m": 1837,
+        "all": 33066,
+        "team": "Banking & Payments"
+      }
+    ],
+    "contactEmail": "german.tatis@y.uno",
+    "contactPhone": "+57 3176457074",
+    "contactTitle": "Business Development Manager",
+    "ema_dev_rows": [
+      {
+        "i": 5400,
+        "m": 1800,
+        "all": 16200,
+        "team": "Product"
+      },
+      {
+        "i": 25200,
+        "m": 8400,
+        "all": 75600,
+        "team": "Engineering"
+      },
+      {
+        "i": 5400,
+        "m": 1800,
+        "all": 16200,
+        "team": "Fraud/Risk"
+      },
+      {
+        "i": 3240,
+        "m": 1080,
+        "all": 9720,
+        "team": "Treasury"
+      },
+      {
+        "i": 3600,
+        "m": 1200,
+        "all": 10800,
+        "team": "Compliance"
+      },
+      {
+        "i": 2700,
+        "m": 900,
+        "all": 8100,
+        "team": "Finance"
+      },
+      {
+        "i": 6300,
+        "m": 2100,
+        "all": 18900,
+        "team": "Banking & Payments"
+      }
+    ],
+    "us_apms_rows": [
+      {
+        "iso": "US",
+        "apms": "PayPal, Apple Pay, Venmo",
+        "cost": "0.61",
+        "dtpv": "20",
+        "country": "United States"
+      },
+      {
+        "iso": "CA",
+        "apms": "Interac e-Transfer, Interac Online, Apple Pay",
+        "cost": "0.05",
+        "dtpv": "1.5",
+        "country": "Canada"
+      }
+    ],
+    "vendor_email": "german.tatis@y.uno",
+    "vendor_phone": "+57 3176457074",
+    "vendor_title": "Business Development Manager",
+    "APA_REVENUEUP": "0.64",
+    "EMA_REVENUEUP": "0.48",
+    "TOTAL_ARUPTOT": "20",
+    "apa_apms_rows": [
+      {
+        "iso": "AU",
+        "apms": "PayID, PayTo, BPAY",
+        "cost": "0.08",
+        "dtpv": "0.93",
+        "country": "Australia"
+      },
+      {
+        "iso": "JP",
+        "apms": "PayPay, Rakuten Pay, d Barai",
+        "cost": "0.05",
+        "dtpv": "0.53",
+        "country": "Japan"
+      }
+    ],
+    "ema_apms_rows": [
+      {
+        "iso": "FR",
+        "apms": "Cartes Bancaires (CB), PayPal, Apple Pay",
+        "cost": "0.1",
+        "dtpv": "1.1",
+        "country": "France"
+      }
+    ],
+    "us_cards_rows": [
+      {
+        "ar": "+2",
+        "iso": "US",
+        "tpv": "680",
+        "cost": "1.4",
+        "dtpv": "16",
+        "country": "United States"
+      },
+      {
+        "ar": "+2",
+        "iso": "CA",
+        "tpv": "52",
+        "cost": "0.1",
+        "dtpv": "1.2",
+        "country": "Canada"
+      }
+    ],
+    "US_COST_REDTOT": "1.5",
+    "apa_cards_rows": [
+      {
+        "ar": "+4",
+        "iso": "AU",
+        "tpv": "31",
+        "cost": "0.15",
+        "dtpv": "1.4",
+        "country": "Australia"
+      },
+      {
+        "ar": "+4",
+        "iso": "JP",
+        "tpv": "18",
+        "cost": "0.09",
+        "dtpv": "0.77",
+        "country": "Japan"
+      }
+    ],
+    "avg_ticket_usd": 75,
+    "ema_cards_rows": [
+      {
+        "ar": "+4",
+        "iso": "FR",
+        "tpv": "37",
+        "cost": "0.18",
+        "dtpv": "1.6",
+        "country": "France"
+      }
+    ],
+    "APA_COST_REDTOT": "0.24",
+    "EMA_COST_REDTOT": "0.18",
+    "vendor_demo_url": "https://y.chilipiper.com/me/german-tatis/meeting-with-german-tatis",
+    "US_DEV_COSTM_TOT": 21600,
+    "US_DEV_INTEG_TOT": 64800,
+    "US_DEV_NUM_INTEG": 6,
+    "regions_rendered": [
+      {
+        "label": "North America",
+        "region": "us",
+        "country_count": 2
+      },
+      {
+        "label": "EMEA",
+        "region": "ema",
+        "country_count": 1
+      },
+      {
+        "label": "APAC",
+        "region": "apa",
+        "country_count": 2
+      }
+    ],
+    "APA_DEV_COSTM_TOT": 15120,
+    "APA_DEV_INTEG_TOT": 45360,
+    "APA_DEV_NUM_INTEG": 6,
+    "EMA_DEV_COSTM_TOT": 17280,
+    "EMA_DEV_INTEG_TOT": 51840,
+    "EMA_DEV_NUM_INTEG": 3,
+    "TOTAL_COST_REDTOT": "2.8",
+    "TOTAL_DEV_SAVINGS": "0.82",
+    "US_COST_APMREDTOT": "0.66",
+    "US_DEV_SAVINGSTOT": "0.39",
+    "vendor_avatar_url": "",
+    "APA_COST_APMREDTOT": "0.13",
+    "APA_DEV_SAVINGSTOT": "0.27",
+    "EMA_COST_APMREDTOT": "0.1",
+    "EMA_DEV_SAVINGSTOT": "0.16",
+    "stack_observations": [
+      "Payment stack inferred from North America regional benchmarks \u2014 no specific public data found. To be validated with the prospect.",
+      "No orchestration layer detected \u2014 multiple direct PSP integrations create operational complexity",
+      "4.1% traffic share with no confirmed local entity. French market requires local acquiring for optimal approval rates and access to local\u2026",
+      "Card networks dominate online volume across primary markets"
+    ],
+    "US_DEV_ALL_INTEG_TOT": 388800,
+    "APA_DEV_ALL_INTEG_TOT": 272160,
+    "EMA_DEV_ALL_INTEG_TOT": 155520,
+    "avg_ticket_confidence": "low",
+    "avg_ticket_source_url": null,
+    "industry_take_rate_pct": 30
+  }
+}

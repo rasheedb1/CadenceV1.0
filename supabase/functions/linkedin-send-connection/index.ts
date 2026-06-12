@@ -4,6 +4,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
 import { createSupabaseClient, getAuthContext, logActivity, getUnipileAccountId, trackProspectedCompany } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
+import { scanFields, summarizeHits } from '../_shared/placeholder-guard.ts'
 
 interface SendConnectionRequest {
   leadId: string
@@ -39,6 +40,24 @@ serve(async (req: Request) => {
 
     if (!leadId) {
       return errorResponse('leadId is required')
+    }
+
+    // ── PLACEHOLDER GUARD ─────────────────────────────────────────────────
+    if (message) {
+      const phHits = scanFields({ note: message })
+      if (phHits.length > 0) {
+        const summary = summarizeHits(phHits)
+        console.error(`[linkedin-send-connection] BLOCKED — placeholder leak: ${summary}`)
+        await logActivity({
+          ownerId: ctx.userId,
+          orgId: ctx.orgId,
+          leadId,
+          action: 'send_linkedin_invite',
+          status: 'failed',
+          details: { error: 'placeholder_leak_blocked', placeholders: phHits.map(h => ({ field: h.field, pattern: h.pattern, match: h.match })) },
+        })
+        return errorResponse(`BLOCKED: unsubstituted placeholders detected — ${summary}`, 422)
+      }
     }
 
     // Get Unipile account ID for this user
@@ -154,6 +173,22 @@ serve(async (req: Request) => {
       const isAlreadyConnected = unipile.isAlreadyConnectedError(result.error)
 
       if (isAlreadyConnected) {
+        // Fase B E2: already connected = effectively accepted. Set status so
+        // future Day 3 messages don't trigger InMail fallback unnecessarily.
+        if (leadId) {
+          try {
+            await supabase
+              .from('leads')
+              .update({
+                linkedin_invite_status: 'accepted',
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', leadId)
+              .eq('org_id', ctx.orgId)
+          } catch (e) {
+            console.warn(`[FaseB-E2] Failed to mark already-connected as accepted:`, e)
+          }
+        }
         // Log as already connected (not a failure)
         await logActivity({
           ownerId: ctx.userId,
@@ -173,6 +208,29 @@ serve(async (req: Request) => {
         })
       }
 
+      // Fase B E3: detect account-level blocks and mark the lead so future
+      // LinkedIn steps are skipped (process-queue checks lead.linkedin_blocked).
+      const blockErr = result.error?.toLowerCase() || ''
+      const isBlocked = blockErr.includes('account is restricted') ||
+                        blockErr.includes('account_restricted') ||
+                        blockErr.includes('account suspended') ||
+                        blockErr.includes('blocked by linkedin') ||
+                        blockErr.includes('forbidden') ||
+                        blockErr.includes('403') ||
+                        blockErr.includes('cannot send invitations')
+      if (isBlocked && leadId) {
+        try {
+          await supabase
+            .from('leads')
+            .update({ linkedin_blocked: true, updated_at: new Date().toISOString() })
+            .eq('id', leadId)
+            .eq('org_id', ctx.orgId)
+          console.log(`[FaseB-E3] Marked lead ${leadId} linkedin_blocked=true (error: ${result.error})`)
+        } catch (e) {
+          console.warn(`[FaseB-E3] Failed to set linkedin_blocked:`, e)
+        }
+      }
+
       // Log failure
       await logActivity({
         ownerId: ctx.userId,
@@ -186,6 +244,25 @@ serve(async (req: Request) => {
       })
 
       return errorResponse(result.error || 'Failed to send connection request')
+    }
+
+    // Fase B E2: track invite state on the lead so process-queue can detect
+    // "pending >48h" and switch Day 3 message to InMail. linkedin-webhook will
+    // flip status to 'accepted' when Unipile delivers the acceptance event.
+    if (leadId) {
+      try {
+        await supabase
+          .from('leads')
+          .update({
+            linkedin_invite_status: 'pending',
+            linkedin_invite_sent_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', leadId)
+          .eq('org_id', ctx.orgId)
+      } catch (e) {
+        console.warn(`[FaseB-E2] Failed to track linkedin_invite_sent_at:`, e)
+      }
     }
 
     // Log success

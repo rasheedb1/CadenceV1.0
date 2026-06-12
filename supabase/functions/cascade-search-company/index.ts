@@ -44,11 +44,16 @@ serve(async (req: Request) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return errorResponse('Missing authorization header', 401)
 
-    const ctx = await getAuthContext(authHeader)
-    if (!ctx) return errorResponse('Unauthorized', 401)
-
-    const body: CascadeSearchRequest = await req.json()
+    const body = await req.json() as CascadeSearchRequest & {
+      ownerId?: string
+      orgId?: string
+      /** Filter buyer_personas to only those with priority in this array. Used to chunk cascade work to avoid 150s timeout. */
+      personaPriorities?: number[]
+    }
     const { accountMapId, companyId, maxPerRole } = body
+
+    const ctx = await getAuthContext(authHeader, { ownerId: body.ownerId, orgId: body.orgId })
+    if (!ctx) return errorResponse('Unauthorized', 401)
 
     if (!accountMapId || !companyId) {
       return errorResponse('accountMapId and companyId are required')
@@ -91,18 +96,27 @@ serve(async (req: Request) => {
       .order('is_required', { ascending: false })
       .order('priority', { ascending: true })
 
-    const { data: personas, error: pErr } = accountMap.icp_profile_id
-      ? await personaQuery.eq('icp_profile_id', accountMap.icp_profile_id)
-      : await personaQuery.eq('account_map_id', accountMapId)
+    let personaQueryWithIcp = accountMap.icp_profile_id
+      ? personaQuery.eq('icp_profile_id', accountMap.icp_profile_id)
+      : personaQuery.eq('account_map_id', accountMapId)
+
+    // Optional priority filter: chunk cascade work to avoid Supabase Edge Function 150s timeout
+    if (body.personaPriorities && body.personaPriorities.length > 0) {
+      personaQueryWithIcp = personaQueryWithIcp.in('priority', body.personaPriorities)
+    }
+
+    const { data: personas, error: pErr } = await personaQueryWithIcp
 
     if (pErr || !personas || personas.length === 0) {
       const detail = !accountMap.icp_profile_id
         ? 'Account map has no ICP profile linked. Please link an ICP profile first.'
-        : 'No buyer personas found in the linked ICP profile. Add at least one buyer persona.'
+        : body.personaPriorities && body.personaPriorities.length > 0
+          ? `No buyer personas found with priority IN (${body.personaPriorities.join(',')}).`
+          : 'No buyer personas found in the linked ICP profile. Add at least one buyer persona.'
       return errorResponse(detail, 404)
     }
 
-    console.log(`Cascade search for ${company.company_name} (${personas.length} personas, max ${maxPerRole}/role)`)
+    console.log(`Cascade search for ${company.company_name} (${personas.length} personas${body.personaPriorities ? ` priorities=${body.personaPriorities.join(',')}` : ''}, max ${maxPerRole}/role)`)
 
     // Load Salesforce contacts from accounts with open opportunities for this org.
     // Used to filter out prospects who are already in an active deal.

@@ -4,6 +4,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createUnipileClient } from '../_shared/unipile.ts'
 import { createSupabaseClient, getAuthContext, logActivity, getUnipileAccountId } from '../_shared/supabase.ts'
 import { handleCors, jsonResponse, errorResponse } from '../_shared/cors.ts'
+import { scanFields, summarizeHits } from '../_shared/placeholder-guard.ts'
 
 interface CommentRequest {
   leadId: string
@@ -49,6 +50,64 @@ serve(async (req: Request) => {
 
     if (!comment) {
       return errorResponse('comment is required')
+    }
+
+    // ── SKIP_COMMENT GUARD ────────────────────────────────────────────────
+    // ai-research-generate may emit "SKIP_COMMENT" as a deterministic signal
+    // (post not relevant). process-queue is supposed to translate that into a
+    // step skip, but if anything upstream leaks it through, we MUST NOT post
+    // the literal string. Block here as the last line of defense.
+    if (/^\s*skip[\s_]*comment\s*$/i.test(comment)) {
+      console.error(`[linkedin-comment] BLOCKED — literal SKIP_COMMENT reached the post step`)
+      await logActivity({
+        ownerId: ctx.userId,
+        orgId: ctx.orgId,
+        cadenceId,
+        cadenceStepId,
+        leadId,
+        action: 'linkedin_comment',
+        status: 'failed',
+        details: { error: 'skip_comment_leak_blocked', scheduleId, instanceId },
+      })
+      // Mark the schedule/instance as skipped so the queue doesn't retry the same poison message.
+      const supabase = createSupabaseClient()
+      if (scheduleId) {
+        await supabase
+          .from('schedules')
+          .update({
+            status: 'skipped_due_to_state_change',
+            last_error: 'skip_comment_leak_blocked',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', scheduleId)
+      }
+      if (instanceId) {
+        await supabase
+          .from('lead_step_instances')
+          .update({
+            status: 'skipped',
+            last_error: 'skip_comment_leak_blocked',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', instanceId)
+      }
+      return errorResponse('BLOCKED: SKIP_COMMENT sentinel cannot be posted as a comment', 422)
+    }
+
+    // ── PLACEHOLDER GUARD ─────────────────────────────────────────────────
+    const phHits = scanFields({ comment })
+    if (phHits.length > 0) {
+      const summary = summarizeHits(phHits)
+      console.error(`[linkedin-comment] BLOCKED — placeholder leak: ${summary}`)
+      await logActivity({
+        ownerId: ctx.userId,
+        orgId: ctx.orgId,
+        leadId,
+        action: 'send_linkedin_comment',
+        status: 'failed',
+        details: { error: 'placeholder_leak_blocked', placeholders: phHits.map(h => ({ field: h.field, pattern: h.pattern, match: h.match })) },
+      })
+      return errorResponse(`BLOCKED: unsubstituted placeholders detected — ${summary}`, 422)
     }
 
     // Get Unipile account ID for this user

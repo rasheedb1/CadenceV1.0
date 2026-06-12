@@ -1,6 +1,138 @@
 import { supabase } from '@/integrations/supabase/client'
 import type { DetectedSignal } from '@/types/signals'
 
+// ────────────────────────────────────────────────────────────────────────
+// invokeWithFreshAuth — drop-in replacement for supabase.functions.invoke
+//
+// Why this exists: Supabase user JWTs expire 1h after login. After idle,
+// supabase-js's `getSession()` returns the cached (now-stale) token and the
+// edge function rejects with "Invalid auth". This helper proactively checks
+// expiry, refreshes when needed, retries once on 401 (mid-flight expiry),
+// and enforces a real timeout via AbortController (supabase.functions.invoke
+// doesn't honor its `timeout` option).
+//
+// Public contract matches supabase.functions.invoke as closely as possible:
+//   - Returns { data, error } (never throws for protocol errors)
+//   - On non-2xx the returned `error.context` is the raw Response so existing
+//     code that does `ctx.clone().json()` to read `{ error, reason }` keeps
+//     working without changes.
+// ────────────────────────────────────────────────────────────────────────
+
+export class InvokeError extends Error {
+  context?: Response
+  status?: number
+  constructor(message: string, opts?: { context?: Response; status?: number }) {
+    super(message)
+    this.name = 'InvokeError'
+    this.context = opts?.context
+    this.status = opts?.status
+  }
+}
+
+export interface InvokeResult<T> {
+  data: T | null
+  error: InvokeError | null
+}
+
+// Ensures the cached access_token has >5 min left. If not, forces a refresh.
+// Throws on terminal session loss (caller should surface "reload + sign in").
+async function ensureFreshAccessToken(): Promise<string> {
+  const { data: sessionData } = await supabase.auth.getSession()
+  const session = sessionData?.session
+  if (!session?.access_token) {
+    throw new Error('Session expired — reload the page and sign in again')
+  }
+  const now = Math.floor(Date.now() / 1000)
+  const expiresAt = session.expires_at ?? 0
+  if (expiresAt - now > 300) return session.access_token
+
+  const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession()
+  if (refreshErr || !refreshed?.session?.access_token) {
+    throw new Error('Session expired — reload the page and sign in again')
+  }
+  return refreshed.session.access_token
+}
+
+export async function invokeWithFreshAuth<T = unknown>(
+  functionName: string,
+  options: { body: Record<string, unknown>; timeoutMs?: number },
+): Promise<InvokeResult<T>> {
+  let token: string
+  try {
+    token = await ensureFreshAccessToken()
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Session error'
+    return { data: null, error: new InvokeError(msg) }
+  }
+
+  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${functionName}`
+
+  async function doFetch(bearer: string): Promise<Response> {
+    const controller = new AbortController()
+    const timer = options.timeoutMs
+      ? setTimeout(() => controller.abort(), options.timeoutMs)
+      : null
+    try {
+      return await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bearer}`,
+        },
+        body: JSON.stringify(options.body),
+        signal: controller.signal,
+      })
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
+  let resp: Response
+  try {
+    resp = await doFetch(token)
+    // Mid-flight expiry: refresh + retry once. Anything beyond that is a
+    // real auth problem the user has to resolve manually.
+    if (resp.status === 401) {
+      try {
+        const { data: refreshed } = await supabase.auth.refreshSession()
+        const fresh = refreshed?.session?.access_token
+        if (fresh && fresh !== token) {
+          resp = await doFetch(fresh)
+        }
+      } catch {
+        // fall through with the 401 response
+      }
+    }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      const secs = options.timeoutMs ? Math.round(options.timeoutMs / 1000) : 0
+      return {
+        data: null,
+        error: new InvokeError(`Request timed out after ${secs}s — try again`),
+      }
+    }
+    const msg = err instanceof Error ? err.message : 'Network error'
+    return { data: null, error: new InvokeError(msg) }
+  }
+
+  if (!resp.ok) {
+    return {
+      data: null,
+      error: new InvokeError(
+        `Edge function "${functionName}" returned ${resp.status}`,
+        { context: resp, status: resp.status },
+      ),
+    }
+  }
+
+  try {
+    const data = (await resp.json()) as T
+    return { data, error: null }
+  } catch {
+    return { data: null, error: new InvokeError('Invalid JSON response') }
+  }
+}
+
 /**
  * Error class for Edge Function failures
  */

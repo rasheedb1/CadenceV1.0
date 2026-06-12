@@ -1,0 +1,170 @@
+name,country,type,domain,acquiring_capability,source,notes
+BBVA México,Mexico,bank,bbva.mx,confirmed,wikipedia/cnbv,Top-5 acquirer; co-owner of E-Global processor
+Citibanamex,Mexico,bank,banamex.com,confirmed,wikipedia/cnbv,Co-owner of E-Global processor; major acquirer
+Banorte,Mexico,bank,banorte.com,confirmed,wikipedia/cnbv,Prosa shareholder; large merchant acquirer
+Santander México,Mexico,bank,santander.com.mx,confirmed,sec.gov,Owns 49% Elavon Mexico for merchant acquiring
+HSBC México,Mexico,bank,hsbc.com.mx,confirmed,wikipedia/cnbv,Prosa shareholder; merchant acquiring
+Scotiabank México,Mexico,bank,scotiabank.com.mx,confirmed,wikipedia/cnbv,Prosa shareholder; merchant acquiring
+Inbursa,Mexico,bank,inbursa.com,likely,wikipedia,Top-7 commercial bank
+BanBajío,Mexico,bank,bb.com.mx,likely,wikipedia,Commercial bank with merchant POS
+BanRegio,Mexico,bank,banregio.com,likely,wikipedia,SME-focused commercial bank
+Banco Azteca,Mexico,bank,bancoazteca.com.mx,confirmed,wikipedia,Operates POS via Elektra retail network
+BanCoppel,Mexico,bank,bancoppel.com,likely,wikipedia,Retail-bank tied to Coppel stores
+Compartamos Banco,Mexico,bank,compartamos.com.mx,likely,wikipedia,Microfinance bank
+Banca Afirme,Mexico,bank,afirme.com,likely,wikipedia,Commercial bank
+Banca Mifel,Mexico,bank,mifel.com.mx,likely,cnbv,Commercial bank
+Banco Multiva,Mexico,bank,multiva.com.mx,likely,cnbv,Commercial bank
+Banco Actinver,Mexico,bank,actinver.com,likely,cnbv,Brokerage-bank
+Banco Ve por Más,Mexico,bank,bx.com.mx,likely,cnbv,SME commercial bank
+Banco Invex,Mexico,bank,invex.com,likely,wikipedia,Prosa shareholder
+Banco Monex,Mexico,bank,monex.com.mx,likely,wikipedia,FX & corporate bank
+Banco BASE,Mexico,bank,bancobase.com,likely,wikipedia,Corporate FX bank
+Banco Covalto,Mexico,bank,covalto.com,likely,wikipedia,Digital SME bank (ex-Credijusto)
+Banco Inmobiliario Mexicano,Mexico,bank,bim.mx,unknown,wikipedia,Mortgage bank
+Banco Dondé,Mexico,bank,bancodonde.com,likely,wikipedia,Small-ticket retail bank
+Bancrea,Mexico,bank,bancrea.com,unknown,wikipedia,SME commercial bank
+Bankaool,Mexico,bank,bankaool.com,unknown,wikipedia,Digital agri-bank
+BanFeliz,Mexico,bank,banfeliz.mx,unknown,wikipedia,New niche bank
+Bansí,Mexico,bank,bansi.com.mx,likely,wikipedia,Regional commercial bank
+Consubanco,Mexico,bank,consubanco.com,likely,wikipedia,Payroll-loan bank
+Banco Pagatodo,Mexico,bank,pagatodo.com.mx,confirmed,wikipedia,Payment-focused bank; acquiring infra
+Banco Plata,Mexico,bank,bancoplata.mx,unknown,wikipedia,Niche bank
+Banco Bineo,Mexico,digital_bank,bineo.com,likely,wikipedia,Digital bank by Banorte
+Hey Banco,Mexico,digital_bank,heybanco.com,likely,wikipedia,Digital bank spun out of Banregio
+Banco Sabadell México,Mexico,bank,bancosabadell.mx,likely,wikipedia,Corporate bank
+Banco Falabella México,Mexico,bank,bancofalabella.com.mx,likely,wikipedia,Retail bank
+American Express Bank México,Mexico,bank,americanexpress.com/mx,confirmed,wikipedia,AmEx acquirer in Mexico
+Mercado Pago México,Mexico,payment_institution,mercadopago.com.mx,confirmed,cnbv,IFPE; large acquirer + wallet
+Clip,Mexico,acquirer,clip.mx,confirmed,payclip.com,mPOS + e-com aggregator unicorn
+Conekta,Mexico,acquirer,conekta.com,confirmed,rebill.com,PSP/acquirer for SMB & enterprise
+Openpay (BBVA),Mexico,acquirer,openpay.mx,confirmed,rebill.com,BBVA-owned PSP/aggregator
+PayU México,Mexico,acquirer,payu.com,confirmed,corporate.payu.com,Global PSP with MX entity
+Stripe México,Mexico,acquirer,stripe.com,confirmed,stripe.com,Direct acquiring license in MX
+Adyen México,Mexico,acquirer,adyen.com,confirmed,adyen.com,Direct acquiring license in MX
+Banwire,Mexico,acquirer,banwire.com,confirmed,aciworldwide.com,PSP for cards + OXXO + transfers
+Billpocket,Mexico,acquirer,billpocket.com,confirmed,ensun.io,mPOS payment facilitator
+Sr Pago,Mexico,acquirer,srpago.com,confirmed,gabrielneuman.com,mPOS + online (owned by Konfío)
+Kueski Pay,Mexico,fintech,kueski.com,likely,rebill.com,BNPL with merchant acceptance
+Aplazo,Mexico,fintech,aplazo.mx,likely,rebill.com,BNPL acquirer-adjacent
+DEUNA,Mexico,fintech,deuna.com,confirmed,deuna.com,Checkout orchestrator + acquirer
+PagoFácil,Mexico,acquirer,pagofacil.com.mx,confirmed,rebill.com,Online + in-store payment PSP
+Prosa,Mexico,acquirer,prosa.com.mx,confirmed,electran.org,Switch/processor; Visa majority owner
+E-Global,Mexico,acquirer,e-global.com.mx,confirmed,electran.org,Processor owned by BBVA + Citibanamex
+EVO Payments México,Mexico,acquirer,evopayments.mx,confirmed,electran.org,Global Payments subsidiary
+Nubank México,Mexico,digital_bank,nu.com.mx,likely,bloomberglinea,SOFIPO migrating to bank
+Stori,Mexico,digital_bank,storicard.com,likely,mexicobusiness.news,Bank license 2023
+Klar,Mexico,digital_bank,klar.mx,likely,mexicobusiness.news,SOFIPO; bought Bineo SOFIPO
+Albo,Mexico,digital_bank,albo.mx,likely,coinscrapfinance.com,Neobank/wallet
+Ualá México,Mexico,digital_bank,uala.mx,likely,coinscrapfinance.com,Neobank wallet
+Finsus,Mexico,digital_bank,finsus.mx,unknown,legalparadox.com,SOFIPO neobank
+Banco del Bienestar,Mexico,bank,gob.mx/bancodelbienestar,unknown,wikipedia,State development bank
+Yaydoo (Paystand MX),Mexico,fintech,yaydoo.com,likely,finovate.com,B2B AR/AP acquired by Paystand
+BAC Credomatic Guatemala,Guatemala,acquirer,baccredomatic.com,confirmed,wikipedia,Regional acquirer leader CA
+Banco Industrial Guatemala,Guatemala,bank,bancoindustrial.com,confirmed,cbinsights.com,Largest bank; merchant acquiring + Fri
+Banco G&T Continental,Guatemala,bank,gtc.com.gt,confirmed,fintechnews.am,Major acquirer; Fri member
+Banrural Guatemala,Guatemala,bank,banrural.com.gt,confirmed,fintechnews.am,Acquirer; Fri member
+Banco Promerica Guatemala,Guatemala,bank,promerica.com.gt,likely,fintechnews.am,Fri member; merchant POS
+Interbanco (Banco Internacional GT),Guatemala,bank,interbanco.com.gt,likely,fintechnews.am,Fri member
+MiCoope,Guatemala,fintech,micoope.com.gt,likely,fintechnews.am,Cooperatives federation; Fri member
+Vivibanco,Guatemala,bank,vivibanco.com.gt,likely,fintechnews.am,Microfinance bank
+Bantrab,Guatemala,bank,bantrab.com.gt,likely,remitly.com,Workers bank
+Banco Azteca Guatemala,Guatemala,bank,bancoazteca.com.gt,likely,wikipedia,Retail bank
+Tigo Money Guatemala,Guatemala,wallet,tigo.com.gt,likely,remitly.com,Mobile wallet
+Visanet Guatemala,Guatemala,acquirer,visanetgt.com,confirmed,visa,Card switch/acquirer JV
+Credomatic Guatemala (processor),Guatemala,acquirer,credomatic.com,confirmed,wikipedia,Processor for BAC regional
+BAC Credomatic El Salvador,El Salvador,acquirer,baccredomatic.com,confirmed,wikipedia,Regional acquirer
+Banco Agrícola,El Salvador,bank,bancoagricola.com,confirmed,trade.gov,Largest bank SV; merchant acquirer
+Banco Cuscatlán,El Salvador,bank,bancocuscatlan.com,confirmed,trade.gov,Major bank; merchant acquiring
+Banco Davivienda Salvadoreño,El Salvador,bank,davivienda.com.sv,confirmed,trade.gov,Ex-HSBC; merchant acquiring
+Banco Promerica El Salvador,El Salvador,bank,promerica.com.sv,likely,trade.gov,Regional bank
+Banco Hipotecario,El Salvador,bank,bancohipotecario.com.sv,likely,banksdaily.com,State commercial bank
+Banco Atlántida El Salvador,El Salvador,bank,bancatlan.sv,likely,banksdaily.com,Hond-owned commercial bank
+Banco Azul,El Salvador,bank,bancoazul.com,likely,banksdaily.com,Local commercial bank
+Hugo Pay,El Salvador,wallet,hugoapp.com,likely,hugoapp,Super-app wallet + merchant payments
+N1co,El Salvador,fintech,n1co.com,likely,n1co.com,Stablecoin/payments fintech
+BAC Credomatic Honduras,Honduras,acquirer,baccredomatic.com,confirmed,wikipedia,Regional acquirer
+Banco Atlántida,Honduras,bank,bancatlan.hn,confirmed,prnewswire,Top-3 bank; merchant acquiring
+Banco Ficohsa,Honduras,bank,ficohsa.com,confirmed,prnewswire,Largest bank HN; acquiring
+Banco de Occidente Honduras,Honduras,bank,bancodeoccidente.hn,confirmed,prnewswire,Top-3 bank; merchant acquiring
+Banpaís,Honduras,bank,banpais.com,likely,westernunion,Commercial bank (Grupo Promerica)
+Banco Promerica Honduras,Honduras,bank,promerica.hn,likely,bincheck,Commercial bank
+Banco Davivienda Honduras,Honduras,bank,davivienda.com.hn,likely,bincheck,Ex-HSBC HN; merchant POS
+Banco LAFISE Honduras,Honduras,bank,lafise.com,likely,bincheck,Regional commercial bank
+Banco Azteca Honduras,Honduras,bank,bancoazteca.com.hn,likely,bincheck,Retail bank
+Tigo Money Honduras,Honduras,wallet,tigomoney.hn,likely,tigo,Mobile wallet
+BAC Credomatic Nicaragua,Nicaragua,acquirer,baccredomatic.com,confirmed,wikipedia,Regional acquirer
+Banpro Grupo Promerica,Nicaragua,bank,banpro.com.ni,confirmed,wikipedia,Largest bank NI; merchant acquiring
+Banco LAFISE BANCENTRO,Nicaragua,bank,lafise.com,confirmed,wikipedia,Top-3 bank; merchant acquiring
+Banco Ficohsa Nicaragua,Nicaragua,bank,ficohsa.com.ni,likely,wikipedia,Commercial bank
+Banco Avanz,Nicaragua,bank,avanzbanco.com,likely,wikipedia,SME commercial bank
+Banco de Finanzas (BDF),Nicaragua,bank,bdfnet.com,likely,wikipedia,Commercial bank
+Banco de la Producción,Nicaragua,bank,banpro.com.ni,likely,wikipedia,Major commercial bank
+BAC Credomatic Costa Rica,Costa Rica,acquirer,baccredomatic.com,confirmed,wikipedia,HQ of BAC group; CR acquirer leader
+Banco Nacional de Costa Rica,Costa Rica,bank,bncr.fi.cr,confirmed,bncr.fi.cr,State bank; merchant acquiring (Conexión BN)
+Banco de Costa Rica (BCR),Costa Rica,bank,bancobcr.com,confirmed,wikipedia,State bank; major acquirer
+Banco Popular CR,Costa Rica,bank,bancopopular.fi.cr,confirmed,medium.com,Worker bank; Conexión BP acquiring + TTP
+Banco Promerica Costa Rica,Costa Rica,bank,promerica.fi.cr,likely,promerica.fi.cr,Commercial bank
+Banco LAFISE Costa Rica,Costa Rica,bank,lafise.com,likely,jarscr.com,Regional commercial bank
+Banco Davivienda Costa Rica,Costa Rica,bank,davivienda.cr,likely,credix.com,Ex-HSBC CR
+Banco BCT,Costa Rica,bank,bancobct.com,likely,data506.com,Local commercial bank
+Scotiabank Costa Rica,Costa Rica,bank,scotiabankcr.com,likely,data506.com,Foreign commercial bank
+Coopealianza,Costa Rica,bank,coopealianza.fi.cr,likely,coopealianza.fi.cr,Major savings cooperative
+Credix CR,Costa Rica,fintech,credix.com,confirmed,credix.com,Credit card / BNPL with merchant network
+BAC Credomatic Panamá,Panama,acquirer,baccredomatic.com,confirmed,wikipedia,Regional acquirer; BAC Intl HQ in Panama
+Banco General,Panama,bank,bgeneral.com,confirmed,elevatepay.co,Largest bank PA; merchant acquiring + Yappy
+Banco Nacional de Panamá,Panama,bank,banconal.com.pa,likely,elevatepay.co,State bank; merchant POS
+Banistmo,Panama,bank,banistmo.com,confirmed,elevatepay.co,Bancolombia subsidiary; merchant acquiring + Nequi
+Global Bank Panamá,Panama,bank,globalbank.com.pa,confirmed,globalbankingandfinance.com,Major bank; Kuara wallet co-founder
+Banesco Panamá,Panama,bank,banesco.com,confirmed,wise.com,Major bank; Kuara co-founder
+Multibank Panamá,Panama,bank,multibank.com.pa,likely,pallaslife.com,Commercial bank
+MMG Bank,Panama,bank,mmgbank.com,likely,newsroompanama.com,Kuara co-founder
+St. Georges Bank,Panama,bank,stgeorgesbank.com,likely,newsroompanama,Yappy participant
+Credicorp Bank,Panama,bank,credicorpbank.com,likely,newsroompanama,Yappy participant
+Banisi,Panama,bank,banisi.com.pa,likely,newsroompanama,Yappy participant
+Yappy,Panama,wallet,yappy.com.pa,confirmed,newsroompanama,Banco General-owned mobile wallet
+Kuara,Panama,wallet,kuara.app,confirmed,newsroompanama,Multi-bank digital wallet
+Nequi Panamá,Panama,wallet,nequi.com.pa,confirmed,newsroompanama,Bancolombia/Banistmo wallet
+Zinli,Panama,wallet,zinli.com,likely,newsroompanama,Cross-border wallet
+Cardnet Dominicana,Dominican Republic,acquirer,cardnet.com.do,confirmed,industry,Largest card switch/acquirer DR
+Visanet Dominicana (Azul),Dominican Republic,acquirer,azul.com.do,confirmed,azul.com.do,Major acquirer (rebranded Azul)
+Banco Popular Dominicano,Dominican Republic,bank,popularenlinea.com,confirmed,westernunion,Top bank; merchant acquiring; Qik
+Banreservas,Dominican Republic,bank,banreservas.com,confirmed,westernunion,State bank; merchant acquiring
+Banco BHD,Dominican Republic,bank,bhd.com.do,confirmed,westernunion,Top-3 bank; merchant acquiring
+Scotiabank República Dominicana,Dominican Republic,bank,do.scotiabank.com,likely,remitly,Foreign commercial bank
+Banesco República Dominicana,Dominican Republic,bank,banesco.com.do,likely,industry,Commercial bank
+Banco Santa Cruz,Dominican Republic,bank,bsc.com.do,likely,industry,Local commercial bank
+Banco Caribe,Dominican Republic,bank,bancocaribe.com.do,likely,industry,Local commercial bank
+Asociación Popular de Ahorros y Préstamos,Dominican Republic,bank,apap.com.do,likely,industry,Savings & loan; cards
+Qik Banco Digital,Dominican Republic,digital_bank,qik.com.do,likely,thefintechtimes,Digital bank by Banco Popular
+tPago,Dominican Republic,wallet,tpago.com,confirmed,gcs-international.com,Largest mobile wallet DR; 40k+ merchants
+Alignet,Dominican Republic,acquirer,alignet.com,likely,industry,Regional e-com gateway/acquirer
+Evertec Puerto Rico,Puerto Rico,acquirer,evertecinc.com,confirmed,sec.gov,Largest acquirer/processor PR & Caribbean
+Banco Popular de Puerto Rico,Puerto Rico,bank,popular.com,confirmed,popular.com,Top bank; Popular Merchant acquiring via Evertec
+FirstBank Puerto Rico,Puerto Rico,bank,firstbankpr.com,confirmed,sec.gov,Top-3 bank; merchant acquiring
+Oriental Bank,Puerto Rico,bank,orientalbank.com,confirmed,sec.gov,Top-3 bank; merchant acquiring
+ATH Móvil,Puerto Rico,wallet,athmovil.com,confirmed,evertec,Dominant PR mobile wallet (Evertec)
+NCB Jamaica,Jamaica,bank,jncb.com,confirmed,jncb.com,Largest bank JM; merchant acquiring
+Scotiabank Jamaica,Jamaica,bank,jm.scotiabank.com,confirmed,jm.scotiabank.com,Top bank; merchant acquiring
+Sagicor Bank Jamaica,Jamaica,bank,sagicorjamaica.com,confirmed,industry,Acquiring via FAC
+JN Bank,Jamaica,bank,jnbank.com,likely,industry,Commercial bank
+First Atlantic Commerce (FAC),Jamaica,acquirer,fac.bm,confirmed,forwardmultimedia,Regional gateway; integrated to JM acquirers
+WiPay Jamaica,Jamaica,acquirer,wipaycaribbean.com,confirmed,wipaycaribbean.com,Caribbean aggregator/acquirer
+Republic Bank Trinidad,Trinidad and Tobago,bank,republictt.com,confirmed,republictt.com,Top bank TT; Republic EPay acquirer
+RBC Royal Bank Trinidad,Trinidad and Tobago,bank,rbc.com/caribbean,confirmed,ttcs.tt,Top-4 bank; merchant acquiring
+First Citizens Trinidad,Trinidad and Tobago,bank,firstcitizenstt.com,confirmed,ttcs.tt,Top bank TT; merchant acquiring
+Scotiabank Trinidad,Trinidad and Tobago,bank,tt.scotiabank.com,confirmed,ttcs.tt,Top bank; merchant acquiring
+Infolink Services,Trinidad and Tobago,acquirer,infolink.tt,confirmed,ttcs.tt,JV of 4 acquiring banks; Linx network
+WiPay Trinidad,Trinidad and Tobago,acquirer,wipaycaribbean.com,confirmed,wipaycaribbean.com,Caribbean aggregator
+Sogebank,Haiti,bank,sogebank.com,confirmed,wikipedia,Top-3 bank HT; merchant acquiring + MonCash bridge
+Unibank Haiti,Haiti,bank,unibankhaiti.com,confirmed,trade.gov,Top bank HT; NatCash partner; acquiring
+Capital Bank Haiti,Haiti,bank,capitalbankhaiti.biz,likely,capitalbankhaiti.biz,Commercial bank
+BNC Haiti,Haiti,bank,bnc.ht,likely,trade.gov,State commercial bank
+BUH (Banque de l'Union Haïtienne),Haiti,bank,buh.ht,likely,trade.gov,Commercial bank
+MonCash,Haiti,wallet,moncashdfs.com,confirmed,moncashdfs.com,Digicel mobile money; merchant network
+NatCash,Haiti,wallet,natcom.com.ht,confirmed,trade.gov,Natcom mobile money
+Banco Metropolitano,Cuba,bank,banmet.cu,likely,bc.gob.cu,State bank; card acceptance
+Banco Popular de Ahorro (BPA),Cuba,bank,bpa.cu,likely,bc.gob.cu,State bank; card acceptance
+BANDEC,Cuba,bank,bandec.cu,likely,bc.gob.cu,State commercial bank; card acceptance
+Fincimex,Cuba,payment_institution,fincimex.com.cu,confirmed,directoriocubano,FX/card services for merchants
+Transfermóvil,Cuba,wallet,transfermovil.cu,confirmed,sanantonio.gob.cu,Mobile payment gateway
+EnZona,Cuba,wallet,enzona.net,confirmed,sanantonio.gob.cu,E-commerce payment platform

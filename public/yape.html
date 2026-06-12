@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920" />
+<title>Yuno × Yape · Caso de Negocio</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/bc-assets/yuno-favicon-32.png" />
+<link rel="icon" type="image/png" sizes="256x256" href="/bc-assets/yuno-favicon.png" />
+<link rel="apple-touch-icon" href="/bc-assets/yuno-favicon.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@200;300;400;500;600;700;900&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/bc-assets/styles.css" />
+<link rel="stylesheet" href="/bc-assets/styles-bc.css" />
+</head>
+<body>
+
+<deck-stage width="1920" height="1080">
+  <section id="root-container" style="background:#06070B;"></section>
+</deck-stage>
+
+<script>
+  window.YAPE_DATA = {
+    clientName: 'Yape',
+    docType: 'Caso de Negocio · Alianza',
+    date: '2026',
+    preparedBy: 'Yuno Sales Strategy',
+    contact: {
+      name: 'Rasheed Bayter',
+      title: 'Director Comercial Latam',
+      email: 'rasheed@y.uno',
+    },
+  };
+</script>
+
+<script src="/bc-assets/deck-stage.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="/bc-assets/components.jsx"></script>
+<script type="text/babel" src="/bc-assets/yape-slides.jsx"></script>
+
+<script type="text/babel">
+const stage = document.querySelector('deck-stage');
+document.getElementById('root-container').remove();
+
+const data = window.YAPE_DATA;
+
+// Print mode: Puppeteer loads /yape?print=1 → Counter components read
+// document.body.classList.contains('bc-print') and skip the count-up
+// animation, rendering the final value on first mount.
+if (new URLSearchParams(location.search).get('print') === '1') {
+  document.body.classList.add('bc-print');
+}
+
+window.__bcReady = false;
+
+const slideBuilders = [
+  () => <YapeS01Cover data={data} />,
+  () => <YapeS02Agenda />,
+  () => <YapeS03Section />,
+  () => <YapeS04Bottleneck />,
+  () => <YapeS05Gap />,
+  () => <YapeS06Section />,
+  () => <YapeS07Architecture />,
+  () => <YapeS08OpShift />,
+  () => <YapeS09Section />,
+  () => <YapeS10Volume />,
+  () => <YapeS11RevenueUplift />,
+  () => <YapeS12Pricing />,
+  () => <YapeS13Hybrid />,
+  () => <YapeS14ROI />,
+  () => <YapeS15Closing data={data} />,
+];
+
+let __mountedCount = 0;
+const __totalSlides = slideBuilders.length;
+const __onSlideMount = () => {
+  __mountedCount++;
+  if (__mountedCount < __totalSlides) return;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(async () => {
+      try {
+        if (document.fonts && document.fonts.ready) await document.fonts.ready;
+      } catch (e) { /* fonts API missing → fall through */ }
+      window.__bcReady = true;
+    });
+  });
+};
+
+function MountSignal({ onMount, children }) {
+  useEffect(() => { onMount(); }, []);
+  return children;
+}
+
+slideBuilders.forEach((builder) => {
+  const node = document.createElement('section');
+  stage.appendChild(node);
+  ReactDOM.createRoot(node).render(<MountSignal onMount={__onSlideMount}>{builder()}</MountSignal>);
+});
+</script>
+
+</body>
+</html>

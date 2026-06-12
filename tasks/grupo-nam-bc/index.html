@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chief × Grupo Nam · Caso de Negocio</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist@5.2.8/index.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist-mono@5.2.7/index.css" />
+<style>
+:root{
+  --chief-blue:#3E4FE0;
+  --chief-blue-deep:#1726A6;
+  --chief-blue-mid:#5967E4;
+  --chief-blue-light:#7C89EF;
+  --chief-blue-pale:#BDC3F6;
+  --bg-canvas:#F8F9FC;
+  --bg-elevated:#FFFFFF;
+  --bg-section:#0F1020;
+  --ink-strong:#0F1020;
+  --ink:#1E2030;
+  --ink-secondary:rgba(30,32,48,0.74);
+  --ink-muted:rgba(30,32,48,0.56);
+  --ink-faint:rgba(30,32,48,0.36);
+  --border-subtle:rgba(30,32,48,0.08);
+  --border-soft:rgba(30,32,48,0.14);
+  --success:#16A34A;
+  --warning:#EA580C;
+  --lime:#E0ED80;
+  --accent:var(--chief-blue);
+  --title-gradient:linear-gradient(135deg,#1726A6 0%,#3E4FE0 100%);
+  --title-gradient-dark:linear-gradient(135deg,#BDC3F6 0%,#5967E4 50%,#3E4FE0 100%);
+  --beam-base:linear-gradient(90deg,rgba(30,32,48,0.18) 0%,rgba(30,32,48,0) 100%);
+  --beam-bright:linear-gradient(90deg,transparent 0%,rgba(62,79,224,0.55) 50%,transparent 100%);
+  --beam-base-dark:linear-gradient(90deg,rgba(255,255,255,0.18) 0%,rgba(255,255,255,0) 100%);
+  --beam-bright-dark:linear-gradient(90deg,transparent 0%,rgba(224,237,128,0.55) 50%,transparent 100%);
+  --font:'Geist Variable',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --font-mono:'Geist Mono Variable','SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#0a0a0f;color:var(--ink);font-family:var(--font);overflow:hidden}
+body{min-height:100vh;display:flex;align-items:center;justify-content:center}
+
+.stage{position:relative;width:100vw;height:100vh;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.deck{width:1920px;height:1080px;position:relative;transform-origin:center center;flex-shrink:0}
+
+.slide{
+  position:absolute;inset:0;width:1920px;height:1080px;
+  padding:64px 96px 80px;display:flex;flex-direction:column;
+  opacity:0;pointer-events:none;transition:opacity .35s ease;
+  font-family:var(--font);color:var(--ink);
+}
+.slide.active{opacity:1;pointer-events:auto}
+.slide.light{background:var(--bg-canvas)}
+.slide.dark{background:var(--bg-section);color:#fff}
+
+/* topbar */
+.topbar{display:flex;align-items:center;justify-content:space-between;width:100%;font-family:var(--font-mono);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);font-weight:500}
+.slide.dark .topbar{color:rgba(255,255,255,0.55)}
+.topbar .left{display:flex;align-items:center;gap:14px}
+.wordmark{font-family:var(--font);font-weight:800;font-size:18px;letter-spacing:-.02em;color:var(--ink-strong);text-transform:lowercase}
+.slide.dark .wordmark{color:#fff}
+.topbar .div{width:1px;height:14px;background:var(--border-soft)}
+.slide.dark .topbar .div{background:rgba(255,255,255,0.18)}
+.section-pill{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--border-soft);border-radius:999px;font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;color:var(--ink-muted)}
+.slide.dark .section-pill{border-color:rgba(255,255,255,0.18);color:rgba(255,255,255,0.6)}
+.section-pill .dot{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+
+.pagenum{position:absolute;top:64px;right:96px;font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;color:var(--ink-faint)}
+.slide.dark .pagenum{color:rgba(255,255,255,0.4)}
+.footer{position:absolute;bottom:36px;left:96px;font-family:var(--font-mono);font-size:11px;letter-spacing:.18em;color:var(--ink-faint);text-transform:uppercase}
+.slide.dark .footer{color:rgba(255,255,255,0.36)}
+
+/* mono kicker */
+.kicker{display:flex;align-items:center;gap:14px;font-family:var(--font-mono);font-size:13px;letter-spacing:.1em;color:var(--ink-secondary);text-transform:lowercase;font-weight:500}
+.slide.dark .kicker{color:rgba(255,255,255,0.72)}
+.kicker .caret{color:var(--accent);font-weight:700}
+.slide.dark .kicker .caret{color:var(--lime)}
+.beam{flex:1;height:1px;position:relative;overflow:hidden;background:var(--beam-base);max-width:280px}
+.slide.dark .beam{background:var(--beam-base-dark)}
+.beam::after{content:'';position:absolute;top:0;bottom:0;left:0;width:30%;background:var(--beam-bright);animation:beamSlide 16s linear infinite}
+.slide.dark .beam::after{background:var(--beam-bright-dark)}
+@keyframes beamSlide{
+  0%{transform:translateX(-100%)}
+  100%{transform:translateX(450%)}
+}
+
+/* typography */
+.t-title{font-family:var(--font);font-weight:700;letter-spacing:-.025em;line-height:1.04;color:var(--ink-strong)}
+.slide.dark .t-title{color:#fff}
+.t-title-xl{font-size:96px}
+.t-title-l{font-size:72px}
+.t-title-m{font-size:48px}
+.t-title-s{font-size:36px}
+.t-body-l{font-size:22px;line-height:1.5;color:var(--ink-secondary);font-weight:400}
+.t-body{font-size:17px;line-height:1.6;color:var(--ink-secondary);font-weight:400}
+.slide.dark .t-body,.slide.dark .t-body-l{color:rgba(255,255,255,0.72)}
+.t-label{font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-muted);font-weight:600}
+.slide.dark .t-label{color:rgba(255,255,255,0.55)}
+.t-number{font-family:var(--font);font-weight:600;letter-spacing:-.03em}
+.t-accent{background:var(--title-gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.slide.dark .t-accent{background:var(--title-gradient-dark);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+
+/* cards */
+.card-nova{background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:18px;padding:32px;box-shadow:0 1px 2px rgba(15,16,32,0.04),0 8px 24px rgba(15,16,32,0.04)}
+.card-soft{background:rgba(62,79,224,0.04);border:1px solid rgba(62,79,224,0.14);border-radius:14px;padding:24px}
+.card-hero{background:linear-gradient(135deg,#1726A6 0%,#3E4FE0 100%);color:#fff;border-radius:18px;padding:36px;position:relative;overflow:hidden;box-shadow:0 12px 36px rgba(62,79,224,0.32)}
+
+/* border-beam */
+@property --border-beam-angle{syntax:'<angle>';inherits:false;initial-value:0deg}
+@keyframes borderBeam{to{--border-beam-angle:360deg}}
+.border-beam{position:relative}
+.border-beam::after{content:'';position:absolute;inset:0;border-radius:inherit;padding:1.5px;background:conic-gradient(from var(--border-beam-angle),transparent 0%,rgba(255,255,255,0.85) 8%,transparent 22%,transparent 100%);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:borderBeam 14s linear infinite;pointer-events:none}
+
+/* stagger */
+.slide.active .stagger > *{animation:revealUp .6s cubic-bezier(0.16,1,0.3,1) both}
+.slide.active .stagger > *:nth-child(1){animation-delay:.08s}
+.slide.active .stagger > *:nth-child(2){animation-delay:.16s}
+.slide.active .stagger > *:nth-child(3){animation-delay:.24s}
+.slide.active .stagger > *:nth-child(4){animation-delay:.32s}
+.slide.active .stagger > *:nth-child(5){animation-delay:.4s}
+.slide.active .stagger > *:nth-child(6){animation-delay:.48s}
+.slide.active .stagger > *:nth-child(7){animation-delay:.56s}
+.slide.active .stagger > *:nth-child(8){animation-delay:.64s}
+@keyframes revealUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+
+/* tables */
+table.bc{width:100%;border-collapse:collapse;font-size:16px}
+table.bc thead th{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-muted);font-weight:600;text-align:left;padding:14px 16px;border-bottom:1px solid var(--border-soft)}
+table.bc tbody td{padding:18px 16px;border-bottom:1px solid var(--border-subtle);color:var(--ink);font-weight:500}
+table.bc tbody tr:last-child td{border-bottom:none}
+table.bc tbody tr.total td{background:rgba(62,79,224,0.06);font-weight:600;color:var(--ink-strong)}
+table.bc tbody td.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+
+/* nav */
+.nav{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:16px;background:rgba(15,16,32,0.86);backdrop-filter:blur(12px);padding:10px 18px;border-radius:999px;z-index:100;border:1px solid rgba(255,255,255,0.08)}
+.nav button{background:transparent;border:none;color:rgba(255,255,255,0.8);font-family:var(--font);font-size:18px;cursor:pointer;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:all .2s}
+.nav button:hover{background:rgba(255,255,255,0.1);color:#fff}
+.nav .counter{font-family:var(--font-mono);font-size:12px;letter-spacing:.1em;color:rgba(255,255,255,0.7);min-width:64px;text-align:center}
+
+/* print */
+@media print{
+  @page{size:1920px 1080px;margin:0}
+  html,body{background:#fff;overflow:visible;height:auto}
+  .stage{height:auto}
+  .deck{transform:none!important;width:1920px;height:auto}
+  .slide{position:relative;opacity:1!important;pointer-events:auto;page-break-after:always;break-after:page}
+  .slide:last-child{page-break-after:auto}
+  .nav{display:none}
+}
+</style>
+</head>
+<body>
+<div class="stage">
+<div class="deck" id="deck">
+
+<!-- ============== 01 COVER ============== -->
+<section class="slide light active" data-slide="01">
+  <div class="topbar">
+    <div class="left">
+      <span class="wordmark">chief</span>
+      <span class="div"></span>
+      <span>Grupo Nam · Caso de Negocio</span>
+    </div>
+    <div>2026-05-22</div>
+  </div>
+  <div class="pagenum">01 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center;max-width:1400px">
+    <div class="kicker stagger" style="margin-bottom:48px">
+      <span class="caret">&gt;</span>
+      <span>preparado para grupo nam · estrictamente confidencial</span>
+      <span class="beam"></span>
+    </div>
+    <h1 class="t-title t-title-xl stagger" style="margin-bottom:36px">
+      Operaciones fiscales<br/>en <span class="t-accent">piloto automático.</span>
+    </h1>
+    <p class="t-body-l stagger" style="max-width:880px;margin-bottom:60px">
+      Una plataforma AI custom para las 3 verticales de Grupo Nam — Facturación, Nómina y Materialidad — más conciliación de tesorería y centro de conocimiento. Diseñada para que cada una de tus 11 personas opere como 3× la actual sin contratar.
+    </p>
+    <div class="stagger" style="display:flex;align-items:center;gap:32px;padding-top:32px;border-top:1px solid var(--border-soft);max-width:880px">
+      <div>
+        <div class="t-label" style="margin-bottom:8px">Preparado por</div>
+        <div style="font-weight:600;font-size:18px">Rasheed Bayter</div>
+        <div style="color:var(--ink-secondary);font-size:14px">Chief · rasheedbayter@gmail.com</div>
+      </div>
+      <div style="flex:1"></div>
+      <div style="text-align:right">
+        <div class="t-label" style="margin-bottom:8px">Beneficio año 1</div>
+        <div class="t-number t-accent" style="font-size:56px">$8.7M</div>
+        <div style="color:var(--ink-muted);font-size:13px;font-family:var(--font-mono);letter-spacing:.08em">MXN · ROI 11×</div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 02 AGENDA ============== -->
+<section class="slide light" data-slide="02">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>Agenda</span>
+      <span class="div"></span>
+      <span>Grupo Nam · Caso de Negocio</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">02 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>agenda · 4 capítulos</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:56px;max-width:1100px">Lo que vamos a recorrer hoy.</h2>
+
+    <div class="stagger" style="display:grid;grid-template-columns:repeat(2,1fr);gap:24px">
+      <div class="card-nova" style="display:flex;gap:24px;align-items:flex-start">
+        <div style="font-family:var(--font-mono);font-size:24px;font-weight:600;color:var(--accent);min-width:48px">01</div>
+        <div>
+          <div style="font-size:24px;font-weight:600;margin-bottom:10px">Diagnóstico</div>
+          <div class="t-body">Estado operativo actual de Grupo Nam, cuellos de botella por vertical y el techo natural de escala sin intervención.</div>
+        </div>
+      </div>
+      <div class="card-nova" style="display:flex;gap:24px;align-items:flex-start">
+        <div style="font-family:var(--font-mono);font-size:24px;font-weight:600;color:var(--accent);min-width:48px">02</div>
+        <div>
+          <div style="font-size:24px;font-weight:600;margin-bottom:10px">Chief — La Plataforma</div>
+          <div class="t-body">5 módulos integrados sobre tu operación: Facturación, Nómina, Materialidad, Conciliación y Knowledge Hub.</div>
+        </div>
+      </div>
+      <div class="card-nova" style="display:flex;gap:24px;align-items:flex-start">
+        <div style="font-family:var(--font-mono);font-size:24px;font-weight:600;color:var(--accent);min-width:48px">03</div>
+        <div>
+          <div style="font-size:24px;font-weight:600;margin-bottom:10px">Caso de Negocio</div>
+          <div class="t-body">4 levers cuantificables — $8.7M MXN/año en valor liberado, ROI 11×, payback en 1.1 meses.</div>
+        </div>
+      </div>
+      <div class="card-nova" style="display:flex;gap:24px;align-items:flex-start">
+        <div style="font-family:var(--font-mono);font-size:24px;font-weight:600;color:var(--accent);min-width:48px">04</div>
+        <div>
+          <div style="font-size:24px;font-weight:600;margin-bottom:10px">Capacitación & Inversión</div>
+          <div class="t-body">Programa AI sector fiscal, bundle de pricing con descuento y términos de pago condicionados a resultados.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 03 SECTION 01 DIAGNÓSTICO ============== -->
+<section class="slide dark" data-slide="03">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>Capítulo 01</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">03 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:32px"><span class="caret">&gt;</span><span>capítulo / 01</span><span class="beam"></span></div>
+    <div class="t-number" style="font-size:280px;font-weight:200;color:rgba(255,255,255,0.16);line-height:.85;margin-bottom:24px">01</div>
+    <h2 class="t-title" style="font-size:120px;color:#fff;margin-bottom:32px">Diagnóstico.</h2>
+    <p class="t-body-l" style="max-width:1100px">Donde está hoy Grupo Nam, qué procesos consumen el tiempo del equipo y por qué — sin intervención — la curva de crecimiento se aplana en los próximos 12 meses.</p>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 04 ESTADO ACTUAL ============== -->
+<section class="slide light" data-slide="04">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>01. Diagnóstico</span>
+      <span class="div"></span>
+      <span>Estado actual</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">04 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>operación actual</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:56px;max-width:1200px">Una operación senior, manual y con techo natural.</h2>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-bottom:48px">
+      <div class="card-nova">
+        <div class="t-label" style="margin-bottom:14px">Equipo</div>
+        <div class="t-number" style="font-size:64px;color:var(--accent)">11</div>
+        <div class="t-body" style="font-size:14px;margin-top:8px">personas, perfil senior fiscal/legal</div>
+      </div>
+      <div class="card-nova">
+        <div class="t-label" style="margin-bottom:14px">Clientes activos</div>
+        <div class="t-number" style="font-size:64px;color:var(--accent)">15</div>
+        <div class="t-body" style="font-size:14px;margin-top:8px">~1.4 clientes / persona</div>
+      </div>
+      <div class="card-nova">
+        <div class="t-label" style="margin-bottom:14px">Verticales core</div>
+        <div class="t-number" style="font-size:64px;color:var(--accent)">3</div>
+        <div class="t-body" style="font-size:14px;margin-top:8px">Facturación · Nómina · Materialidad</div>
+      </div>
+      <div class="card-nova">
+        <div class="t-label" style="margin-bottom:14px">Procesos transversales</div>
+        <div class="t-number" style="font-size:64px;color:var(--accent)">2</div>
+        <div class="t-body" style="font-size:14px;margin-top:8px">Conciliación tesorería · gestión info</div>
+      </div>
+    </div>
+
+    <div class="card-soft" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:32px">
+      <div>
+        <div class="t-label" style="margin-bottom:10px;color:var(--accent)">Facturación</div>
+        <div class="t-body" style="font-size:15px">Estrategias fiscales custom por cliente. Emisión cruzada entre empresas Nam para reducir carga impositiva mensual.</div>
+      </div>
+      <div>
+        <div class="t-label" style="margin-bottom:10px;color:var(--accent)">Nómina</div>
+        <div class="t-body" style="font-size:15px">Contratación de empleados-cliente bajo empresas Nam con régimen fiscal optimizado. Hoy poco estandarizado.</div>
+      </div>
+      <div>
+        <div class="t-label" style="margin-bottom:10px;color:var(--accent)">Materialidad</div>
+        <div class="t-body" style="font-size:15px">Generación manual o con AI ad-hoc de soporte visual/documental. Sin proceso estándar ni librería reusable.</div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 05 DONDE SE VA EL TIEMPO ============== -->
+<section class="slide light" data-slide="05">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>01. Diagnóstico</span>
+      <span class="div"></span>
+      <span>Distribución del tiempo</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">05 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>donde se va el tiempo del equipo</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:48px;max-width:1200px">65% del tiempo del equipo es operación repetible.</h2>
+
+    <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:48px;align-items:start">
+      <div>
+        <div class="card-nova" style="padding:40px">
+          <div class="t-label" style="margin-bottom:18px">Distribución típica · benchmark sector legal/fiscal MX</div>
+          <div style="margin-bottom:24px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+              <span style="font-weight:600;font-size:18px">Operación repetible</span>
+              <span class="t-number" style="font-size:32px;color:var(--accent)">65%</span>
+            </div>
+            <div style="height:14px;border-radius:7px;background:rgba(62,79,224,0.12);overflow:hidden">
+              <div style="width:65%;height:100%;background:linear-gradient(90deg,#3E4FE0,#5967E4);border-radius:7px"></div>
+            </div>
+            <div class="t-body" style="font-size:13px;margin-top:8px">Emisiones, conciliaciones, drafts repetidos, búsqueda manual de info, reportes mensuales.</div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+              <span style="font-weight:600;font-size:18px">Estrategia y juicio fiscal</span>
+              <span class="t-number" style="font-size:32px;color:var(--ink-muted)">35%</span>
+            </div>
+            <div style="height:14px;border-radius:7px;background:rgba(30,32,48,0.08);overflow:hidden">
+              <div style="width:35%;height:100%;background:rgba(30,32,48,0.36);border-radius:7px"></div>
+            </div>
+            <div class="t-body" style="font-size:13px;margin-top:8px">Diseño de estrategia, análisis de casos atípicos, relación con cliente.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stagger">
+        <div class="t-label" style="margin-bottom:16px">Cuellos de botella visibles hoy</div>
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div class="card-nova" style="padding:22px 26px">
+            <div style="display:flex;gap:14px;align-items:flex-start">
+              <div style="width:28px;height:28px;border-radius:8px;background:rgba(62,79,224,0.12);color:var(--accent);font-family:var(--font-mono);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">F</div>
+              <div>
+                <div style="font-weight:600;font-size:16px;margin-bottom:4px">Facturación — decisión manual por emisión</div>
+                <div class="t-body" style="font-size:14px">"Cuál empresa emite, por cuánto, contra qué concepto" se decide caso por caso. Sin reglas codificadas, sin trazabilidad estructurada.</div>
+              </div>
+            </div>
+          </div>
+          <div class="card-nova" style="padding:22px 26px">
+            <div style="display:flex;gap:14px;align-items:flex-start">
+              <div style="width:28px;height:28px;border-radius:8px;background:rgba(62,79,224,0.12);color:var(--accent);font-family:var(--font-mono);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">N</div>
+              <div>
+                <div style="font-weight:600;font-size:16px;margin-bottom:4px">Nómina — onboarding empleado-cliente sin SOP</div>
+                <div class="t-body" style="font-size:14px">Cada nuevo empleado del cliente requiere reanalizar régimen óptimo manualmente. Errores escalan a cliente, no internos.</div>
+              </div>
+            </div>
+          </div>
+          <div class="card-nova" style="padding:22px 26px">
+            <div style="display:flex;gap:14px;align-items:flex-start">
+              <div style="width:28px;height:28px;border-radius:8px;background:rgba(62,79,224,0.12);color:var(--accent);font-family:var(--font-mono);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">M</div>
+              <div>
+                <div style="font-weight:600;font-size:16px;margin-bottom:4px">Materialidad — sin librería ni templates</div>
+                <div class="t-body" style="font-size:14px">Cada entrega visual se hace desde cero. AI generativa ad-hoc sin proceso, sin auditoría, sin reuso entre clientes.</div>
+              </div>
+            </div>
+          </div>
+          <div class="card-nova" style="padding:22px 26px">
+            <div style="display:flex;gap:14px;align-items:flex-start">
+              <div style="width:28px;height:28px;border-radius:8px;background:rgba(234,88,12,0.14);color:var(--warning);font-family:var(--font-mono);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">T</div>
+              <div>
+                <div style="font-weight:600;font-size:16px;margin-bottom:4px">Tesorería — conciliación cross-empresa manual</div>
+                <div class="t-body" style="font-size:14px">Múltiples empresas Nam emiten a empresas Nam y a clientes. Cruzar con bancos toma ~70% del tiempo de tesorería.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 06 EL PROBLEMA DE ESCALA ============== -->
+<section class="slide light" data-slide="06">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>01. Diagnóstico</span>
+      <span class="div"></span>
+      <span>Techo de escala</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">06 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>el problema escalable</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:24px;max-width:1300px">La demanda existe. La capacidad operativa, no.</h2>
+    <p class="t-body-l" style="max-width:1100px;margin-bottom:48px">Sin intervención, el equipo se topa en ~25 clientes antes de fin de año. Crecer más requiere contratar — cada hire son 3-6 meses de ramp y compromete el margen del modelo de servicio.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px">
+      <div class="card-nova" style="border-top:3px solid rgba(234,88,12,0.6)">
+        <div class="t-label" style="margin-bottom:12px;color:var(--warning)">Status quo</div>
+        <div class="t-number" style="font-size:56px;color:var(--ink);margin-bottom:8px">25</div>
+        <div style="font-size:18px;font-weight:600;margin-bottom:6px">clientes en 12 meses</div>
+        <div class="t-body" style="font-size:14px">Crecimiento orgánico con la operación actual. Equipo al 100% del tiempo, sin margen para casos complejos.</div>
+      </div>
+      <div class="card-nova" style="border-top:3px solid rgba(234,88,12,0.6)">
+        <div class="t-label" style="margin-bottom:12px;color:var(--warning)">Para escalar más, hoy</div>
+        <div class="t-number" style="font-size:56px;color:var(--ink);margin-bottom:8px">+4</div>
+        <div style="font-size:18px;font-weight:600;margin-bottom:6px">personas a contratar</div>
+        <div class="t-body" style="font-size:14px">$2.4M MXN/año adicional · 3-6 meses de ramp por hire · riesgo de dilución cultural y senior.</div>
+      </div>
+      <div class="card-nova" style="border-top:3px solid var(--accent);background:rgba(62,79,224,0.04)">
+        <div class="t-label" style="margin-bottom:12px;color:var(--accent)">Con Chief — capacidad efectiva</div>
+        <div class="t-number" style="font-size:56px;color:var(--accent);margin-bottom:8px">40</div>
+        <div style="font-size:18px;font-weight:600;margin-bottom:6px">clientes sin contratar</div>
+        <div class="t-body" style="font-size:14px">Mismo equipo, ~2.5× capacidad. +15 clientes vs. baseline orgánico. El revenue baja directo al margen.</div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 07 SECTION 02 CHIEF ============== -->
+<section class="slide dark" data-slide="07">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>Capítulo 02</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">07 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:32px"><span class="caret">&gt;</span><span>capítulo / 02</span><span class="beam"></span></div>
+    <div class="t-number" style="font-size:280px;font-weight:200;color:rgba(255,255,255,0.16);line-height:.85;margin-bottom:24px">02</div>
+    <h2 class="t-title" style="font-size:120px;color:#fff;margin-bottom:32px">Chief.</h2>
+    <p class="t-body-l" style="max-width:1100px">Una plataforma custom construida sobre la operación real de Grupo Nam. Cinco módulos integrados, un solo workspace, una capa AI debajo de todo.</p>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 08 VISIÓN PLATAFORMA ============== -->
+<section class="slide light" data-slide="08">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>02. Chief</span>
+      <span class="div"></span>
+      <span>Visión de plataforma</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">08 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>visión de plataforma</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:48px;max-width:1300px">Cinco módulos. Una sola plataforma.<br/>Una capa AI debajo.</h2>
+
+    <div class="stagger" style="display:grid;grid-template-columns:repeat(5,1fr);gap:18px;margin-bottom:36px">
+      <div class="card-nova" style="padding:24px;text-align:center;min-height:200px;display:flex;flex-direction:column">
+        <div class="t-label" style="margin-bottom:14px">Módulo</div>
+        <div style="font-size:20px;font-weight:600;margin-bottom:10px">Facturación</div>
+        <div class="t-body" style="font-size:13px;flex:1">Workflow estandarizado · decisión asistida · emisión auto</div>
+      </div>
+      <div class="card-nova" style="padding:24px;text-align:center;min-height:200px;display:flex;flex-direction:column">
+        <div class="t-label" style="margin-bottom:14px">Módulo</div>
+        <div style="font-size:20px;font-weight:600;margin-bottom:10px">Nómina</div>
+        <div class="t-body" style="font-size:13px;flex:1">Onboarding empleado-cliente · régimen óptimo · alertas</div>
+      </div>
+      <div class="card-nova" style="padding:24px;text-align:center;min-height:200px;display:flex;flex-direction:column">
+        <div class="t-label" style="margin-bottom:14px">Módulo</div>
+        <div style="font-size:20px;font-weight:600;margin-bottom:10px">Materialidad</div>
+        <div class="t-body" style="font-size:13px;flex:1">Generador AI · templates Nam · librería reusable</div>
+      </div>
+      <div class="card-nova" style="padding:24px;text-align:center;min-height:200px;display:flex;flex-direction:column">
+        <div class="t-label" style="margin-bottom:14px">Módulo</div>
+        <div style="font-size:20px;font-weight:600;margin-bottom:10px">Conciliación</div>
+        <div class="t-body" style="font-size:13px;flex:1">Cross-empresa · banco · cliente · matching AI</div>
+      </div>
+      <div class="card-nova" style="padding:24px;text-align:center;min-height:200px;display:flex;flex-direction:column">
+        <div class="t-label" style="margin-bottom:14px">Módulo</div>
+        <div style="font-size:20px;font-weight:600;margin-bottom:10px">Knowledge Hub</div>
+        <div class="t-body" style="font-size:13px;flex:1">Búsqueda semántica · vista 360 cliente · onboarding interno</div>
+      </div>
+    </div>
+
+    <div class="card-hero border-beam" style="display:flex;align-items:center;justify-content:space-between;gap:32px">
+      <div>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,0.7);margin-bottom:10px">Capa AI subyacente</div>
+        <div style="font-size:24px;font-weight:600;line-height:1.4">Cada módulo se beneficia de la misma capa AI: comprensión de documentos fiscales, generación de drafts, decisión asistida, búsqueda semántica, audit trail.</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,0.7);margin-bottom:6px">Custom para Nam</div>
+        <div class="t-number" style="font-size:48px;color:#fff">100%</div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 09 FACTURACIÓN ============== -->
+<section class="slide light" data-slide="09">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>02. Chief</span>
+      <span class="div"></span>
+      <span>Módulo 1 · Facturación</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">09 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>módulo · facturación</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:48px;max-width:1300px">Estrategia fiscal codificada, decisión en segundos.</h2>
+
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:36px;align-items:start">
+      <div class="card-nova" style="padding:36px">
+        <div class="t-label" style="margin-bottom:20px">Workflow estandarizado</div>
+        <div class="stagger" style="display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;gap:16px;align-items:flex-start">
+            <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">1</div>
+            <div><div style="font-weight:600;font-size:16px">Cliente carga gastos del mes</div><div class="t-body" style="font-size:14px">Upload masivo PDF/Excel/integración bancaria. AI extrae conceptos y montos.</div></div>
+          </div>
+          <div style="display:flex;gap:16px;align-items:flex-start">
+            <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">2</div>
+            <div><div style="font-weight:600;font-size:16px">Engine de estrategia sugiere asignación</div><div class="t-body" style="font-size:14px">Por cada gasto: empresa óptima emisora, concepto SAT compatible, monto y justificación.</div></div>
+          </div>
+          <div style="display:flex;gap:16px;align-items:flex-start">
+            <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">3</div>
+            <div><div style="font-weight:600;font-size:16px">Asociado revisa y aprueba (1-click o ajusta)</div><div class="t-body" style="font-size:14px">Trabaja sobre la decisión asistida — solo invierte tiempo en casos atípicos.</div></div>
+          </div>
+          <div style="display:flex;gap:16px;align-items:flex-start">
+            <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0">4</div>
+            <div><div style="font-weight:600;font-size:16px">Emisión auto + bitácora</div><div class="t-body" style="font-size:14px">CFDI emitidos en lote, registrados con audit trail completo y exportable para SAT.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:20px">
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:8px">Tiempo por cliente / mes</div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+            <span style="color:var(--ink-muted);font-size:14px">Hoy</span>
+            <span class="t-number" style="font-size:28px;color:var(--ink)">8-12 h</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline">
+            <span style="color:var(--accent);font-size:14px;font-weight:600">Con Chief</span>
+            <span class="t-number" style="font-size:36px;color:var(--accent)">2-3 h</span>
+          </div>
+        </div>
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:10px">Estrategia codificada</div>
+          <div class="t-body" style="font-size:14px">Cada lógica de optimización fiscal que hoy vive en la cabeza de los seniors se documenta y opera dentro de Chief.</div>
+        </div>
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:10px">Audit trail SAT-ready</div>
+          <div class="t-body" style="font-size:14px">Cada emisión queda con justificación, soporte y trazabilidad. Auditorías dejan de ser un proyecto.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 10 NÓMINA ============== -->
+<section class="slide light" data-slide="10">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>02. Chief</span>
+      <span class="div"></span>
+      <span>Módulo 2 · Nómina</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">10 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>módulo · nómina</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:48px;max-width:1300px">Cada empleado-cliente, en su régimen óptimo desde día 1.</h2>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:start">
+      <div class="card-nova" style="padding:32px">
+        <div class="t-label" style="margin-bottom:18px">Onboarding empleado nuevo · automatizado</div>
+        <div class="t-body" style="margin-bottom:16px">El asociado captura los datos básicos del empleado del cliente. Chief calcula la carga impositiva proyectada bajo cada empresa Nam disponible y recomienda asignación óptima — con justificación legal.</div>
+        <div style="padding:18px;background:rgba(62,79,224,0.06);border-radius:12px;border:1px solid rgba(62,79,224,0.14)">
+          <div class="t-label" style="margin-bottom:8px;color:var(--accent)">Ejemplo</div>
+          <div class="t-body" style="font-size:14px">Empleado con sueldo bruto $80K · 3 dependientes. Chief evalúa 4 empresas Nam, calcula ISR + IMSS + IVA en cada una, propone "Empresa C" con ahorro mensual $4,200 por empleado y referencia regulatoria.</div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <div class="card-nova" style="padding:24px">
+          <div class="t-label" style="margin-bottom:10px">Alertas automáticas</div>
+          <div class="t-body" style="font-size:15px">Cambios de sueldo, prestaciones, IMSS, ISR. Chief avisa cuando el régimen actual deja de ser óptimo y propone migración.</div>
+        </div>
+        <div class="card-nova" style="padding:24px">
+          <div class="t-label" style="margin-bottom:10px">Vista cliente — empleados activos</div>
+          <div class="t-body" style="font-size:15px">El cliente puede ver (con permisos) ahorro acumulado por empleado vs régimen estándar. Esto convierte a Nam en una capa de valor visible, no solo backoffice.</div>
+        </div>
+        <div class="card-nova" style="padding:24px">
+          <div class="t-label" style="margin-bottom:10px">SOP codificado</div>
+          <div class="t-body" style="font-size:15px">Lo que hoy depende del criterio individual del asociado, queda como playbook ejecutable — predecible, auditable, escalable a nuevos asociados.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 11 MATERIALIDAD ============== -->
+<section class="slide light" data-slide="11">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>02. Chief</span>
+      <span class="div"></span>
+      <span>Módulo 3 · Materialidad</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">11 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>módulo · materialidad</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:48px;max-width:1300px">De ad-hoc creativo a librería operativa.</h2>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-bottom:32px">
+      <div class="card-nova">
+        <div class="t-label" style="margin-bottom:14px;color:var(--accent)">Generador AI con templates Nam</div>
+        <div class="t-body" style="font-size:15px">Cada entrega visual o documental parte de un template aprobado con la identidad de Grupo Nam. AI rellena con los datos del cliente; el asociado revisa y publica.</div>
+      </div>
+      <div class="card-nova">
+        <div class="t-label" style="margin-bottom:14px;color:var(--accent)">Aprobación 1-click + audit</div>
+        <div class="t-body" style="font-size:15px">Cada material que sale a cliente queda registrado: quién lo aprobó, sobre qué datos, con qué versión del template. Defensible regulatoriamente.</div>
+      </div>
+      <div class="card-nova">
+        <div class="t-label" style="margin-bottom:14px;color:var(--accent)">Librería reusable cross-cliente</div>
+        <div class="t-body" style="font-size:15px">Lo que se construyó para el Cliente A queda disponible (con anonimización) para futuras solicitudes. Eficiencia compuesta con cada entrega.</div>
+      </div>
+    </div>
+
+    <div class="card-hero" style="display:grid;grid-template-columns:repeat(3,1fr);gap:32px">
+      <div>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,0.7);margin-bottom:8px">Tiempo entrega típica</div>
+        <div style="font-size:14px;color:rgba(255,255,255,0.85);margin-bottom:4px">Hoy: 4-8 horas/material</div>
+        <div class="t-number" style="font-size:42px;color:#fff">→ 30-45 min</div>
+      </div>
+      <div>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,0.7);margin-bottom:8px">Consistencia de marca</div>
+        <div style="font-size:14px;color:rgba(255,255,255,0.85);margin-bottom:4px">Hoy: variable por persona</div>
+        <div class="t-number" style="font-size:42px;color:#fff">→ 100%</div>
+      </div>
+      <div>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,0.7);margin-bottom:8px">Reuso por entrega</div>
+        <div style="font-size:14px;color:rgba(255,255,255,0.85);margin-bottom:4px">Hoy: ~0%</div>
+        <div class="t-number" style="font-size:42px;color:#fff">→ ~70%</div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 12 CONCILIACIÓN ============== -->
+<section class="slide light" data-slide="12">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>02. Chief</span>
+      <span class="div"></span>
+      <span>Módulo 4 · Conciliación</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">12 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>módulo · conciliación tesorería</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:32px;max-width:1300px">El cruce más enredado de Nam, hecho automático.</h2>
+    <p class="t-body-l" style="max-width:1100px;margin-bottom:36px">Múltiples empresas Nam emiten gastos a otras empresas Nam y a clientes. Cruzarlo con extractos bancarios hoy es un trabajo manual que consume el ~70% del tiempo de tesorería. Chief cambia el default.</p>
+
+    <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:36px;align-items:start">
+      <div class="card-nova" style="padding:32px">
+        <div class="t-label" style="margin-bottom:18px">Cómo funciona</div>
+        <div style="display:flex;flex-direction:column;gap:18px">
+          <div style="display:flex;gap:16px;align-items:flex-start">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:9px;flex-shrink:0"></div>
+            <div><div style="font-weight:600;font-size:16px">Ingesta multi-fuente</div><div class="t-body" style="font-size:14px">Conexión a bancos (BBVA, Banorte, Santander, etc.), CFDIs emitidos, contratos inter-empresa.</div></div>
+          </div>
+          <div style="display:flex;gap:16px;align-items:flex-start">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:9px;flex-shrink:0"></div>
+            <div><div style="font-weight:600;font-size:16px">Matching AI con confianza</div><div class="t-body" style="font-size:14px">Algoritmo cruza monto, fecha, beneficiario, concepto. Asigna match con score de confianza.</div></div>
+          </div>
+          <div style="display:flex;gap:16px;align-items:flex-start">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:9px;flex-shrink:0"></div>
+            <div><div style="font-weight:600;font-size:16px">Excepciones a humano</div><div class="t-body" style="font-size:14px">Solo los movimientos ambiguos suben a revisión. Lo demás pasa silencioso.</div></div>
+          </div>
+          <div style="display:flex;gap:16px;align-items:flex-start">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:9px;flex-shrink:0"></div>
+            <div><div style="font-weight:600;font-size:16px">Dashboard cash flow real-time</div><div class="t-body" style="font-size:14px">Posición consolidada de todas las empresas Nam en una sola vista, en cualquier momento.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:20px">
+        <div class="card-hero border-beam">
+          <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,0.7);margin-bottom:8px">Tiempo tesorería</div>
+          <div style="font-size:16px;color:rgba(255,255,255,0.85);margin-bottom:6px">Hoy ~70% en conciliación manual</div>
+          <div class="t-number" style="font-size:64px;color:#fff;line-height:1">→ &lt; 15%</div>
+          <div style="font-size:14px;color:rgba(255,255,255,0.85);margin-top:10px">Libera 0.7 FTE = $420K MXN/año</div>
+        </div>
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:8px;color:var(--accent)">Bonus operativo</div>
+          <div class="t-body" style="font-size:14px">Visibilidad de cash flow consolidado abre conversaciones de crédito y working capital antes invisibles.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 13 KNOWLEDGE HUB ============== -->
+<section class="slide light" data-slide="13">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>02. Chief</span>
+      <span class="div"></span>
+      <span>Módulo 5 · Knowledge Hub</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">13 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>módulo · knowledge hub</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:32px;max-width:1300px">Toda la información de Nam, encontrable en segundos.</h2>
+    <p class="t-body-l" style="max-width:1100px;margin-bottom:48px">El historial de Grupo Nam vive hoy en Drive, WhatsApp, correos y la cabeza de los seniors. Chief lo consolida en una capa buscable con AI semántica.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-bottom:32px">
+      <div class="card-nova">
+        <div class="t-label" style="margin-bottom:14px">Búsqueda semántica</div>
+        <div style="font-size:18px;font-weight:600;margin-bottom:10px">"¿Cómo manejamos el Cliente X cuando tuvo doble RFC?"</div>
+        <div class="t-body" style="font-size:14px">Chief encuentra la respuesta en el histórico, no en una carpeta. Funciona sobre documentos, conversaciones y bitácoras.</div>
+      </div>
+      <div class="card-nova">
+        <div class="t-label" style="margin-bottom:14px">Vista cliente 360°</div>
+        <div style="font-size:18px;font-weight:600;margin-bottom:10px">Toda la historia, en una sola pantalla</div>
+        <div class="t-body" style="font-size:14px">Emisiones, conciliaciones, materialidad, nómina, comunicaciones. Cualquier asociado puede tomar el caso sin pasar 3 días leyendo.</div>
+      </div>
+      <div class="card-nova">
+        <div class="t-label" style="margin-bottom:14px">Onboarding interno acelerado</div>
+        <div style="font-size:18px;font-weight:600;margin-bottom:10px">3-6 meses → 4-6 semanas</div>
+        <div class="t-body" style="font-size:14px">Un nuevo asociado se vuelve productivo en semanas, no meses. El conocimiento ya no es bottleneck humano.</div>
+      </div>
+    </div>
+
+    <div class="card-soft" style="display:flex;align-items:center;gap:24px">
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700">Continuidad operativa</div>
+      <div style="flex:1;font-size:16px;color:var(--ink)">Si un asociado senior se va, su conocimiento operativo ya está estructurado en Chief. La continuidad del negocio deja de depender de personas clave.</div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 14 SECTION 03 BC ============== -->
+<section class="slide dark" data-slide="14">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>Capítulo 03</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">14 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:32px"><span class="caret">&gt;</span><span>capítulo / 03</span><span class="beam"></span></div>
+    <div class="t-number" style="font-size:280px;font-weight:200;color:rgba(255,255,255,0.16);line-height:.85;margin-bottom:24px">03</div>
+    <h2 class="t-title" style="font-size:120px;color:#fff;margin-bottom:32px">Caso de Negocio.</h2>
+    <p class="t-body-l" style="max-width:1100px">Cuatro levers cuantificables. <span style="color:#fff;font-weight:600">$8.7M MXN/año</span> en valor liberado. ROI 11×. Payback en 1.1 meses.</p>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 15 LOS 4 LEVERS ============== -->
+<section class="slide light" data-slide="15">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>03. Caso de Negocio</span>
+      <span class="div"></span>
+      <span>4 levers</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">15 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>los 4 levers · base case anualizado</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:40px;max-width:1300px">Cuatro fuentes de valor, sumando $8.7M MXN/año.</h2>
+
+    <div class="stagger" style="display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-bottom:32px">
+      <div class="card-nova" style="display:flex;flex-direction:column;min-height:360px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px">
+          <span style="font-family:var(--font-mono);font-size:14px;font-weight:600;color:var(--accent)">01</span>
+          <span class="t-label">Crecimiento</span>
+        </div>
+        <div style="font-size:22px;font-weight:600;margin-bottom:10px;line-height:1.25">Capacidad sin contratar</div>
+        <div class="t-body" style="font-size:14px;flex:1">+15 clientes vs. baseline orgánico, mismo equipo. Revenue uplift directo.</div>
+        <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border-subtle)">
+          <div class="t-label" style="margin-bottom:4px">Valor anual</div>
+          <div class="t-number" style="font-size:32px;color:var(--accent)">$5.4M</div>
+          <div style="font-family:var(--font-mono);font-size:11px;color:var(--ink-muted)">MXN</div>
+        </div>
+      </div>
+
+      <div class="card-nova" style="display:flex;flex-direction:column;min-height:360px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px">
+          <span style="font-family:var(--font-mono);font-size:14px;font-weight:600;color:var(--accent)">02</span>
+          <span class="t-label">Eficiencia</span>
+        </div>
+        <div style="font-size:22px;font-weight:600;margin-bottom:10px;line-height:1.25">Costo evitado contratación</div>
+        <div class="t-body" style="font-size:14px;flex:1">4 hires evitados al escalar a 40 clientes. Margen protegido.</div>
+        <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border-subtle)">
+          <div class="t-label" style="margin-bottom:4px">Valor anual</div>
+          <div class="t-number" style="font-size:32px;color:var(--accent)">$2.4M</div>
+          <div style="font-family:var(--font-mono);font-size:11px;color:var(--ink-muted)">MXN</div>
+        </div>
+      </div>
+
+      <div class="card-nova" style="display:flex;flex-direction:column;min-height:360px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px">
+          <span style="font-family:var(--font-mono);font-size:14px;font-weight:600;color:var(--accent)">03</span>
+          <span class="t-label">Tesorería</span>
+        </div>
+        <div style="font-size:22px;font-weight:600;margin-bottom:10px;line-height:1.25">FTE liberado en conciliación</div>
+        <div class="t-body" style="font-size:14px;flex:1">0.7 FTE recuperado para reasignar a operación o estrategia.</div>
+        <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border-subtle)">
+          <div class="t-label" style="margin-bottom:4px">Valor anual</div>
+          <div class="t-number" style="font-size:32px;color:var(--accent)">$420K</div>
+          <div style="font-family:var(--font-mono);font-size:11px;color:var(--ink-muted)">MXN</div>
+        </div>
+      </div>
+
+      <div class="card-nova" style="display:flex;flex-direction:column;min-height:360px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px">
+          <span style="font-family:var(--font-mono);font-size:14px;font-weight:600;color:var(--accent)">04</span>
+          <span class="t-label">Riesgo</span>
+        </div>
+        <div style="font-size:22px;font-weight:600;margin-bottom:10px;line-height:1.25">Riesgo regulatorio evitado</div>
+        <div class="t-body" style="font-size:14px;flex:1">Audit trail + validaciones automáticas. Estimación conservadora.</div>
+        <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border-subtle)">
+          <div class="t-label" style="margin-bottom:4px">Valor anual</div>
+          <div class="t-number" style="font-size:32px;color:var(--accent)">$500K</div>
+          <div style="font-family:var(--font-mono);font-size:11px;color:var(--ink-muted)">MXN</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-hero border-beam" style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:rgba(255,255,255,0.7);margin-bottom:8px">Total beneficio año 1 · base case</div>
+        <div style="font-size:18px;color:rgba(255,255,255,0.9)">Suma de los 4 levers, asunciones conservadoras</div>
+      </div>
+      <div class="t-number" style="font-size:96px;color:#fff;line-height:1">$8.7M <span style="font-size:32px;color:rgba(255,255,255,0.7);font-weight:400">MXN</span></div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 16 LEVER 1 DETALLE ============== -->
+<section class="slide light" data-slide="16">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>03. Caso de Negocio</span>
+      <span class="div"></span>
+      <span>Lever 1 · Capacidad</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">16 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>lever 01 · capacidad sin contratar</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:40px;max-width:1300px">+15 clientes/año, mismo equipo. <span class="t-accent">$5.4M MXN</span>.</h2>
+
+    <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:36px;align-items:start">
+      <div class="card-nova" style="padding:36px">
+        <div class="t-label" style="margin-bottom:18px">La matemática</div>
+        <table class="bc">
+          <tbody>
+            <tr><td>Ratio actual clientes / persona</td><td class="num" style="text-align:right">1.4 (15 ÷ 11)</td></tr>
+            <tr><td>Reducción tiempo operativo / cliente con Chief</td><td class="num" style="text-align:right">~60%</td></tr>
+            <tr><td>Nuevo ratio efectivo clientes / persona</td><td class="num" style="text-align:right">~3.6</td></tr>
+            <tr><td>Capacidad total con mismo equipo</td><td class="num" style="text-align:right">~40 clientes</td></tr>
+            <tr><td>Baseline orgánico sin Chief (12m)</td><td class="num" style="text-align:right">25 clientes</td></tr>
+            <tr class="total"><td>Δ clientes atribuible a Chief</td><td class="num" style="text-align:right">+15 clientes</td></tr>
+            <tr><td>ARPU promedio / cliente / mes (benchmark)</td><td class="num" style="text-align:right">$30K MXN</td></tr>
+            <tr class="total"><td>Revenue uplift anualizado</td><td class="num" style="text-align:right;color:var(--accent);font-size:18px">$5.4M MXN</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:10px">Asunción a validar</div>
+          <div class="t-body" style="font-size:14px"><strong>ARPU $30K MXN/mes</strong> es punto medio conservador del rango sector legal/fiscal MX ($25-50K). Si el ARPU real de Nam es mayor, el lever escala proporcional.</div>
+        </div>
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:10px">¿Por qué 60% reducción?</div>
+          <div class="t-body" style="font-size:14px">Procesos hoy 100% manuales (decisión por emisión, drafting, búsqueda info) bajan a revisión asistida. El 35% del tiempo en estrategia se mantiene humano.</div>
+        </div>
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:10px">Lectura conservadora</div>
+          <div class="t-body" style="font-size:14px">Aún si Chief solo entrega 2× capacidad (no 2.5×), el uplift se mantiene en +7-8 clientes vs baseline = $2.5-3M MXN/año en este lever solo.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 17 LEVER 2 DETALLE ============== -->
+<section class="slide light" data-slide="17">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>03. Caso de Negocio</span>
+      <span class="div"></span>
+      <span>Lever 2 · Costo evitado</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">17 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>lever 02 · costo evitado contratación</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:40px;max-width:1300px">4 hires evitados. <span class="t-accent">$2.4M MXN</span>.</h2>
+
+    <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:36px;align-items:start">
+      <div class="card-nova" style="padding:36px">
+        <div class="t-label" style="margin-bottom:18px">La matemática</div>
+        <table class="bc">
+          <tbody>
+            <tr><td>Capacidad objetivo (con Chief)</td><td class="num" style="text-align:right">40 clientes</td></tr>
+            <tr><td>Capacidad equipo actual sin Chief</td><td class="num" style="text-align:right">~25 clientes</td></tr>
+            <tr><td>Δ clientes a absorber sin Chief</td><td class="num" style="text-align:right">+15</td></tr>
+            <tr><td>Ratio clientes / persona sin Chief</td><td class="num" style="text-align:right">~3.7</td></tr>
+            <tr class="total"><td>Hires necesarios sin Chief</td><td class="num" style="text-align:right">~4 personas</td></tr>
+            <tr><td>Costo total mensual / persona (benchmark)</td><td class="num" style="text-align:right">$50K MXN</td></tr>
+            <tr class="total"><td>Costo anual evitado</td><td class="num" style="text-align:right;color:var(--accent);font-size:18px">$2.4M MXN</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:10px">Lo que el número no captura</div>
+          <div class="t-body" style="font-size:14px"><strong>Costo de ramp:</strong> 3-6 meses de productividad parcial por hire. <strong>Riesgo cultural:</strong> equipo senior diluido. <strong>Bus factor:</strong> más personas, más dependencias humanas.</div>
+        </div>
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:10px">Beneficio estratégico</div>
+          <div class="t-body" style="font-size:14px">Equipo compacto y senior es ventaja competitiva en servicios profesionales. Calidad de entrega se sostiene, márgenes se protegen.</div>
+        </div>
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:10px">Sensibilidad</div>
+          <div class="t-body" style="font-size:14px">Si la carga real / persona en Nam es $60K (no $50K), el lever sube a $2.88M. Si solo se evitan 3 hires (no 4), baja a $1.8M.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 18 LEVER 3 DETALLE ============== -->
+<section class="slide light" data-slide="18">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>03. Caso de Negocio</span>
+      <span class="div"></span>
+      <span>Lever 3 · Tesorería</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">18 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>lever 03 · fte tesorería liberado</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:40px;max-width:1300px">0.7 FTE recuperado. <span class="t-accent">$420K MXN</span>.</h2>
+
+    <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:36px;align-items:start">
+      <div class="card-nova" style="padding:36px">
+        <div class="t-label" style="margin-bottom:18px">La matemática</div>
+        <table class="bc">
+          <tbody>
+            <tr><td>% tiempo tesorería en conciliación manual hoy</td><td class="num" style="text-align:right">~70%</td></tr>
+            <tr><td>% tiempo tesorería en conciliación con Chief</td><td class="num" style="text-align:right">&lt; 15%</td></tr>
+            <tr><td>Δ tiempo liberado / persona tesorería</td><td class="num" style="text-align:right">~55%</td></tr>
+            <tr><td>Asumiendo 1.3 FTE tesorería actual</td><td class="num" style="text-align:right">→ 0.7 FTE liberado</td></tr>
+            <tr><td>Costo mensual / FTE tesorería</td><td class="num" style="text-align:right">$50K MXN</td></tr>
+            <tr class="total"><td>Valor anual del FTE liberado</td><td class="num" style="text-align:right;color:var(--accent);font-size:18px">$420K MXN</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:10px">Qué hacer con el FTE liberado</div>
+          <div class="t-body" style="font-size:14px"><strong>Opción A:</strong> reasignar a operación → soporta crecimiento de clientes sin hire adicional. <strong>Opción B:</strong> no reemplazar la próxima rotación → ahorro directo.</div>
+        </div>
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:10px">Bonus invisible — cash flow</div>
+          <div class="t-body" style="font-size:14px">Dashboard real-time abre conversaciones de crédito, working capital y posición consolidada antes imposibles. Pueden capturar 1-2% mejor en condiciones financieras.</div>
+        </div>
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:10px">Reduce error humano</div>
+          <div class="t-body" style="font-size:14px">Conciliaciones manuales tienen tasa de error ~3-5%. Cada error mal escalado a cliente cuesta reputación. Chief reduce eso a &lt; 0.5%.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 19 LEVER 4 DETALLE ============== -->
+<section class="slide light" data-slide="19">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>03. Caso de Negocio</span>
+      <span class="div"></span>
+      <span>Lever 4 · Riesgo</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">19 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>lever 04 · riesgo regulatorio evitado</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-l" style="margin-bottom:40px;max-width:1300px">Audit trail completo. <span class="t-accent">$500K MXN</span> estimado.</h2>
+
+    <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:36px;align-items:start">
+      <div class="card-nova" style="padding:36px">
+        <div class="t-label" style="margin-bottom:18px">El cálculo conservador</div>
+        <table class="bc">
+          <tbody>
+            <tr><td>Probabilidad anual de incidente SAT (firma 25-40 clientes)</td><td class="num" style="text-align:right">~15-25%</td></tr>
+            <tr><td>Costo típico incidente menor</td><td class="num" style="text-align:right">$2-5M MXN</td></tr>
+            <tr><td>Componentes: multa + remediación + horas + reputación</td><td class="num" style="text-align:right">—</td></tr>
+            <tr><td>Reducción de probabilidad con audit trail + validaciones</td><td class="num" style="text-align:right">~50-70%</td></tr>
+            <tr class="total"><td>Valor esperado anual del lever</td><td class="num" style="text-align:right;color:var(--accent);font-size:18px">~$500K MXN</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:10px">El valor real es estratégico</div>
+          <div class="t-body" style="font-size:14px">El número cuantificable es solo un piso. El valor real es <strong>dormir tranquilo en auditoría</strong> y poder defender cada decisión con bitácora completa.</div>
+        </div>
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:10px">Validaciones automáticas</div>
+          <div class="t-body" style="font-size:14px">Reglas SAT codificadas en Chief impiden emisiones inconsistentes antes de que salgan. Cambio del modelo "auditar después" a "validar antes".</div>
+        </div>
+        <div class="card-soft">
+          <div class="t-label" style="margin-bottom:10px">Defensa frente a cliente</div>
+          <div class="t-body" style="font-size:14px">Si un cliente pide trazabilidad de por qué se emitió X bajo empresa Y, la respuesta está en 30 segundos — no en 3 días de reconstrucción.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 20 RESUMEN BC + SOPORTE ============== -->
+<section class="slide light" data-slide="20">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>03. Caso de Negocio</span>
+      <span class="div"></span>
+      <span>Resumen + soporte estratégico</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">20 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>resumen y argumentos de soporte</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-m" style="margin-bottom:40px;max-width:1400px">$8.7M MXN/año en beneficio cuantificable + 7 argumentos estratégicos.</h2>
+
+    <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:36px;align-items:start">
+      <div>
+        <div class="card-nova" style="padding:28px;margin-bottom:20px">
+          <table class="bc">
+            <thead><tr><th>Lever</th><th style="text-align:right">Valor anual</th></tr></thead>
+            <tbody>
+              <tr><td>01 · Capacidad sin contratar</td><td class="num" style="text-align:right">$5.4M</td></tr>
+              <tr><td>02 · Costo evitado contratación</td><td class="num" style="text-align:right">$2.4M</td></tr>
+              <tr><td>03 · FTE tesorería liberado</td><td class="num" style="text-align:right">$420K</td></tr>
+              <tr><td>04 · Riesgo regulatorio evitado</td><td class="num" style="text-align:right">$500K</td></tr>
+              <tr class="total"><td>Total beneficio año 1 · base case</td><td class="num" style="text-align:right;color:var(--accent);font-size:18px">$8.72M</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px">
+          <div class="card-hero" style="text-align:center;padding:22px">
+            <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,0.7);margin-bottom:6px">ROI año 1</div>
+            <div class="t-number" style="font-size:42px;color:#fff">11×</div>
+          </div>
+          <div class="card-hero" style="text-align:center;padding:22px">
+            <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,0.7);margin-bottom:6px">ROI año 2</div>
+            <div class="t-number" style="font-size:42px;color:#fff">36×</div>
+          </div>
+          <div class="card-hero" style="text-align:center;padding:22px">
+            <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,0.7);margin-bottom:6px">Payback</div>
+            <div class="t-number" style="font-size:42px;color:#fff">1.1m</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="t-label" style="margin-bottom:14px">Argumentos estratégicos · más allá del número</div>
+        <div class="stagger" style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;gap:14px;padding:14px 18px;background:rgba(62,79,224,0.04);border-radius:10px;border:1px solid rgba(62,79,224,0.12)">
+            <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);font-weight:700;min-width:24px">A</div>
+            <div><strong style="font-size:14px">Defensibilidad competitiva.</strong> <span style="font-size:13px;color:var(--ink-secondary)">Sus competidores siguen en Excel + WhatsApp. Una plataforma propia es moat real.</span></div>
+          </div>
+          <div style="display:flex;gap:14px;padding:14px 18px;background:rgba(62,79,224,0.04);border-radius:10px;border:1px solid rgba(62,79,224,0.12)">
+            <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);font-weight:700;min-width:24px">B</div>
+            <div><strong style="font-size:14px">Continuidad operativa.</strong> <span style="font-size:13px;color:var(--ink-secondary)">El conocimiento deja de estar en la cabeza del senior. Rotación deja de ser riesgo existencial.</span></div>
+          </div>
+          <div style="display:flex;gap:14px;padding:14px 18px;background:rgba(62,79,224,0.04);border-radius:10px;border:1px solid rgba(62,79,224,0.12)">
+            <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);font-weight:700;min-width:24px">C</div>
+            <div><strong style="font-size:14px">Compliance + auditoría SAT.</strong> <span style="font-size:13px;color:var(--ink-secondary)">Todo en bitácora, exportable, defensible. Auditorías ya no son proyecto.</span></div>
+          </div>
+          <div style="display:flex;gap:14px;padding:14px 18px;background:rgba(62,79,224,0.04);border-radius:10px;border:1px solid rgba(62,79,224,0.12)">
+            <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);font-weight:700;min-width:24px">D</div>
+            <div><strong style="font-size:14px">Posicionamiento premium.</strong> <span style="font-size:13px;color:var(--ink-secondary)">Cliente con dashboard real-time = tier que justifica tarifas superiores.</span></div>
+          </div>
+          <div style="display:flex;gap:14px;padding:14px 18px;background:rgba(62,79,224,0.04);border-radius:10px;border:1px solid rgba(62,79,224,0.12)">
+            <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);font-weight:700;min-width:24px">E</div>
+            <div><strong style="font-size:14px">Cross-sell entre verticales.</strong> <span style="font-size:13px;color:var(--ink-secondary)">Cliente que entró por Facturación naturalmente sube a Nómina y Materialidad. Hoy ese cross-sell es manual.</span></div>
+          </div>
+          <div style="display:flex;gap:14px;padding:14px 18px;background:rgba(62,79,224,0.04);border-radius:10px;border:1px solid rgba(62,79,224,0.12)">
+            <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);font-weight:700;min-width:24px">F</div>
+            <div><strong style="font-size:14px">Time-to-productivity nuevo asociado.</strong> <span style="font-size:13px;color:var(--ink-secondary)">De 3-6 meses a 4-6 semanas. Escalar el equipo cuando toque es más barato.</span></div>
+          </div>
+          <div style="display:flex;gap:14px;padding:14px 18px;background:rgba(62,79,224,0.04);border-radius:10px;border:1px solid rgba(62,79,224,0.12)">
+            <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);font-weight:700;min-width:24px">G</div>
+            <div><strong style="font-size:14px">Cash flow predecible.</strong> <span style="font-size:13px;color:var(--ink-secondary)">Estandarización de emisiones y conciliación = visibilidad de caja real, decisiones financieras mejor informadas.</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 21 SECTION 04 CAPACITACIÓN & INVERSIÓN ============== -->
+<section class="slide dark" data-slide="21">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>Capítulo 04</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">21 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:32px"><span class="caret">&gt;</span><span>capítulo / 04</span><span class="beam"></span></div>
+    <div class="t-number" style="font-size:280px;font-weight:200;color:rgba(255,255,255,0.16);line-height:.85;margin-bottom:24px">04</div>
+    <h2 class="t-title" style="font-size:120px;color:#fff;margin-bottom:32px">Capacitación<br/>& Inversión.</h2>
+    <p class="t-body-l" style="max-width:1100px">El equipo de Grupo Nam aprende a operar — y a construir — AI en su sector. Bundle de pricing con descuento. Términos de pago condicionados a entrega real, no a promesas.</p>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 22 CAPACITACIÓN AI ============== -->
+<section class="slide light" data-slide="22">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>04. Capacitación & Inversión</span>
+      <span class="div"></span>
+      <span>Programa AI sector fiscal</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">22 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>capacitación AI · específico legal/fiscal mx</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-m" style="margin-bottom:18px;max-width:1400px">Las 11 personas de Nam, fluentes en AI aplicada a su negocio.</h2>
+    <p class="t-body" style="max-width:1100px;margin-bottom:36px">No es un curso genérico de "qué es ChatGPT". Es un programa de 4 módulos × 2 sesiones (~24 horas) diseñado para que cada miembro del equipo entienda, use y <strong>construya</strong> automatización AI en operaciones fiscales.</p>
+
+    <div class="stagger" style="display:grid;grid-template-columns:repeat(2,1fr);gap:18px;margin-bottom:24px">
+      <div class="card-nova" style="padding:26px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+          <span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--accent)">M1 · 2 sesiones</span>
+          <span class="t-label">Fundamentos</span>
+        </div>
+        <div style="font-size:20px;font-weight:600;margin-bottom:10px">AI aplicada al sector fiscal</div>
+        <div class="t-body" style="font-size:14px">Cómo funcionan los LLMs sin tecnicismos · Prompt engineering · Confidencialidad y compliance (qué datos pueden ir a un LLM) · Casos reales sector legal/fiscal MX.</div>
+      </div>
+      <div class="card-nova" style="padding:26px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+          <span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--accent)">M2 · 2 sesiones</span>
+          <span class="t-label">Productividad</span>
+        </div>
+        <div style="font-size:20px;font-weight:600;margin-bottom:10px">Herramientas del día a día</div>
+        <div class="t-body" style="font-size:14px">Análisis masivo de documentos (CFDI, contratos, opiniones SAT) · Generación de reportes ejecutivos · Excel + AI: análisis carga fiscal · Drafting de memos y comunicaciones.</div>
+      </div>
+      <div class="card-nova" style="padding:26px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+          <span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--accent)">M3 · 2 sesiones</span>
+          <span class="t-label">Construcción</span>
+        </div>
+        <div style="font-size:20px;font-weight:600;margin-bottom:10px">Construir Skills y automatizar procesos</div>
+        <div class="t-body" style="font-size:14px">Qué es un Skill (capability reusable) · Identificar procesos candidato a automatizar · Construir tu primer Skill: workflow facturación→conciliación · Triggers, condiciones, validaciones.</div>
+      </div>
+      <div class="card-nova" style="padding:26px;border:1px solid rgba(62,79,224,0.3);background:rgba(62,79,224,0.04)">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+          <span style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--accent)">M4 · 2 sesiones</span>
+          <span class="t-label" style="color:var(--accent)">Taller práctico</span>
+        </div>
+        <div style="font-size:20px;font-weight:600;margin-bottom:10px">Roadmap automatización Grupo Nam</div>
+        <div class="t-body" style="font-size:14px">Cada persona propone 1 automatización de su día · Priorización impacto vs esfuerzo · Prototipo en vivo con Chief team · Roadmap de 6 meses para escalar AI internamente.</div>
+      </div>
+    </div>
+
+    <div class="card-soft" style="display:grid;grid-template-columns:repeat(4,1fr);gap:24px;text-align:center">
+      <div>
+        <div class="t-label" style="margin-bottom:6px;color:var(--accent)">Outputs</div>
+        <div style="font-size:15px;font-weight:500">11 personas capacitadas con criterio para identificar oportunidades AI</div>
+      </div>
+      <div>
+        <div class="t-label" style="margin-bottom:6px;color:var(--accent)">Outputs</div>
+        <div style="font-size:15px;font-weight:500">Backlog de 11+ automatizaciones priorizadas para Nam</div>
+      </div>
+      <div>
+        <div class="t-label" style="margin-bottom:6px;color:var(--accent)">Outputs</div>
+        <div style="font-size:15px;font-weight:500">Capacidad interna de mantener y extender Skills</div>
+      </div>
+      <div>
+        <div class="t-label" style="margin-bottom:6px;color:var(--accent)">Outputs</div>
+        <div style="font-size:15px;font-weight:500">Independencia de consultores externos para automatización futura</div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 23 PRICING & PAYMENT TERMS ============== -->
+<section class="slide light" data-slide="23">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>04. Capacitación & Inversión</span>
+      <span class="div"></span>
+      <span>Pricing + términos de pago</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">23 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:24px"><span class="caret">&gt;</span><span>la propuesta · pricing y condiciones</span><span class="beam"></span></div>
+    <h2 class="t-title t-title-m" style="margin-bottom:36px;max-width:1400px">Bundle con capacitación incluida. Mismo total. Más valor.</h2>
+
+    <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:32px;align-items:start">
+      <div class="card-nova" style="padding:32px">
+        <div class="t-label" style="margin-bottom:18px">Comparación de opciones</div>
+        <table class="bc">
+          <thead><tr><th>Concepto</th><th style="text-align:right">Sin capacitación</th><th style="text-align:right">Con capacitación (bundle)</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Plataforma (one-time)</td>
+              <td class="num" style="text-align:right">$550K</td>
+              <td class="num" style="text-align:right"><span style="color:var(--accent);font-weight:600">$450K</span> <span style="font-size:11px;color:var(--ink-muted)">(−$100K)</span></td>
+            </tr>
+            <tr>
+              <td>Capacitación AI sector fiscal</td>
+              <td class="num" style="text-align:right">—</td>
+              <td class="num" style="text-align:right">$100K</td>
+            </tr>
+            <tr class="total">
+              <td>Total one-time</td>
+              <td class="num" style="text-align:right">$550K</td>
+              <td class="num" style="text-align:right">$550K</td>
+            </tr>
+            <tr>
+              <td>Mensualidad recurrente</td>
+              <td class="num" style="text-align:right">$20K / mes</td>
+              <td class="num" style="text-align:right">$20K / mes</td>
+            </tr>
+            <tr class="total">
+              <td>Inversión total año 1</td>
+              <td class="num" style="text-align:right">$790K</td>
+              <td class="num" style="text-align:right"><span style="color:var(--accent)">$790K</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top:18px;padding:14px 18px;background:rgba(62,79,224,0.06);border-radius:10px;border:1px solid rgba(62,79,224,0.14);font-size:14px;color:var(--ink)">
+          <strong>El bundle es la opción recomendada.</strong> Mismo desembolso total, pero Nam se lleva 24 horas de capacitación AI específica para su sector + backlog de automatizaciones + capacidad interna para extender Chief.
+        </div>
+      </div>
+
+      <div>
+        <div class="card-hero" style="margin-bottom:18px">
+          <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,0.7);margin-bottom:10px">Términos de pago — plataforma</div>
+          <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.16)"><span style="font-size:14px">Al firmar</span><span style="font-weight:600">50%</span></div>
+          <div style="display:flex;justify-content:space-between;padding:10px 0"><span style="font-size:14px">Al entrar fase pre-productiva*</span><span style="font-weight:600">50%</span></div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.7);margin-top:6px">*Primer cliente corriendo en plataforma con éxito</div>
+        </div>
+        <div class="card-nova" style="margin-bottom:18px;padding:24px">
+          <div class="t-label" style="margin-bottom:10px;color:var(--accent)">Capacitación</div>
+          <div style="font-size:15px;color:var(--ink)"><strong>100% al inicio del programa.</strong> El kickoff de capacitación es el primer entregable visible al equipo de Nam.</div>
+        </div>
+        <div class="card-nova" style="padding:24px">
+          <div class="t-label" style="margin-bottom:10px;color:var(--accent)">Mensualidad $20K MXN</div>
+          <div style="font-size:15px;color:var(--ink)">Empieza <strong>solo cuando la plataforma esté construida</strong> y reduciendo tiempos con clientes en producción. Nam paga cuando ya está capturando valor.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+<!-- ============== 24 CLOSING ============== -->
+<section class="slide dark" data-slide="24">
+  <div class="topbar">
+    <div class="left">
+      <span class="section-pill"><span class="dot"></span>Cierre</span>
+    </div>
+    <span class="wordmark">chief</span>
+  </div>
+  <div class="pagenum">24 / 24</div>
+
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <div class="kicker" style="margin-bottom:28px"><span class="caret">&gt;</span><span>próximos pasos</span><span class="beam"></span></div>
+    <div class="t-number" style="font-size:200px;font-weight:200;line-height:.95;color:#fff;margin-bottom:20px">
+      <span class="t-accent">$8.7M MXN</span><br/>
+      <span style="font-weight:300">al año.</span>
+    </div>
+    <p class="t-body-l" style="max-width:1100px;margin-bottom:42px;color:rgba(255,255,255,0.78)">
+      Inversión año 1: <strong style="color:#fff">$790K MXN</strong>. ROI: <strong style="color:#fff">11×</strong>. Payback: <strong style="color:#fff">1.1 meses</strong>. Cada mes que Grupo Nam opera sin Chief, deja <strong style="color:var(--lime)">~$725K MXN</strong> sobre la mesa.
+    </p>
+
+    <div style="display:flex;gap:16px;margin-bottom:60px">
+      <a href="#" style="display:inline-flex;align-items:center;gap:10px;padding:18px 32px;background:var(--lime);color:var(--bg-section);font-weight:600;font-size:16px;text-decoration:none;border-radius:10px;letter-spacing:.02em">
+        AGENDAR KICKOFF
+      </a>
+      <a href="#" style="display:inline-flex;align-items:center;gap:10px;padding:18px 32px;background:rgba(255,255,255,0.06);color:#fff;font-weight:500;font-size:16px;text-decoration:none;border-radius:10px;border:1px solid rgba(255,255,255,0.18)">
+        Revisar bundle de pricing
+      </a>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:24px">
+      <div class="border-beam" style="padding:24px 32px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.10);border-radius:14px">
+        <div class="t-label" style="margin-bottom:10px;color:var(--lime)">Próximos pasos sugeridos</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;gap:14px;align-items:flex-start"><div style="font-family:var(--font-mono);font-size:12px;color:var(--lime);font-weight:700;min-width:20px">01</div><div style="font-size:14px;color:rgba(255,255,255,0.86)">Reunión de descubrimiento profundo (90 min) — validar asunciones del BC con datos reales de Nam.</div></div>
+          <div style="display:flex;gap:14px;align-items:flex-start"><div style="font-family:var(--font-mono);font-size:12px;color:var(--lime);font-weight:700;min-width:20px">02</div><div style="font-size:14px;color:rgba(255,255,255,0.86)">Propuesta firmada → kickoff capacitación M1 dentro de 2 semanas.</div></div>
+          <div style="display:flex;gap:14px;align-items:flex-start"><div style="font-family:var(--font-mono);font-size:12px;color:var(--lime);font-weight:700;min-width:20px">03</div><div style="font-size:14px;color:rgba(255,255,255,0.86)">Construcción plataforma en paralelo a capacitación (8-10 semanas a fase pre-productiva).</div></div>
+        </div>
+      </div>
+      <div style="padding:24px 32px;display:flex;align-items:center;gap:18px">
+        <div style="width:56px;height:56px;border-radius:50%;background:rgba(224,237,128,0.18);color:var(--lime);font-weight:700;font-size:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid rgba(224,237,128,0.36)">RB</div>
+        <div>
+          <div class="t-label" style="margin-bottom:4px;color:rgba(255,255,255,0.55)">Preparado por</div>
+          <div style="font-size:18px;font-weight:600;color:#fff">Rasheed Bayter</div>
+          <div style="font-size:13px;color:rgba(255,255,255,0.65)">Chief</div>
+          <div style="font-size:13px;color:rgba(255,255,255,0.65)">rasheedbayter@gmail.com</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="footer">chief · business case · grupo nam</div>
+</section>
+
+</div>
+</div>
+
+<div class="nav">
+  <button class="prev" aria-label="Anterior">←</button>
+  <span class="counter">01 / 24</span>
+  <button class="next" aria-label="Siguiente">→</button>
+</div>
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  const counter = document.querySelector('.counter');
+  const deck = document.getElementById('deck');
+  let current = 0;
+
+  // Parse hash on load
+  const hashSlide = parseInt((location.hash || '#1').replace('#',''), 10);
+  if (!isNaN(hashSlide) && hashSlide >= 1 && hashSlide <= total) current = hashSlide - 1;
+
+  function go(n){
+    if (n < 0) n = 0;
+    if (n >= total) n = total - 1;
+    slides.forEach((s, i) => s.classList.toggle('active', i === n));
+    current = n;
+    counter.textContent = String(n+1).padStart(2,'0') + ' / ' + String(total).padStart(2,'0');
+    history.replaceState(null, '', '#' + (n+1));
+  }
+
+  function next(){ go(current + 1); }
+  function prev(){ go(current - 1); }
+
+  document.querySelector('.next').addEventListener('click', next);
+  document.querySelector('.prev').addEventListener('click', prev);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); next(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); prev(); }
+    else if (e.key === 'Home') { e.preventDefault(); go(0); }
+    else if (e.key === 'End') { e.preventDefault(); go(total-1); }
+  });
+
+  // Scale deck to viewport
+  function fit(){
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const sx = vw / 1920;
+    const sy = vh / 1080;
+    const s = Math.min(sx, sy);
+    deck.style.transform = 'scale(' + s + ')';
+  }
+  window.addEventListener('resize', fit);
+  fit();
+  go(current);
+})();
+</script>
+</body>
+</html>

@@ -1,14 +1,24 @@
 /**
- * Google OAuth helper — delegates token refresh to the bridge so that
- * the refresh_token never leaves the bridge/BD trust boundary.
+ * Google OAuth helper — calls the Supabase `refresh-google-token` edge function
+ * which reads/updates `ae_integrations` (the same table the web AE flow writes
+ * to) and refreshes the access_token against Google when it's near expiry.
+ *
+ * The Google client secret stays in Supabase secrets — chief-agents only needs
+ * SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
+ *
+ * Convention: when only `orgId` is given, returns the most-recently-connected
+ * Google account in that org.
  *
  * Usage:
  *   const token = await getFreshGoogleToken(agent.orgId);
- *   if (!token) throw new Error('Gmail not connected');
- *   await fetch('https://gmail.googleapis.com/...', { headers: { Authorization: `Bearer ${token.accessToken}` } });
+ *   if (!token) throw new Error('Google not connected');
+ *   await fetch('https://gmail.googleapis.com/...', {
+ *     headers: { Authorization: `Bearer ${token.accessToken}` }
+ *   });
  */
 
-const BRIDGE_URL = process.env.BRIDGE_URL || process.env.BRIDGE_PUBLIC_URL || 'https://twilio-bridge-production-241b.up.railway.app';
+const SB_URL = process.env.SUPABASE_URL || '';
+const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 export interface GoogleTokenResult {
   accessToken: string;
@@ -16,25 +26,26 @@ export interface GoogleTokenResult {
   expiresAt: string | null;
 }
 
-export interface GoogleTokenError {
-  error: string;
-  message?: string;
-}
-
 /**
- * Get a fresh Google access_token for an org.
+ * Get a fresh Google access_token for an org (and optional user).
  * Returns null if not connected or if refresh failed (user must reconnect).
  */
-export async function getFreshGoogleToken(orgId: string): Promise<GoogleTokenResult | null> {
+export async function getFreshGoogleToken(orgId: string, userId?: string): Promise<GoogleTokenResult | null> {
+  if (!orgId || !SB_URL || !SB_KEY) return null;
   try {
-    const res = await fetch(`${BRIDGE_URL}/integrations/google/refresh`, {
+    const res = await fetch(`${SB_URL}/functions/v1/refresh-google-token`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ org_id: orgId }),
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${SB_KEY}`,
+      },
+      body: JSON.stringify({ org_id: orgId, user_id: userId }),
     });
     const data = await res.json();
     if (!res.ok || !data.access_token) {
-      console.warn(`[google-auth] refresh failed for org ${orgId}:`, data);
+      if (data?.error !== 'not_connected') {
+        console.warn(`[google-auth] refresh failed for org ${orgId}:`, data);
+      }
       return null;
     }
     return {
@@ -49,7 +60,7 @@ export async function getFreshGoogleToken(orgId: string): Promise<GoogleTokenRes
 }
 
 /**
- * Convenience: returns true if the org has Gmail currently connected.
+ * Convenience: returns true if the org has Google currently connected.
  */
 export async function isGmailConnected(orgId: string): Promise<boolean> {
   const t = await getFreshGoogleToken(orgId);

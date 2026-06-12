@@ -1,0 +1,165 @@
+name,country,type,domain,acquiring_capability,source,notes
+Banco de Galicia y Buenos Aires,Argentina,bank,bancogalicia.com,confirmed,BCRA nomina,Top-5 private bank; merchant POS acquiring via Naranja X / Payway partnership
+Banco de la Nacion Argentina,Argentina,bank,bna.com.ar,confirmed,BCRA nomina,Largest public bank; BNA+ wallet + acquiring through Visanet
+Banco de la Provincia de Buenos Aires,Argentina,bank,bancoprovincia.com.ar,confirmed,BCRA nomina,Parent of Cuenta DNI wallet; acquires merchants in PBA
+Banco Santander Argentina,Argentina,bank,santander.com.ar,confirmed,BCRA nomina,Parent of Getnet Argentina acquirer
+Banco BBVA Argentina,Argentina,bank,bbva.com.ar,confirmed,BCRA nomina,Card issuing + commerce acquiring via Prisma/Payway shareholding (historical)
+Banco Macro,Argentina,bank,macro.com.ar,confirmed,BCRA nomina,National private bank; SME merchant acquiring
+ICBC Argentina,Argentina,bank,icbc.com.ar,confirmed,BCRA nomina,Foreign bank with corporate merchant acquiring
+Banco Credicoop,Argentina,bank,bancocredicoop.coop,likely,BCRA nomina,Largest cooperative bank; SME-focused
+Banco Ciudad de Buenos Aires,Argentina,bank,bancociudad.com.ar,likely,BCRA nomina,Municipal bank; acquiring via Visanet/Prisma rails
+Banco Patagonia,Argentina,bank,bancopatagonia.com.ar,likely,BCRA nomina,Owned by Banco do Brasil; merchant services
+Banco Supervielle,Argentina,bank,supervielle.com.ar,likely,BCRA nomina,Mid-size private bank
+Banco Hipotecario,Argentina,bank,hipotecario.com.ar,likely,BCRA nomina,Mortgage + retail bank
+Banco Comafi,Argentina,bank,comafi.com.ar,likely,BCRA nomina,Mid-size private bank
+Banco Itau Argentina,Argentina,bank,itau.com.ar,confirmed,BCRA nomina,Acquiring + Rede inheritance
+Banco de la Provincia de Cordoba,Argentina,bank,bancor.com.ar,likely,BCRA nomina,Public provincial bank
+HSBC Bank Argentina,Argentina,bank,hsbc.com.ar,likely,BCRA nomina,Acquired by Galicia in 2024 (transition)
+Citibank N.A. Argentina,Argentina,bank,citibank.com.ar,likely,BCRA nomina,Institutional banking
+Banco San Juan,Argentina,bank,bancosanjuan.com,likely,BCRA nomina,Regional public bank
+Banco del Chubut,Argentina,bank,bancochubut.com.ar,likely,BCRA nomina,Regional public bank
+Banco de Santa Cruz,Argentina,bank,bancosantacruz.com,likely,BCRA nomina,Regional public bank
+Banco de Corrientes,Argentina,bank,bancodecorrientes.com.ar,likely,BCRA nomina,Regional public bank
+Banco Provincia del Neuquen,Argentina,bank,bpn.com.ar,likely,BCRA nomina,Regional public bank
+Banco Industrial (BIND),Argentina,bank,bind.com.ar,likely,BCRA nomina,Mid-size; parent of Wilobank
+Banco Bica,Argentina,bank,bancobica.com.ar,likely,BCRA nomina,Regional bank Santa Fe; top fixed-deposit rates 2026
+Banco Voii,Argentina,bank,banco.voii.com.ar,likely,BCRA nomina,Mid-size digital-forward bank
+Banco Coinag,Argentina,bank,coinag.com,likely,BCRA nomina,Mid-size bank
+Banco del Sol,Argentina,digital_bank,bancodelsol.com,likely,BCRA nomina,Digital bank by Sancor Seguros group
+Nuevo Banco del Chaco,Argentina,bank,nbch.com.ar,likely,BCRA nomina,Provincial public bank
+Nuevo Banco de Santa Fe,Argentina,bank,nuevobsf.com,likely,BCRA nomina,Petersen group regional bank
+Nuevo Banco de Entre Rios,Argentina,bank,bancoentrerios.com.ar,likely,BCRA nomina,Petersen group regional bank
+Banco Santiago del Estero,Argentina,bank,bse.com.ar,likely,BCRA nomina,Petersen group regional bank
+Banco de Formosa,Argentina,bank,bancoformosa.com.ar,likely,BCRA nomina,Provincial bank
+Banco Columbia,Argentina,bank,bancocolumbia.com.ar,likely,BCRA nomina,Retail consumer bank
+Carrefour Banco,Argentina,bank,carrefourbanco.com.ar,confirmed,Press 2026,Retail bank; offers merchant acquiring in stores
+Banco Cetelem Argentina,Argentina,bank,cetelem.com.ar,likely,BCRA nomina,BNP Paribas consumer finance
+Wilobank,Argentina,digital_bank,wilobank.com.ar,likely,BCRA nomina,First Argentine digital-native bank (BIND group)
+Brubank,Argentina,digital_bank,brubank.com,confirmed,BCRA nomina,Digital bank with wallet + QR payments
+Banco Naranja X,Argentina,digital_bank,naranjax.com,confirmed,Press 2026 + Camara Fintech,Galicia-owned digital bank + acquirer (POS Naranja)
+Lulobank,Argentina,digital_bank,lulobank.com,likely,Press,Digital bank backed by Latam consortium (note: AR market check)
+Ualá,Argentina,fintech,uala.com.ar,confirmed,Camara Fintech,Wallet + sub-acquirer; Uala Bis for merchants
+Mercado Pago Argentina,Argentina,fintech,mercadopago.com.ar,confirmed,Camara Fintech,Largest wallet + sub-acquirer
+Modo,Argentina,wallet,modo.com.ar,confirmed,Press 2026,Bank-consortium wallet (35+ banks)
+Cuenta DNI,Argentina,wallet,cuentadni.bancoprovincia.com.ar,confirmed,Banco Provincia,Wallet by Banco Provincia (6.8M users)
+BNA+,Argentina,wallet,bna.com.ar,confirmed,BCRA,Wallet by Banco Nacion (~10M users)
+Personal Pay,Argentina,wallet,personalpay.com.ar,confirmed,Camara Fintech,Telecom Argentina wallet
+Claro Pay,Argentina,wallet,claropay.com.ar,likely,Press,America Movil wallet
+Lemon Cash,Argentina,fintech,lemon.me,confirmed,Camara Fintech,Crypto + payments wallet
+Belo,Argentina,fintech,belo.app,confirmed,Camara Fintech,Crypto + payments wallet
+Prex,Argentina,fintech,prexcard.com.ar,confirmed,Camara Fintech,Prepaid card + wallet
+Cocos Pay,Argentina,fintech,cocos.capital,confirmed,Press 2026,Broker + wallet with merchant payments
+Fiwind,Argentina,fintech,fiwind.io,likely,Press,Crypto wallet
+Astropay,Argentina,fintech,astropay.com,confirmed,Press,Cross-border wallet/processor
+Rappi Pay Argentina,Argentina,wallet,rappi.com.ar,likely,Press,Rappi super-app payments
+Pago Facil,Argentina,payment_institution,pagofacil.com.ar,confirmed,Press,Cash-in/out + bill payment network
+RapiPago,Argentina,payment_institution,rapipago.com.ar,confirmed,Press,Cash-in/out + bill payment network
+Prisma Medios de Pago,Argentina,acquirer,prismamediosdepago.com,confirmed,Visa press 2026,Historical Visa acquirer; Visa acquired Prisma + Newpay 2026
+Payway,Argentina,acquirer,payway.com.ar,confirmed,Visa press 2026,Acquirer spun off from Prisma; stays with Advent post-Visa deal
+Fiserv Argentina (Posnet),Argentina,acquirer,fiserv.com,confirmed,Press,Mastercard-side acquirer historically
+GetNet Argentina,Argentina,acquirer,getnet.com.ar,confirmed,Press,Santander acquirer
+GeoPagos,Argentina,acquirer,geopagos.com,confirmed,TechCrunch 2022,Acquirer-in-a-box infra; Riverwood $35M
+Pomelo,Argentina,fintech,pomelo.la,confirmed,Press 2026,Card issuing + payments BaaS across LatAm
+Mobbex,Argentina,sub_acquirer,mobbex.com,confirmed,Press,Argentine payment gateway / sub-acquirer
+Tapi,Argentina,fintech,tapi.la,confirmed,Press,Bill payment infra; powers Uala/Mercado Pago/Lemon
+Increase Card,Argentina,fintech,increasecard.com,likely,Press,Card processing / reconciliation for merchants
+Decidir,Argentina,acquirer,decidir.com,confirmed,Press,Prisma payment gateway
+Newpay,Argentina,acquirer,newpay.com.ar,confirmed,Visa press 2026,Acquirer being acquired by Visa
+Banco de Chile,Chile,bank,bancochile.cl,confirmed,CMF 2026,Top-3 bank; merchant acquiring via Transbank ownership
+BancoEstado,Chile,bank,bancoestado.cl,confirmed,CMF 2026,Public bank; parent of Compraqui acquirer
+Banco Santander Chile,Chile,bank,santander.cl,confirmed,CMF 2026,Parent of Getnet Chile acquirer
+Banco de Credito e Inversiones (BCI),Chile,bank,bci.cl,confirmed,CMF 2026,Parent of Bci Pagos acquirer + MACH wallet
+Banco Itau Chile,Chile,bank,itau.cl,confirmed,CMF 2026,Foreign bank; merchant services
+Scotiabank Chile,Chile,bank,scotiabankchile.cl,confirmed,CMF 2026,Foreign bank; merchant services
+Banco Security,Chile,bank,bancosecurity.cl,likely,CMF 2026,Mid-size private bank
+Banco Falabella,Chile,bank,bancofalabella.cl,likely,CMF 2026,Retail bank with merchant services in Falabella ecosystem
+Banco Ripley,Chile,bank,bancoripley.cl,likely,CMF 2026,Retail bank with merchant acquiring in Ripley stores
+Banco Internacional,Chile,bank,bancointernacional.cl,likely,CMF 2026,Mid-size private bank
+Banco BTG Pactual Chile,Chile,bank,btgpactual.cl,unknown,CMF 2026,Investment-focused
+Banco Consorcio,Chile,bank,bancoconsorcio.cl,likely,CMF 2026,Mid-size private bank
+HSBC Bank Chile,Chile,bank,hsbc.cl,unknown,CMF 2026,Corporate banking presence
+JP Morgan Chile,Chile,bank,jpmorgan.com,unknown,CMF 2026,Corporate banking only
+Transbank,Chile,acquirer,transbank.cl,confirmed,CMF 2026,Historic 90%-share acquirer; bank-consortium owned (~45% now)
+Compraqui,Chile,acquirer,compraqui.cl,confirmed,FindevGateway,BancoEstado acquirer
+Getnet Chile,Chile,acquirer,getnet.cl,confirmed,Press 2026,Santander Chile acquirer
+Bci Pagos,Chile,acquirer,bcipagos.cl,confirmed,Press 2026,BCI acquirer
+Klap (ex Multicaja),Chile,acquirer,klap.cl,confirmed,Press 2026,Acquirer; rebrand of Multicaja
+Redelcom,Chile,acquirer,redelcom.cl,confirmed,Press 2026,Mercado Libre-related POS acquirer
+SumUp Chile,Chile,acquirer,sumup.cl,confirmed,Press 2026,UK acquirer; 171K terminals in Chile
+TUU (Haulmer),Chile,acquirer,tuu.cl,confirmed,Press 2026,Haulmer POS/SME acquirer
+Flow,Chile,sub_acquirer,flow.cl,confirmed,Press 2026,Chilean payment gateway / sub-acquirer
+Khipu,Chile,sub_acquirer,khipu.com,confirmed,Press 2026,Bank-transfer payment processor
+Kushki Chile,Chile,sub_acquirer,kushkipagos.com,confirmed,Press 2026,Cross-LatAm payment processor
+Etpay,Chile,sub_acquirer,etpay.com,likely,Press,Bank transfer / open finance payments
+Fintoc,Chile,sub_acquirer,fintoc.com,confirmed,Press 2026,Open finance bank transfers
+Payku,Chile,sub_acquirer,payku.cl,confirmed,Press 2026,Chilean fintech gateway
+Servipag,Chile,payment_institution,servipag.com,confirmed,Press 2026,Cash bill payment network (Chile/Bank consortium)
+Webpay (Transbank),Chile,acquirer,webpay.cl,confirmed,Press 2026,Transbank online payment gateway
+OnePay,Chile,wallet,onepay.cl,likely,Press,Transbank-related QR wallet
+MACH,Chile,wallet,mach.cl,confirmed,Press 2026,BCI digital wallet (3rd most used)
+Mercado Pago Chile,Chile,fintech,mercadopago.cl,confirmed,Press 2026,Wallet + sub-acquirer; 71% adoption
+Tenpo,Chile,digital_bank,tenpo.cl,confirmed,Press 2026,First Chilean neobank (Credicorp); 1.7M users
+Fpay (Falabella),Chile,wallet,fpay.cl,likely,Press,Falabella ecosystem wallet
+Multicaja (legacy),Chile,acquirer,multicaja.cl,confirmed,Press,Original brand of Klap acquirer
+Pago46,Chile,sub_acquirer,pago46.com,unknown,Press,Cash and alternative payments
+Banco de la Republica Oriental del Uruguay (BROU),Uruguay,bank,brou.com.uy,confirmed,BCU 2026,Largest public bank; acquiring via Visanet/Geocom rails
+Banco Itau Uruguay,Uruguay,bank,itau.com.uy,confirmed,BCU 2026,Largest private bank; OCA-affiliated issuing + acquiring
+Banco Santander Uruguay,Uruguay,bank,santander.com.uy,confirmed,BCU 2026,Owner of Creditel; merchant services
+BBVA Uruguay,Uruguay,bank,bbva.com.uy,likely,BCU 2026,Foreign bank
+Scotiabank Uruguay,Uruguay,bank,scotiabank.com.uy,confirmed,BCU 2026,Parent of Pronto! issuer
+HSBC Bank Uruguay,Uruguay,bank,hsbc.com.uy,unknown,BCU 2026,Foreign bank; corporate focus
+Citibank Uruguay,Uruguay,bank,citibank.com.uy,unknown,BCU 2026,Foreign bank; corporate focus
+Banque Heritage Uruguay,Uruguay,bank,banqueheritage.com.uy,unknown,BCU 2026,Boutique private bank
+Banco Bandes Uruguay,Uruguay,bank,bandes.com.uy,unknown,BCU 2026,Venezuelan-owned mid-size bank
+Banco Hipotecario del Uruguay,Uruguay,bank,bhu.net,unknown,BCU 2026,Public mortgage bank
+Banco de la Nacion Argentina (Uruguay),Uruguay,bank,bna.com.ar,unknown,BCU 2026,Argentine subsidiary in UY
+Visanet Uruguay,Uruguay,acquirer,visanet.com.uy,confirmed,Argus Advisory,Historic Visa acquirer (exclusivity model)
+Geocom Uruguay,Uruguay,acquirer,geocom.com.uy,confirmed,Vesta SW Group 2025,Largest POS terminal network admin; acquired by Vesta/Constellation
+Sistarbanc,Uruguay,sub_acquirer,sistarbanc.com.uy,confirmed,Argus Advisory,Card processing infrastructure
+OCA,Uruguay,acquirer,oca.com.uy,confirmed,Argus Advisory,Largest local card issuer + acquirer for merchants (Itau group)
+Creditel,Uruguay,acquirer,creditel.com.uy,confirmed,Argus Advisory,Santander UY-related issuer/acquirer
+Pronto!,Uruguay,acquirer,pronto.com.uy,confirmed,Argus Advisory,Scotiabank UY-related issuer/acquirer
+Cabal Uruguay,Uruguay,acquirer,cabal.com.uy,confirmed,Press,Local card network/acquirer
+Plexo,Uruguay,sub_acquirer,plexo.com.uy,likely,Press,Local payment processor / gateway
+Resonance / Anda,Uruguay,payment_institution,anda.com.uy,confirmed,Press,Anda prepaid card issuer + payment institution
+MiDinero (RedPagos),Uruguay,wallet,midinero.com.uy,confirmed,Press,Prepaid card wallet by RedPagos
+RedPagos,Uruguay,payment_institution,redpagos.com.uy,confirmed,Press,Cash bill payment and prepaid network
+Abitab,Uruguay,payment_institution,abitab.com.uy,confirmed,Press,Largest cash bill payment + prepaid network
+Prex Uruguay,Uruguay,fintech,prex.uy,confirmed,Press,Prepaid card + wallet
+PayMe (Itau),Uruguay,wallet,itau.com.uy,likely,Press,Itau UY wallet
+Mercado Pago Uruguay,Uruguay,fintech,mercadopago.com.uy,confirmed,Press 2026,Wallet + investments + prepaid card
+dLocal,Uruguay,sub_acquirer,dlocal.com,confirmed,Press,Cross-border emerging-markets processor (UY-HQ)
+Handy,Uruguay,sub_acquirer,handy.com.uy,likely,Press,Local payment processor / gateway
+Scanntech,Uruguay,fintech,scanntech.com,likely,Press,Retail tech / payment integrations
+Banco Itau Paraguay,Paraguay,bank,itau.com.py,confirmed,BCP 2026,Largest private bank (15.1% share); merchant acquiring
+Banco Continental,Paraguay,bank,bancontinental.com.py,confirmed,BCP 2026,Largest bank by assets (19.5%)
+Sudameris Bank,Paraguay,bank,sudameris.com.py,confirmed,BCP 2026,Top-3 bank (15.7%)
+Banco Nacional de Fomento (BNF),Paraguay,bank,bnf.gov.py,confirmed,BCP 2026,Largest public bank (9.7%)
+Banco GNB Paraguay,Paraguay,bank,bancognb.com.py,confirmed,BCP 2026,Colombian-owned bank (9.5%)
+Ueno Bank,Paraguay,digital_bank,ueno.com.py,confirmed,BCP 2026,Digital bank (8% share); aggressive growth
+Banco Basa,Paraguay,bank,basa.com.py,likely,BCP 2026,Mid-size private bank (4.6%)
+Banco Atlas,Paraguay,bank,atlas.com.py,confirmed,BCP 2026,Mid-size private bank (4.6%)
+Banco Familiar,Paraguay,bank,familiar.com.py,confirmed,BCP 2026,Retail-focused mid-size bank (4.1%)
+Banco Regional,Paraguay,bank,bancoregional.com.py,likely,BCP 2026,Mid-size private bank
+Vision Banco,Paraguay,bank,visionbanco.com,likely,BCP 2026,Microfinance-oriented bank
+Banco do Brasil Paraguay,Paraguay,bank,bb.com.py,likely,BCP 2026,Brazilian-owned bank
+Banco de la Nacion Argentina Paraguay,Paraguay,bank,bna.com.ar,unknown,BCP 2026,Argentine-owned bank
+Citibank Paraguay,Paraguay,bank,citibank.com.py,unknown,BCP 2026,Corporate banking
+BBVA Paraguay,Paraguay,bank,bbva.com.py,unknown,BCP 2026,Foreign bank
+Solar Banco,Paraguay,bank,solarbanco.com.py,likely,BCP 2026,Small private bank
+Interfisa Banco,Paraguay,bank,interfisa.com.py,likely,BCP 2026,Mid-size bank from finance company origins
+Bancop,Paraguay,bank,bancop.com.py,likely,BCP 2026,Cooperative bank
+Banco Familiar (wallet Wally),Paraguay,wallet,wally.com.py,confirmed,Press,Wally wallet by Banco Familiar
+Bancard,Paraguay,acquirer,bancard.com.py,confirmed,Press,Main card processor and acquirer Paraguay
+Infonet,Paraguay,acquirer,infonet.com.py,confirmed,Press,Bancard-operated payments portal / processor
+Cabal Paraguay,Paraguay,acquirer,cabal.com.py,confirmed,Press,Local card processor and acquirer
+Procesos MC (Panal),Paraguay,acquirer,procesosmc.com.py,confirmed,Press,Local processor (Mastercard side)
+Zimple,Paraguay,wallet,zimple.com.py,confirmed,Press,Bancard wallet
+Tigo Money Paraguay,Paraguay,wallet,tigomoney.com.py,confirmed,BCP,Largest EMPE wallet (Millicom)
+Personal Pay Paraguay,Paraguay,wallet,personal.com.py,confirmed,BCP,Telecom Personal/Nucleo EMPE wallet
+Aqui Pago,Paraguay,payment_institution,aquipago.com.py,confirmed,Press,Cash bill payment / collection network
+Pago Express,Paraguay,payment_institution,pagoexpress.com.py,confirmed,Press,Cash bill payment / collection network
+Wepa,Paraguay,payment_institution,wepa.com.py,likely,Press,Cash collection network
+Pagopar,Paraguay,sub_acquirer,pagopar.com,confirmed,Press,Online payment gateway aggregating local methods
+Practipago,Paraguay,payment_institution,practipago.com.py,unknown,Press,Cash bill payment network
+Mercado Pago Paraguay,Paraguay,fintech,mercadopago.com.py,likely,Press,Wallet expansion in PY

@@ -1,6 +1,8 @@
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+# Absolute from repo root: with a Dockerfile at repo root (FrontEnd) Railway
+# would otherwise resolve "Dockerfile" to the wrong file and break the build.
+dockerfilePath = "openclaw/bridge/Dockerfile"
 
 [deploy]
 startCommand = "bash /home/node/bridge/startup.sh"

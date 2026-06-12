@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input'
 import { useOrg } from '@/contexts/OrgContext'
 import { useAuth } from '@/contexts/AuthContext'
 
-const BRIDGE_URL = import.meta.env.VITE_BRIDGE_URL || 'https://twilio-bridge-production-241b.up.railway.app'
+const BRIDGE_URL = import.meta.env.VITE_BRIDGE_URL || 'https://bridge.yuno.tools'
 
 interface IntegrationStatus {
   connected?: boolean

@@ -8,11 +8,16 @@ import { tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { sbGet, sbPost, sbPostReturn, sbPatch, sbRpc, getSupabaseUrl, getSupabaseHeaders } from '../supabase-client.js';
 import Anthropic from '@anthropic-ai/sdk';
+import { pickUrl } from '../utils/env-url.js';
 
 const SB_URL = getSupabaseUrl();
-const CHIEF_AGENTS_URL = process.env.CHIEF_AGENTS_URL || 'https://chief-agents-production.up.railway.app';
-const CALLBACK_URL = process.env.CALLBACK_URL || 'https://twilio-bridge-production-241b.up.railway.app/api/agent-callback';
-const BRIDGE_URL = process.env.BRIDGE_URL || process.env.BRIDGE_PUBLIC_URL || 'https://twilio-bridge-production-241b.up.railway.app';
+// Yuno workspace endpoints. Chief_Agents is private (chief.railway.internal:8080).
+// Bridge is public (bridge.yuno.tools). pickUrl rejects placeholder values like
+// "PENDIENTE" / "TODO" so misconfigured env vars don't silently produce
+// invalid URLs at request time.
+const CHIEF_AGENTS_URL = pickUrl(process.env.CHIEF_AGENTS_URL, 'http://chief.railway.internal:8080');
+const CALLBACK_URL = pickUrl(process.env.CALLBACK_URL, 'https://bridge.yuno.tools/api/agent-callback');
+const BRIDGE_URL = pickUrl(process.env.BRIDGE_URL, process.env.BRIDGE_PUBLIC_URL, 'https://bridge.yuno.tools');
 
 // Helper: fetch with Supabase headers
 async function sbFetch<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -88,51 +93,10 @@ export function buildChiefOrchestratorServer(orgId: string) {
         const agent = await resolveAgent(orgId, agent_name);
         if (!agent) return { content: [{ type: 'text' as const, text: `Agente "${agent_name}" no encontrado.` }] };
 
-        // CHECK FOR FOLLOW-UP: only resume a recent session if the agent was actually
-        // WAITING for a reply (asked a question via ask_human). Otherwise, each new user
-        // message must start a fresh task so skill enrichment runs and the agent can ask
-        // the right questions for whichever skill is being invoked.
-        //
-        // Signal: previous task's scratchpad has last_action='asked_human'. If the agent
-        // simply completed a task, last_action will be absent or something else → new task.
-        try {
-          const lastTask = await sbGet<any[]>(
-            `agent_tasks_v2?assigned_agent_id=eq.${agent.id}&org_id=eq.${orgId}&order=updated_at.desc&limit=1&select=id,title,session_id,status,completed_at,updated_at,context_summary`
-          ).catch(() => []);
-          if (Array.isArray(lastTask) && lastTask[0]?.session_id && lastTask[0]?.context_summary) {
-            let prevPad: any = {};
-            try { prevPad = JSON.parse(lastTask[0].context_summary); } catch { prevPad = {}; }
-            const wasWaitingForReply = prevPad.last_action === 'asked_human';
-            const ageRef = lastTask[0].completed_at || lastTask[0].updated_at || 0;
-            const age = Date.now() - new Date(ageRef).getTime();
+        // delegar_tarea always creates a NEW task. Replies to active agent threads are
+        // handled by the WhatsApp bridge fast-path (injectReplyToActiveThread) — they
+        // never reach Chief. So no follow-up branch here.
 
-            if (wasWaitingForReply && age < 30 * 60 * 1000) {
-              // FOLLOW-UP: agent asked a question, user is replying → resume session
-              const taskId = lastTask[0].id;
-              if (!prevPad.conversation) prevPad.conversation = [];
-              prevPad.conversation.push({ role: 'user', ts: new Date().toISOString(), content: instruction.substring(0, 1000) });
-              prevPad.last_action = 'user_replied';
-
-              await sbPatch(`agent_tasks_v2?id=eq.${taskId}`, {
-                status: 'in_progress',
-                context_summary: JSON.stringify(prevPad),
-                updated_at: new Date().toISOString(),
-              });
-
-              // Execute with session resumption
-              fetch(`${CHIEF_AGENTS_URL}/execute`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ agent_id: agent.id, task_id: taskId }),
-              }).catch(() => {});
-
-              console.log(`[delegar_tarea] FOLLOW-UP: resumed session ${lastTask[0].session_id.substring(0, 12)} for ${agent.name} (was waiting for reply)`);
-              return { content: [{ type: 'text' as const, text: `Follow-up enviado a ${agent.name}. Te llegará la respuesta por WhatsApp.` }] };
-            }
-          }
-        } catch {}
-
-        // NEW TASK: no recent session to resume
         // Skill enrichment
         let enrichedInstruction = instruction;
         try {

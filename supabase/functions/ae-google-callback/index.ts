@@ -100,19 +100,23 @@ serve(async (req: Request) => {
     scope: tokens.scope,
   }
 
-  // Upsert: save both google_calendar and gmail providers (same tokens, different provider key)
+  // Upsert: save both google_calendar and gmail providers (same tokens, different provider key).
+  // Write tokens to BOTH top-level columns AND config jsonb (for legacy code that
+  // reads from config). This way every consumer can find the tokens.
   const now = new Date().toISOString()
+  const baseRow = {
+    org_id: authCtx.orgId,
+    user_id: authCtx.userId,
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token || null,
+    token_expires_at: expiresAt,
+    config,
+    connected_at: now,
+  }
+
   const { error: calError } = await supabase
     .from('ae_integrations')
-    .upsert({
-      org_id: authCtx.orgId,
-      user_id: authCtx.userId,
-      provider: 'google_calendar',
-      config,
-      connected_at: now,
-      token_expires_at: expiresAt,
-    }, { onConflict: 'org_id,user_id,provider' })
-
+    .upsert({ ...baseRow, provider: 'google_calendar' }, { onConflict: 'org_id,user_id,provider' })
   if (calError) {
     console.error('[ae-google-callback] Calendar upsert failed:', calError.message)
     return errorResponse('Failed to save calendar connection', 500)
@@ -120,20 +124,32 @@ serve(async (req: Request) => {
 
   const { error: gmailError } = await supabase
     .from('ae_integrations')
-    .upsert({
-      org_id: authCtx.orgId,
-      user_id: authCtx.userId,
-      provider: 'gmail',
-      config,
-      connected_at: now,
-      token_expires_at: expiresAt,
-    }, { onConflict: 'org_id,user_id,provider' })
-
+    .upsert({ ...baseRow, provider: 'gmail' }, { onConflict: 'org_id,user_id,provider' })
   if (gmailError) {
     console.error('[ae-google-callback] Gmail upsert failed:', gmailError.message, gmailError.code, gmailError.details)
     return errorResponse('Failed to save Gmail connection: ' + gmailError.message, 500)
   }
 
-  console.log(`[ae-google-callback] Saved calendar + gmail integration for user ${authCtx.userId}`)
+  // Mirror to agent_integrations so the bridge (which reads agent_integrations
+  // for Google) sees fresh tokens immediately. Without this mirror, bridge
+  // returns "not_connected" until google-keepalive runs (next 04:30 UTC).
+  await supabase
+    .from('agent_integrations')
+    .upsert({
+      org_id: authCtx.orgId,
+      provider: 'google',
+      email,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token || null,
+      token_expires_at: expiresAt,
+      connected_via: 'ae_google_callback',
+      connected_by_user_id: authCtx.userId,
+      metadata: { synced_from: 'ae_google_callback' },
+      connected_at: now,
+      last_refreshed_at: now,
+      status: 'active',
+    }, { onConflict: 'org_id,provider' })
+
+  console.log(`[ae-google-callback] Saved calendar + gmail + agent_integrations mirror for user ${authCtx.userId}`)
   return jsonResponse({ success: true, email })
 })

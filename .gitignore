@@ -33,3 +33,6 @@ dist-ssr
 
 # Claude Code configuration (contains tokens)
 CLAUDE.md
+
+# Claude Code agent worktrees (local-only)
+.claude/worktrees/

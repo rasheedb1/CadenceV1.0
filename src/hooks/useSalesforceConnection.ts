@@ -51,7 +51,7 @@ export function useSalesforceConnection() {
     try {
       const result = await callEdgeFunction<{ authUrl: string }>(
         'salesforce-auth',
-        {},
+        { forceLogin: true },
         session.access_token
       )
       // Redirect to Salesforce OAuth

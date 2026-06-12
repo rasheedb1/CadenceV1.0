@@ -7,6 +7,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { AgentConfig, LoopState, SenseContext, ParsedAction } from '../types.js';
 import type { Logger } from '../utils/logger.js';
+import { stripLoneSurrogates } from '../utils/text.js';
 
 let anthropicClient: Anthropic | null = null;
 
@@ -190,8 +191,11 @@ export async function think(
   state: LoopState,
   log: Logger,
 ): Promise<ParsedAction> {
-  const userPrompt = buildPrompt(agent, context, state);
-  const systemPrompt = buildSystemPrompt(agent);
+  // Sanitize at the API boundary: strip lone UTF-16 surrogates that would
+  // otherwise break JSON encoding for Anthropic (cause: substring() on
+  // user-text can split a surrogate pair).
+  const userPrompt = stripLoneSurrogates(buildPrompt(agent, context, state));
+  const systemPrompt = stripLoneSurrogates(buildSystemPrompt(agent));
   const client = getClient();
 
   // Use haiku for THINK (cheaper routing decision)

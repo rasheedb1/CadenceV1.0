@@ -41,6 +41,43 @@ export function Settings() {
 
   const gongIntegration = integrations.find(i => i.provider === 'gong')
 
+  // Booking URL — surfaced on the BC last-slide CTA. Stored on the AE's
+  // google_calendar integration so it travels with the connected Google account.
+  const calendarIntegration = integrations.find(i => i.provider === 'google_calendar')
+  const storedBookingUrl = (calendarIntegration?.config as Record<string, unknown> | undefined)?.booking_url as string | undefined
+  const [bookingUrl, setBookingUrl] = useState('')
+  const [bookingSaving, setBookingSaving] = useState(false)
+  const [bookingMessage, setBookingMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  useEffect(() => {
+    setBookingUrl(storedBookingUrl || '')
+  }, [storedBookingUrl])
+
+  const handleSaveBookingUrl = async () => {
+    if (!calendarIntegration) return
+    const trimmed = bookingUrl.trim()
+    if (trimmed && !/^https?:\/\/.+/i.test(trimmed)) {
+      setBookingMessage({ type: 'error', text: 'La URL debe empezar con https://' })
+      return
+    }
+    setBookingSaving(true)
+    setBookingMessage(null)
+    const existingConfig = (calendarIntegration.config as Record<string, unknown>) || {}
+    const nextConfig = trimmed
+      ? { ...existingConfig, booking_url: trimmed }
+      : (() => { const { booking_url: _drop, ...rest } = existingConfig as Record<string, unknown>; return rest })()
+    const { error } = await supabase
+      .from('ae_integrations')
+      .update({ config: nextConfig })
+      .eq('id', calendarIntegration.id)
+    setBookingSaving(false)
+    if (error) {
+      setBookingMessage({ type: 'error', text: error.message })
+    } else {
+      setBookingMessage({ type: 'success', text: trimmed ? 'Link guardado' : 'Link eliminado' })
+      setTimeout(() => setBookingMessage(null), 2500)
+    }
+  }
+
   // Sales profile settings
   const [jobRole, setJobRole] = useState<'sdr' | 'bdm' | ''>('')
   const [sfOwnerName, setSfOwnerName] = useState('')
@@ -704,6 +741,37 @@ export function Settings() {
                 </div>
               )
             })()}
+
+            {calendarIntegration && (
+              <>
+                <Separator />
+                <div className="space-y-2">
+                  <Label htmlFor="booking-url" className="font-medium">Link para agendar reuniones</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Este link aparece en el botón "Agendar workshop técnico" de la última slide del Business Case. Pega el link público de tu Google Calendar Appointment Schedule, Cal.com, Calendly, etc.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="booking-url"
+                      type="url"
+                      placeholder="https://calendar.app.google/..."
+                      value={bookingUrl}
+                      onChange={e => setBookingUrl(e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button size="sm" onClick={handleSaveBookingUrl} disabled={bookingSaving || bookingUrl.trim() === (storedBookingUrl || '').trim()}>
+                      {bookingSaving && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+                      Guardar
+                    </Button>
+                  </div>
+                  {bookingMessage && (
+                    <p className={`text-xs ${bookingMessage.type === 'error' ? 'text-destructive' : 'text-green-600'}`}>
+                      {bookingMessage.text}
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>

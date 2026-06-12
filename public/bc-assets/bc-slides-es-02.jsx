@@ -1,5 +1,37 @@
 /* Business Case Deck — Slides 13-24 (ES) */
 
+function DownloadPdfButton({ clientName }) {
+  const [state, setState] = React.useState('idle'); // idle | loading | error
+  const baseStyle = { background: 'transparent', color: '#fff', border: '1.5px solid rgba(255,255,255,0.2)', borderRadius: 10, padding: '16px 36px', fontSize: 16, fontWeight: 600, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'inline-flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' };
+  const onClick = async (e) => {
+    e.preventDefault();
+    if (state === 'loading') return;
+    const slug = window.BC_TRACKING && window.BC_TRACKING.slug;
+    if (!slug) { setState('error'); return; }
+    setState('loading');
+    try {
+      const r = await fetch(`https://bridge.yuno.tools/api/bc/${slug}/pdf`, { credentials: 'omit' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(clientName || 'business-case').replace(/[^\w\s.-]/g, '').replace(/\s+/g, '-')}-business-case.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setState('idle');
+    } catch (err) {
+      console.error('[bc-pdf] download failed', err);
+      setState('error');
+      setTimeout(() => setState('idle'), 3000);
+    }
+  };
+  const label = state === 'loading' ? 'generando PDF…' : state === 'error' ? 'reintentar' : 'descargar PDF';
+  return <button onClick={onClick} disabled={state === 'loading'} style={{ ...baseStyle, opacity: state === 'loading' ? 0.7 : 1, cursor: state === 'loading' ? 'wait' : 'pointer' }}>{label}</button>;
+}
+
 function BCSlide13() {
   return (
     <div className="slide theme-ink-hero" data-screen-label="13 Sección: Business Case">
@@ -15,6 +47,7 @@ function BCSlide13() {
 }
 
 function BCSlide14({ data }) {
+  setBCCurrency(data.currency);
   const rows = [
     { label: 'TPV anual', value: fmtMoney(data.tpv) },
     { label: 'ticket promedio', value: '$' + data.avgTicket },
@@ -32,7 +65,7 @@ function BCSlide14({ data }) {
         <h2 className="t-title anim-in" style={{ fontSize: 64, fontWeight: 300, color: '#fff', marginBottom: 48 }}>Punto de partida</h2>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: 48 }}>
           <div>
-            <div className="t-label anim-in" style={{ color: 'rgba(255,255,255,0.4)', marginBottom: 16 }}>supuestos</div>
+            <div className="t-label anim-in" style={{ color: 'rgba(255,255,255,0.4)', marginBottom: 16 }}>supuestos / data compartida</div>
             {rows.map((r, i) => (
               <div key={i} className={'anim-in anim-in-' + (i + 1)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ fontSize: 16, color: 'rgba(255,255,255,0.7)' }}>{r.label}</div>
@@ -58,6 +91,7 @@ function BCSlide14({ data }) {
 }
 
 function BCSlide15({ data }) {
+  setBCCurrency(data.currency);
   const currentApproval = data.currentApproval;
   const targetApproval = data.targetApproval;
   const incrTPV = data.incrTPV_approvals;
@@ -107,15 +141,15 @@ function BCSlide15({ data }) {
 }
 
 function BCSlide16({ data }) {
+  setBCCurrency(data.currency);
   const currentMDRPct = data.currentMDR;
   const targetMDRPct = data.targetMDR;
   const mdrReductionBps = data.mdrReductionBps;
   const savings = data.L2;
   const breakdown = [
-    { name: 'optimización de interchange', bps: 18, pct: 47 },
-    { name: 'arbitraje multi-acquirer', bps: 12, pct: 32 },
-    { name: 'reducción cross-border', bps: 6, pct: 16 },
-    { name: 'optimización de scheme fees', bps: 2, pct: 5 },
+    { name: 'optimización de interchange', bps: 21, pct: 55 },
+    { name: 'arbitraje multi-acquirer', bps: 14, pct: 37 },
+    { name: 'optimización de scheme fees', bps: 3, pct: 8 },
   ];
   return (
     <div className="slide theme-ink" data-screen-label="16 Palanca 2: MDR">
@@ -123,7 +157,7 @@ function BCSlide16({ data }) {
       <SectionLabel color="rgba(255,255,255,0.6)">03 / palanca 02</SectionLabel>
       <div style={{ position: 'absolute', top: 160, left: 80, right: 80 }}>
         <h2 className="t-title anim-in" style={{ fontSize: 56, fontWeight: 300, color: '#fff', marginBottom: 8 }}>Palanca 02: optimización de MDR</h2>
-        <div className="t-subtitle-alt anim-in anim-in-1" style={{ color: 'rgba(255,255,255,0.5)', marginBottom: 40 }}>routing multi-acquirer + procesamiento local + optimización de scheme</div>
+        <div className="t-subtitle-alt anim-in anim-in-1" style={{ color: 'rgba(255,255,255,0.5)', marginBottom: 40 }}>tasa de descuento · routing multi-acquirer + procesamiento local + optimización de scheme</div>
         <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: 48 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             <KPI label="MDR mezclado actual" value={fmtPct(currentMDRPct, 2)} />
@@ -154,6 +188,7 @@ function BCSlide16({ data }) {
 }
 
 function BCSlide17({ data }) {
+  setBCCurrency(data.currency);
   const incrTPV = data.incrTPV_apms;
   const incrMargin = data.L3;
   const apmUpliftPct = data.apmUpliftPct;
@@ -200,6 +235,7 @@ function BCSlide17({ data }) {
 }
 
 function BCSlide18({ data }) {
+  setBCCurrency(data.currency);
   const nInt = Number(data.numNewIntegrations) || 0;
   const intBuild = Number(data.integrationCostBuild) || 0;
   const ttmMonths = Number(data.timeToMarketMonthsSaved) || 0;
@@ -254,6 +290,7 @@ function BCSlide18({ data }) {
 }
 
 function BCSlide19({ data }) {
+  setBCCurrency(data.currency);
   const total = data.netAnnualGain;
   const fee = data.yunoAnnualFee;
   const wfData = [
@@ -302,36 +339,51 @@ function BCSlide19({ data }) {
 }
 
 function BCSlide20({ data }) {
-  const isTiered = data.pricingModel === 'tiered';
+  setBCCurrency(data.currency);
+  const model = data.pricingModel === 'flat'
+    ? 'flat'
+    : data.pricingModel === 'tiers' ? 'tiers' : 'tramos';
+  const tierSubLabel = model === 'tramos'
+    ? 'acumulado · cada tramo cobra su tarifa'
+    : 'todo el volumen a la tarifa del bracket';
   return (
     <div className="slide theme-ink-2" data-screen-label="20 Pricing">
       <div className="ink-grid" />
       <SectionLabel color="rgba(255,255,255,0.6)">04 / pricing</SectionLabel>
       <div style={{ position: 'absolute', top: 160, left: 80, right: 80 }}>
-        <h2 className="t-title anim-in" style={{ fontSize: 64, fontWeight: 300, color: '#fff', marginBottom: 48 }}>Pricing</h2>
+        <div className="anim-in" style={{ display: 'flex', alignItems: 'baseline', gap: 20, marginBottom: 48, flexWrap: 'wrap' }}>
+          <h2 className="t-title" style={{ fontSize: 64, fontWeight: 300, color: '#fff' }}>Pricing</h2>
+          <span style={{ fontSize: 12, color: '#8C99FF', letterSpacing: '0.18em', fontWeight: 700, textTransform: 'uppercase', padding: '6px 14px', borderRadius: 999, border: '1px solid rgba(140,153,255,0.35)', background: 'rgba(140,153,255,0.08)' }}>
+            valores en {data.currency || 'USD'}
+          </span>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24, marginBottom: 32 }}>
           {/* Card 1: tasa por tx aprobada */}
           <div className="anim-in anim-in-1" style={{ padding: 32, borderRadius: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
             <div className="t-label" style={{ color: '#8C99FF', marginBottom: 16 }}>por transacción aprobada</div>
-            {!isTiered && (
+            {model === 'flat' && (
               <React.Fragment>
-                <div style={{ fontSize: 52, fontWeight: 300, color: '#fff', letterSpacing: '-0.02em', marginBottom: 8 }}>${Number(data.ratePerTx).toFixed(2)}<span style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }}>/tx aprobada</span></div>
+                <div style={{ fontSize: 52, fontWeight: 300, color: '#fff', letterSpacing: '-0.02em', marginBottom: 8 }}>${fmtRate(data.ratePerTx)}<span style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }}>/tx aprobada</span></div>
                 <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>tasa flat en todo el volumen</div>
               </React.Fragment>
             )}
-            {isTiered && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-                {data.rateTiers.map((t, i) => {
-                  const prev = i === 0 ? 0 : data.rateTiers[i-1].upToTx;
-                  const capLabel = (t.upToTx === Infinity || t.upToTx == null) ? '>' + fmtNum(prev) : fmtNum(prev) + '–' + fmtNum(t.upToTx);
-                  return (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>{capLabel} tx</div>
-                      <div style={{ fontSize: 18, fontWeight: 600, color: '#fff' }}>${Number(t.ratePerTx).toFixed(2)}/tx</div>
-                    </div>
-                  );
-                })}
-              </div>
+            {model !== 'flat' && (
+              <React.Fragment>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                  {data.rateTiers.map((t, i) => {
+                    const prevMonthly = i === 0 ? 0 : Math.round(data.rateTiers[i-1].upToTx / 12);
+                    const upToMonthly = (t.upToTx === Infinity || t.upToTx == null) ? null : Math.round(t.upToTx / 12);
+                    const capLabel = upToMonthly == null ? '>' + fmtNum(prevMonthly) : fmtNum(prevMonthly) + '–' + fmtNum(upToMonthly);
+                    return (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>{capLabel} tx/mes</div>
+                        <div style={{ fontSize: 18, fontWeight: 600, color: '#fff' }}>${fmtRate(t.ratePerTx)}/tx</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginTop: 12, fontStyle: 'italic' }}>{tierSubLabel}</div>
+              </React.Fragment>
             )}
           </div>
           {/* Card 2: fee de conciliación (si está) o compromiso mínimo */}
@@ -340,39 +392,92 @@ function BCSlide20({ data }) {
               <React.Fragment>
                 <div className="t-label" style={{ color: '#8C99FF', marginBottom: 16 }}>producto de conciliación</div>
                 <div style={{ fontSize: 52, fontWeight: 300, color: '#fff', letterSpacing: '-0.02em', marginBottom: 8 }}>{fmtMoney(data.reconciliationFee, { decimals: 0 })}<span style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }}>/mes</span></div>
-                <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>{fmtMoney(Number(data.reconciliationFee) * 12, { decimals: 0 })} /año</div>
+                <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>fee mensual fijo</div>
               </React.Fragment>
             ) : (
               <React.Fragment>
                 <div className="t-label" style={{ color: '#8C99FF', marginBottom: 16 }}>compromiso mínimo</div>
-                <div style={{ fontSize: 52, fontWeight: 300, color: '#fff', letterSpacing: '-0.02em', marginBottom: 8 }}>{fmtNum(data.minTxAnnual)}<span style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }}> tx/año</span></div>
-                <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>{'≈'} {fmtMoney(data.minCommitFee, { decimals: 1 })} equivalente</div>
+                <div style={{ fontSize: 52, fontWeight: 300, color: '#fff', letterSpacing: '-0.02em', marginBottom: 8 }}>{fmtNum(Math.round(Number(data.minTxAnnual) / 12))}<span style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }}> tx/mes</span></div>
+                <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>{'≈'} {fmtMoney(Number(data.minCommitFee) / 12, { decimals: 1 })} /mes equivalente</div>
+                <div style={{ fontSize: 12, color: '#8C99FF', marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(140,153,255,0.15)', fontWeight: 600, letterSpacing: '0.02em' }}>+ conciliación: incluida en el pricing</div>
               </React.Fragment>
             )}
           </div>
           {/* Card 3: SaaS fee */}
           <div className="anim-in anim-in-3" style={{ padding: 32, borderRadius: 16, background: 'rgba(224,237,128,0.06)', border: '1.5px solid rgba(224,237,128,0.25)' }}>
             <div className="t-label" style={{ color: '#E0ED80', marginBottom: 16 }}>fee de plataforma saas</div>
-            <div style={{ fontSize: 52, fontWeight: 300, color: '#E0ED80', letterSpacing: '-0.02em', marginBottom: 8 }}>{fmtMoney(data.monthlySaaS, { decimals: 0 })}<span style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }}>/mes</span></div>
-            <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>{fmtMoney(data.saasAnnualFee, { decimals: 0 })} /año</div>
+            <div style={{ fontSize: 52, fontWeight: 300, color: '#E0ED80', letterSpacing: '-0.02em', marginBottom: 8 }}>{fmtMoney(data.monthlySaaS)}<span style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }}>/mes</span></div>
+            <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }}>plataforma + soporte 24/7</div>
           </div>
         </div>
         {/* Tu estimación */}
         <div className="anim-in anim-in-5" style={{ background: 'rgba(140,153,255,0.06)', border: '1px solid rgba(140,153,255,0.12)', borderRadius: 12, padding: '24px 32px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <div className="t-label" style={{ color: '#8C99FF' }}>tu estimación {'·'} {fmtNum(data.numActualTx)} transacciones anuales</div>
-            <div style={{ fontSize: 32, fontWeight: 300, color: '#fff' }}>{fmtMoney(data.yunoAnnualFee, { decimals: 2 })}<span style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)' }}> /año</span></div>
+            <div className="t-label" style={{ color: '#8C99FF' }}>tu estimación {'·'} {fmtNum(Number(data.numActualTx) / 12)} transacciones / mes</div>
+            <div style={{ fontSize: 32, fontWeight: 300, color: '#fff' }}>{fmtMoney(Number(data.yunoAnnualFee) / 12, { decimals: 2 })}<span style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)' }}> /mes</span></div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'rgba(255,255,255,0.55)', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 14 }}>
-            <span>fee real de tx: {fmtMoney(data.actualTxFee, { decimals: 2 })}</span>
-            <span>compromiso mín: {fmtMoney(data.minCommitFee, { decimals: 2 })}</span>
-            <span style={{ color: '#E0ED80' }}>tx anual (máx): {fmtMoney(data.txAnnualFee, { decimals: 2 })}</span>
-            <span>+ saas: {fmtMoney(data.saasAnnualFee, { decimals: 2 })}</span>
-            {Number(data.reconciliationAnnualFee) > 0 && <span>+ conciliación: {fmtMoney(data.reconciliationAnnualFee, { decimals: 2 })}</span>}
+            <span>fee real de tx: {fmtMoney(Number(data.actualTxFee) / 12, { decimals: 2 })}</span>
+            <span>compromiso mín: {fmtMoney(Number(data.minCommitFee) / 12, { decimals: 2 })}</span>
+            <span style={{ color: '#E0ED80' }}>tx (máx): {fmtMoney(Number(data.txAnnualFee) / 12, { decimals: 2 })}</span>
+            <span>+ saas: {fmtMoney(Number(data.saasAnnualFee) / 12, { decimals: 2 })}</span>
+            {Number(data.reconciliationAnnualFee) > 0 && <span>+ conciliación: {fmtMoney(Number(data.reconciliationAnnualFee) / 12, { decimals: 2 })}</span>}
           </div>
         </div>
       </div>
       <SlideFooter section="pricing" pageNum={16} total={18} />
+    </div>
+  );
+}
+
+/* BCSlide20C — Servicios adicionales con precios.
+   Renderiza la lista canónica ADDITIONAL_SERVICES; cada item lee
+   data.additionalServices[id] = { enabled, price }. Disabled → "incluido en
+   el pricing"; sin entry → enabled con default. */
+function BCSlide20C({ data }) {
+  setBCCurrency(data.currency);
+  const t = getServiceI18n(data.locale || 'es');
+  const cur = data.currency || 'USD';
+  const cfg = (data.additionalServices && typeof data.additionalServices === 'object') ? data.additionalServices : {};
+  return (
+    <div className="slide theme-ink-2" data-screen-label="20C Servicios adicionales">
+      <div className="ink-grid" />
+      <SectionLabel color="rgba(255,255,255,0.6)">04 / pricing · adicionales</SectionLabel>
+      <div style={{ position: 'absolute', top: 130, left: 80, right: 80, bottom: 80, display: 'flex', flexDirection: 'column' }}>
+        <div className="anim-in" style={{ display: 'flex', alignItems: 'baseline', gap: 20, marginBottom: 28, flexWrap: 'wrap' }}>
+          <h2 className="t-title" style={{ fontSize: 56, fontWeight: 300, color: '#fff' }}>{t.title}</h2>
+          <span style={{ fontSize: 12, color: '#8C99FF', letterSpacing: '0.18em', fontWeight: 700, textTransform: 'uppercase', padding: '6px 14px', borderRadius: 999, border: '1px solid rgba(140,153,255,0.35)', background: 'rgba(140,153,255,0.08)' }}>
+            {t.valuesIn} {cur}
+          </span>
+        </div>
+        <div className="anim-in anim-in-1" style={{ display: 'grid', gridTemplateColumns: '320px 1fr 220px', gap: 0, padding: '14px 24px', borderRadius: 12, background: 'rgba(140,153,255,0.06)', border: '1px solid rgba(140,153,255,0.12)', marginBottom: 8 }}>
+          <span style={{ fontSize: 11, color: '#8C99FF', letterSpacing: '0.16em', fontWeight: 700, textTransform: 'uppercase' }}>{t.colService}</span>
+          <span style={{ fontSize: 11, color: '#8C99FF', letterSpacing: '0.16em', fontWeight: 700, textTransform: 'uppercase' }}>{t.colDefinition}</span>
+          <span style={{ fontSize: 11, color: '#8C99FF', letterSpacing: '0.16em', fontWeight: 700, textTransform: 'uppercase', textAlign: 'right' }}>{t.colPrice}</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+          {ADDITIONAL_SERVICES.map((svc, i) => {
+            const item = cfg[svc.id] || {};
+            const enabled = item.enabled !== false;
+            const price = (item.price != null && Number.isFinite(Number(item.price))) ? Number(item.price) : svc.defaultPrice;
+            const itemI18n = (t.items && t.items[svc.id]) || { name: svc.id, desc: '' };
+            return (
+              <div key={svc.id} className={'anim-in anim-in-' + Math.min(8, i + 2)} style={{ display: 'grid', gridTemplateColumns: '320px 1fr 220px', alignItems: 'center', gap: 0, padding: '18px 24px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ fontSize: 17, fontWeight: 600, color: '#fff' }}>{itemI18n.name}</div>
+                <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', lineHeight: 1.5, paddingRight: 24 }}>{itemI18n.desc}</div>
+                <div style={{ textAlign: 'right' }}>
+                  {enabled ? (
+                    <span style={{ fontSize: 22, fontWeight: 600, color: '#E0ED80', letterSpacing: '-0.01em' }}>{fmtPriceRate(price)}<span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>/tx</span></span>
+                  ) : (
+                    <span style={{ fontSize: 12, color: '#8C99FF', letterSpacing: '0.14em', fontWeight: 700, textTransform: 'uppercase', padding: '6px 12px', borderRadius: 999, border: '1px solid rgba(140,153,255,0.35)', background: 'rgba(140,153,255,0.08)' }}>{t.included}</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <SlideFooter section="pricing" pageNum={17} total={18} />
     </div>
   );
 }
@@ -478,6 +583,7 @@ function BCSlide23() {
 }
 
 function BCSlide24({ data }) {
+  setBCCurrency(data.currency);
   const total = data.netAnnualGain;
   return (
     <div className="slide theme-ink-hero" data-screen-label="24 Cierre">
@@ -494,8 +600,9 @@ function BCSlide24({ data }) {
           Firmemos un NDA mutuo esta semana. Workshop técnico la próxima semana. Primera transacción a través de Yuno en menos de 30 días.
         </div>
         <div className="anim-in anim-in-4 no-print" style={{ display: 'flex', gap: 16, marginBottom: 56 }}>
-          <button style={{ background: '#E0ED80', color: '#0a0a1a', border: 'none', borderRadius: 10, padding: '16px 36px', fontSize: 16, fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em' }}>agendar workshop técnico</button>
-          <button onClick={() => window.print()} style={{ background: 'transparent', color: '#fff', border: '1.5px solid rgba(255,255,255,0.2)', borderRadius: 10, padding: '16px 36px', fontSize: 16, fontWeight: 600, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em' }}>descargar PDF</button>
+          <a href={data.bookingUrl || `mailto:${data.salesEmail}?subject=${encodeURIComponent('Workshop técnico · ' + (data.clientName || 'Yuno'))}`} target="_blank" rel="noopener noreferrer" style={{ background: '#E0ED80', color: '#0a0a1a', border: 'none', borderRadius: 10, padding: '16px 36px', fontSize: 16, fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em', textDecoration: 'none', display: 'inline-block' }}>agendar workshop técnico</a>
+          <DownloadPdfButton clientName={data.clientName} />
+          <noscript><a href={`https://bridge.yuno.tools/api/bc/${(window.BC_TRACKING && window.BC_TRACKING.slug) || ''}/pdf`} download>descargar PDF</a></noscript>
         </div>
         <div className="anim-in anim-in-5" style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
           <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, color: '#fff' }}>{data.salesInitials || 'CG'}</div>
@@ -516,6 +623,7 @@ function BCSlide24({ data }) {
    Cae a data.currentMDRBps / data.avgTicket global por fila.
    ============================================================ */
 function BCSlide14B({ data }) {
+  setBCCurrency(data.currency);
   const globalAvgTkt = Number(data.avgTicket) || 0;
   const globalMdrBps = Number(data.currentMDRBps) || 0;
   const rawCountries = Array.isArray(data.countries) ? data.countries : [];
@@ -670,6 +778,7 @@ function BCSlide14B({ data }) {
    Usa data calculada por computeData() (sin tasas / palancas hardcoded).
    ============================================================ */
 function BCSlide20B({ data }) {
+  setBCCurrency(data.currency);
   const yunoAnnualCost = Number(data.yunoAnnualFee) || 0;
   const txPerYear = Math.round(Number(data.numActualTx) || 0);
   const saasAnnualFee = Number(data.saasAnnualFee) || 0;
@@ -700,7 +809,11 @@ function BCSlide20B({ data }) {
     { label: 'ahorros operativos',    value: L3, note: opsNote },
   ];
 
-  const pricingLabel = data.pricingModel === 'tiered' ? 'tiered · mezclado' : 'tasa flat';
+  const pricingLabel = data.pricingModel === 'tramos' || data.pricingModel === 'tiered'
+    ? 'tramos · mezclado'
+    : data.pricingModel === 'tiers'
+      ? 'tiers · por volumen'
+      : 'tasa flat';
   const paybackLabel = paybackMonths > 0 && paybackMonths < 1
     ? `${Math.round(paybackMonths * 30)} días`
     : paybackMonths > 0
@@ -846,7 +959,8 @@ function BCSlide20B({ data }) {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 26 }}>
               {benefits.map((b, i) => {
-                const pct = grossGain > 0 ? (b.value / grossGain) * 100 : 0;
+                const pct = grossGain > 0 ? Math.max(0, Math.min(100, (b.value / grossGain) * 100)) : 0;
+                const isNegative = b.value < 0;
                 return (
                   <div key={i}>
                     <div style={{
@@ -855,9 +969,9 @@ function BCSlide20B({ data }) {
                     }}>
                       <span style={{ fontSize: 14, color: '#fff', fontWeight: 500 }}>{b.label}</span>
                       <span style={{
-                        fontSize: 18, color: '#E0ED80',
+                        fontSize: 18, color: isNegative ? '#FF8A5B' : '#E0ED80',
                         fontWeight: 400, letterSpacing: '-0.01em',
-                      }}>+{fmtMoney(b.value)}</span>
+                      }}>{isNegative ? '−' : '+'}{fmtMoney(Math.abs(b.value))}</span>
                     </div>
                     <div className="meter" style={{ height: 6 }}>
                       <span style={{ width: pct + '%', animationDelay: `${i * 120}ms` }} />
@@ -945,4 +1059,4 @@ function BCSlide20B({ data }) {
   );
 }
 
-Object.assign(window, { BCSlide13, BCSlide14, BCSlide14B, BCSlide15, BCSlide16, BCSlide17, BCSlide18, BCSlide19, BCSlide20, BCSlide20B, BCSlide21, BCSlide22, BCSlide23, BCSlide24 });
+Object.assign(window, { BCSlide13, BCSlide14, BCSlide14B, BCSlide15, BCSlide16, BCSlide17, BCSlide18, BCSlide19, BCSlide20, BCSlide20B, BCSlide20C, BCSlide21, BCSlide22, BCSlide23, BCSlide24 });

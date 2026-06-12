@@ -1,0 +1,1314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1200" />
+<title>Yuno SDR · Nova-light Preview · Crocs</title>
+
+<!-- Geist fonts via @fontsource CDN -->
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist@5.2.8/index.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist-mono@5.2.7/index.css" />
+
+<style>
+/* ============================================================
+   Yuno SDR · Nova-light preview · self-contained
+   ============================================================ */
+:root {
+  --bg-canvas: #F8F9FC;
+  --bg-elevated: #FFFFFF;
+  --bg-section: #0F1020;
+
+  --ink-strong: #0F1020;
+  --ink: #1E2030;
+  --ink-secondary: rgba(30, 32, 48, 0.74);
+  --ink-muted: rgba(30, 32, 48, 0.56);
+  --ink-faint: rgba(30, 32, 48, 0.36);
+
+  --accent: #3E4FE0;
+  --accent-deep: #1726A6;
+  --accent-mid: #5967E4;
+  --accent-soft: #7C89EF;
+  --accent-pale: #BDC3F6;
+  --lime: #E0ED80;
+
+  --card-shadow: 0 1px 3px rgba(30, 32, 48, 0.04), 0 8px 24px rgba(30, 32, 48, 0.04);
+  --border-subtle: rgba(30, 32, 48, 0.08);
+  --border-default: rgba(30, 32, 48, 0.12);
+
+  --title-gradient: linear-gradient(135deg, #1726A6 0%, #3E4FE0 100%);
+  --beam-base: linear-gradient(90deg, rgba(30,32,48,0.18) 0%, rgba(30,32,48,0) 100%);
+  --beam-bright: linear-gradient(90deg, transparent 0%, rgba(62,79,224,0.55) 50%, transparent 100%);
+
+  --font: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', 'SF Mono', Menlo, monospace;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  font-family: var(--font);
+  color: var(--ink);
+  background: #15171f;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'ss01', 'ss02', 'cv01', 'kern';
+}
+
+/* ---- Viewer chrome ---- */
+.viewer {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+.viewer-header { color: rgba(255,255,255,0.85); }
+.viewer-header h1 {
+  font-size: 26px; font-weight: 500; letter-spacing: -0.02em; margin: 0 0 4px;
+}
+.viewer-header .meta {
+  font-family: var(--font-mono); font-size: 12px; color: rgba(255,255,255,0.5);
+}
+.viewer-header .legend {
+  margin-top: 18px; font-size: 13px; color: rgba(255,255,255,0.7);
+  display: flex; gap: 20px; flex-wrap: wrap;
+}
+.viewer-header .legend span {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 10px; background: rgba(255,255,255,0.06); border-radius: 100px;
+}
+.viewer-header .legend .dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+}
+
+.slide-block { display: flex; flex-direction: column; gap: 10px; }
+.slide-label {
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: rgba(255,255,255,0.55);
+}
+.slide-label .tag {
+  display: inline-block; margin-right: 8px;
+  padding: 2px 8px; background: rgba(62,79,224,0.18); color: #BDC3F6;
+  border-radius: 4px; font-weight: 700;
+}
+.slide-label .tag.redesign { background: rgba(224,237,128,0.14); color: #E0ED80; }
+.slide-label .tag.reskin   { background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.7); }
+
+/* The frame is a 16:9 box that scales to the viewer width. The .slide
+   inside is rendered at the canonical 1920×1080 then scaled via JS. */
+.slide-frame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04);
+  background: var(--bg-canvas);
+}
+.slide {
+  position: absolute; top: 0; left: 0;
+  width: 1920px; height: 1080px;
+  transform-origin: top left;
+}
+
+.slide-inner {
+  position: relative;
+  width: 100%; height: 100%;
+  padding: 64px 96px 80px;
+  display: flex; flex-direction: column;
+  background: var(--bg-canvas);
+  color: var(--ink);
+  overflow: hidden;
+}
+.slide-inner.theme-section {
+  background: var(--bg-section);
+  color: rgba(255,255,255,0.92);
+}
+
+/* Slide chrome */
+.slide-topbar {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 36px; flex-shrink: 0; position: relative; z-index: 5;
+}
+.section-pill {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 7px 16px;
+  background: rgba(30,32,48,0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 100px;
+  font-size: 11px; font-weight: 700; letter-spacing: 1.8px;
+  text-transform: uppercase; color: var(--ink-muted);
+  font-family: var(--font);
+}
+.theme-section .section-pill {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.7);
+}
+.section-pill .dot {
+  width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+}
+.yuno-wordmark {
+  font-family: var(--font);
+  font-weight: 800;
+  font-size: 26px;
+  letter-spacing: -0.05em;
+  color: var(--ink-strong);
+  line-height: 1;
+}
+.theme-section .yuno-wordmark { color: #fff; }
+
+.slide-pagenum {
+  position: absolute; bottom: 32px; left: 96px;
+  font-size: 11px; font-weight: 700;
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  letter-spacing: 1.5px;
+  color: var(--ink-faint);
+  z-index: 5;
+}
+.theme-section .slide-pagenum { color: rgba(255,255,255,0.36); }
+
+.slide-footer-text {
+  position: absolute; bottom: 32px; right: 96px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--ink-muted);
+  font-family: var(--font); z-index: 5;
+}
+.theme-section .slide-footer-text { color: rgba(255,255,255,0.4); }
+
+/* Typography */
+.title-display {
+  font-family: var(--font-display);
+  font-size: 72px; font-weight: 500;
+  letter-spacing: -0.03em; line-height: 1.05;
+  margin: 0; color: var(--ink-strong);
+}
+.title-display .accent {
+  background: var(--title-gradient);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  font-weight: 700;
+}
+.theme-section .title-display { color: #fff; }
+.theme-section .title-display .accent {
+  background: linear-gradient(135deg, #BDC3F6 0%, #5967E4 60%, #3E4FE0 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.subtitle {
+  font-size: 18px; font-weight: 400; line-height: 1.5; margin: 0;
+  color: var(--ink-secondary);
+}
+.theme-section .subtitle { color: rgba(255,255,255,0.7); }
+
+.mono-kicker {
+  font-family: var(--font-mono);
+  font-size: 12px; font-weight: 500; letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  display: flex; align-items: center; gap: 10px;
+  text-transform: lowercase;
+}
+.mono-kicker .caret { color: var(--accent-soft); }
+.theme-section .mono-kicker { color: rgba(255,255,255,0.5); }
+
+/* Cards */
+.card-nova {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  box-shadow: var(--card-shadow);
+  padding: 32px;
+  position: relative; overflow: hidden;
+}
+.card-hero {
+  background: linear-gradient(160deg, #1726A6 0%, #3E4FE0 100%);
+  color: #fff; border: none;
+  box-shadow: 0 1px 3px rgba(23,38,166,0.10), 0 24px 64px rgba(23,38,166,0.20);
+}
+
+/* Motion */
+@keyframes revealUp { from { opacity:0; transform:translateY(14px);} to { opacity:1; transform:translateY(0);} }
+.reveal { animation: revealUp 0.65s cubic-bezier(0.16,1,0.3,1) both; }
+
+.stagger > * { animation: revealUp 0.6s cubic-bezier(0.16,1,0.3,1) both; }
+.stagger > *:nth-child(1)  { animation-delay: calc(var(--stagger-base, 0.08s) + 0  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(2)  { animation-delay: calc(var(--stagger-base, 0.08s) + 1  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(3)  { animation-delay: calc(var(--stagger-base, 0.08s) + 2  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(4)  { animation-delay: calc(var(--stagger-base, 0.08s) + 3  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(5)  { animation-delay: calc(var(--stagger-base, 0.08s) + 4  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(6)  { animation-delay: calc(var(--stagger-base, 0.08s) + 5  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(7)  { animation-delay: calc(var(--stagger-base, 0.08s) + 6  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(8)  { animation-delay: calc(var(--stagger-base, 0.08s) + 7  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(9)  { animation-delay: calc(var(--stagger-base, 0.08s) + 8  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(10) { animation-delay: calc(var(--stagger-base, 0.08s) + 9  * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(11) { animation-delay: calc(var(--stagger-base, 0.08s) + 10 * var(--stagger-step, 0.07s)); }
+.stagger > *:nth-child(12) { animation-delay: calc(var(--stagger-base, 0.08s) + 11 * var(--stagger-step, 0.07s)); }
+
+@keyframes beamSlide {
+  0%   { transform: translateX(-100%); }
+  40%  { transform: translateX(400%); }
+  100% { transform: translateX(400%); }
+}
+
+@property --border-beam-angle {
+  syntax: '<angle>'; inherits: false; initial-value: 0deg;
+}
+@keyframes borderBeam { to { --border-beam-angle: 360deg; } }
+.border-beam {
+  --beam-duration: 14s; --beam-delay: 0s;
+  position: relative;
+}
+.border-beam::after {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--border-beam-angle),
+    transparent 0%,
+    rgba(255, 255, 255, 0.85) 8%,
+    transparent 22%,
+    transparent 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  pointer-events: none;
+  animation: borderBeam var(--beam-duration) linear infinite;
+  animation-delay: var(--beam-delay);
+}
+
+@keyframes pulseRing {
+  0%   { transform: translate(-50%, -50%) scale(0.5); opacity: 0.9; }
+  100% { transform: translate(-50%, -50%) scale(3.2); opacity: 0; }
+}
+@keyframes orbDrift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33%      { transform: translate3d(40px, -30px, 0) scale(1.05); }
+  66%      { transform: translate3d(-30px, 20px, 0) scale(0.97); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+.boundary-err {
+  padding: 64px;
+  font-family: var(--font-mono);
+  color: #c1374f;
+  background: #fff;
+  font-size: 14px;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+</style>
+</head>
+<body>
+
+<div class="viewer">
+  <div class="viewer-header">
+    <h1>Yuno SDR · Nova-light Preview</h1>
+    <div class="meta">Crocs · crocs-hx2dge · cached run 2026-05-13 · 6 representative slides of 27</div>
+    <div class="legend">
+      <span><span class="dot"></span>REPLACE wholesale (port from pitch-maker)</span>
+      <span><span class="dot" style="background:#E0ED80"></span>REDESIGN (rebuild in new language)</span>
+      <span><span class="dot" style="background:rgba(255,255,255,0.4)"></span>RESKIN (apply new tokens)</span>
+    </div>
+  </div>
+
+  <div class="slide-block">
+    <div class="slide-label"><span class="tag">REPLACE</span>01 · Cover · ported from SlideCover light variant</div>
+    <div class="slide-frame"><div class="slide" id="slide-cover"></div></div>
+  </div>
+
+  <div class="slide-block">
+    <div class="slide-label"><span class="tag redesign">REDESIGN</span>02 · Agenda · 4 sections, mono kickers, BeamRule dividers</div>
+    <div class="slide-frame"><div class="slide" id="slide-agenda"></div></div>
+  </div>
+
+  <div class="slide-block">
+    <div class="slide-label"><span class="tag redesign">REDESIGN</span>05 · Geography · new pitch-maker map + share-by-country side panel</div>
+    <div class="slide-frame"><div class="slide" id="slide-geo"></div></div>
+  </div>
+
+  <div class="slide-block">
+    <div class="slide-label"><span class="tag">REPLACE</span>08 · Trusted By · ported from SlideTrustedBy (Yuno verified customer library)</div>
+    <div class="slide-frame"><div class="slide" id="slide-trust"></div></div>
+  </div>
+
+  <div class="slide-block">
+    <div class="slide-label"><span class="tag redesign">REDESIGN</span>12 · US Cards · workhorse BC slide (table + hero conclusion w/ border-beam)</div>
+    <div class="slide-frame"><div class="slide" id="slide-cards"></div></div>
+  </div>
+
+  <div class="slide-block">
+    <div class="slide-label"><span class="tag">REPLACE</span>27 · CTA · grand total + contact card</div>
+    <div class="slide-frame"><div class="slide" id="slide-cta"></div></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin></script>
+
+<!-- JS-driven slide scaling: render 1920×1080 then scale via transform -->
+<script>
+function fitSlides() {
+  var frames = document.querySelectorAll('.slide-frame');
+  for (var i = 0; i < frames.length; i++) {
+    var slide = frames[i].querySelector('.slide');
+    if (!slide) continue;
+    var w = frames[i].clientWidth;
+    slide.style.transform = 'scale(' + (w / 1920) + ')';
+  }
+}
+window.addEventListener('load', fitSlides);
+window.addEventListener('resize', fitSlides);
+new ResizeObserver(fitSlides).observe(document.body);
+fitSlides();
+</script>
+
+<script id="crocs-data" type="application/json">{
+  "meta": {
+    "id": "73ab6034-004e-4f57-b5b9-82153897d61b",
+    "slug": "crocs-hx2dge",
+    "client_name": "Crocs",
+    "created_at": "2026-05-13T21:10:44.148097+00:00"
+  },
+  "defaults": {
+    "date": "2026",
+    "domain": "crocs.com",
+    "locale": "en",
+    "docType": "Business Case",
+    "methods": [
+      "Visa",
+      "Mastercard",
+      "Apple Pay",
+      "Google Pay",
+      "Amazon Pay"
+    ],
+    "TPV_BASE": "817",
+    "US_TOTAL": "41",
+    "gateways": [
+      "Salesforce Commerce Cloud (payment platform)",
+      "Stripe",
+      "Braintree",
+      "Adyen",
+      "Authorize.net",
+      "Square"
+    ],
+    "industry": "Retail (Pets, Electronics)",
+    "warnings": {
+      "ticket_industry_default": "Retail (Pets, Electronics)",
+      "stack_assumed_from_region": "us"
+    },
+    "APA_TOTAL": "4.3",
+    "EMA_TOTAL": "3.1",
+    "US_APMUPT": "22",
+    "US_TPVUPT": "17",
+    "acquirers": [
+      "Chase Paymentech",
+      "Worldpay (FIS)",
+      "Fiserv",
+      "Global Payments"
+    ],
+    "APA_APMUPT": "1.5",
+    "APA_TPVUPT": "2.1",
+    "EMA_APMUPT": "1.1",
+    "EMA_TPVUPT": "1.6",
+    "US_TPV_TOT": "732",
+    "clientName": "Crocs",
+    "preparedBy": "German Tatis",
+    "APA_TPV_TOT": "49",
+    "EMA_TPV_TOT": "37",
+    "GRAND_TOTAL": "49",
+    "US_DEV_TIME": "18 mo",
+    "contactName": "German Tatis",
+    "markets_geo": [
+      {
+        "name": "United States",
+        "share": 78
+      },
+      {
+        "name": "Canada",
+        "share": 6
+      },
+      {
+        "name": "France",
+        "share": 4
+      },
+      {
+        "name": "Australia",
+        "share": 4
+      },
+      {
+        "name": "Japan",
+        "share": 2
+      }
+    ],
+    "us_dev_rows": [
+      {
+        "i": 6750,
+        "m": 2250,
+        "all": 40500,
+        "team": "Product"
+      },
+      {
+        "i": 31500,
+        "m": 10500,
+        "all": 189000,
+        "team": "Engineering"
+      },
+      {
+        "i": 6750,
+        "m": 2250,
+        "all": 40500,
+        "team": "Fraud/Risk"
+      },
+      {
+        "i": 4050,
+        "m": 1350,
+        "all": 24300,
+        "team": "Treasury"
+      },
+      {
+        "i": 4500,
+        "m": 1500,
+        "all": 27000,
+        "team": "Compliance"
+      },
+      {
+        "i": 3375,
+        "m": 1125,
+        "all": 20250,
+        "team": "Finance"
+      },
+      {
+        "i": 7875,
+        "m": 2625,
+        "all": 47250,
+        "team": "Banking & Payments"
+      }
+    ],
+    "vendor_name": "German Tatis",
+    "APA_DEV_TIME": "18 mo",
+    "EMA_DEV_TIME": "9 mo",
+    "TOTAL_APMUPT": "25",
+    "US_REVENUEUP": "5",
+    "apa_dev_rows": [
+      {
+        "i": 4725,
+        "m": 1575,
+        "all": 28350,
+        "team": "Product"
+      },
+      {
+        "i": 22050,
+        "m": 7350,
+        "all": 132300,
+        "team": "Engineering"
+      },
+      {
+        "i": 4725,
+        "m": 1575,
+        "all": 28350,
+        "team": "Fraud/Risk"
+      },
+      {
+        "i": 2835,
+        "m": 945,
+        "all": 17010,
+        "team": "Treasury"
+      },
+      {
+        "i": 3150,
+        "m": 1050,
+        "all": 18900,
+        "team": "Compliance"
+      },
+      {
+        "i": 2364,
+        "m": 788,
+        "all": 14184,
+        "team": "Finance"
+      },
+      {
+        "i": 5511,
+        "m": 1837,
+        "all": 33066,
+        "team": "Banking & Payments"
+      }
+    ],
+    "contactEmail": "german.tatis@y.uno",
+    "contactPhone": "+57 3176457074",
+    "contactTitle": "Business Development Manager",
+    "ema_dev_rows": [
+      {
+        "i": 5400,
+        "m": 1800,
+        "all": 16200,
+        "team": "Product"
+      },
+      {
+        "i": 25200,
+        "m": 8400,
+        "all": 75600,
+        "team": "Engineering"
+      },
+      {
+        "i": 5400,
+        "m": 1800,
+        "all": 16200,
+        "team": "Fraud/Risk"
+      },
+      {
+        "i": 3240,
+        "m": 1080,
+        "all": 9720,
+        "team": "Treasury"
+      },
+      {
+        "i": 3600,
+        "m": 1200,
+        "all": 10800,
+        "team": "Compliance"
+      },
+      {
+        "i": 2700,
+        "m": 900,
+        "all": 8100,
+        "team": "Finance"
+      },
+      {
+        "i": 6300,
+        "m": 2100,
+        "all": 18900,
+        "team": "Banking & Payments"
+      }
+    ],
+    "us_apms_rows": [
+      {
+        "iso": "US",
+        "apms": "PayPal, Apple Pay, Venmo",
+        "cost": "0.61",
+        "dtpv": "20",
+        "country": "United States"
+      },
+      {
+        "iso": "CA",
+        "apms": "Interac e-Transfer, Interac Online, Apple Pay",
+        "cost": "0.05",
+        "dtpv": "1.5",
+        "country": "Canada"
+      }
+    ],
+    "vendor_email": "german.tatis@y.uno",
+    "vendor_phone": "+57 3176457074",
+    "vendor_title": "Business Development Manager",
+    "APA_REVENUEUP": "0.64",
+    "EMA_REVENUEUP": "0.48",
+    "TOTAL_ARUPTOT": "20",
+    "apa_apms_rows": [
+      {
+        "iso": "AU",
+        "apms": "PayID, PayTo, BPAY",
+        "cost": "0.08",
+        "dtpv": "0.93",
+        "country": "Australia"
+      },
+      {
+        "iso": "JP",
+        "apms": "PayPay, Rakuten Pay, d Barai",
+        "cost": "0.05",
+        "dtpv": "0.53",
+        "country": "Japan"
+      }
+    ],
+    "ema_apms_rows": [
+      {
+        "iso": "FR",
+        "apms": "Cartes Bancaires (CB), PayPal, Apple Pay",
+        "cost": "0.1",
+        "dtpv": "1.1",
+        "country": "France"
+      }
+    ],
+    "us_cards_rows": [
+      {
+        "ar": "+2",
+        "iso": "US",
+        "tpv": "680",
+        "cost": "1.4",
+        "dtpv": "16",
+        "country": "United States"
+      },
+      {
+        "ar": "+2",
+        "iso": "CA",
+        "tpv": "52",
+        "cost": "0.1",
+        "dtpv": "1.2",
+        "country": "Canada"
+      }
+    ],
+    "US_COST_REDTOT": "1.5",
+    "apa_cards_rows": [
+      {
+        "ar": "+4",
+        "iso": "AU",
+        "tpv": "31",
+        "cost": "0.15",
+        "dtpv": "1.4",
+        "country": "Australia"
+      },
+      {
+        "ar": "+4",
+        "iso": "JP",
+        "tpv": "18",
+        "cost": "0.09",
+        "dtpv": "0.77",
+        "country": "Japan"
+      }
+    ],
+    "avg_ticket_usd": 75,
+    "ema_cards_rows": [
+      {
+        "ar": "+4",
+        "iso": "FR",
+        "tpv": "37",
+        "cost": "0.18",
+        "dtpv": "1.6",
+        "country": "France"
+      }
+    ],
+    "APA_COST_REDTOT": "0.24",
+    "EMA_COST_REDTOT": "0.18",
+    "vendor_demo_url": "https://y.chilipiper.com/me/german-tatis/meeting-with-german-tatis",
+    "US_DEV_COSTM_TOT": 21600,
+    "US_DEV_INTEG_TOT": 64800,
+    "US_DEV_NUM_INTEG": 6,
+    "regions_rendered": [
+      {
+        "label": "North America",
+        "region": "us",
+        "country_count": 2
+      },
+      {
+        "label": "EMEA",
+        "region": "ema",
+        "country_count": 1
+      },
+      {
+        "label": "APAC",
+        "region": "apa",
+        "country_count": 2
+      }
+    ],
+    "APA_DEV_COSTM_TOT": 15120,
+    "APA_DEV_INTEG_TOT": 45360,
+    "APA_DEV_NUM_INTEG": 6,
+    "EMA_DEV_COSTM_TOT": 17280,
+    "EMA_DEV_INTEG_TOT": 51840,
+    "EMA_DEV_NUM_INTEG": 3,
+    "TOTAL_COST_REDTOT": "2.8",
+    "TOTAL_DEV_SAVINGS": "0.82",
+    "US_COST_APMREDTOT": "0.66",
+    "US_DEV_SAVINGSTOT": "0.39",
+    "vendor_avatar_url": "",
+    "APA_COST_APMREDTOT": "0.13",
+    "APA_DEV_SAVINGSTOT": "0.27",
+    "EMA_COST_APMREDTOT": "0.1",
+    "EMA_DEV_SAVINGSTOT": "0.16",
+    "stack_observations": [
+      "Payment stack inferred from North America regional benchmarks \u2014 no specific public data found. To be validated with the prospect.",
+      "No orchestration layer detected \u2014 multiple direct PSP integrations create operational complexity",
+      "4.1% traffic share with no confirmed local entity. French market requires local acquiring for optimal approval rates and access to local\u2026",
+      "Card networks dominate online volume across primary markets"
+    ],
+    "US_DEV_ALL_INTEG_TOT": 388800,
+    "APA_DEV_ALL_INTEG_TOT": 272160,
+    "EMA_DEV_ALL_INTEG_TOT": 155520,
+    "avg_ticket_confidence": "low",
+    "avg_ticket_source_url": null,
+    "industry_take_rate_pct": 30
+  }
+}</script>
+
+<script type="text/babel" data-presets="env,react">
+const DATA = JSON.parse(document.getElementById('crocs-data').textContent);
+const D = DATA.defaults;
+const client = DATA.meta.client_name;
+
+class ErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { e: null }; }
+  static getDerivedStateFromError(e) { return { e }; }
+  componentDidCatch(e, info) { console.error('Slide error:', e, info); }
+  render() {
+    if (this.state.e) {
+      const msg = String((this.state.e && this.state.e.stack) || this.state.e);
+      return <div className="slide-inner boundary-err">Render error:{'\n'}{msg}</div>;
+    }
+    return this.props.children;
+  }
+}
+
+function BeamRule({ duration = 16, delay = 0, width = '28%', base, beam, style }) {
+  return (
+    <span aria-hidden style={{
+      flex: 1, height: 1, position: 'relative', overflow: 'hidden',
+      background: base || 'var(--beam-base)', ...style,
+    }}>
+      <span style={{
+        position: 'absolute', top: 0, bottom: 0, width: width,
+        background: beam || 'var(--beam-bright)',
+        animation: 'beamSlide ' + duration + 's linear infinite',
+        animationDelay: delay + 's', willChange: 'transform',
+      }}/>
+    </span>
+  );
+}
+
+function SlideChrome({ section, pageNum, total = 27, footer = 'YUNO · SDR Business Case' }) {
+  return (
+    <React.Fragment>
+      <div className="slide-topbar">
+        <span className="section-pill"><span className="dot"></span>{section}</span>
+        <span className="yuno-wordmark">yuno</span>
+      </div>
+      <div className="slide-pagenum">{String(pageNum).padStart(2,'0')} / {String(total).padStart(2,'0')}</div>
+      <div className="slide-footer-text">{footer}</div>
+    </React.Fragment>
+  );
+}
+
+// ---- Slide 01 · Cover ----
+function SlideCover() {
+  const regionsCount = (D.regions_rendered && D.regions_rendered.length) || 3;
+  return (
+    <div className="slide-inner">
+      <div style={{
+        position:'absolute', top:'-10%', right:'-15%', width:'70%', height:'120%',
+        background:'radial-gradient(circle at 50% 50%, rgba(62,79,224,0.18) 0%, rgba(62,79,224,0) 60%)',
+        animation:'orbDrift 20s ease-in-out infinite', pointerEvents:'none',
+      }}/>
+      <div style={{
+        position:'absolute', top:'15%', right:'-8%', width:'55%', aspectRatio:'1/1',
+        backgroundColor:'var(--accent)',
+        WebkitMaskImage:'url(world-map.svg)', maskImage:'url(world-map.svg)',
+        WebkitMaskRepeat:'no-repeat', maskRepeat:'no-repeat',
+        WebkitMaskSize:'contain', maskSize:'contain',
+        WebkitMaskPosition:'center', maskPosition:'center',
+        opacity:0.16, pointerEvents:'none', zIndex:1,
+      }}/>
+
+      <div style={{ position:'relative', zIndex:5, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:24 }}>
+          <span className="yuno-wordmark" style={{ fontSize:34 }}>yuno</span>
+          <span style={{ width:1, height:32, background:'rgba(30,32,48,0.22)' }}/>
+          <span style={{ fontFamily:'var(--font-display)', fontSize:32, fontWeight:600, color:'var(--ink-strong)', letterSpacing:'-0.02em' }}>{client}</span>
+        </div>
+        <div className="mono-kicker"><span className="caret">{'>'}</span>sdr_business_case / {new Date(DATA.meta.created_at).toISOString().slice(0,10)}</div>
+      </div>
+
+      <div className="stagger" style={{ position:'relative', zIndex:5, flex:1, display:'flex', flexDirection:'column', justifyContent:'center', maxWidth:'72%' }}>
+        <div className="mono-kicker" style={{ marginBottom:24 }}>
+          <span className="caret">{'>'}</span>business_case
+          <BeamRule delay={2}/>
+        </div>
+        <h1 style={{
+          fontFamily:'var(--font-display)', fontSize:128, fontWeight:300,
+          letterSpacing:'-0.04em', lineHeight:0.94, margin:0, color:'var(--ink-strong)',
+        }}>
+          Unify your payment{<br/>}stack, <span style={{
+            background:'var(--title-gradient)',
+            WebkitBackgroundClip:'text', backgroundClip:'text',
+            WebkitTextFillColor:'transparent', fontWeight:700,
+          }}>capture ${D.GRAND_TOTAL}M</span>{' '}annually.
+        </h1>
+        <p className="subtitle" style={{ marginTop:36, fontSize:22, maxWidth:840 }}>
+          Smart routing, local acquiring, and unified APMs across {regionsCount} regions —
+          benchmarked on {client}'s SimilarWeb traffic geography and {D.industry} industry economics.
+        </p>
+      </div>
+
+      <div style={{ position:'relative', zIndex:5, display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginTop:'auto' }}>
+        <div style={{ display:'flex', gap:56 }}>
+          <div>
+            <div className="mono-kicker" style={{ marginBottom:8 }}>prepared_by</div>
+            <div style={{ fontSize:18, fontWeight:600, color:'var(--ink-strong)' }}>{D.preparedBy || 'Yuno Sales Strategy'}</div>
+          </div>
+          <div>
+            <div className="mono-kicker" style={{ marginBottom:8 }}>industry</div>
+            <div style={{ fontSize:18, fontWeight:600, color:'var(--ink-strong)' }}>{D.industry}</div>
+          </div>
+          <div>
+            <div className="mono-kicker" style={{ marginBottom:8 }}>annual_tpv</div>
+            <div style={{ fontSize:18, fontWeight:600, color:'var(--ink-strong)', fontVariantNumeric:'tabular-nums' }}>~${D.TPV_BASE}M</div>
+          </div>
+        </div>
+        <div style={{ fontFamily:'var(--font-mono)', fontSize:12, color:'var(--ink-faint)', letterSpacing:'0.1em' }}>
+          {DATA.meta.slug}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Slide 02 · Agenda ----
+const AGENDA = [
+  { kicker: '01', title: 'Context', body: "Where Crocs's traffic lives, and the payment stack we infer from it." },
+  { kicker: '02', title: 'Why Yuno', body: 'Orchestration as infrastructure: routing, APMs, and ops on one layer.' },
+  { kicker: '03', title: 'Business Case', body: 'Region-by-region: cards uplift, APM adoption, and dev-cost savings.' },
+  { kicker: '04', title: 'The Proposal', body: 'Grand-total impact and next steps to validate against your numbers.' },
+];
+
+function SlideAgenda() {
+  return (
+    <div className="slide-inner">
+      <SlideChrome section="Agenda" pageNum={2}/>
+      <div style={{ flex:1, display:'flex', flexDirection:'column', gap:36 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end' }}>
+          <h2 className="title-display" style={{ maxWidth:'66%' }}>
+            Four chapters, one <span className="accent">business case</span>.
+          </h2>
+          <p className="subtitle" style={{ maxWidth:'30%', textAlign:'right' }}>
+            ~12 min read · 27 slides · numbers grounded in {client}'s SimilarWeb footprint.
+          </p>
+        </div>
+
+        <div className="mono-kicker">
+          <span className="caret">{'>'}</span>agenda / 04 chapters
+          <BeamRule delay={1.5}/>
+        </div>
+
+        <div className="stagger" style={{
+          flex:1, display:'grid', gridTemplateColumns:'repeat(2, 1fr)', gridTemplateRows:'repeat(2, 1fr)',
+          gap:28, '--stagger-base':'0.15s', '--stagger-step':'0.1s',
+        }}>
+          {AGENDA.map((a, i) => (
+            <div key={a.kicker} className="card-nova" style={{ padding:40, display:'flex', flexDirection:'column', gap:18 }}>
+              <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between' }}>
+                <span style={{ fontFamily:'var(--font-mono)', fontSize:14, color:'var(--accent)', fontWeight:600, letterSpacing:'0.04em' }}>{a.kicker}</span>
+                <div style={{ flex:1, marginLeft:18 }}><BeamRule delay={i * 1.5}/></div>
+              </div>
+              <div style={{ fontFamily:'var(--font-display)', fontSize:44, fontWeight:500, letterSpacing:'-0.02em', color:'var(--ink-strong)', lineHeight:1.05 }}>
+                {a.title}
+              </div>
+              <div style={{ fontSize:17, color:'var(--ink-secondary)', lineHeight:1.5 }}>
+                {a.body}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Slide 05 · Geography ----
+const COUNTRY_COORDS = {
+  US: { x: 25, y: 32 }, CA: { x: 25, y: 22 },
+  FR: { x: 50.5, y: 28 }, AU: { x: 86, y: 70 },
+  JP: { x: 88, y: 36 }, UK: { x: 49, y: 25 },
+  DE: { x: 52, y: 27 }, BR: { x: 37, y: 60 },
+  MX: { x: 21, y: 42 }, IN: { x: 71, y: 44 },
+};
+const NAME_TO_ISO = {
+  'United States':'US','Canada':'CA','France':'FR','Australia':'AU','Japan':'JP',
+  'United Kingdom':'UK','Germany':'DE','Brazil':'BR','Mexico':'MX','India':'IN',
+};
+
+function SlideGeography() {
+  const markets = (D.markets_geo || []).map(m => ({
+    ...m, iso: NAME_TO_ISO[m.name] || m.name.slice(0,2).toUpperCase(),
+  }));
+  const totalShare = markets.reduce((s,m) => s + m.share, 0);
+  const lead = markets[0] || { share: 0, name: '—' };
+
+  return (
+    <div className="slide-inner">
+      <SlideChrome section="Context" pageNum={5}/>
+      <div style={{ flex:1, display:'flex', flexDirection:'column', gap:24 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', gap:36 }}>
+          <div>
+            <div className="mono-kicker"><span className="caret">{'>'}</span>traffic_geography / similarweb_last_30d</div>
+            <h2 className="title-display" style={{ marginTop:14, maxWidth:1000 }}>
+              {client}'s digital footprint is <span className="accent">{lead.share}% concentrated</span> in {lead.name}.
+            </h2>
+          </div>
+          <p className="subtitle" style={{ maxWidth:380, textAlign:'right' }}>
+            {markets.length} markets account for {totalShare}% of web traffic — where {client} needs local acquiring + APM coverage to compete.
+          </p>
+        </div>
+
+        <div className="mono-kicker">
+          <span className="caret">{'>'}</span>global_reach
+          <BeamRule delay={2}/>
+        </div>
+
+        <div style={{ flex:1, display:'grid', gridTemplateColumns:'1fr 420px', gap:48, alignItems:'center', minHeight:0 }}>
+          <div style={{ position:'relative', width:'100%', aspectRatio:'2 / 1' }}>
+            <img src="world-map.svg" alt="" style={{
+              position:'absolute', inset:0, width:'100%', height:'100%',
+              objectFit:'contain', opacity:0.18,
+              filter:'brightness(0) saturate(100%) invert(28%) sepia(98%) saturate(2900%) hue-rotate(229deg) brightness(95%) contrast(92%)',
+            }}/>
+            {markets.map((m, i) => {
+              const c = COUNTRY_COORDS[m.iso];
+              if (!c) return null;
+              const size = 14 + Math.sqrt(m.share) * 2.5;
+              return (
+                <div key={m.iso} style={{ position:'absolute', left: c.x + '%', top: c.y + '%', width:0, height:0 }}>
+                  <div style={{
+                    position:'absolute', top:0, left:0, width:size, height:size,
+                    transform:'translate(-50%,-50%)', borderRadius:'50%',
+                    background:'var(--accent-mid)',
+                    boxShadow:'0 0 0 4px rgba(89,103,228,0.20)', zIndex:2,
+                  }}/>
+                  <div style={{
+                    position:'absolute', top:0, left:0,
+                    width: size * 2.2, height: size * 2.2,
+                    borderRadius:'50%', border:'1.5px solid rgba(62,79,224,0.55)',
+                    animation:'pulseRing 2.6s ease-out infinite',
+                    animationDelay: (i * 0.4) + 's',
+                    transform:'translate(-50%,-50%)', zIndex:1,
+                  }}/>
+                  <div style={{
+                    position:'absolute', top: -(size + 10) + 'px', left:0,
+                    transform:'translateX(-50%)',
+                    fontFamily:'var(--font-mono)', fontSize:12, fontWeight:700,
+                    color:'var(--ink-strong)', whiteSpace:'nowrap', letterSpacing:'0.05em',
+                  }}>
+                    {m.iso} · {m.share}%
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ display:'flex', flexDirection:'column', gap:18, paddingLeft:32, borderLeft:'1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize:14, fontWeight:700, letterSpacing:'2.4px', textTransform:'uppercase', color:'var(--accent)', marginBottom:8 }}>
+              Share by country
+            </div>
+            {markets.map(m => (
+              <div key={m.iso} style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline' }}>
+                  <span style={{ fontSize:18, fontWeight:600, color:'var(--ink-strong)' }}>{m.name}</span>
+                  <span style={{ fontFamily:'var(--font-mono)', fontSize:22, fontWeight:500, fontVariantNumeric:'tabular-nums', color:'var(--accent)', letterSpacing:'-0.02em' }}>
+                    {m.share}%
+                  </span>
+                </div>
+                <div style={{ width:'100%', height:4, background:'rgba(30,32,48,0.06)', borderRadius:2, overflow:'hidden' }}>
+                  <div style={{
+                    width: m.share + '%', height:'100%',
+                    background:'linear-gradient(90deg, var(--accent-deep) 0%, var(--accent) 100%)',
+                    borderRadius:2,
+                  }}/>
+                </div>
+              </div>
+            ))}
+            <div style={{ marginTop:12, paddingTop:16, borderTop:'1px solid var(--border-subtle)', fontFamily:'var(--font-mono)', fontSize:11, color:'var(--ink-muted)', lineHeight:1.5 }}>
+              source: similarweb {new Date(DATA.meta.created_at).toISOString().slice(0,7)}{<br/>}
+              floor: 1% of web traffic
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Slide 08 · Trusted By ----
+const TRUSTED_MERCHANTS = [
+  { name: 'Rappi',         slug: 'rappi',          ext: 'svg' },
+  { name: 'inDrive',       slug: 'indrive',        ext: 'svg' },
+  { name: 'Uber',          text: true, style:{ fontWeight:800, letterSpacing:'-0.4px' } },
+  { name: "McDonald's",    text: true, style:{ fontWeight:800, letterSpacing:'-0.5px' } },
+  { name: 'Avianca',       text: true, style:{ fontWeight:700, letterSpacing:'0.4px', textTransform:'uppercase' } },
+  { name: 'Viva Aerobus',  text: true, style:{ fontWeight:700, fontStyle:'italic', letterSpacing:'-0.3px' } },
+  { name: 'Xcaret',        text: true, style:{ fontWeight:600, letterSpacing:'2px', textTransform:'uppercase' } },
+  { name: 'Livelo',        slug: 'livelo',         ext: 'svg' },
+  { name: 'Open English',  slug: 'open-english',   ext: 'png' },
+  { name: 'SpaceX',        slug: 'spacex',         ext: 'svg' },
+];
+
+function MerchantTile({ m }) {
+  const [failed, setFailed] = React.useState(m.text === true);
+  const src = m.slug ? '../logos/' + m.slug + '.' + (m.ext || 'png') : null;
+  return (
+    <div style={{
+      display:'flex', alignItems:'center', justifyContent:'center',
+      background:'var(--bg-elevated)', border:'1px solid var(--border-subtle)',
+      borderRadius:14, padding:18, boxShadow:'var(--card-shadow)',
+      overflow:'hidden',
+    }}>
+      {failed || !src ? (
+        <span style={{ fontFamily:'var(--font-display)', fontSize:36, color:'var(--ink)', lineHeight:1, ...(m.style || {}) }}>{m.name}</span>
+      ) : (
+        <img src={src} alt={m.name} onError={() => setFailed(true)}
+             style={{ maxWidth:'72%', maxHeight:'52%', objectFit:'contain', filter:'brightness(0)', opacity:0.88 }}/>
+      )}
+    </div>
+  );
+}
+
+function SlideTrustedBy() {
+  return (
+    <div className="slide-inner">
+      <SlideChrome section="Why Yuno" pageNum={8}/>
+      <div style={{ flex:1, display:'flex', flexDirection:'column', gap:28 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', gap:36 }}>
+          <h2 className="title-display" style={{ maxWidth:'62%' }}>
+            <span className="accent">Trusted</span> by category leaders{<br/>}across every region.
+          </h2>
+          <p className="subtitle" style={{ maxWidth:'34%', textAlign:'right' }}>
+            From <strong style={{ color:'var(--ink-strong)', fontWeight:700 }}>super-apps to airlines</strong> — the same orchestration layer
+            now powering 100+ enterprise merchants in 50+ markets.
+          </p>
+        </div>
+
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{
+            width:5, height:5, borderRadius:'50%',
+            background:'linear-gradient(135deg, var(--accent) 0%, var(--accent-pale) 100%)',
+            boxShadow:'0 0 6px rgba(62,79,224,0.6)',
+          }}/>
+          <span style={{ fontSize:14, fontWeight:700, letterSpacing:'1.8px', textTransform:'uppercase', color:'var(--accent-deep)' }}>Merchants on Yuno</span>
+          <BeamRule delay={1.5}/>
+        </div>
+
+        <div className="stagger" style={{
+          flex:1, display:'grid',
+          gridTemplateColumns:'repeat(5, 1fr)', gridTemplateRows:'repeat(2, 1fr)',
+          gap:18, minHeight:0, '--stagger-base':'0.2s', '--stagger-step':'0.05s',
+        }}>
+          {TRUSTED_MERCHANTS.map((m, i) => <MerchantTile key={i} m={m}/>)}
+        </div>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <span style={{ width:5, height:5, borderRadius:'50%', background:'var(--accent-pale)' }}/>
+            <span style={{ fontSize:13, fontWeight:700, letterSpacing:'1.8px', textTransform:'uppercase', color:'var(--ink-muted)' }}>Backed by</span>
+            <BeamRule delay={4} base="linear-gradient(90deg, rgba(189,195,246,0.45) 0%, rgba(189,195,246,0) 100%)"/>
+          </div>
+          <div style={{
+            display:'flex', justifyContent:'space-between', alignItems:'center',
+            padding:'24px 32px',
+            background:'var(--bg-elevated)', border:'1px solid var(--border-subtle)',
+            borderRadius:14, boxShadow:'var(--card-shadow)',
+          }}>
+            {['KASZEK','DST GLOBAL','TIGER GLOBAL','a16z','monashees+','Global PayTech'].map(name => (
+              <span key={name} style={{ fontSize:18, fontWeight:600, letterSpacing:'1px', color:'var(--ink-secondary)', fontFamily:'var(--font-display)' }}>{name}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Slide 12 · US Cards ----
+function SlideUSCards() {
+  const rows = D.us_cards_rows || [];
+  const tpvTot     = D.US_TPV_TOT;
+  const tpvUpT     = D.US_TPVUPT;
+  const costRedTot = D.US_COST_REDTOT;
+  const revenueUp  = D.US_REVENUEUP;
+  const tpvSum = Math.round(rows.reduce((s,r) => s + Number(r.tpv), 0));
+
+  return (
+    <div className="slide-inner">
+      <SlideChrome section="Business Case · NA" pageNum={12}/>
+      <div style={{ flex:1, display:'flex', flexDirection:'column', gap:24 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', gap:36 }}>
+          <div>
+            <div className="mono-kicker"><span className="caret">{'>'}</span>region / north_america · cards</div>
+            <h2 className="title-display" style={{ marginTop:14 }}>
+              North America cards — <span className="accent">boost AR</span>, cut cost.
+            </h2>
+          </div>
+          <p className="subtitle" style={{ maxWidth:380, textAlign:'right' }}>
+            Smart routing across {rows.length} markets unlocks <strong style={{ color:'var(--ink-strong)' }}>+2pp authorization</strong> and
+            <strong style={{ color:'var(--ink-strong)' }}> 15-25% acquiring cost reduction</strong>.
+          </p>
+        </div>
+
+        <div style={{ flex:1, display:'grid', gridTemplateColumns:'1.55fr 1fr', gap:32, minHeight:0 }}>
+          <div className="card-nova" style={{ display:'flex', flexDirection:'column', padding:40 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:24 }}>
+              <span style={{ width:5, height:5, borderRadius:'50%', background:'var(--accent)' }}/>
+              <span style={{ fontSize:12, fontWeight:700, letterSpacing:'1.8px', textTransform:'uppercase', color:'var(--accent-deep)' }}>Key markets · cards analysis</span>
+              <BeamRule delay={3}/>
+            </div>
+            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:15 }}>
+              <thead>
+                <tr>
+                  {['Market','Annual TPV','Δ AR (pp)','Δ TPV ($M)','Cost Red. ($M)'].map((h,i) => (
+                    <th key={i} style={{
+                      textAlign: i===0 ? 'left' : 'right',
+                      padding:'14px 10px', fontSize:10, fontWeight:700,
+                      letterSpacing:'0.14em', textTransform:'uppercase',
+                      color:'var(--ink-muted)', borderBottom:'1px solid var(--border-default)',
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r,i) => (
+                  <tr key={i} style={{ borderBottom:'1px solid var(--border-subtle)' }}>
+                    <td style={{ padding:'22px 10px', fontSize:17, fontWeight:600, color:'var(--ink-strong)' }}>
+                      <span style={{ display:'inline-block', width:36, fontFamily:'var(--font-mono)', fontSize:12, color:'var(--ink-muted)', fontWeight:500 }}>{r.iso}</span>
+                      {r.country}
+                    </td>
+                    <td style={{ padding:'22px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontVariantNumeric:'tabular-nums', color:'var(--ink)' }}>${r.tpv}M</td>
+                    <td style={{ padding:'22px 10px', textAlign:'right', color:'var(--accent)', fontWeight:600 }}>{r.ar}pp</td>
+                    <td style={{ padding:'22px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontVariantNumeric:'tabular-nums', color:'var(--ink)' }}>${r.dtpv}M</td>
+                    <td style={{ padding:'22px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontVariantNumeric:'tabular-nums', color:'var(--ink)' }}>${r.cost}M</td>
+                  </tr>
+                ))}
+                <tr style={{ background:'rgba(62,79,224,0.04)' }}>
+                  <td style={{ padding:'22px 10px', fontWeight:700, fontSize:17, color:'var(--ink-strong)', borderRadius:'10px 0 0 10px' }}>Total</td>
+                  <td style={{ padding:'22px 10px', textAlign:'right', fontWeight:700, fontFamily:'var(--font-mono)', color:'var(--ink-strong)' }}>${tpvTot}M</td>
+                  <td style={{ padding:'22px 10px', textAlign:'right', color:'var(--ink-muted)' }}>—</td>
+                  <td style={{ padding:'22px 10px', textAlign:'right', fontWeight:700, color:'var(--accent)', fontFamily:'var(--font-mono)' }}>${tpvUpT}M</td>
+                  <td style={{ padding:'22px 10px', textAlign:'right', fontWeight:700, color:'var(--accent)', fontFamily:'var(--font-mono)', borderRadius:'0 10px 10px 0' }}>${costRedTot}M</td>
+                </tr>
+              </tbody>
+            </table>
+            <div style={{ marginTop:'auto', paddingTop:24, fontSize:12, color:'var(--ink-muted)', lineHeight:1.6 }}>
+              Source: SimilarWeb traffic share + Yuno internal benchmarks ({D.industry}). Smart-routing uplift modeled at +2pp AR
+              and 15-25% acquiring cost reduction on {tpvSum}M USD card volume.
+            </div>
+          </div>
+
+          <div className="card-nova card-hero border-beam" style={{ padding:40, display:'flex', flexDirection:'column' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:28 }}>
+              <span style={{ width:5, height:5, borderRadius:'50%', background:'#E0ED80' }}/>
+              <span style={{ fontSize:12, fontWeight:700, letterSpacing:'1.8px', textTransform:'uppercase', color:'#E0ED80' }}>Conclusions</span>
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:30, flex:1 }}>
+              {[
+                { num: costRedTot, label: 'Annual cost savings from local card processing vs international fees.' },
+                { num: tpvUpT,     label: 'TPV uplift from smart routing + higher AR via local processing.' },
+                { num: revenueUp,  label: 'Annual revenue uplift at ' + D.industry_take_rate_pct + '% take rate.' },
+              ].map((s, i) => (
+                <React.Fragment key={i}>
+                  {i > 0 && <div style={{ height:1, background:'rgba(255,255,255,0.18)' }}/>}
+                  <div>
+                    <div style={{
+                      fontFamily:'var(--font-display)', fontSize:68, fontWeight:300,
+                      letterSpacing:'-0.04em', lineHeight:1, fontVariantNumeric:'tabular-nums',
+                    }}>
+                      ${s.num}<span style={{ fontSize:26, opacity:0.7, marginLeft:8 }}>M</span>
+                    </div>
+                    <div style={{ fontSize:14, color:'rgba(255,255,255,0.78)', marginTop:12, lineHeight:1.5 }}>
+                      {s.label}
+                    </div>
+                  </div>
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Slide 27 · CTA ----
+function SlideCTA() {
+  return (
+    <div className="slide-inner theme-section">
+      <div style={{
+        position:'absolute', top:'10%', left:'-10%', width:'60%', height:'90%',
+        background:'radial-gradient(circle, rgba(62,79,224,0.30) 0%, rgba(62,79,224,0) 60%)',
+        animation:'orbDrift 24s ease-in-out infinite', pointerEvents:'none',
+      }}/>
+      <SlideChrome section="The Proposal" pageNum={27}/>
+
+      <div style={{ flex:1, display:'flex', flexDirection:'column', justifyContent:'center', position:'relative', zIndex:5 }}>
+        <div className="mono-kicker" style={{ marginBottom:24 }}>
+          <span className="caret">{'>'}</span>summary / grand_total
+          <BeamRule delay={1.5} base="linear-gradient(90deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 100%)" beam="linear-gradient(90deg, transparent 0%, rgba(189,195,246,0.6) 50%, transparent 100%)"/>
+        </div>
+        <div style={{
+          fontFamily:'var(--font-display)', fontSize:200, fontWeight:200,
+          letterSpacing:'-0.05em', lineHeight:0.95, color:'#fff',
+          fontVariantNumeric:'tabular-nums',
+        }}>
+          <span style={{
+            background:'linear-gradient(135deg, #BDC3F6 0%, #5967E4 50%, #3E4FE0 100%)',
+            WebkitBackgroundClip:'text', backgroundClip:'text',
+            WebkitTextFillColor:'transparent', fontWeight:600,
+          }}>${D.GRAND_TOTAL}M</span>{' '}
+          <span style={{ fontSize:80, color:'rgba(255,255,255,0.6)', fontWeight:300 }}>annual upside.</span>
+        </div>
+        <p style={{ marginTop:32, fontSize:24, lineHeight:1.5, color:'rgba(255,255,255,0.78)', maxWidth:1100 }}>
+          The numbers above are <strong style={{ color:'#fff' }}>floor estimates</strong> grounded in {client}'s SimilarWeb traffic and
+          industry-standard uplifts. Real numbers come from a 30-minute working session against your live stack.
+        </p>
+      </div>
+
+      <div style={{ position:'relative', zIndex:5, display:'grid', gridTemplateColumns:'1.4fr 1fr', gap:32 }}>
+        <div style={{
+          padding:'32px 40px',
+          background:'rgba(255,255,255,0.05)',
+          border:'1px solid rgba(255,255,255,0.10)',
+          borderRadius:18, backdropFilter:'blur(10px)',
+        }} className="border-beam">
+          <div style={{ fontFamily:'var(--font-mono)', fontSize:11, color:'rgba(255,255,255,0.5)', letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:14 }}>
+            Next step
+          </div>
+          <div style={{ fontFamily:'var(--font-display)', fontSize:42, fontWeight:500, letterSpacing:'-0.02em', lineHeight:1.1, color:'#fff' }}>
+            Book a working session to validate against your numbers.
+          </div>
+        </div>
+        <div style={{
+          padding:'32px 40px',
+          background:'rgba(255,255,255,0.04)',
+          border:'1px solid rgba(255,255,255,0.10)',
+          borderRadius:18,
+          display:'flex', flexDirection:'column', justifyContent:'space-between', gap:12,
+        }}>
+          <div style={{ fontFamily:'var(--font-mono)', fontSize:11, color:'rgba(255,255,255,0.5)', letterSpacing:'0.12em', textTransform:'uppercase' }}>
+            Prepared by
+          </div>
+          <div>
+            <div style={{ fontSize:24, fontWeight:600, color:'#fff', letterSpacing:'-0.01em' }}>{D.preparedBy || 'Yuno Sales Strategy'}</div>
+            <div style={{ fontSize:14, color:'rgba(255,255,255,0.6)', marginTop:4 }}>{D.contactTitle || 'Business Development Manager'}</div>
+          </div>
+          <div style={{ fontFamily:'var(--font-mono)', fontSize:13, color:'var(--accent-pale)' }}>
+            {D.contactEmail || 'sales@y.uno'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function mount(id, comp) {
+  const el = document.getElementById(id);
+  if (!el) { console.warn('mount: missing #' + id); return; }
+  ReactDOM.createRoot(el).render(<ErrorBoundary>{comp}</ErrorBoundary>);
+}
+
+mount('slide-cover',  <SlideCover/>);
+mount('slide-agenda', <SlideAgenda/>);
+mount('slide-geo',    <SlideGeography/>);
+mount('slide-trust',  <SlideTrustedBy/>);
+mount('slide-cards',  <SlideUSCards/>);
+mount('slide-cta',    <SlideCTA/>);
+
+setTimeout(fitSlides, 50);
+setTimeout(fitSlides, 300);
+</script>
+
+</body>
+</html>

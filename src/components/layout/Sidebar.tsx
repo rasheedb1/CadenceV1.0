@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'motion/react'
 import { cn } from '@/lib/utils'
@@ -101,6 +101,7 @@ const ae_navigation: { name: string; href: string; icon: typeof LayoutDashboard 
   { name: 'Account Executive', href: '/account-executive', icon: Star },
   { name: 'Pipeline CRM', href: '/account-executive/crm', icon: TrendingUp },
   { name: 'Calendar', href: '/account-executive/calendar', icon: Calendar },
+  { name: 'Pricing Business Case', href: '/account-executive/presentations', icon: FileText },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 
@@ -110,8 +111,9 @@ export function Sidebar() {
   const { role } = usePermissions()
   const isSuperAdmin = useSuperAdmin()
   const featureFlags = useFeatureFlags()
-  const { mode, setMode } = useMode()
+  const { setMode } = useMode()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     daily: true,
@@ -145,7 +147,7 @@ export function Sidebar() {
     navigate('/')
   }
 
-  const isAE = mode === 'ae'
+  const isAE = location.pathname.startsWith('/account-executive')
 
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     cn(

@@ -1,0 +1,413 @@
+/* ============================================================
+   Yuno Workshop Deck — Global Styles
+   Source: Claude Design handoff (dDvk3CJKRffh93hhSlLxjQ)
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Titillium+Web:wght@200;300;400;500;600;700;900&family=Geist+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* Primary palette — Yuno brandbook Jan 2026 */
+  --yuno-blue: #3E4FE0;
+  --yuno-blue-deep: #1227AD;
+  --yuno-blue-mid: #5967E4;
+  --yuno-blue-light: #7C89EF;
+  --yuno-blue-pale: #BDC3F6;
+  --harmony-lilac: #E8EAF5;
+  --unity-black: #282A30;
+  --security-gray: #92959B;
+  --gray-alt: #616366;
+  --lime: #E0ED80;
+  --white: #FFFFFF;
+  --cyan: #38ADFF;
+
+  /* Semantic */
+  --bg-light: var(--harmony-lilac);
+  --bg-dark: var(--unity-black);
+  --fg-on-light: var(--unity-black);
+  --fg-on-dark: var(--white);
+  --muted-on-light: var(--security-gray);
+  --muted-on-dark: rgba(255, 255, 255, 0.56);
+
+  /* Grid */
+  --margin: 80px;
+  --u: 8px;
+
+  /* Workshop-specific type scale (from Coppel Workshop.html overrides) */
+  --type-eyebrow: 13px;
+  --type-body: 22px;
+  --type-body-l: 28px;
+  --type-title-s: 56px;
+  --type-title-m: 80px;
+  --type-title-l: 112px;
+  --type-num-xl: 160px;
+  --gap-section: 48px;
+}
+
+* { box-sizing: border-box; }
+
+/* ============================================================
+   Slide base
+   ============================================================ */
+
+.slide {
+  position: relative;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  padding: var(--margin);
+  font-size: 20px;
+  line-height: 1.35;
+  font-family: 'Titillium Web', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 400;
+  color: var(--unity-black);
+}
+
+.slide.theme-light       { background: var(--white); color: var(--unity-black); }
+.slide.theme-lilac       { background: var(--harmony-lilac); color: var(--unity-black); }
+.slide.theme-dark        { background: var(--unity-black); color: var(--white); }
+.slide.theme-blue        { background: var(--yuno-blue); color: var(--white); }
+.slide.theme-gradient    { background: linear-gradient(135deg, #000 0%, var(--yuno-blue) 100%); color: var(--white); }
+.slide.theme-blue-gradient { background: linear-gradient(135deg, var(--yuno-blue) 0%, var(--yuno-blue-deep) 100%); color: var(--white); }
+
+/* ============================================================
+   Typography per brandbook 2.2 — lowercase by default
+   ============================================================ */
+
+.t-title {
+  font-family: 'Titillium Web', sans-serif;
+  font-weight: 400;
+  text-transform: lowercase;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  margin: 0;
+}
+.t-title-xl { font-size: 140px; font-weight: 300; line-height: 0.92; letter-spacing: -0.02em; }
+.t-title-l  { font-size: 96px;  font-weight: 300; line-height: 1; }
+.t-title-m  { font-size: 64px;  font-weight: 300; line-height: 1.05; }
+.t-title-s  { font-size: 44px;  font-weight: 400; line-height: 1.1; }
+
+.t-subtitle {
+  font-family: 'Titillium Web', sans-serif;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 13px;
+  line-height: 1;
+  margin: 0;
+}
+.t-subtitle-alt {
+  font-family: 'Titillium Web', sans-serif;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 12px;
+  margin: 0;
+}
+
+.t-body {
+  font-family: 'Titillium Web', sans-serif;
+  font-weight: 400;
+  text-transform: lowercase;
+  font-size: 20px;
+  line-height: 1.45;
+  margin: 0;
+}
+.t-body-l { font-size: 24px; line-height: 1.45; }
+.t-body-s { font-size: 16px; line-height: 1.5; }
+
+.t-label {
+  font-family: 'Titillium Web', sans-serif;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 12px;
+}
+
+.t-caption {
+  font-family: 'Titillium Web', sans-serif;
+  font-weight: 300;
+  font-size: 12px;
+  color: var(--security-gray);
+}
+
+.t-number {
+  font-family: 'Titillium Web', sans-serif;
+  font-weight: 300;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.02em;
+}
+
+.u-uppercase { text-transform: uppercase; letter-spacing: 0.12em; }
+.u-lowercase { text-transform: lowercase; }
+
+.mono { font-family: 'Geist Mono', ui-monospace, Menlo, monospace; }
+.num-tabular { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; }
+
+/* Capitalization override — Coppel workshop wants first-letter caps on titles */
+.slide .t-title { text-transform: none; }
+.slide .t-title::first-letter { text-transform: uppercase; }
+.slide .t-subtitle,
+.slide .t-subtitle-alt {
+  text-transform: none;
+  letter-spacing: 0.08em;
+}
+.slide .t-subtitle::first-letter,
+.slide .t-subtitle-alt::first-letter {
+  text-transform: uppercase;
+}
+
+/* ============================================================
+   Common chrome
+   ============================================================ */
+
+.slide-footer {
+  position: absolute;
+  bottom: 40px;
+  left: 80px;
+  right: 80px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--security-gray);
+  z-index: 5;
+}
+.theme-dark .slide-footer,
+.theme-blue .slide-footer,
+.theme-gradient .slide-footer,
+.theme-blue-gradient .slide-footer {
+  color: rgba(255, 255, 255, 0.55);
+}
+.slide-pagenum { font-variant-numeric: tabular-nums; }
+
+/* ============================================================
+   Halftone pattern backgrounds
+   ============================================================ */
+
+.halftone-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: normal;
+}
+
+/* ============================================================
+   Utilities
+   ============================================================ */
+
+.divider { height: 1px; background: currentColor; opacity: 0.15; }
+.divider-strong { opacity: 0.4; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 8px 16px; border-radius: 999px;
+  border: 1px solid currentColor; opacity: 0.9;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase;
+}
+.pill::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor; opacity: 0.7;
+}
+
+.arrow-flow {
+  display: inline-flex; align-items: center; gap: 14px;
+  font-size: 14px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.arrow-flow::after { content: '→'; font-size: 18px; opacity: 0.6; }
+
+/* Case-tile (dark callout in case-study slides) */
+.case-tile {
+  background: var(--unity-black); color: #fff;
+  border-radius: 18px; padding: 36px;
+  position: relative; overflow: hidden;
+}
+
+/* Stack chip (S13 acquirer cards) */
+.stack-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 22px; border-radius: 10px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.92);
+  font-size: 18px; font-weight: 600;
+}
+.stack-chip.light {
+  background: var(--harmony-lilac);
+  border-color: rgba(40,42,48,0.08);
+  color: var(--unity-black);
+}
+.stack-chip .role {
+  font-size: 10px; opacity: 0.55; font-weight: 600;
+  letter-spacing: 0.12em; text-transform: uppercase;
+}
+
+/* ============================================================
+   Motion — entrance of the active slide
+   Triggered by [data-deck-active] on the slide root
+   ============================================================ */
+
+[data-deck-active] .anim-in {
+  animation: animIn 700ms cubic-bezier(.22,.8,.22,1) both;
+}
+[data-deck-active] .anim-in-1 { animation-delay: 80ms; }
+[data-deck-active] .anim-in-2 { animation-delay: 200ms; }
+[data-deck-active] .anim-in-3 { animation-delay: 320ms; }
+[data-deck-active] .anim-in-4 { animation-delay: 440ms; }
+[data-deck-active] .anim-in-5 { animation-delay: 560ms; }
+[data-deck-active] .anim-in-6 { animation-delay: 680ms; }
+[data-deck-active] .anim-in-7 { animation-delay: 800ms; }
+[data-deck-active] .anim-in-8 { animation-delay: 920ms; }
+
+@keyframes animIn {
+  from { opacity: 0; transform: translateY(14px); filter: blur(8px); }
+  to   { opacity: 1; transform: translateY(0);    filter: blur(0); }
+}
+
+/* Print mode (PDF capture) — skip entrance animations entirely so
+   Puppeteer page.pdf() sees the settled end state, not a mid-flight
+   filter: blur(8px) frame. Without this the body text + cards on cada
+   slide salen borrosas en el PDF porque la animación está corriendo
+   cuando se hace el snapshot. */
+html[data-print-mode="true"] [data-deck-active] .anim-in,
+html[data-print-mode="true"] [data-deck-active] .anim-rise,
+html[data-print-mode="true"] [data-deck-active] .anim-fade,
+html[data-print-mode="true"] [data-deck-active] .anim-scale,
+html[data-print-mode="true"] [data-deck-active] .anim-wipe,
+html[data-print-mode="true"] [data-deck-active] .anim-counter {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+  filter: none !important;
+  clip-path: none !important;
+}
+
+/* `.stagger > *` empieza en opacity:0 y anima al estado visible. Con
+   animations killed via print mode, sin este override los hijos quedan
+   invisibles — Founders + Leaders en SlideTeamLeaders salen vacíos. */
+[data-pdf-root] .stagger > *,
+html[data-print-mode="true"] .stagger > * {
+  opacity: 1 !important;
+  transform: none !important;
+  animation: none !important;
+}
+
+/* Founder ring (PersonCard) usa mask-composite: xor para clip un
+   gradient a un outline de 1-2px. Chromium PDF no compone esa máscara
+   y deja el gradiente full sobre la foto como disco azul sólido. Lo
+   ocultamos en print — la foto en sí queda con su borderRadius limpio. */
+[data-pdf-root] [data-mask-ring],
+html[data-print-mode="true"] [data-mask-ring] {
+  display: none !important;
+}
+
+/* `-webkit-background-clip: text` en Puppeteer PDF: el rasterizer
+   rasteriza el gradiente FULL en lugar de clip al text-shape. Eso deja
+   un bloque azul sólido tapando el texto. En print mode forzamos color
+   plano (blanco con accent leve) para que el texto sea legible. */
+html[data-print-mode="true"] [data-gradient-text] {
+  background-image: none !important;
+  -webkit-background-clip: initial !important;
+  background-clip: initial !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: #BDC3F6 !important;
+}
+
+[data-deck-active] .anim-rise {
+  animation: animRise 800ms cubic-bezier(.22,.8,.22,1) both;
+}
+@keyframes animRise {
+  from { opacity: 0; transform: translateY(60px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+[data-deck-active] .anim-fade { animation: animFade 900ms ease both; }
+@keyframes animFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+[data-deck-active] .anim-scale {
+  animation: animScale 900ms cubic-bezier(.22,.8,.22,1) both;
+}
+@keyframes animScale {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+[data-deck-active] .anim-wipe {
+  animation: animWipe 1.2s cubic-bezier(.7,0,.3,1) both;
+}
+@keyframes animWipe {
+  from { clip-path: inset(0 100% 0 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+
+[data-deck-active] .counter {
+  animation: counterFade 600ms ease both;
+  animation-delay: 200ms;
+}
+@keyframes counterFade {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Halftone dots drift */
+.halftone-drift { animation: drift 20s linear infinite; }
+@keyframes drift {
+  0%   { transform: translate(0, 0); }
+  50%  { transform: translate(-20px, 10px); }
+  100% { transform: translate(0, 0); }
+}
+
+/* ============================================================
+   S16 Smart Routing — continuous motion vocabulary
+   (beam stroke-dashoffset lives in the SVG <animate>, these are
+   the surrounding CSS pulses that complement the live wiring)
+   ============================================================ */
+
+/* Subtle scale-and-glow on the 50%/30% split pills so the eye is
+   drawn to them as the beam passes underneath. */
+@keyframes splitPulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1);   box-shadow: 0 0 0 rgba(124,137,239,0); }
+  50%      { transform: translate(-50%, -50%) scale(1.06); box-shadow: 0 0 12px rgba(124,137,239,0.45); }
+}
+/* The 20% winner split — stronger pulse with lime glow. */
+@keyframes splitPulseWin {
+  0%, 100% { transform: translate(-50%, -50%) scale(1);   box-shadow: 0 0 0 rgba(224,237,128,0); }
+  50%      { transform: translate(-50%, -50%) scale(1.10); box-shadow: 0 0 14px rgba(224,237,128,0.55); }
+}
+
+/* Winner PSP card — soft breathing glow on the lime ribbon + border. */
+@keyframes winnerBreathe {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(224,237,128,0.20), 0 8px 20px rgba(62,79,224,0.18); }
+  50%      { box-shadow: 0 0 0 1px rgba(224,237,128,0.45), 0 10px 28px rgba(62,79,224,0.32); }
+}
+
+/* PSP score number — quick "score updated" flash, staggered per card. */
+@keyframes scoreFlash {
+  0%        { color: rgba(255,255,255,0.55); }
+  6%, 12%   { color: #BDC3F6; }
+  18%, 100% { color: rgba(255,255,255,0.55); }
+}
+@keyframes scoreFlashWin {
+  0%        { color: #E0ED80; }
+  6%, 12%   { color: #FFFFFF; }
+  18%, 100% { color: #E0ED80; }
+}
+
+/* "Active" caret on PSP rows that exit to a fallback acquirer.
+   Pulses orange to signal "this decline pipes to the next PSP". */
+@keyframes activeCaretPulse {
+  0%, 100% { opacity: 0.7; box-shadow: 0 0 0 rgba(251,146,60,0); }
+  50%      { opacity: 1;   box-shadow: 0 0 8px rgba(251,146,60,0.55); }
+}
+
+/* Chat typing dots — Payments Concierge teaser in S04 (Yuno suite slide). */
+@keyframes chatDot {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40%           { opacity: 1;    transform: translateY(-2px); }
+}
